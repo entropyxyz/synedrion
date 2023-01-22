@@ -5,23 +5,10 @@ Replies from Nikos Makriyannis are marked as (NM)
 
 # Notation
 
-Q: What does `r` stand for in `rid`?
-
-A (NM): `rid` stands for random identifier, it's supposed to be an unpredictable identifier for the protocol which is chosen via coin-toss.
-
----
-
-Q: What do `sid` and `ssid` stand for?
-
-A (NM): The `sid` is the "session identifier" while the `ssid` is the "sub-session identifier". The sid does not change while the ssid changes after each key refresh.
-
----
-
-**Q:** In Fig. 17, does `[m]` mean 1..m (inclusive)?
-
----
-
-**Q:** Does `Z_N^*` mean the set of numbers in `[2, N)` co-prime to `N`?
+- `rid`: (NM) `rid` stands for random identifier, it's supposed to be an unpredictable identifier for the protocol which is chosen via coin-toss.
+- `sid` and `ssid`: (NM) The `sid` is the "session identifier" while the `ssid` is the "sub-session identifier". The sid does not change while the ssid changes after each key refresh.
+- `[m]` (e.g. in Fig. 17): (NM) `[m]={1,...,m}`.
+- `Z_N^*`: (NM) all the invertible elements mod N, so it includes 1.
 
 
 # Protocol
@@ -60,7 +47,15 @@ A (NM): There is a meaningful difference where "broadcast" indicates that securi
 
 ---
 
-**Q:** How do we set `m` in the algorithms from Fig. 16 and 17? Does it depend on the security parameter `kappa`? It does not seem to be listed as a parameter when these algorithms are used (e.g. in Fig. 6).
+Q: How do we set `m` in the algorithms from Fig. 16 and 17? Does it depend on the security parameter `kappa`? It does not seem to be listed as a parameter when these algorithms are used (e.g. in Fig. 6).
+
+A (NM): `m` is the statistical security parameter for the proofs in question (which becomes a computational parameter via Fiat Shamir). Using `kappa = m` is fine.
+
+---
+
+Q: Does it matter when selecting `p`, `q` for the Paillier modulus that `p-1` and `q-1` only have small shared divisors (like it is for RSA)?
+
+A (NM): Sampling the Paillier modulus in the same way as an RSA modulus is reasonable (afaict, for random `p` and `q`, `p-1` and `q-1` will not share a large factor).
 
 
 # Layering
