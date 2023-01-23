@@ -1,7 +1,13 @@
 name: Formatting
 
 on:
-  - pull_request
+  pull_request:
+    paths-ignore:
+      - README.md
+  push:
+    branches: master
+    paths-ignore:
+      - README.md
 
 jobs:
   format:
