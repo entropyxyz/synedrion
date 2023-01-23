@@ -67,13 +67,13 @@ impl<T1: Hashable, T2: Hashable, T3: Hashable> Hashable for (T1, T2, T3) {
 
 impl Hashable for Point {
     fn chain(&self, hash: Hash) -> Hash {
-        hash.chain_update(&self.to_bytes())
+        hash.chain_update(self.to_bytes())
     }
 }
 
 impl Hashable for usize {
     fn chain(&self, hash: Hash) -> Hash {
-        hash.chain_update(&self.to_be_bytes())
+        hash.chain_update(self.to_be_bytes())
     }
 }
 

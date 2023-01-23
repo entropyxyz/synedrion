@@ -4,6 +4,7 @@ pub(crate) trait RoundStart: Sized {
     type DirectMessage: Sized;
     type BroadcastMessage: Sized;
     type ReceivingState: RoundReceiving<
+        Id = Self::Id,
         Error = Self::Error,
         DirectMessage = Self::DirectMessage,
         BroadcastMessage = Self::BroadcastMessage,
@@ -34,15 +35,19 @@ pub(crate) enum OnReceive<Error> {
 }
 
 pub(crate) trait RoundReceiving: Sized {
+    type Id: Sized;
     type Error: Sized;
     type DirectMessage: Sized;
     type BroadcastMessage: Sized;
     type Round: Sized;
     type NextState: Sized;
 
+    const BCAST_REQUIRES_CONSENSUS: bool = false;
+
     fn receive_direct(
         &mut self,
         _round: &Self::Round,
+        _from: &Self::Id,
         _msg: &Self::DirectMessage,
     ) -> OnReceive<Self::Error> {
         OnReceive::Ok
@@ -51,6 +56,7 @@ pub(crate) trait RoundReceiving: Sized {
     fn receive_bcast(
         &mut self,
         _round: &Self::Round,
+        _from: &Self::Id,
         _msg: &Self::BroadcastMessage,
     ) -> OnReceive<Self::Error> {
         OnReceive::Ok
@@ -94,14 +100,14 @@ pub(crate) mod tests {
         // Collect outgoing messages
 
         let mut bcasts = BTreeMap::<R::Id, R::BroadcastMessage>::new();
-        let mut dms = BTreeMap::<R::Id, Vec<R::DirectMessage>>::new();
+        let mut dms = BTreeMap::<R::Id, Vec<(R::Id, R::DirectMessage)>>::new();
         let mut rstates = BTreeMap::<R::Id, (R, R::ReceivingState)>::new();
 
         for (id, state) in init.into_iter() {
             let (rstate, dm, bcast) = state.execute()?;
 
             for (to, msg) in dm.into_iter() {
-                dms.entry(to).or_default().push(msg);
+                dms.entry(to).or_default().push((id.clone(), msg));
             }
 
             bcasts.insert(id.clone(), bcast);
@@ -117,7 +123,7 @@ pub(crate) mod tests {
                 if from == id {
                     continue;
                 }
-                match rstate.receive_bcast(state, msg) {
+                match rstate.receive_bcast(state, from, msg) {
                     OnReceive::Ok => {}
                     OnReceive::NonFatal(_err) => { /* TODO: or print the error? */ }
                     OnReceive::Fatal(err) => return Err(StepError::Transition(err)),
@@ -131,8 +137,8 @@ pub(crate) mod tests {
 
         for (id, (state, rstate)) in rstates.iter_mut() {
             if let Some(dm) = dms.get(&id) {
-                for msg in dm.iter() {
-                    match rstate.receive_direct(state, msg) {
+                for (from, msg) in dm.iter() {
+                    match rstate.receive_direct(state, from, msg) {
                         OnReceive::Ok => {}
                         OnReceive::NonFatal(_err) => { /* TODO: or print the error? */ }
                         OnReceive::Fatal(err) => return Err(StepError::Transition(err)),
