@@ -6,13 +6,17 @@ use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Hash, Hashable};
 
 /// Secret data the proof is based on (~ signing key)
-pub(crate) struct SchnorrProofSecret(NonZeroScalar);
+pub(crate) struct SchnorrProofSecret(
+    /// `\alpha`
+    NonZeroScalar,
+);
 
 impl SchnorrProofSecret {
     pub(crate) fn new() -> Self {
         Self(NonZeroScalar::random())
     }
 
+    /// `A`
     pub(crate) fn commitment(&self) -> SchnorrCommitment {
         SchnorrCommitment(&Point::GENERATOR * &self.0)
     }
