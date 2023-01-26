@@ -4,13 +4,11 @@
 //! $s = t^\lambda \mod N$.
 
 use crypto_bigint::{
-    modular::runtime_mod::{DynResidue, DynResidueParams},
+    modular::runtime_mod::{DynResidue},
     NonZero, RandomMod, Uint,
 };
 use crypto_primes::safe_prime;
 use rand_core::{OsRng, RngCore};
-
-use crate::tools::hashing::{Hash, Hashable};
 
 pub struct SecretKeyPaillier<const L: usize, const L2: usize> {
     p: Uint<L>,
@@ -153,7 +151,7 @@ impl<const L: usize, const L2: usize> PrmProof<L, L2> {
 mod tests {
     use crypto_bigint::{
         modular::runtime_mod::{DynResidue, DynResidueParams},
-        NonZero, RandomMod, Uint, U128, U64,
+        NonZero, RandomMod, U128,
     };
     use rand_core::OsRng;
 
