@@ -3,10 +3,7 @@
 //! Publish $(N, s, t)$ and prove that we know a secret $\lambda$ such that
 //! $s = t^\lambda \mod N$.
 
-use crypto_bigint::{
-    modular::runtime_mod::{DynResidue},
-    NonZero, RandomMod, Uint,
-};
+use crypto_bigint::{modular::runtime_mod::DynResidue, NonZero, RandomMod, Uint};
 use crypto_primes::safe_prime;
 use rand_core::{OsRng, RngCore};
 
