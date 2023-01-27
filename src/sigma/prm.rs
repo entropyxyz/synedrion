@@ -4,7 +4,7 @@
 //! $s = t^\lambda \mod N$.
 
 use crypto_bigint::{AddMod, Pow, Zero};
-use rand_core::{OsRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 
 use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
 
@@ -17,8 +17,12 @@ pub(crate) struct PrmProofSecret<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> PrmProofSecret<P> {
-    pub(crate) fn new(sk: &SecretKeyPaillier<P>, m: usize) -> Self {
-        let secret = (0..m).map(|_| sk.random_exponent()).collect::<Vec<_>>();
+    pub(crate) fn random(
+        rng: &mut (impl RngCore + CryptoRng),
+        sk: &SecretKeyPaillier<P>,
+        m: usize,
+    ) -> Self {
+        let secret = (0..m).map(|_| sk.random_exponent(rng)).collect::<Vec<_>>();
         Self {
             public_key: sk.public_key(),
             secret,
@@ -39,10 +43,10 @@ pub(crate) struct PrmCommitment<P: PaillierParams>(Vec<P::GroupElement>);
 pub(crate) struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
-    fn new(m: usize) -> Self {
+    fn random(rng: &mut (impl RngCore + CryptoRng), m: usize) -> Self {
         // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
         let mut bytes = vec![0u8; m];
-        OsRng.fill_bytes(&mut bytes);
+        rng.fill_bytes(&mut bytes);
         Self(bytes.into_iter().map(|b| b & 1 == 1).collect())
     }
 }
@@ -98,12 +102,12 @@ impl<P: PaillierParams> PrmProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::{PrmChallenge, PrmProof, PrmProofSecret, SecretKeyPaillier};
-    use crate::paillier::PaillierTest;
+    use super::{PrmChallenge, PrmProof, PrmProofSecret};
+    use crate::paillier::{PaillierTest, SecretKeyPaillier};
 
     #[test]
-    fn test_protocol() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random();
+    fn protocol() {
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
         let pk = sk.public_key();
         let m = 10;
 
@@ -112,9 +116,9 @@ mod tests {
 
         let public = base.pow(&secret);
 
-        let proof_secret = PrmProofSecret::new(&sk, m);
+        let proof_secret = PrmProofSecret::random(&mut OsRng, &sk, m);
         let commitment = proof_secret.commitment(&base);
-        let challenge = PrmChallenge::new(m);
+        let challenge = PrmChallenge::random(&mut OsRng, m);
         let proof = PrmProof::new(&proof_secret, &secret, &challenge, &sk);
         assert!(proof.verify(&base, &commitment, &challenge, &public));
     }

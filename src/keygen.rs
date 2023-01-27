@@ -2,6 +2,8 @@
 
 use alloc::collections::BTreeMap;
 
+use rand_core::OsRng;
+
 use crate::collections::{HoleMap, OnInsert};
 use crate::rounds;
 use crate::sigma::schnorr::{SchnorrCommitment, SchnorrProof, SchnorrProofSecret};
@@ -61,11 +63,11 @@ pub struct Round1 {
 
 impl Round1 {
     pub fn new(sid: &Sid, party_id: &PartyId) -> Self {
-        let secret = NonZeroScalar::random();
+        let secret = NonZeroScalar::random(&mut OsRng);
         let public = &Point::GENERATOR * &secret;
 
         let rid = random_bits(sid.kappa);
-        let proof_secret = SchnorrProofSecret::new();
+        let proof_secret = SchnorrProofSecret::random(&mut OsRng);
         let commitment = proof_secret.commitment();
         let u = random_bits(sid.kappa);
 

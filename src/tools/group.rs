@@ -16,7 +16,7 @@ use k256::elliptic_curve::{
     FieldSize,
 };
 use k256::FieldBytes;
-use rand_core::{CryptoRng, OsRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 use sha2::{digest::Digest, Sha256};
 
 pub(crate) type BackendScalar = k256::Scalar;
@@ -29,12 +29,8 @@ pub struct Scalar(BackendScalar);
 impl Scalar {
     const ONE: Self = Self(BackendScalar::ONE);
 
-    pub fn random_with_rng(rng: &mut (impl CryptoRng + RngCore)) -> Self {
+    pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
         Self(BackendScalar::random(rng))
-    }
-
-    pub fn random() -> Self {
-        Self::random_with_rng(&mut OsRng)
     }
 
     pub fn pow(&self, exp: usize) -> Self {
@@ -64,12 +60,8 @@ pub struct NonZeroScalar(BackendNonZeroScalar);
 
 impl NonZeroScalar {
     /// Generates a random non-zero scalar (in nearly constant-time).
-    pub fn random_with_rng(rng: &mut (impl CryptoRng + RngCore)) -> Self {
+    pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
         Self(BackendNonZeroScalar::random(rng))
-    }
-
-    pub fn random() -> Self {
-        Self::random_with_rng(&mut OsRng)
     }
 
     pub fn into_scalar(self) -> Scalar {

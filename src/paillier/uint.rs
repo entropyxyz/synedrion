@@ -1,4 +1,4 @@
-use rand_core::OsRng;
+use rand_core::{CryptoRng, RngCore};
 
 use crypto_bigint::{Integer, RandomMod, Zero, U128, U64};
 use crypto_primes::RandomPrimeWithRng;
@@ -6,8 +6,8 @@ use crypto_primes::RandomPrimeWithRng;
 pub trait Uint: Zero + Integer + RandomMod + RandomPrimeWithRng {
     fn sub(&self, rhs: &Self) -> Self;
     fn mul_wide(&self, rhs: &Self) -> (Self, Self);
-    fn safe_prime() -> Self {
-        Self::safe_prime_with_rng(&mut OsRng, Self::BITS)
+    fn safe_prime_with_rng(rng: &mut (impl RngCore + CryptoRng)) -> Self {
+        <Self as RandomPrimeWithRng>::safe_prime_with_rng(rng, Self::BITS)
     }
 }
 
