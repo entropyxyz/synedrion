@@ -1,6 +1,9 @@
 use core::ops::Mul;
 
-use crypto_bigint::{modular::runtime_mod::DynResidue, nlimbs, AddMod, Pow, U128, U64};
+use crypto_bigint::{
+    modular::runtime_mod::{DynResidue, DynResidueParams},
+    nlimbs, AddMod, Pow, U128, U64,
+};
 
 use super::uint::Uint;
 
@@ -19,6 +22,11 @@ pub trait PaillierParams {
         let (hi, lo) = lhs.mul_wide(rhs);
         (lo, hi).into()
     }
+
+    fn field_elem_to_group_elem(
+        x: &Self::FieldElement,
+        modulus: &Self::FieldElement,
+    ) -> Self::GroupElement;
 }
 
 pub struct PaillierTest;
@@ -27,4 +35,12 @@ impl PaillierParams for PaillierTest {
     type PrimeUint = U64;
     type FieldElement = U128;
     type GroupElement = DynResidue<{ nlimbs!(128) }>;
+
+    fn field_elem_to_group_elem(
+        x: &Self::FieldElement,
+        modulus: &Self::FieldElement,
+    ) -> Self::GroupElement {
+        let params = DynResidueParams::new(&modulus);
+        DynResidue::new(&x, params)
+    }
 }

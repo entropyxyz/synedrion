@@ -96,10 +96,6 @@ impl<P: PaillierParams> PrmProof<P> {
 
 #[cfg(test)]
 mod tests {
-    use crypto_bigint::{
-        modular::runtime_mod::{DynResidue, DynResidueParams},
-        NonZero, RandomMod, U128,
-    };
     use rand_core::OsRng;
 
     use super::{PrmChallenge, PrmProof, PrmProofSecret, SecretKeyPaillier};
@@ -111,20 +107,15 @@ mod tests {
         let pk = sk.public_key();
         let m = 10;
 
-        let modulus = pk.modulus();
+        let base = pk.random_group_elem(&mut OsRng);
+        let secret = sk.random_field_elem(&mut OsRng);
 
-        let params = DynResidueParams::new(&modulus);
-
-        let t = U128::random_mod(&mut OsRng, &NonZero::new(modulus).unwrap());
-        let secret = U128::random_mod(&mut OsRng, &NonZero::new(sk.totient()).unwrap());
-
-        let t_m = DynResidue::new(&t, params);
-        let public = t_m.pow(&secret);
+        let public = base.pow(&secret);
 
         let proof_secret = PrmProofSecret::new(&sk, m);
-        let commitment = proof_secret.commitment(&t_m);
+        let commitment = proof_secret.commitment(&base);
         let challenge = PrmChallenge::new(m);
         let proof = PrmProof::new(&proof_secret, &secret, &challenge, &sk);
-        assert!(proof.verify(&t_m, &commitment, &challenge, &public));
+        assert!(proof.verify(&base, &commitment, &challenge, &public));
     }
 }

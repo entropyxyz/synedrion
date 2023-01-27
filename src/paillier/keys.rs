@@ -1,5 +1,5 @@
 use crypto_bigint::{Integer, NonZero, RandomMod};
-use rand_core::OsRng;
+use rand_core::{CryptoRng, OsRng, RngCore};
 
 use super::params::PaillierParams;
 use super::uint::Uint;
@@ -37,6 +37,11 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             modulus: P::mul_to_field_elem(&self.p, &self.q),
         }
     }
+
+    pub fn random_field_elem(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::FieldElement {
+        let totient = self.totient();
+        P::FieldElement::random_mod(rng, &NonZero::new(totient).unwrap())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,8 +51,9 @@ pub struct PublicKeyPaillier<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> PublicKeyPaillier<P> {
-    pub fn modulus(&self) -> P::FieldElement {
-        self.modulus
+    pub fn random_group_elem(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::GroupElement {
+        let r = P::FieldElement::random_mod(rng, &NonZero::new(self.modulus).unwrap());
+        P::field_elem_to_group_elem(&r, &self.modulus)
     }
 }
 
