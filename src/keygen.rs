@@ -6,7 +6,7 @@ use rand_core::OsRng;
 
 use crate::collections::{HoleMap, OnInsert};
 use crate::rounds;
-use crate::sigma::schnorr::{SchnorrCommitment, SchnorrProof, SchnorrProofSecret};
+use crate::sigma::schnorr::{SchCommitment, SchProof, SchSecret};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::tools::random::random_bits;
@@ -51,7 +51,7 @@ pub struct Round1Bcast {
 
 pub struct Round1 {
     secret: NonZeroScalar,
-    proof_secret: SchnorrProofSecret,
+    proof_secret: SchSecret,
     data: FullData,
 }
 
@@ -61,8 +61,8 @@ impl Round1 {
         let public = &Point::GENERATOR * &secret;
 
         let rid = random_bits(sid.kappa);
-        let proof_secret = SchnorrProofSecret::random(&mut OsRng);
-        let commitment = proof_secret.commitment();
+        let proof_secret = SchSecret::random(&mut OsRng);
+        let commitment = SchCommitment::new(&proof_secret);
         let u = random_bits(sid.kappa);
 
         let data = FullData {
@@ -111,11 +111,11 @@ impl rounds::RoundStart for Round1 {
 #[derive(Debug, Clone)]
 struct FullData {
     sid: Sid,
-    party_id: PartyId,             // i
-    rid: Box<[u8]>,                // rid_i
-    public: Point,                 // X_i
-    commitment: SchnorrCommitment, // A_i
-    u: Box<[u8]>,                  // u_i
+    party_id: PartyId,         // i
+    rid: Box<[u8]>,            // rid_i
+    public: Point,             // X_i
+    commitment: SchCommitment, // A_i
+    u: Box<[u8]>,              // u_i
 }
 
 impl FullData {
@@ -185,7 +185,7 @@ impl rounds::RoundReceiving for Round1Receiving {
 
 pub struct Round2 {
     secret: NonZeroScalar,
-    proof_secret: SchnorrProofSecret,
+    proof_secret: SchSecret,
     data: FullData,
     hashes: BTreeMap<PartyId, Scalar>, // V_j
 }
@@ -278,7 +278,13 @@ impl rounds::RoundReceiving for Round2Receiving {
         }
 
         let aux = (&round.data.sid, &round.data.party_id, &round.data.rid);
-        let proof = SchnorrProof::new(&round.proof_secret, &round.secret, &aux);
+        let proof = SchProof::new(
+            &round.proof_secret,
+            &round.secret,
+            &round.data.commitment,
+            &round.data.public,
+            &aux,
+        );
 
         Ok(rounds::OnFinalize::Finished(Round3 {
             datas,
@@ -293,11 +299,11 @@ pub struct Round3 {
     datas: BTreeMap<PartyId, FullData>,
     data: FullData, // TODO: duplicate of what we already have in `datas`
     secret: NonZeroScalar,
-    proof: SchnorrProof,
+    proof: SchProof,
 }
 
 pub struct Round3Bcast {
-    proof: SchnorrProof,
+    proof: SchProof,
 }
 
 impl rounds::RoundStart for Round3 {

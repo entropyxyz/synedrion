@@ -2,43 +2,45 @@
 //!
 //! Publish $X$ and prove that we know a secret $x$ such that $g^x = X$,
 //! where $g$ is a EC generator.
+
 use rand_core::{CryptoRng, RngCore};
 
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 
 /// Secret data the proof is based on (~ signing key)
-pub(crate) struct SchnorrProofSecret(
+pub(crate) struct SchSecret(
     /// `\alpha`
     NonZeroScalar,
 );
 
-impl SchnorrProofSecret {
+impl SchSecret {
     pub(crate) fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
         Self(NonZeroScalar::random(rng))
-    }
-
-    /// `A`
-    pub(crate) fn commitment(&self) -> SchnorrCommitment {
-        SchnorrCommitment(&Point::GENERATOR * &self.0)
     }
 }
 
 /// Public data for the proof (~ verifying key)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SchnorrCommitment(Point);
+pub(crate) struct SchCommitment(Point);
 
-impl<C: Chain> Hashable<C> for SchnorrCommitment {
+impl SchCommitment {
+    pub(crate) fn new(secret: &SchSecret) -> Self {
+        Self(&Point::GENERATOR * &secret.0)
+    }
+}
+
+impl<C: Chain> Hashable<C> for SchCommitment {
     fn chain(&self, digest: C) -> C {
         digest.chain(&self.0)
     }
 }
 
 #[derive(Clone, PartialEq)]
-struct SchnorrChallenge(Scalar);
+struct SchChallenge(Scalar);
 
-impl SchnorrChallenge {
-    fn new(aux: &impl Hashable<Hash>, public: &Point, commitment: &SchnorrCommitment) -> Self {
+impl SchChallenge {
+    fn new(aux: &impl Hashable<Hash>, public: &Point, commitment: &SchCommitment) -> Self {
         Self(
             Hash::new_with_dst(b"challenge-Schnorr")
                 .chain(aux)
@@ -51,47 +53,35 @@ impl SchnorrChallenge {
 
 /// Schnorr PoK of a secret scalar.
 #[derive(Clone)]
-pub(crate) struct SchnorrProof {
-    commitment: SchnorrCommitment,
-    challenge: SchnorrChallenge,
-    proof: Scalar, // TODO: better name?
+pub(crate) struct SchProof {
+    challenge: SchChallenge,
+    proof: Scalar,
 }
 
-impl SchnorrProof {
+impl SchProof {
     /// Create a proof that we know the `secret`.
     pub(crate) fn new(
-        proof_secret: &SchnorrProofSecret,
+        proof_secret: &SchSecret,
         secret: &NonZeroScalar,
+        commitment: &SchCommitment,
+        public: &Point,
         aux: &impl Hashable<Hash>,
     ) -> Self {
-        let commitment = proof_secret.commitment();
-        let public = &Point::GENERATOR * secret;
-        let challenge = SchnorrChallenge::new(aux, &public, &commitment);
+        let challenge = SchChallenge::new(aux, public, commitment);
         let proof = &proof_secret.0 + &(&challenge.0 * secret);
-        Self {
-            commitment,
-            challenge,
-            proof,
-        }
+        Self { challenge, proof }
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given `public`.
     pub(crate) fn verify(
         &self,
-        commitment: &SchnorrCommitment,
+        commitment: &SchCommitment,
         public: &Point,
         aux: &impl Hashable<Hash>,
     ) -> bool {
-        // TODO: why do we save the commitment in the proof?
-        // If the commitment is wrong, the verification in the next line just fails, right?
-        if &self.commitment != commitment {
-            return false;
-        }
-
-        // TODO: why do we save the challenge in the proof if we're reconstructing it anyway?
-        let reconstructed_challenge = SchnorrChallenge::new(aux, public, &self.commitment);
-        self.challenge == reconstructed_challenge
-            && &Point::GENERATOR * &self.proof == &self.commitment.0 + &(public * &self.challenge.0)
+        let challenge = SchChallenge::new(aux, public, commitment);
+        &challenge == &self.challenge
+            && &Point::GENERATOR * &self.proof == &commitment.0 + &(public * &challenge.0)
     }
 }
 
@@ -99,21 +89,18 @@ impl SchnorrProof {
 mod tests {
     use rand_core::OsRng;
 
-    use super::{SchnorrChallenge, SchnorrProof, SchnorrProofSecret};
+    use super::{SchCommitment, SchProof, SchSecret};
     use crate::tools::group::{NonZeroScalar, Point};
 
     #[test]
     fn protocol() {
-        let proof_secret = SchnorrProofSecret::random(&mut OsRng);
-        let commitment = proof_secret.commitment();
-
         let secret = NonZeroScalar::random(&mut OsRng);
         let public = &Point::GENERATOR * &secret;
         let aux: &[u8] = b"abcde";
 
-        let challenge = SchnorrChallenge::new(&aux, &public, &commitment);
-        let proof = SchnorrProof::new(&proof_secret, &secret, &aux);
-
+        let proof_secret = SchSecret::random(&mut OsRng);
+        let commitment = SchCommitment::new(&proof_secret);
+        let proof = SchProof::new(&proof_secret, &secret, &commitment, &public, &aux);
         assert!(proof.verify(&commitment, &public, &aux));
     }
 }
