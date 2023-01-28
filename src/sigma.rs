@@ -11,4 +11,4 @@ may not seem necessary from the security perspective, but it provides a quick wa
 to detect an invalid message at the cost of an increased message size.
 */
 pub(crate) mod prm;
-pub(crate) mod schnorr;
+pub(crate) mod sch;
