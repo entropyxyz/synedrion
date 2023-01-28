@@ -7,6 +7,8 @@ edition = "2021"
 k256 = { version = "0.11", default-features = false, features = ["ecdsa", "arithmetic", "hash2curve"] }
 rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
 sha2 = { version = "0.10", default-features = false }
+sha3 = { version = "0.10", default-features = false }
+digest = { version = "0.10", default-features = false, features = ["alloc"]}
 
 crypto-bigint = "0.5.0-pre.1"
 crypto-primes = { git = "https://github.com/entropyxyz/crypto-primes.git", branch = "master" }

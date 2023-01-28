@@ -6,6 +6,7 @@ use crypto_bigint::{
 };
 
 use super::uint::Uint;
+use crate::tools::hashing::HashEncoding;
 
 pub trait PaillierParams {
     type PrimeUint: Uint;
@@ -15,6 +16,7 @@ pub trait PaillierParams {
     type GroupElement: Clone
         + PartialEq
         + Eq
+        + HashEncoding
         + Pow<Self::FieldElement>
         + for<'a> Mul<&'a Self::GroupElement, Output = Self::GroupElement>;
 
@@ -40,7 +42,7 @@ impl PaillierParams for PaillierTest {
         x: &Self::FieldElement,
         modulus: &Self::FieldElement,
     ) -> Self::GroupElement {
-        let params = DynResidueParams::new(&modulus);
-        DynResidue::new(&x, params)
+        let params = DynResidueParams::new(modulus);
+        DynResidue::new(x, params)
     }
 }

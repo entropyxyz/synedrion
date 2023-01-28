@@ -7,6 +7,7 @@ use crypto_bigint::{AddMod, Pow, Zero};
 use rand_core::{CryptoRng, RngCore};
 
 use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
+use crate::tools::hashing::{Chain, Hashable, XOFHash};
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,15 +40,30 @@ impl<P: PaillierParams> PrmProofSecret<P> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PrmCommitment<P: PaillierParams>(Vec<P::GroupElement>);
 
+impl<C: Chain, P: PaillierParams> Hashable<C> for PrmCommitment<P> {
+    fn chain(&self, digest: C) -> C {
+        digest.chain(&self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
-    fn random(rng: &mut (impl RngCore + CryptoRng), m: usize) -> Self {
+    fn new<P: PaillierParams>(
+        aux: &impl Hashable<XOFHash>,
+        public: &P::GroupElement,
+        commitment: &PrmCommitment<P>,
+        m: usize,
+    ) -> Self {
         // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
-        let mut bytes = vec![0u8; m];
-        rng.fill_bytes(&mut bytes);
-        Self(bytes.into_iter().map(|b| b & 1 == 1).collect())
+        // CHECK: should we use an actual RNG here instead of variable-sized hash?
+        let bytes = XOFHash::new_with_dst(b"prm-challenge")
+            .chain(aux)
+            .chain(public)
+            .chain(commitment)
+            .finalize_boxed(m);
+        Self(bytes.as_ref().iter().map(|b| b & 1 == 1).collect())
     }
 }
 
@@ -94,7 +110,7 @@ impl<P: PaillierParams> PrmProof<P> {
                 return false;
             }
         }
-        return true;
+        true
     }
 }
 
@@ -113,12 +129,13 @@ mod tests {
 
         let base = pk.random_group_elem(&mut OsRng);
         let secret = sk.random_field_elem(&mut OsRng);
-
         let public = base.pow(&secret);
+
+        let aux: &[u8] = b"abcde";
 
         let proof_secret = PrmProofSecret::random(&mut OsRng, &sk, m);
         let commitment = proof_secret.commitment(&base);
-        let challenge = PrmChallenge::random(&mut OsRng, m);
+        let challenge = PrmChallenge::new(&aux, &public, &commitment, m);
         let proof = PrmProof::new(&proof_secret, &secret, &challenge, &sk);
         assert!(proof.verify(&base, &commitment, &challenge, &public));
     }

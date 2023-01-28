@@ -8,16 +8,16 @@ use crate::collections::{HoleMap, OnInsert};
 use crate::rounds;
 use crate::sigma::schnorr::{SchnorrCommitment, SchnorrProof, SchnorrProofSecret};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
-use crate::tools::hashing::{Hash, Hashable};
+use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::tools::random::random_bits;
 
 /// $\mathcal{P}_i$.
 // Eventually this will be a node's public key which can be used as an address to send messages to.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PartyId(usize);
+pub struct PartyId(u32);
 
-impl Hashable for PartyId {
-    fn chain(&self, digest: Hash) -> Hash {
+impl<C: Chain> Hashable<C> for PartyId {
+    fn chain(&self, digest: C) -> C {
         digest.chain(&self.0)
     }
 }
@@ -38,15 +38,9 @@ pub struct Sid {
     kappa: usize,
 }
 
-impl Hashable for Sid {
-    fn chain(&self, digest: Hash) -> Hash {
-        let mut digest = digest;
-
-        digest = digest.chain(&self.parties.len());
-        for party_id in self.parties.iter() {
-            digest = digest.chain(party_id);
-        }
-        digest.chain(&self.kappa)
+impl<C: Chain> Hashable<C> for Sid {
+    fn chain(&self, digest: C) -> C {
+        digest.chain(&self.parties).chain(&(self.kappa as u32))
     }
 }
 
@@ -118,10 +112,10 @@ impl rounds::RoundStart for Round1 {
 struct FullData {
     sid: Sid,
     party_id: PartyId,             // i
-    rid: Vec<u8>,                  // rid_i
+    rid: Box<[u8]>,                // rid_i
     public: Point,                 // X_i
     commitment: SchnorrCommitment, // A_i
-    u: Vec<u8>,                    // u_i
+    u: Box<[u8]>,                  // u_i
 }
 
 impl FullData {
@@ -283,11 +277,7 @@ impl rounds::RoundReceiving for Round2Receiving {
             }
         }
 
-        let aux = (
-            &round.data.sid,
-            round.data.party_id.clone(),
-            &round.data.rid,
-        );
+        let aux = (&round.data.sid, &round.data.party_id, &round.data.rid);
         let proof = SchnorrProof::new(&round.proof_secret, &round.secret, &aux);
 
         Ok(rounds::OnFinalize::Finished(Round3 {
@@ -359,11 +349,7 @@ impl rounds::RoundReceiving for Round3Receiving {
     ) -> rounds::OnReceive<Self::Error> {
         let party_data = &round.datas[from];
 
-        let aux = (
-            &party_data.sid,
-            party_data.party_id.clone(),
-            &party_data.rid,
-        );
+        let aux = (&party_data.sid, &party_data.party_id, &party_data.rid);
         if !msg
             .proof
             .verify(&party_data.commitment, &party_data.public, &aux)
@@ -401,7 +387,7 @@ impl rounds::RoundReceiving for Round3Receiving {
 }
 
 pub struct KeyShare {
-    pub rid: Vec<u8>,
+    pub rid: Box<[u8]>,
     pub public: BTreeMap<PartyId, Point>,
     pub secret: NonZeroScalar,
 }

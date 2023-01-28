@@ -5,7 +5,7 @@
 use rand_core::{CryptoRng, RngCore};
 
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
-use crate::tools::hashing::{Hash, Hashable};
+use crate::tools::hashing::{Chain, Hash, Hashable};
 
 /// Secret data the proof is based on (~ signing key)
 pub(crate) struct SchnorrProofSecret(
@@ -28,8 +28,8 @@ impl SchnorrProofSecret {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SchnorrCommitment(Point);
 
-impl Hashable for SchnorrCommitment {
-    fn chain(&self, digest: Hash) -> Hash {
+impl<C: Chain> Hashable<C> for SchnorrCommitment {
+    fn chain(&self, digest: C) -> C {
         digest.chain(&self.0)
     }
 }
@@ -38,7 +38,7 @@ impl Hashable for SchnorrCommitment {
 struct SchnorrChallenge(Scalar);
 
 impl SchnorrChallenge {
-    fn new(aux: &impl Hashable, public: &Point, commitment: &SchnorrCommitment) -> Self {
+    fn new(aux: &impl Hashable<Hash>, public: &Point, commitment: &SchnorrCommitment) -> Self {
         Self(
             Hash::new_with_dst(b"challenge-Schnorr")
                 .chain(aux)
@@ -62,7 +62,7 @@ impl SchnorrProof {
     pub(crate) fn new(
         proof_secret: &SchnorrProofSecret,
         secret: &NonZeroScalar,
-        aux: &impl Hashable,
+        aux: &impl Hashable<Hash>,
     ) -> Self {
         let commitment = proof_secret.commitment();
         let public = &Point::GENERATOR * secret;
@@ -80,7 +80,7 @@ impl SchnorrProof {
         &self,
         commitment: &SchnorrCommitment,
         public: &Point,
-        aux: &impl Hashable,
+        aux: &impl Hashable<Hash>,
     ) -> bool {
         // TODO: why do we save the commitment in the proof?
         // If the commitment is wrong, the verification in the next line just fails, right?

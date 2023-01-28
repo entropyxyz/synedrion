@@ -19,6 +19,8 @@ use k256::FieldBytes;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{digest::Digest, Sha256};
 
+use crate::tools::hashing::{Chain, Hashable};
+
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendNonZeroScalar = k256::NonZeroScalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
@@ -115,12 +117,14 @@ impl Point {
         ))
     }
 
-    pub fn to_bytes(self) -> Vec<u8> {
-        self.0
-            .to_affine()
-            .to_encoded_point(true)
-            .as_bytes()
-            .to_vec()
+    pub fn to_bytes(self) -> Box<[u8]> {
+        self.0.to_affine().to_encoded_point(true).as_bytes().into()
+    }
+}
+
+impl<C: Chain> Hashable<C> for Point {
+    fn chain(&self, digest: C) -> C {
+        digest.chain(&self.to_bytes())
     }
 }
 
