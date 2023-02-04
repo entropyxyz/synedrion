@@ -7,7 +7,7 @@ use crypto_bigint::{AddMod, Pow, Zero};
 use rand_core::{CryptoRng, RngCore};
 
 use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
-use crate::tools::hashing::{Chain, Hashable, XOFHash};
+use crate::tools::hashing::{Chain, Hashable, XofHash};
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,13 +58,13 @@ struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
     fn new<P: PaillierParams>(
-        aux: &impl Hashable<XOFHash>,
+        aux: &impl Hashable<XofHash>,
         public: &P::GroupElement,
         commitment: &PrmCommitment<P>,
     ) -> Self {
         // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
         // CHECK: should we use an actual RNG here instead of variable-sized hash?
-        let bytes = XOFHash::new_with_dst(b"prm-challenge")
+        let bytes = XofHash::new_with_dst(b"prm-challenge")
             .chain(aux)
             .chain(public)
             .chain(commitment)
@@ -87,7 +87,7 @@ impl<P: PaillierParams> PrmProof<P> {
         secret: &P::FieldElement,
         commitment: &PrmCommitment<P>,
         public: &P::GroupElement,
-        aux: &impl Hashable<XOFHash>,
+        aux: &impl Hashable<XofHash>,
     ) -> Self {
         let totient = sk.totient();
         let zero = P::FieldElement::ZERO;
@@ -107,17 +107,17 @@ impl<P: PaillierParams> PrmProof<P> {
         base: &P::GroupElement,
         commitment: &PrmCommitment<P>,
         public: &P::GroupElement,
-        aux: &impl Hashable<XOFHash>,
+        aux: &impl Hashable<XofHash>,
     ) -> bool {
         let challenge = PrmChallenge::new(aux, public, commitment);
-        if &challenge != &self.challenge {
+        if challenge != self.challenge {
             return false;
         }
 
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a = commitment.0[i].clone();
+            let a = commitment.0[i];
             let test = if e {
                 base.pow(&z) == a * public
             } else {

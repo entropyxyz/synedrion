@@ -1,4 +1,4 @@
-use digest::{Digest, ExtendableOutput, Output, Update};
+use digest::{Digest, ExtendableOutput, Output, Update, XofReader};
 use sha2::Sha256;
 use sha3::Shake256;
 
@@ -8,6 +8,11 @@ use super::group::{NonZeroScalar, Scalar};
 pub trait HashEncoding: Sized {
     type Repr: AsRef<[u8]> + Clone + Sized;
     fn to_hashable_bytes(&self) -> Self::Repr;
+}
+
+/// Encodes the object into bytes for hashing purposes.
+pub trait HashInto {
+    fn from_reader(reader: &mut impl XofReader) -> Self;
 }
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
@@ -62,9 +67,9 @@ impl Hash {
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
-pub struct XOFHash(Shake256);
+pub struct XofHash(Shake256);
 
-impl Chain for XOFHash {
+impl Chain for XofHash {
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
         let mut digest = self.0;
         digest.update(bytes);
@@ -72,7 +77,7 @@ impl Chain for XOFHash {
     }
 }
 
-impl XOFHash {
+impl XofHash {
     fn new() -> Self {
         Self(Shake256::default())
     }
@@ -83,6 +88,16 @@ impl XOFHash {
 
     pub fn finalize_boxed(self, output_size: usize) -> Box<[u8]> {
         self.0.finalize_boxed(output_size)
+    }
+
+    pub fn finalize_array<const N: usize>(self) -> [u8; N] {
+        let mut result = [0u8; N];
+        self.0.finalize_xof_into(&mut result);
+        result
+    }
+
+    pub fn finalize_reader(self) -> <Shake256 as ExtendableOutput>::Reader {
+        self.0.finalize_xof()
     }
 }
 

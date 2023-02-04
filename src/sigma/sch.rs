@@ -80,7 +80,7 @@ impl SchProof {
         aux: &impl Hashable<Hash>,
     ) -> bool {
         let challenge = SchChallenge::new(aux, public, commitment);
-        &challenge == &self.challenge
+        challenge == self.challenge
             && &Point::GENERATOR * &self.proof == &commitment.0 + &(public * &challenge.0)
     }
 }

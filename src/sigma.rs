@@ -1,4 +1,5 @@
-/// Sigma-protocols
+//! Sigma-protocols
+
 /*
 A general note about verification:
 
@@ -10,5 +11,7 @@ Taking `challenge` as a parameter when we are reconstructing it anyway
 may not seem necessary from the security perspective, but it provides a quick way
 to detect an invalid message at the cost of an increased message size.
 */
+
+pub(crate) mod mod_;
 pub(crate) mod prm;
 pub(crate) mod sch;
