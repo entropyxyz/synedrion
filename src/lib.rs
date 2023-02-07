@@ -1,8 +1,6 @@
 extern crate alloc;
 
-mod collections;
-pub mod keygen;
-pub mod paillier;
-mod rounds;
+mod paillier;
+mod protocols;
 mod sigma;
 mod tools;

@@ -4,9 +4,9 @@ use alloc::collections::BTreeMap;
 
 use rand_core::OsRng;
 
-use crate::collections::{HoleMap, OnInsert};
-use crate::rounds;
+use super::rounds;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
+use crate::tools::collections::{HoleMap, OnInsert};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::tools::random::random_bits;
@@ -403,7 +403,7 @@ mod tests {
 
     use alloc::collections::BTreeMap;
 
-    use crate::rounds::tests::step;
+    use crate::protocols::rounds::tests::step;
 
     use super::*;
 
