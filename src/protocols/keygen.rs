@@ -22,9 +22,9 @@ impl<C: Chain> Hashable<C> for PartyId {
     }
 }
 
-/// $sid$ in the paper, probably better called "scheme setup"
+/// $sid$ ("session ID") in the paper
 #[derive(Clone, Debug)]
-pub struct Sid {
+pub struct SessionInfo {
     // `G`, `q`, and `g` (curve group, order, and the generator) are hardcoded,
     // so we're not saving them here.
 
@@ -38,7 +38,7 @@ pub struct Sid {
     kappa: usize,
 }
 
-impl<C: Chain> Hashable<C> for Sid {
+impl<C: Chain> Hashable<C> for SessionInfo {
     fn chain(&self, digest: C) -> C {
         digest.chain(&self.parties).chain(&(self.kappa as u32))
     }
@@ -56,17 +56,17 @@ pub struct Round1 {
 }
 
 impl Round1 {
-    pub fn new(sid: &Sid, party_id: &PartyId) -> Self {
+    pub fn new(session_info: &SessionInfo, party_id: &PartyId) -> Self {
         let secret = NonZeroScalar::random(&mut OsRng);
         let public = &Point::GENERATOR * &secret;
 
-        let rid = random_bits(sid.kappa);
+        let rid = random_bits(session_info.kappa);
         let proof_secret = SchSecret::random(&mut OsRng);
         let commitment = SchCommitment::new(&proof_secret);
-        let u = random_bits(sid.kappa);
+        let u = random_bits(session_info.kappa);
 
         let data = FullData {
-            sid: sid.clone(),
+            session_info: session_info.clone(),
             party_id: party_id.clone(),
             rid,
             public,
@@ -101,7 +101,7 @@ impl rounds::RoundStart for Round1 {
         let hash = self.data.hash();
         let bcast = Round1Bcast { hash };
         let dms = Vec::new();
-        let mut hashes = HoleMap::new(&self.data.sid.parties);
+        let mut hashes = HoleMap::new(&self.data.session_info.parties);
         hashes.try_insert(&self.data.party_id, hash);
 
         Ok((Round1Receiving { hashes }, dms, bcast))
@@ -110,7 +110,7 @@ impl rounds::RoundStart for Round1 {
 
 #[derive(Debug, Clone)]
 struct FullData {
-    sid: Sid,
+    session_info: SessionInfo,
     party_id: PartyId,         // i
     rid: Box<[u8]>,            // rid_i
     public: Point,             // X_i
@@ -121,7 +121,7 @@ struct FullData {
 impl FullData {
     fn hash(&self) -> Scalar {
         Hash::new_with_dst(b"Keygen")
-            .chain(&self.sid)
+            .chain(&self.session_info)
             .chain(&self.party_id)
             .chain(&self.rid)
             .chain(&self.public)
@@ -151,7 +151,7 @@ impl rounds::RoundReceiving for Round1Receiving {
         from: &Self::Id,
         msg: &Self::BroadcastMessage,
     ) -> rounds::OnReceive<Self::Error> {
-        // TODO: check that msg.sid == self.sid
+        // TODO: check that msg.session_info == self.session_info
         match self.hashes.try_insert(from, msg.hash) {
             OnInsert::Ok => rounds::OnReceive::Ok,
             OnInsert::AlreadyExists => rounds::OnReceive::NonFatal("Repeating message".to_string()),
@@ -215,7 +215,7 @@ impl rounds::RoundStart for Round2 {
         };
         let dms = Vec::new();
 
-        let mut datas = HoleMap::new(&self.data.sid.parties);
+        let mut datas = HoleMap::new(&self.data.session_info.parties);
         datas.try_insert(&self.data.party_id, self.data.clone());
 
         Ok((Round2Receiving { datas }, dms, bcast))
@@ -240,7 +240,7 @@ impl rounds::RoundReceiving for Round2Receiving {
         from: &Self::Id,
         msg: &Self::BroadcastMessage,
     ) -> rounds::OnReceive<Self::Error> {
-        // TODO: check that msg.sid == self.sid
+        // TODO: check that msg.session_info == self.session_info
 
         // TODO: check that index is in range
         if &msg.data.hash() != round.hashes.get(from).unwrap() {
@@ -277,7 +277,11 @@ impl rounds::RoundReceiving for Round2Receiving {
             }
         }
 
-        let aux = (&round.data.sid, &round.data.party_id, &round.data.rid);
+        let aux = (
+            &round.data.session_info,
+            &round.data.party_id,
+            &round.data.rid,
+        );
         let proof = SchProof::new(
             &round.proof_secret,
             &round.secret,
@@ -323,7 +327,7 @@ impl rounds::RoundStart for Round3 {
         Self::Error,
     > {
         // TODO: this could be a HoleSet
-        let mut parties_verified = HoleMap::<Self::Id, bool>::new(&self.data.sid.parties);
+        let mut parties_verified = HoleMap::<Self::Id, bool>::new(&self.data.session_info.parties);
         parties_verified.try_insert(&self.data.party_id, true);
         Ok((
             Round3Receiving { parties_verified },
@@ -355,7 +359,11 @@ impl rounds::RoundReceiving for Round3Receiving {
     ) -> rounds::OnReceive<Self::Error> {
         let party_data = &round.datas[from];
 
-        let aux = (&party_data.sid, &party_data.party_id, &party_data.rid);
+        let aux = (
+            &party_data.session_info,
+            &party_data.party_id,
+            &party_data.rid,
+        );
         if !msg
             .proof
             .verify(&party_data.commitment, &party_data.public, &aux)
@@ -411,15 +419,15 @@ mod tests {
     fn execute_keygen() {
         let parties = [PartyId(111), PartyId(222), PartyId(333)];
 
-        let sid = Sid {
+        let session_info = SessionInfo {
             parties: parties.clone().to_vec(),
             kappa: 256,
         };
 
         let r1 = BTreeMap::from([
-            (parties[0].clone(), Round1::new(&sid, &parties[0])),
-            (parties[1].clone(), Round1::new(&sid, &parties[1])),
-            (parties[2].clone(), Round1::new(&sid, &parties[2])),
+            (parties[0].clone(), Round1::new(&session_info, &parties[0])),
+            (parties[1].clone(), Round1::new(&session_info, &parties[1])),
+            (parties[2].clone(), Round1::new(&session_info, &parties[2])),
         ]);
 
         let r2 = step(r1).unwrap();
