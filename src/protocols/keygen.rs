@@ -32,10 +32,10 @@ pub struct SessionInfo {
     // TODO: use BTreeSet instead (it is ordered)?
     // Or check that PartyIds are distinct on construction?
     // $\bm{P}$
-    parties: Vec<PartyId>,
+    pub(crate) parties: Vec<PartyId>,
 
     /// Security parameter: `kappa = log2(curve order)`
-    kappa: usize,
+    pub(crate) kappa: usize,
 }
 
 impl<C: Chain> Hashable<C> for SessionInfo {

@@ -1,3 +1,5 @@
+use alloc::collections::BTreeMap;
+
 use digest::{Digest, ExtendableOutput, Output, Update, XofReader};
 use sha2::Sha256;
 use sha3::Shake256;
@@ -57,6 +59,14 @@ impl Hash {
         self.0.finalize()
     }
 
+    pub fn finalize_boxed(self) -> Box<[u8]> {
+        // TODO: probably can replace with a fixed-size array later;
+        // for now it's easier to handle a Box.
+        let arr = self.finalize();
+        let bytes: &[u8] = arr.as_ref();
+        bytes.into()
+    }
+
     pub fn finalize_to_scalar(self) -> Scalar {
         Scalar::from_digest(self.0)
     }
@@ -111,7 +121,15 @@ pub trait Hashable<C: Chain> {
 // on different targets.
 impl<C: Chain> Hashable<C> for u32 {
     fn chain(&self, digest: C) -> C {
-        digest.chain_bytes(self.to_be_bytes())
+        digest.chain_raw_bytes(&self.to_be_bytes())
+    }
+}
+
+// TODO: we use it for Vec<bool>. Inefficient, but works for now.
+// Replace with packing boolean vectors into bytes, perhaps? Maybe there is a crate for that.
+impl<C: Chain> Hashable<C> for bool {
+    fn chain(&self, digest: C) -> C {
+        digest.chain_raw_bytes(if *self { b"\x01" } else { b"\x00" })
     }
 }
 
@@ -159,6 +177,20 @@ impl<C: Chain, T: Hashable<C>> Hashable<C> for Vec<T> {
         let mut digest = digest.chain(&len);
         for elem in self {
             digest = digest.chain(elem);
+        }
+        digest
+    }
+}
+
+impl<C: Chain, K: Hashable<C>, V: Hashable<C>> Hashable<C> for BTreeMap<K, V> {
+    fn chain(&self, digest: C) -> C {
+        // Hashing the map length too to prevent collisions.
+        let len = self.len() as u32;
+        let mut digest = digest.chain(&len);
+        // The iteration is ordered (by keys)
+        for (key, value) in self {
+            digest = digest.chain(key);
+            digest = digest.chain(value);
         }
         digest
     }

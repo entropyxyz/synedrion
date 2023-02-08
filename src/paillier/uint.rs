@@ -83,6 +83,13 @@ impl Uint for U128 {
     }
 }
 
+impl HashEncoding for U128 {
+    type Repr = <U128 as Encoding>::Repr;
+    fn to_hashable_bytes(&self) -> Self::Repr {
+        self.to_be_bytes()
+    }
+}
+
 impl HashEncoding for DynResidue<{ nlimbs!(128) }> {
     type Repr = <U128 as Encoding>::Repr;
     fn to_hashable_bytes(&self) -> Self::Repr {

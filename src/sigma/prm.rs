@@ -73,6 +73,12 @@ impl PrmChallenge {
     }
 }
 
+impl<C: Chain> Hashable<C> for PrmChallenge {
+    fn chain(&self, digest: C) -> C {
+        digest.chain(&self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PrmProof<P: PaillierParams> {
     challenge: PrmChallenge,
@@ -128,6 +134,12 @@ impl<P: PaillierParams> PrmProof<P> {
             }
         }
         true
+    }
+}
+
+impl<C: Chain, P: PaillierParams> Hashable<C> for PrmProof<P> {
+    fn chain(&self, digest: C) -> C {
+        digest.chain(&self.challenge).chain(&self.proof)
     }
 }
 

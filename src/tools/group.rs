@@ -29,6 +29,7 @@ pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub struct Scalar(BackendScalar);
 
 impl Scalar {
+    const ZERO: Self = Self(BackendScalar::ZERO);
     const ONE: Self = Self(BackendScalar::ONE);
 
     pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
@@ -55,6 +56,23 @@ impl Scalar {
     pub fn to_bytes(self) -> Vec<u8> {
         self.0.to_bytes().to_vec()
     }
+}
+
+pub(crate) fn zero_sum_scalars(rng: &mut (impl CryptoRng + RngCore), size: usize) -> Vec<Scalar> {
+    // CHECK: do they all have to be non-zero?
+
+    debug_assert!(size > 1);
+
+    let mut scalars = (0..(size - 1))
+        .map(|_| Scalar::random(rng))
+        .collect::<Vec<_>>();
+    let sum: Scalar = scalars
+        .iter()
+        .cloned()
+        .reduce(|s1, s2| s1 + s2)
+        .unwrap_or(Scalar::ZERO);
+    scalars.push(-sum);
+    scalars
 }
 
 #[derive(Clone)]
@@ -138,6 +156,21 @@ impl From<usize> for Scalar {
     fn from(val: usize) -> Self {
         // TODO: add a check that usize <= u64?
         Self(BackendScalar::from(val as u64))
+    }
+}
+
+impl core::ops::Neg for Scalar {
+    type Output = Self;
+    fn neg(self) -> Self {
+        Self(-self.0)
+    }
+}
+
+impl Add<Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn add(self, other: Scalar) -> Scalar {
+        Scalar(self.0.add(other.0))
     }
 }
 

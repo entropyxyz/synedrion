@@ -3,7 +3,7 @@ use rand_core::{CryptoRng, RngCore};
 
 use super::params::PaillierParams;
 use super::uint::Uint;
-use crate::tools::hashing::{HashInto, XofHash};
+use crate::tools::hashing::{Chain, HashEncoding, HashInto, Hashable, XofHash};
 
 pub struct SecretKeyPaillier<P: PaillierParams> {
     p: P::PrimeUint,
@@ -136,6 +136,20 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
         P::field_elem_to_group_elem(&r, &self.modulus)
     }
 
+    pub fn random_invertible_group_elem(
+        &self,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> P::GroupElement {
+        // TODO: is there a faster way? How many loops on average does it take?
+        loop {
+            let r = P::FieldElement::random_mod(rng, &NonZero::new(self.modulus).unwrap());
+            let r_m = P::field_elem_to_group_elem(&r, &self.modulus);
+            if r_m.invert().is_some().into() {
+                return r_m;
+            }
+        }
+    }
+
     pub fn random_group_elem_raw(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::FieldElement {
         P::FieldElement::random_mod(rng, &NonZero::new(self.modulus).unwrap())
     }
@@ -147,6 +161,12 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
                 P::FieldElement::from_reader(&mut reader) % NonZero::new(self.modulus).unwrap()
             })
             .collect()
+    }
+}
+
+impl<C: Chain, P: PaillierParams> Hashable<C> for PublicKeyPaillier<P> {
+    fn chain(&self, digest: C) -> C {
+        digest.chain(&self.modulus)
     }
 }
 

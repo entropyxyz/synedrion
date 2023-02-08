@@ -29,6 +29,7 @@ pub trait PaillierParams: PartialEq + Eq {
         + JacobiSymbolTrait
         + Encoding
         + HashInto
+        + HashEncoding
         + core::fmt::Display
         + core::ops::Rem<NonZero<Self::FieldElement>>;
     type GroupElement: Clone
