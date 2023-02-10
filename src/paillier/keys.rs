@@ -164,8 +164,8 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     }
 }
 
-impl<C: Chain, P: PaillierParams> Hashable<C> for PublicKeyPaillier<P> {
-    fn chain(&self, digest: C) -> C {
+impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.modulus)
     }
 }

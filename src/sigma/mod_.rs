@@ -28,11 +28,7 @@ impl<P: PaillierParams> ModCommitment<P> {
 struct ModChallenge<P: PaillierParams>(Vec<P::FieldElement>);
 
 impl<P: PaillierParams> ModChallenge<P> {
-    fn new(
-        aux: &impl Hashable<XofHash>,
-        pk: &PublicKeyPaillier<P>,
-        security_parameter: usize,
-    ) -> Self {
+    fn new(aux: &impl Hashable, pk: &PublicKeyPaillier<P>, security_parameter: usize) -> Self {
         // CHECK: should we hash the modulus (N) here too?
         let digest = XofHash::new_with_dst(b"mod-challenge").chain(aux);
         let ys = pk.hash_to_group_elems_raw(digest, security_parameter);
@@ -62,7 +58,7 @@ impl<P: PaillierParams> ModProof<P> {
     pub(crate) fn new(
         sk: &SecretKeyPaillier<P>,
         commitment: &ModCommitment<P>,
-        aux: &impl Hashable<XofHash>,
+        aux: &impl Hashable,
         security_parameter: usize,
     ) -> Self {
         let pk = sk.public_key();
@@ -119,7 +115,7 @@ impl<P: PaillierParams> ModProof<P> {
         &self,
         pk: &PublicKeyPaillier<P>,
         commitment: &ModCommitment<P>,
-        aux: &impl Hashable<XofHash>,
+        aux: &impl Hashable,
     ) -> bool {
         let challenge = ModChallenge::new(aux, pk, self.proof.len());
         if challenge != self.challenge {

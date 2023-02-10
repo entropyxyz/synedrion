@@ -30,8 +30,8 @@ impl SchCommitment {
     }
 }
 
-impl<C: Chain> Hashable<C> for SchCommitment {
-    fn chain(&self, digest: C) -> C {
+impl Hashable for SchCommitment {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.0)
     }
 }
@@ -40,7 +40,7 @@ impl<C: Chain> Hashable<C> for SchCommitment {
 struct SchChallenge(Scalar);
 
 impl SchChallenge {
-    fn new(aux: &impl Hashable<Hash>, public: &Point, commitment: &SchCommitment) -> Self {
+    fn new(aux: &impl Hashable, public: &Point, commitment: &SchCommitment) -> Self {
         Self(
             Hash::new_with_dst(b"challenge-Schnorr")
                 .chain(aux)
@@ -65,7 +65,7 @@ impl SchProof {
         secret: &NonZeroScalar,
         commitment: &SchCommitment,
         public: &Point,
-        aux: &impl Hashable<Hash>,
+        aux: &impl Hashable,
     ) -> Self {
         let challenge = SchChallenge::new(aux, public, commitment);
         let proof = &proof_secret.0 + &(&challenge.0 * secret);
@@ -77,7 +77,7 @@ impl SchProof {
         &self,
         commitment: &SchCommitment,
         public: &Point,
-        aux: &impl Hashable<Hash>,
+        aux: &impl Hashable,
     ) -> bool {
         let challenge = SchChallenge::new(aux, public, commitment);
         challenge == self.challenge

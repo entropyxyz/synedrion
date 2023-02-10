@@ -24,15 +24,21 @@ pub trait Chain: Sized {
     /// Note: only for impls in specific types, do not use directly.
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self;
 
+    /// Hash a bytestring that is known to be constant-sized
+    /// (e.g. byte representation of a built-in integer).
+    fn chain_constant_sized_bytes(self, bytes: &(impl AsRef<[u8]> + ?Sized)) -> Self {
+        self.chain_raw_bytes(bytes.as_ref())
+    }
+
     /// Hash raw bytes in a collision-resistant way.
-    fn chain_bytes<T: AsRef<[u8]>>(self, bytes: T) -> Self {
+    fn chain_bytes(self, bytes: &(impl AsRef<[u8]> + ?Sized)) -> Self {
         // Hash the length too to prevent hash conflicts. (e.g. H(AB|CD) == H(ABC|D)).
         // Not strictly necessary for fixed-size arrays, but it's easier to just always do it.
         let len = (bytes.as_ref().len() as u32).to_be_bytes();
         self.chain_raw_bytes(&len).chain_raw_bytes(bytes.as_ref())
     }
 
-    fn chain(self, hashable: &impl Hashable<Self>) -> Self {
+    fn chain(self, hashable: &impl Hashable) -> Self {
         hashable.chain(self)
     }
 }
@@ -113,65 +119,65 @@ impl XofHash {
 
 /// A trait allowing complex objects to give access to their contents for hashing purposes
 /// without the need of a conversion to a new form (e.g. serialization).
-pub trait Hashable<C: Chain> {
-    fn chain(&self, digest: C) -> C;
+pub trait Hashable {
+    fn chain<C: Chain>(&self, digest: C) -> C;
 }
 
 // NOTE: we *do not* want to implement Hashable for `usize` to prevent hashes being different
 // on different targets.
-impl<C: Chain> Hashable<C> for u32 {
-    fn chain(&self, digest: C) -> C {
-        digest.chain_raw_bytes(&self.to_be_bytes())
+impl Hashable for u32 {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(&self.to_be_bytes())
     }
 }
 
 // TODO: we use it for Vec<bool>. Inefficient, but works for now.
 // Replace with packing boolean vectors into bytes, perhaps? Maybe there is a crate for that.
-impl<C: Chain> Hashable<C> for bool {
-    fn chain(&self, digest: C) -> C {
-        digest.chain_raw_bytes(if *self { b"\x01" } else { b"\x00" })
+impl Hashable for bool {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(if *self { b"\x01" } else { b"\x00" })
     }
 }
 
-impl<C: Chain> Hashable<C> for Box<[u8]> {
-    fn chain(&self, digest: C) -> C {
+impl Hashable for Box<[u8]> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain_bytes(self)
     }
 }
 
-impl<C: Chain> Hashable<C> for &[u8] {
-    fn chain(&self, digest: C) -> C {
+impl Hashable for &[u8] {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain_bytes(self)
     }
 }
 
-impl<C: Chain, const N: usize> Hashable<C> for [u8; N] {
-    fn chain(&self, digest: C) -> C {
+impl<const N: usize> Hashable for [u8; N] {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain_bytes(self)
     }
 }
 
-impl<C: Chain, T: HashEncoding> Hashable<C> for T {
-    fn chain(&self, digest: C) -> C {
+impl<T: HashEncoding> Hashable for T {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         let bytes = self.to_hashable_bytes();
         digest.chain_bytes(&bytes)
     }
 }
 
-impl<C: Chain, T1: Hashable<C>, T2: Hashable<C>> Hashable<C> for (&T1, &T2) {
-    fn chain(&self, digest: C) -> C {
+impl<T1: Hashable, T2: Hashable> Hashable for (&T1, &T2) {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(self.0).chain(self.1)
     }
 }
 
-impl<C: Chain, T1: Hashable<C>, T2: Hashable<C>, T3: Hashable<C>> Hashable<C> for (&T1, &T2, &T3) {
-    fn chain(&self, digest: C) -> C {
+impl<T1: Hashable, T2: Hashable, T3: Hashable> Hashable for (&T1, &T2, &T3) {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(self.0).chain(self.1).chain(self.2)
     }
 }
 
-impl<C: Chain, T: Hashable<C>> Hashable<C> for Vec<T> {
-    fn chain(&self, digest: C) -> C {
+impl<T: Hashable> Hashable for Vec<T> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         // Hashing the vector length too to prevent collisions.
         let len = self.len() as u32;
         let mut digest = digest.chain(&len);
@@ -182,8 +188,8 @@ impl<C: Chain, T: Hashable<C>> Hashable<C> for Vec<T> {
     }
 }
 
-impl<C: Chain, K: Hashable<C>, V: Hashable<C>> Hashable<C> for BTreeMap<K, V> {
-    fn chain(&self, digest: C) -> C {
+impl<K: Hashable, V: Hashable> Hashable for BTreeMap<K, V> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         // Hashing the map length too to prevent collisions.
         let len = self.len() as u32;
         let mut digest = digest.chain(&len);

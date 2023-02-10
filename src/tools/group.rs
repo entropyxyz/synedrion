@@ -140,8 +140,8 @@ impl Point {
     }
 }
 
-impl<C: Chain> Hashable<C> for Point {
-    fn chain(&self, digest: C) -> C {
+impl Hashable for Point {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.to_bytes())
     }
 }

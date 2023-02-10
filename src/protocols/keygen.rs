@@ -16,8 +16,8 @@ use crate::tools::random::random_bits;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PartyId(u32);
 
-impl<C: Chain> Hashable<C> for PartyId {
-    fn chain(&self, digest: C) -> C {
+impl Hashable for PartyId {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.0)
     }
 }
@@ -38,8 +38,8 @@ pub struct SessionInfo {
     pub(crate) kappa: usize,
 }
 
-impl<C: Chain> Hashable<C> for SessionInfo {
-    fn chain(&self, digest: C) -> C {
+impl Hashable for SessionInfo {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.parties).chain(&(self.kappa as u32))
     }
 }

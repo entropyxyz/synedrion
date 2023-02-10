@@ -47,8 +47,8 @@ impl<P: PaillierParams> PrmCommitment<P> {
     }
 }
 
-impl<C: Chain, P: PaillierParams> Hashable<C> for PrmCommitment<P> {
-    fn chain(&self, digest: C) -> C {
+impl<P: PaillierParams> Hashable for PrmCommitment<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.0)
     }
 }
@@ -58,7 +58,7 @@ struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
     fn new<P: PaillierParams>(
-        aux: &impl Hashable<XofHash>,
+        aux: &impl Hashable,
         public: &P::GroupElement,
         commitment: &PrmCommitment<P>,
     ) -> Self {
@@ -73,8 +73,8 @@ impl PrmChallenge {
     }
 }
 
-impl<C: Chain> Hashable<C> for PrmChallenge {
-    fn chain(&self, digest: C) -> C {
+impl Hashable for PrmChallenge {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.0)
     }
 }
@@ -93,7 +93,7 @@ impl<P: PaillierParams> PrmProof<P> {
         secret: &P::FieldElement,
         commitment: &PrmCommitment<P>,
         public: &P::GroupElement,
-        aux: &impl Hashable<XofHash>,
+        aux: &impl Hashable,
     ) -> Self {
         let totient = sk.totient();
         let zero = P::FieldElement::ZERO;
@@ -113,7 +113,7 @@ impl<P: PaillierParams> PrmProof<P> {
         base: &P::GroupElement,
         commitment: &PrmCommitment<P>,
         public: &P::GroupElement,
-        aux: &impl Hashable<XofHash>,
+        aux: &impl Hashable,
     ) -> bool {
         let challenge = PrmChallenge::new(aux, public, commitment);
         if challenge != self.challenge {
@@ -137,8 +137,8 @@ impl<P: PaillierParams> PrmProof<P> {
     }
 }
 
-impl<C: Chain, P: PaillierParams> Hashable<C> for PrmProof<P> {
-    fn chain(&self, digest: C) -> C {
+impl<P: PaillierParams> Hashable for PrmProof<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.challenge).chain(&self.proof)
     }
 }
