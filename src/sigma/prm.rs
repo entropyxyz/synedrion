@@ -11,7 +11,7 @@ use crate::tools::hashing::{Chain, Hashable, XofHash};
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PrmSecret<P: PaillierParams> {
+struct PrmSecret<P: PaillierParams> {
     public_key: PublicKeyPaillier<P>,
     /// `a_i`
     secret: Vec<P::FieldElement>,
@@ -34,7 +34,7 @@ impl<P: PaillierParams> PrmSecret<P> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PrmCommitment<P: PaillierParams>(Vec<P::GroupElement>);
+struct PrmCommitment<P: PaillierParams>(Vec<P::GroupElement>);
 
 impl<P: PaillierParams> PrmCommitment<P> {
     pub(crate) fn new(secret: &PrmSecret<P>, base: &P::GroupElement) -> Self {
@@ -81,41 +81,49 @@ impl Hashable for PrmChallenge {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PrmProof<P: PaillierParams> {
+    commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
     proof: Vec<P::FieldElement>,
 }
 
 impl<P: PaillierParams> PrmProof<P> {
     /// Create a proof that we know the `secret`.
-    pub(crate) fn new(
+    pub(crate) fn random(
+        rng: &mut (impl RngCore + CryptoRng),
         sk: &SecretKeyPaillier<P>,
-        proof_secret: &PrmSecret<P>,
         secret: &P::FieldElement,
-        commitment: &PrmCommitment<P>,
+        base: &P::GroupElement,
         public: &P::GroupElement,
         aux: &impl Hashable,
+        security_parameter: usize,
     ) -> Self {
+        let proof_secret = PrmSecret::random(rng, sk, security_parameter);
+        let commitment = PrmCommitment::new(&proof_secret, base);
+
         let totient = sk.totient();
         let zero = P::FieldElement::ZERO;
-        let challenge = PrmChallenge::new(aux, public, commitment);
+        let challenge = PrmChallenge::new(aux, public, &commitment);
         let proof = proof_secret
             .secret
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| a.add_mod(if *e { secret } else { &zero }, &totient))
             .collect();
-        Self { proof, challenge }
+        Self {
+            commitment,
+            proof,
+            challenge,
+        }
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given `public`.
     pub(crate) fn verify(
         &self,
         base: &P::GroupElement,
-        commitment: &PrmCommitment<P>,
         public: &P::GroupElement,
         aux: &impl Hashable,
     ) -> bool {
-        let challenge = PrmChallenge::new(aux, public, commitment);
+        let challenge = PrmChallenge::new(aux, public, &self.commitment);
         if challenge != self.challenge {
             return false;
         }
@@ -123,7 +131,7 @@ impl<P: PaillierParams> PrmProof<P> {
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a = commitment.0[i];
+            let a = self.commitment.0[i];
             let test = if e {
                 base.pow(&z) == a * public
             } else {
@@ -147,7 +155,7 @@ impl<P: PaillierParams> Hashable for PrmProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::{PrmCommitment, PrmProof, PrmSecret};
+    use super::PrmProof;
     use crate::paillier::{PaillierTest, SecretKeyPaillier};
 
     #[test]
@@ -162,9 +170,15 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let proof_secret = PrmSecret::random(&mut OsRng, &sk, security_parameter);
-        let commitment = PrmCommitment::new(&proof_secret, &base);
-        let proof = PrmProof::new(&sk, &proof_secret, &secret, &commitment, &public, &aux);
-        assert!(proof.verify(&base, &commitment, &public, &aux));
+        let proof = PrmProof::random(
+            &mut OsRng,
+            &sk,
+            &secret,
+            &base,
+            &public,
+            &aux,
+            security_parameter,
+        );
+        assert!(proof.verify(&base, &public, &aux));
     }
 }

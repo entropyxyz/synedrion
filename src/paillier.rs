@@ -1,3 +1,4 @@
+pub mod encryption;
 pub mod keys;
 pub mod params;
 pub mod uint;

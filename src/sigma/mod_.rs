@@ -10,7 +10,7 @@ use crate::tools::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ModCommitment<P: PaillierParams>(P::FieldElement);
+struct ModCommitment<P: PaillierParams>(P::FieldElement);
 
 impl<P: PaillierParams> ModCommitment<P> {
     pub fn random(rng: &mut (impl RngCore + CryptoRng), pk: &PublicKeyPaillier<P>) -> Self {
@@ -50,19 +50,22 @@ struct ModProofElem<P: PaillierParams> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ModProof<P: PaillierParams> {
+    commitment: ModCommitment<P>,
     challenge: ModChallenge<P>,
     proof: Vec<ModProofElem<P>>,
 }
 
 impl<P: PaillierParams> ModProof<P> {
-    pub(crate) fn new(
+    pub(crate) fn random(
+        rng: &mut (impl RngCore + CryptoRng),
         sk: &SecretKeyPaillier<P>,
-        commitment: &ModCommitment<P>,
         aux: &impl Hashable,
         security_parameter: usize,
     ) -> Self {
         let pk = sk.public_key();
         let challenge = ModChallenge::new(aux, &pk, security_parameter);
+
+        let commitment = ModCommitment::random(rng, &pk);
 
         let (c_mod_p, c_mod_q) = sk.rns_split(&commitment.0);
 
@@ -107,23 +110,22 @@ impl<P: PaillierParams> ModProof<P> {
             })
             .collect();
 
-        Self { challenge, proof }
+        Self {
+            commitment,
+            challenge,
+            proof,
+        }
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given `public`.
-    pub(crate) fn verify(
-        &self,
-        pk: &PublicKeyPaillier<P>,
-        commitment: &ModCommitment<P>,
-        aux: &impl Hashable,
-    ) -> bool {
+    pub(crate) fn verify(&self, pk: &PublicKeyPaillier<P>, aux: &impl Hashable) -> bool {
         let challenge = ModChallenge::new(aux, pk, self.proof.len());
         if challenge != self.challenge {
             return false;
         }
 
         let modulus = pk.modulus();
-        let w = P::field_elem_to_group_elem(&commitment.0, &modulus);
+        let w = P::field_elem_to_group_elem(&self.commitment.0, &modulus);
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
             let z_m = P::field_elem_to_group_elem(&elem.z, &modulus);
             let mut y_m = P::field_elem_to_group_elem(y, &modulus);
@@ -152,7 +154,7 @@ impl<P: PaillierParams> ModProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::{ModCommitment, ModProof};
+    use super::ModProof;
     use crate::paillier::{PaillierTest, SecretKeyPaillier};
 
     #[test]
@@ -163,8 +165,7 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let commitment = ModCommitment::random(&mut OsRng, &pk);
-        let proof = ModProof::new(&sk, &commitment, &aux, security_parameter);
-        assert!(proof.verify(&pk, &commitment, &aux));
+        let proof = ModProof::random(&mut OsRng, &sk, &aux, security_parameter);
+        assert!(proof.verify(&pk, &aux));
     }
 }

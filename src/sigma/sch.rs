@@ -62,7 +62,7 @@ impl SchProof {
     /// Create a proof that we know the `secret`.
     pub(crate) fn new(
         proof_secret: &SchSecret,
-        secret: &NonZeroScalar,
+        secret: &Scalar,
         commitment: &SchCommitment,
         public: &Point,
         aux: &impl Hashable,
@@ -100,7 +100,13 @@ mod tests {
 
         let proof_secret = SchSecret::random(&mut OsRng);
         let commitment = SchCommitment::new(&proof_secret);
-        let proof = SchProof::new(&proof_secret, &secret, &commitment, &public, &aux);
+        let proof = SchProof::new(
+            &proof_secret,
+            &secret.into_scalar(),
+            &commitment,
+            &public,
+            &aux,
+        );
         assert!(proof.verify(&commitment, &public, &aux));
     }
 }

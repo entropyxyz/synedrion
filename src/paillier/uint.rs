@@ -17,6 +17,7 @@ pub trait Uint: Zero + Integer + RandomMod + RandomPrimeWithRng {
     fn inv_odd_mod(&self, modulus: &Self) -> (Self, CtChoice);
     fn inv_mod2k(&self, k: usize) -> Self;
     fn trailing_zeros(&self) -> usize;
+    fn bits(&self) -> usize;
 
     fn safe_prime_with_rng(rng: &mut (impl RngCore + CryptoRng)) -> Self {
         <Self as RandomPrimeWithRng>::safe_prime_with_rng(rng, Self::BITS)
@@ -51,6 +52,10 @@ impl Uint for U64 {
     fn trailing_zeros(&self) -> usize {
         (*self).trailing_zeros()
     }
+
+    fn bits(&self) -> usize {
+        (*self).bits()
+    }
 }
 
 impl Uint for U128 {
@@ -80,6 +85,10 @@ impl Uint for U128 {
 
     fn trailing_zeros(&self) -> usize {
         (*self).trailing_zeros()
+    }
+
+    fn bits(&self) -> usize {
+        (*self).bits()
     }
 }
 

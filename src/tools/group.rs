@@ -84,6 +84,7 @@ impl NonZeroScalar {
         Self(BackendNonZeroScalar::random(rng))
     }
 
+    // TODO: as_scalar() may be more useful
     pub fn into_scalar(self) -> Scalar {
         Scalar(*self.0)
     }
@@ -206,6 +207,14 @@ impl Add<&NonZeroScalar> for &NonZeroScalar {
     }
 }
 
+impl Add<Point> for Point {
+    type Output = Point;
+
+    fn add(self, other: Point) -> Point {
+        Point(self.0.add(other.0))
+    }
+}
+
 impl Add<&Point> for &Point {
     type Output = Point;
 
@@ -267,6 +276,30 @@ impl Mul<&NonZeroScalar> for &NonZeroScalar {
 
     fn mul(self, other: &NonZeroScalar) -> NonZeroScalar {
         NonZeroScalar(self.0.mul(other.0))
+    }
+}
+
+impl core::iter::Sum for Scalar {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(core::ops::Add::add).unwrap_or(Self::ZERO)
+    }
+}
+
+impl<'a> core::iter::Sum<&'a Self> for Scalar {
+    fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
+        iter.cloned().sum()
+    }
+}
+
+impl core::iter::Sum for Point {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(core::ops::Add::add).unwrap_or(Self::IDENTITY)
+    }
+}
+
+impl<'a> core::iter::Sum<&'a Self> for Point {
+    fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
+        iter.cloned().sum()
     }
 }
 

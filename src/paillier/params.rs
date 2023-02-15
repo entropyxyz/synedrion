@@ -13,7 +13,7 @@ use super::uint::Uint;
 use crate::tools::hashing::{HashEncoding, HashInto};
 use crate::tools::jacobi::JacobiSymbolTrait;
 
-pub trait PaillierParams: PartialEq + Eq {
+pub trait PaillierParams: PartialEq + Eq + Clone {
     type PrimeUint: Uint + core::ops::Shr<usize, Output = Self::PrimeUint> + core::fmt::Display;
     type PrimeUintMod: Pow<Self::PrimeUint>
         + PartialEq

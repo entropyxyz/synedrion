@@ -14,7 +14,7 @@ use crate::tools::random::random_bits;
 /// $\mathcal{P}_i$.
 // Eventually this will be a node's public key which can be used as an address to send messages to.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PartyId(u32);
+pub struct PartyId(pub(crate) u32);
 
 impl Hashable for PartyId {
     fn chain<C: Chain>(&self, digest: C) -> C {
@@ -50,8 +50,7 @@ pub struct Round1Bcast {
 }
 
 pub struct Round1 {
-    secret: NonZeroScalar,
-    proof_secret: SchSecret,
+    secret_data: SecretData,
     data: FullData,
 }
 
@@ -74,11 +73,12 @@ impl Round1 {
             u,
         };
 
-        Self {
-            secret,
-            proof_secret,
-            data,
-        }
+        let secret_data = SecretData {
+            key_share: secret,
+            sch_secret: proof_secret,
+        };
+
+        Self { secret_data, data }
     }
 }
 
@@ -116,6 +116,11 @@ struct FullData {
     public: Point,             // X_i
     commitment: SchCommitment, // A_i
     u: Box<[u8]>,              // u_i
+}
+
+struct SecretData {
+    key_share: NonZeroScalar,
+    sch_secret: SchSecret,
 }
 
 impl FullData {
@@ -169,8 +174,7 @@ impl rounds::RoundReceiving for Round1Receiving {
             Ok(hashes) => {
                 let r = Round2 {
                     data: round.data,
-                    secret: round.secret,
-                    proof_secret: round.proof_secret,
+                    secret_data: round.secret_data,
                     hashes,
                 };
                 Ok(rounds::OnFinalize::Finished(r))
@@ -184,8 +188,7 @@ impl rounds::RoundReceiving for Round1Receiving {
 }
 
 pub struct Round2 {
-    secret: NonZeroScalar,
-    proof_secret: SchSecret,
+    secret_data: SecretData,
     data: FullData,
     hashes: BTreeMap<PartyId, Scalar>, // V_j
 }
@@ -268,33 +271,10 @@ impl rounds::RoundReceiving for Round2Receiving {
             }
         };
 
-        // XOR the vectors together
-        // TODO: is there a better way?
-        let mut rid = vec![0; round.data.rid.len()];
-        for (_party_id, data) in datas.iter() {
-            for (i, x) in data.rid.iter().enumerate() {
-                rid[i] ^= x;
-            }
-        }
-
-        let aux = (
-            &round.data.session_info,
-            &round.data.party_id,
-            &round.data.rid,
-        );
-        let proof = SchProof::new(
-            &round.proof_secret,
-            &round.secret,
-            &round.data.commitment,
-            &round.data.public,
-            &aux,
-        );
-
         Ok(rounds::OnFinalize::Finished(Round3 {
             datas,
             data: round.data,
-            secret: round.secret,
-            proof,
+            secret_data: round.secret_data,
         }))
     }
 }
@@ -302,8 +282,7 @@ impl rounds::RoundReceiving for Round2Receiving {
 pub struct Round3 {
     datas: BTreeMap<PartyId, FullData>,
     data: FullData, // TODO: duplicate of what we already have in `datas`
-    secret: NonZeroScalar,
-    proof: SchProof,
+    secret_data: SecretData,
 }
 
 pub struct Round3Bcast {
@@ -326,20 +305,41 @@ impl rounds::RoundStart for Round3 {
         ),
         Self::Error,
     > {
+        // XOR the vectors together
+        // TODO: is there a better way?
+        let mut rid = vec![0; self.data.rid.len()];
+        for (_party_id, data) in self.datas.iter() {
+            for (i, x) in data.rid.iter().enumerate() {
+                rid[i] ^= x;
+            }
+        }
+        let rid = rid.into_boxed_slice();
+
+        let aux = (&self.data.session_info, &self.data.party_id, &rid);
+        let proof = SchProof::new(
+            &self.secret_data.sch_secret,
+            &self.secret_data.key_share.clone().into_scalar(),
+            &self.data.commitment,
+            &self.data.public,
+            &aux,
+        );
+
         // TODO: this could be a HoleSet
         let mut parties_verified = HoleMap::<Self::Id, bool>::new(&self.data.session_info.parties);
         parties_verified.try_insert(&self.data.party_id, true);
         Ok((
-            Round3Receiving { parties_verified },
-            Vec::new(),
-            Round3Bcast {
-                proof: self.proof.clone(),
+            Round3Receiving {
+                rid,
+                parties_verified,
             },
+            Vec::new(),
+            Round3Bcast { proof },
         ))
     }
 }
 
 pub struct Round3Receiving {
+    rid: Box<[u8]>,
     parties_verified: HoleMap<PartyId, bool>,
 }
 
@@ -359,11 +359,7 @@ impl rounds::RoundReceiving for Round3Receiving {
     ) -> rounds::OnReceive<Self::Error> {
         let party_data = &round.datas[from];
 
-        let aux = (
-            &party_data.session_info,
-            &party_data.party_id,
-            &party_data.rid,
-        );
+        let aux = (&party_data.session_info, &party_data.party_id, &self.rid);
         if !msg
             .proof
             .verify(&party_data.commitment, &party_data.public, &aux)
@@ -383,7 +379,10 @@ impl rounds::RoundReceiving for Round3Receiving {
         let _parties_verified = match self.parties_verified.try_finalize() {
             Ok(parties_verified) => parties_verified,
             Err(parties_verified) => {
-                let r = Round3Receiving { parties_verified };
+                let r = Round3Receiving {
+                    rid: self.rid,
+                    parties_verified,
+                };
                 return Ok(rounds::OnFinalize::NotFinished(r));
             }
         };
@@ -395,7 +394,7 @@ impl rounds::RoundReceiving for Round3Receiving {
                 .into_iter()
                 .map(|(party_id, data)| (party_id, data.public))
                 .collect(),
-            secret: round.secret,
+            secret: round.secret_data.key_share,
         }))
     }
 }
