@@ -12,14 +12,11 @@ pub(crate) trait RoundStart: Sized {
     >;
     fn execute(
         &self,
-    ) -> Result<
-        (
-            Self::ReceivingState,
-            Vec<(Self::Id, Self::DirectMessage)>,
-            Self::BroadcastMessage,
-        ),
-        Self::Error,
-    >;
+    ) -> (
+        Self::ReceivingState,
+        Vec<(Self::Id, Self::DirectMessage)>,
+        Self::BroadcastMessage,
+    );
 }
 
 pub(crate) enum OnFinalize<ThisState, NextState> {
@@ -104,7 +101,7 @@ pub(crate) mod tests {
         let mut rstates = BTreeMap::<R::Id, (R, R::ReceivingState)>::new();
 
         for (id, state) in init.into_iter() {
-            let (rstate, dm, bcast) = state.execute()?;
+            let (rstate, dm, bcast) = state.execute();
 
             for (to, msg) in dm.into_iter() {
                 dms.entry(to).or_default().push((id.clone(), msg));

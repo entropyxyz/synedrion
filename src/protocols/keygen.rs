@@ -90,21 +90,18 @@ impl rounds::RoundStart for Round1 {
     type ReceivingState = Round1Receiving;
     fn execute(
         &self,
-    ) -> Result<
-        (
-            Self::ReceivingState,
-            Vec<(Self::Id, Self::DirectMessage)>,
-            Self::BroadcastMessage,
-        ),
-        Self::Error,
-    > {
+    ) -> (
+        Self::ReceivingState,
+        Vec<(Self::Id, Self::DirectMessage)>,
+        Self::BroadcastMessage,
+    ) {
         let hash = self.data.hash();
         let bcast = Round1Bcast { hash };
         let dms = Vec::new();
         let mut hashes = HoleMap::new(&self.data.session_info.parties);
         hashes.try_insert(&self.data.party_id, hash);
 
-        Ok((Round1Receiving { hashes }, dms, bcast))
+        (Round1Receiving { hashes }, dms, bcast)
     }
 }
 
@@ -205,14 +202,11 @@ impl rounds::RoundStart for Round2 {
     type ReceivingState = Round2Receiving;
     fn execute(
         &self,
-    ) -> Result<
-        (
-            Self::ReceivingState,
-            Vec<(Self::Id, Self::DirectMessage)>,
-            Self::BroadcastMessage,
-        ),
-        Self::Error,
-    > {
+    ) -> (
+        Self::ReceivingState,
+        Vec<(Self::Id, Self::DirectMessage)>,
+        Self::BroadcastMessage,
+    ) {
         let bcast = Round2Bcast {
             data: self.data.clone(),
         };
@@ -221,7 +215,7 @@ impl rounds::RoundStart for Round2 {
         let mut datas = HoleMap::new(&self.data.session_info.parties);
         datas.try_insert(&self.data.party_id, self.data.clone());
 
-        Ok((Round2Receiving { datas }, dms, bcast))
+        (Round2Receiving { datas }, dms, bcast)
     }
 }
 
@@ -297,14 +291,11 @@ impl rounds::RoundStart for Round3 {
     type ReceivingState = Round3Receiving;
     fn execute(
         &self,
-    ) -> Result<
-        (
-            Self::ReceivingState,
-            Vec<(Self::Id, Self::DirectMessage)>,
-            Self::BroadcastMessage,
-        ),
-        Self::Error,
-    > {
+    ) -> (
+        Self::ReceivingState,
+        Vec<(Self::Id, Self::DirectMessage)>,
+        Self::BroadcastMessage,
+    ) {
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rid = vec![0; self.data.rid.len()];
@@ -327,14 +318,14 @@ impl rounds::RoundStart for Round3 {
         // TODO: this could be a HoleSet
         let mut parties_verified = HoleMap::<Self::Id, bool>::new(&self.data.session_info.parties);
         parties_verified.try_insert(&self.data.party_id, true);
-        Ok((
+        (
             Round3Receiving {
                 rid,
                 parties_verified,
             },
             Vec::new(),
             Round3Bcast { proof },
-        ))
+        )
     }
 }
 

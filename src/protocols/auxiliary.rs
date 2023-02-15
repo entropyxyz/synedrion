@@ -179,28 +179,25 @@ impl<P: SchemeParams> rounds::RoundStart for Round1<P> {
     type ReceivingState = Round1Receiving<P>;
     fn execute(
         &self,
-    ) -> Result<
-        (
-            Self::ReceivingState,
-            Vec<(Self::Id, Self::DirectMessage)>,
-            Self::BroadcastMessage,
-        ),
-        Self::Error,
-    > {
+    ) -> (
+        Self::ReceivingState,
+        Vec<(Self::Id, Self::DirectMessage)>,
+        Self::BroadcastMessage,
+    ) {
         let hash = self.data.hash();
         let bcast = Round1Bcast { hash: hash.clone() };
         let dms = Vec::new();
         let mut hashes = HoleMap::new(&self.data.session_info.parties);
         hashes.try_insert(&self.data.party_id, hash);
 
-        Ok((
+        (
             Round1Receiving {
                 hashes,
                 phantom: core::marker::PhantomData,
             },
             dms,
             bcast,
-        ))
+        )
     }
 }
 
@@ -276,14 +273,11 @@ impl<P: SchemeParams> rounds::RoundStart for Round2<P> {
     type ReceivingState = Round2Receiving<P>;
     fn execute(
         &self,
-    ) -> Result<
-        (
-            Self::ReceivingState,
-            Vec<(Self::Id, Self::DirectMessage)>,
-            Self::BroadcastMessage,
-        ),
-        Self::Error,
-    > {
+    ) -> (
+        Self::ReceivingState,
+        Vec<(Self::Id, Self::DirectMessage)>,
+        Self::BroadcastMessage,
+    ) {
         let bcast = Round2Bcast {
             data: self.data.clone(),
         };
@@ -292,7 +286,7 @@ impl<P: SchemeParams> rounds::RoundStart for Round2<P> {
         let mut datas = HoleMap::new(&self.data.session_info.parties);
         datas.try_insert(&self.data.party_id, self.data.clone());
 
-        Ok((Round2Receiving { datas }, dms, bcast))
+        (Round2Receiving { datas }, dms, bcast)
     }
 }
 
@@ -392,14 +386,11 @@ impl<P: SchemeParams> rounds::RoundStart for Round3<P> {
     type ReceivingState = Round3Receiving<P>;
     fn execute(
         &self,
-    ) -> Result<
-        (
-            Self::ReceivingState,
-            Vec<(Self::Id, Self::DirectMessage)>,
-            Self::BroadcastMessage,
-        ),
-        Self::Error,
-    > {
+    ) -> (
+        Self::ReceivingState,
+        Vec<(Self::Id, Self::DirectMessage)>,
+        Self::BroadcastMessage,
+    ) {
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rho = vec![0; self.data.rho_bits.len()];
@@ -469,7 +460,7 @@ impl<P: SchemeParams> rounds::RoundStart for Round3<P> {
             phantom: PhantomData,
         };
 
-        Ok((rec_state, dms, ()))
+        (rec_state, dms, ())
     }
 }
 
