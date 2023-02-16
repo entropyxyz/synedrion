@@ -81,7 +81,7 @@ impl SchProof {
     ) -> bool {
         let challenge = SchChallenge::new(aux, public, commitment);
         challenge == self.challenge
-            && &Point::GENERATOR * &self.proof == &commitment.0 + &(public * &challenge.0)
+            && &Point::GENERATOR * &self.proof == commitment.0 + public * &challenge.0
     }
 }
 

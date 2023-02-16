@@ -8,13 +8,13 @@ pub struct Ciphertext<P: PaillierParams>(Scalar, PublicKeyPaillier<P>);
 
 impl<P: PaillierParams> Ciphertext<P> {
     pub fn new(pk: &PublicKeyPaillier<P>, plaintext: &Scalar) -> Self {
-        Self(plaintext.clone(), pk.clone())
+        Self(*plaintext, pk.clone())
     }
 
     pub fn decrypt(&self, sk: &SecretKeyPaillier<P>) -> Option<Scalar> {
         if sk.public_key() != self.1 {
             return None;
         }
-        Some(self.0.clone())
+        Some(self.0)
     }
 }

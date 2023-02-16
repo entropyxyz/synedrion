@@ -1,22 +1,82 @@
-pub(crate) trait RoundStart: Sized {
-    type Id: Sized;
+use alloc::collections::BTreeMap;
+
+use crate::tools::collections::HoleMap;
+
+pub enum ToSend<Id, Message> {
+    Broadcast {
+        ids: Vec<Id>,
+        message: Message,
+        needs_consensus: bool,
+    },
+    // TODO: return an iterator instead, since preparing one message can take some time
+    Direct(Vec<(Id, Message)>),
+}
+
+pub(crate) trait Round: Sized {
+    type Id: Sized + Eq + Ord + Clone;
     type Error: Sized;
-    type DirectMessage: Sized;
-    type BroadcastMessage: Sized;
-    type ReceivingState: RoundReceiving<
-        Id = Self::Id,
-        Error = Self::Error,
-        DirectMessage = Self::DirectMessage,
-        BroadcastMessage = Self::BroadcastMessage,
-        Round = Self,
-    >;
-    fn execute(
+    type Message: Sized;
+    type Payload: Sized + Clone;
+    type NextRound: Sized;
+
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message>;
+    fn verify_received(
+        &self,
+        from: &Self::Id,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error>;
+    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound;
+
+    fn get_messages(
         &self,
     ) -> (
-        Self::ReceivingState,
-        Vec<(Self::Id, Self::DirectMessage)>,
-        Self::BroadcastMessage,
-    );
+        HoleMap<Self::Id, Self::Payload>,
+        ToSend<Self::Id, Self::Message>,
+    ) {
+        let to_send = self.to_send();
+
+        let accum = match &to_send {
+            ToSend::Broadcast { ids, .. } => HoleMap::new(ids.iter().cloned()),
+            ToSend::Direct(messages) => HoleMap::new(messages.iter().map(|(id, _msg)| id.clone())),
+        };
+
+        (accum, to_send)
+    }
+
+    fn receive(
+        &self,
+        accum: &mut HoleMap<Self::Id, Self::Payload>,
+        from: &Self::Id,
+        msg: Self::Message,
+    ) -> OnReceive<Self::Error> {
+        let val_ref = match accum.get_mut(from) {
+            None => return OnReceive::InvalidId,
+            Some(val) => match val {
+                Some(_) => return OnReceive::AlreadyReceived,
+                None => val,
+            },
+        };
+
+        match self.verify_received(from, msg) {
+            Ok(payload) => {
+                *val_ref = Some(payload);
+                OnReceive::Ok
+            }
+            Err(err) => OnReceive::Fatal(err),
+        }
+    }
+
+    fn try_finalize(
+        self,
+        accum: HoleMap<Self::Id, Self::Payload>,
+    ) -> OnFinalize<(Self, HoleMap<Self::Id, Self::Payload>), Self::NextRound> {
+        let accum_final = match accum.try_finalize() {
+            Ok(accum_final) => accum_final,
+            Err(accum) => return OnFinalize::NotFinished((self, accum)),
+        };
+
+        OnFinalize::Finished(self.finalize(accum_final))
+    }
 }
 
 pub(crate) enum OnFinalize<ThisState, NextState> {
@@ -27,46 +87,15 @@ pub(crate) enum OnFinalize<ThisState, NextState> {
 // TODO: Is it even possible to have a fatal error on reception of a message?
 pub(crate) enum OnReceive<Error> {
     Ok,
-    NonFatal(Error),
+    InvalidId,
+    AlreadyReceived,
     Fatal(Error),
-}
-
-pub(crate) trait RoundReceiving: Sized {
-    type Id: Sized;
-    type Error: Sized;
-    type DirectMessage: Sized;
-    type BroadcastMessage: Sized;
-    type Round: Sized;
-    type NextState: Sized;
-
-    const BCAST_REQUIRES_CONSENSUS: bool = false;
-
-    fn receive_direct(
-        &mut self,
-        _round: &Self::Round,
-        _from: &Self::Id,
-        _msg: &Self::DirectMessage,
-    ) -> OnReceive<Self::Error> {
-        OnReceive::Ok
-    }
-
-    fn receive_bcast(
-        &mut self,
-        _round: &Self::Round,
-        _from: &Self::Id,
-        _msg: &Self::BroadcastMessage,
-    ) -> OnReceive<Self::Error> {
-        OnReceive::Ok
-    }
-
-    fn try_finalize(
-        self,
-        round: Self::Round,
-    ) -> Result<OnFinalize<Self, Self::NextState>, Self::Error>;
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    use crate::tools::collections::HoleMap;
 
     use super::*;
 
@@ -85,70 +114,59 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn step<R: RoundStart>(
+    pub(crate) fn step<R: Round>(
         init: BTreeMap<R::Id, R>,
-    ) -> Result<
-        BTreeMap<R::Id, <R::ReceivingState as RoundReceiving>::NextState>,
-        StepError<R::Error>,
-    >
+    ) -> Result<BTreeMap<R::Id, R::NextRound>, StepError<R::Error>>
     where
         R::Id: Eq + Ord + Clone,
+        R::Message: Clone,
     {
         // Collect outgoing messages
 
-        let mut bcasts = BTreeMap::<R::Id, R::BroadcastMessage>::new();
-        let mut dms = BTreeMap::<R::Id, Vec<(R::Id, R::DirectMessage)>>::new();
-        let mut rstates = BTreeMap::<R::Id, (R, R::ReceivingState)>::new();
+        let mut accums = BTreeMap::<R::Id, HoleMap<R::Id, R::Payload>>::new();
+        // `to, from, message`
+        let mut messages = Vec::<(R::Id, R::Id, R::Message)>::new();
 
-        for (id, state) in init.into_iter() {
-            let (rstate, dm, bcast) = state.execute();
+        for (id_from, state) in init.iter() {
+            let (accum, to_send) = state.get_messages();
 
-            for (to, msg) in dm.into_iter() {
-                dms.entry(to).or_default().push((id.clone(), msg));
+            match to_send {
+                ToSend::Broadcast { message, ids, .. } => {
+                    for id_to in ids {
+                        messages.push((id_to.clone(), id_from.clone(), message.clone()));
+                    }
+                }
+                ToSend::Direct(msgs) => {
+                    for (id_to, message) in msgs.into_iter() {
+                        messages.push((id_to.clone(), id_from.clone(), message.clone()));
+                    }
+                }
             }
 
-            bcasts.insert(id.clone(), bcast);
-
-            rstates.insert(id, (state, rstate));
+            accums.insert(id_from.clone(), accum);
         }
 
-        // Send out broadcasts
+        // Send out messages
 
-        for (id, (state, rstate)) in rstates.iter_mut() {
-            for (from, msg) in bcasts.iter() {
-                // Don't send the broadcast to the actor it came from
-                if from == id {
-                    continue;
+        for (id_to, id_from, message) in messages.into_iter() {
+            let round = &init[&id_to];
+            let accum = accums.get_mut(&id_to).unwrap();
+            match round.receive(accum, &id_from, message) {
+                OnReceive::Ok => {}
+                OnReceive::InvalidId => return Err(StepError::Logic("Invalid ID".into())),
+                OnReceive::AlreadyReceived => {
+                    return Err(StepError::Logic("Already received from this ID".into()))
                 }
-                match rstate.receive_bcast(state, from, msg) {
-                    OnReceive::Ok => {}
-                    OnReceive::NonFatal(_err) => { /* TODO: or print the error? */ }
-                    OnReceive::Fatal(err) => return Err(StepError::Transition(err)),
-                };
-            }
-        }
-
-        // Send out direct messages
-
-        // TODO: check that IDs in the direct messages map are a subset of all IDs
-
-        for (id, (state, rstate)) in rstates.iter_mut() {
-            if let Some(dm) = dms.get(&id) {
-                for (from, msg) in dm.iter() {
-                    match rstate.receive_direct(state, from, msg) {
-                        OnReceive::Ok => {}
-                        OnReceive::NonFatal(_err) => { /* TODO: or print the error? */ }
-                        OnReceive::Fatal(err) => return Err(StepError::Transition(err)),
-                    };
-                }
+                OnReceive::Fatal(err) => return Err(StepError::Transition(err)),
             };
         }
 
         // Check that all the states are finished
 
-        let mut result = BTreeMap::<R::Id, <R::ReceivingState as RoundReceiving>::NextState>::new();
-        for (id, (state, rstate)) in rstates.into_iter() {
-            let maybe_next_state = rstate.try_finalize(state)?;
+        let mut result = BTreeMap::<R::Id, R::NextRound>::new();
+        for (id, round) in init.into_iter() {
+            let accum = accums[&id].clone();
+            let maybe_next_state = round.try_finalize(accum);
 
             let next_state = match maybe_next_state {
                 OnFinalize::NotFinished(_) => {

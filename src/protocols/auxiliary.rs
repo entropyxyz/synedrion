@@ -1,5 +1,4 @@
 use alloc::collections::BTreeMap;
-use core::marker::PhantomData;
 
 use crypto_bigint::Pow;
 use rand_core::OsRng;
@@ -16,7 +15,6 @@ use crate::sigma::fac::FacProof;
 use crate::sigma::mod_::ModProof;
 use crate::sigma::prm::PrmProof;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
-use crate::tools::collections::{HoleMap, OnInsert};
 use crate::tools::group::{zero_sum_scalars, NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
@@ -35,12 +33,13 @@ impl SchemeParams for TestSchemeParams {
 }
 
 pub struct Round1<P: SchemeParams> {
+    other_parties: Vec<PartyId>,
     data: FullData<P>,
     secret_data: SecretData<P>,
 }
 
 #[derive(Debug, Clone)]
-struct FullData<P: SchemeParams> {
+pub struct FullData<P: SchemeParams> {
     session_info: SessionInfo,                                      // $sid$
     party_id: PartyId,                                              // $i$
     xs_public: BTreeMap<PartyId, Point>,                            // $\bm{X}_i$
@@ -139,6 +138,8 @@ impl<P: SchemeParams> Round1<P> {
         let rho_bits = random_bits(session_info.kappa);
         let u_bits = random_bits(session_info.kappa);
 
+        let other_parties = session_info.other_parties(party_id);
+
         let data = FullData {
             session_info: session_info.clone(),
             party_id: party_id.clone(),
@@ -162,7 +163,11 @@ impl<P: SchemeParams> Round1<P> {
             sch_secret_y,
         };
 
-        Self { data, secret_data }
+        Self {
+            other_parties,
+            data,
+            secret_data,
+        }
     }
 }
 
@@ -171,86 +176,36 @@ pub struct Round1Bcast {
     hash: Box<[u8]>, // `V_j`
 }
 
-impl<P: SchemeParams> rounds::RoundStart for Round1<P> {
+impl<P: SchemeParams> rounds::Round for Round1<P> {
     type Id = PartyId;
     type Error = String;
-    type DirectMessage = ();
-    type BroadcastMessage = Round1Bcast;
-    type ReceivingState = Round1Receiving<P>;
-    fn execute(
-        &self,
-    ) -> (
-        Self::ReceivingState,
-        Vec<(Self::Id, Self::DirectMessage)>,
-        Self::BroadcastMessage,
-    ) {
-        let hash = self.data.hash();
-        let bcast = Round1Bcast { hash: hash.clone() };
-        let dms = Vec::new();
-        let mut hashes = HoleMap::new(&self.data.session_info.parties);
-        hashes.try_insert(&self.data.party_id, hash);
+    type Payload = Box<[u8]>;
+    type Message = Round1Bcast;
+    type NextRound = Round2<P>;
 
-        (
-            Round1Receiving {
-                hashes,
-                phantom: core::marker::PhantomData,
+    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+        rounds::ToSend::Broadcast {
+            message: Round1Bcast {
+                hash: self.data.hash(),
             },
-            dms,
-            bcast,
-        )
-    }
-}
-
-pub struct Round1Receiving<P: SchemeParams> {
-    hashes: HoleMap<PartyId, Box<[u8]>>, // V_j
-    phantom: core::marker::PhantomData<P>,
-}
-
-impl<P: SchemeParams> rounds::RoundReceiving for Round1Receiving<P> {
-    type Id = PartyId;
-    type NextState = Round2<P>;
-    type DirectMessage = ();
-    type BroadcastMessage = Round1Bcast;
-    type Error = String;
-    type Round = Round1<P>;
-
-    const BCAST_REQUIRES_CONSENSUS: bool = true;
-
-    fn receive_bcast(
-        &mut self,
-        _round: &Self::Round,
-        from: &Self::Id,
-        msg: &Self::BroadcastMessage,
-    ) -> rounds::OnReceive<Self::Error> {
-        match self.hashes.try_insert(from, msg.hash.clone()) {
-            OnInsert::Ok => rounds::OnReceive::Ok,
-            OnInsert::AlreadyExists => rounds::OnReceive::NonFatal("Repeating message".to_string()),
-            OnInsert::OutOfBounds => {
-                rounds::OnReceive::NonFatal("Invalid message: index out of bounds".to_string())
-            }
+            ids: self.other_parties.clone(),
+            needs_consensus: true,
         }
     }
 
-    fn try_finalize(
-        self,
-        round: Self::Round,
-    ) -> Result<rounds::OnFinalize<Self, Self::NextState>, Self::Error> {
-        match self.hashes.try_finalize() {
-            Ok(hashes) => {
-                let r = Round2 {
-                    data: round.data,
-                    secret_data: round.secret_data,
-                    hashes,
-                };
-                Ok(rounds::OnFinalize::Finished(r))
-            }
-            Err(hashes) => {
-                let r = Round1Receiving {
-                    hashes,
-                    phantom: self.phantom,
-                };
-                Ok(rounds::OnFinalize::NotFinished(r))
-            }
+    fn verify_received(
+        &self,
+        _from: &Self::Id,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        Ok(msg.hash)
+    }
+
+    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+        Round2 {
+            data: self.data,
+            secret_data: self.secret_data,
+            hashes: payloads,
         }
     }
 }
@@ -261,147 +216,98 @@ pub struct Round2<P: SchemeParams> {
     hashes: BTreeMap<PartyId, Box<[u8]>>, // V_j
 }
 
+#[derive(Clone)]
 pub struct Round2Bcast<P: SchemeParams> {
     data: FullData<P>,
 }
 
-impl<P: SchemeParams> rounds::RoundStart for Round2<P> {
+impl<P: SchemeParams> rounds::Round for Round2<P> {
     type Id = PartyId;
     type Error = String;
-    type DirectMessage = ();
-    type BroadcastMessage = Round2Bcast<P>;
-    type ReceivingState = Round2Receiving<P>;
-    fn execute(
-        &self,
-    ) -> (
-        Self::ReceivingState,
-        Vec<(Self::Id, Self::DirectMessage)>,
-        Self::BroadcastMessage,
-    ) {
-        let bcast = Round2Bcast {
-            data: self.data.clone(),
-        };
-        let dms = Vec::new();
+    type Payload = FullData<P>;
+    type Message = Round2Bcast<P>;
+    type NextRound = Round3<P>;
 
-        let mut datas = HoleMap::new(&self.data.session_info.parties);
-        datas.try_insert(&self.data.party_id, self.data.clone());
-
-        (Round2Receiving { datas }, dms, bcast)
+    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+        rounds::ToSend::Broadcast {
+            message: Round2Bcast {
+                data: self.data.clone(),
+            },
+            ids: self.hashes.keys().cloned().collect(),
+            needs_consensus: false,
+        }
     }
-}
 
-pub struct Round2Receiving<P: SchemeParams> {
-    datas: HoleMap<PartyId, FullData<P>>,
-}
-
-impl<P: SchemeParams> rounds::RoundReceiving for Round2Receiving<P> {
-    type Id = PartyId;
-    type NextState = Round3<P>;
-    type DirectMessage = ();
-    type BroadcastMessage = Round2Bcast<P>;
-    type Error = String;
-    type Round = Round2<P>;
-
-    fn receive_bcast(
-        &mut self,
-        round: &Self::Round,
+    fn verify_received(
+        &self,
         from: &Self::Id,
-        msg: &Self::BroadcastMessage,
-    ) -> rounds::OnReceive<Self::Error> {
-        // TODO: check that index is in range
-        if &msg.data.hash() != round.hashes.get(from).unwrap() {
-            return rounds::OnReceive::NonFatal("Invalid hash".to_string());
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        if &msg.data.hash() != self.hashes.get(from).unwrap() {
+            return Err("Invalid hash".to_string());
         }
 
         if msg.data.paillier_pk.modulus().bits() < 8 * P::SECURITY_PARAMETER {
-            return rounds::OnReceive::NonFatal("Paillier modulus is too small".to_string());
+            return Err("Paillier modulus is too small".to_string());
         }
 
-        // TODO: implement Sum trait
-        let sum_x = msg
-            .data
-            .xs_public
-            .values()
-            .cloned()
-            .reduce(|p1, p2| &p1 + &p2)
-            .unwrap_or(Point::IDENTITY);
+        let sum_x: Point = msg.data.xs_public.values().sum();
         if sum_x != Point::IDENTITY {
-            return rounds::OnReceive::NonFatal("Sum of X points is not identity".to_string());
+            return Err("Sum of X points is not identity".to_string());
         }
 
-        let aux = (&round.data.session_info, from);
+        let aux = (&self.data.session_info, from);
         if !msg
             .data
             .prm_proof
             .verify(&msg.data.paillier_base, &msg.data.paillier_public, &aux)
         {
-            return rounds::OnReceive::NonFatal("PRM verification failed".to_string());
+            return Err("PRM verification failed".to_string());
         }
 
-        match self.datas.try_insert(from, msg.data.clone()) {
-            OnInsert::Ok => rounds::OnReceive::Ok,
-            OnInsert::AlreadyExists => rounds::OnReceive::NonFatal("Repeating message".to_string()),
-            OnInsert::OutOfBounds => {
-                rounds::OnReceive::NonFatal("Invalid message: index out of bounds".to_string())
-            }
-        }
+        Ok(msg.data)
     }
 
-    fn try_finalize(
-        self,
-        round: Self::Round,
-    ) -> Result<rounds::OnFinalize<Self, Self::NextState>, Self::Error> {
-        let datas = match self.datas.try_finalize() {
-            Ok(datas) => datas,
-            Err(datas) => {
-                let r = Round2Receiving { datas };
-                return Ok(rounds::OnFinalize::NotFinished(r));
+    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+        // XOR the vectors together
+        // TODO: is there a better way?
+        let mut rho = self.data.rho_bits.clone();
+        for (_party_id, data) in payloads.iter() {
+            for (i, x) in data.rho_bits.iter().enumerate() {
+                rho[i] ^= x;
             }
-        };
+        }
 
-        let r = Round3 {
-            data: round.data,
-            secret_data: round.secret_data,
-            datas,
-        };
-        Ok(rounds::OnFinalize::Finished(r))
+        Round3 {
+            rho,
+            data: self.data,
+            secret_data: self.secret_data,
+            datas: payloads,
+        }
     }
 }
 
 pub struct Round3<P: SchemeParams> {
+    rho: Box<[u8]>,
     data: FullData<P>,
     secret_data: SecretData<P>,
     datas: BTreeMap<PartyId, FullData<P>>,
 }
 
+#[derive(Clone)]
 pub struct Round3Direct<P: SchemeParams> {
     data2: FullData2<P>,
 }
 
-impl<P: SchemeParams> rounds::RoundStart for Round3<P> {
+impl<P: SchemeParams> rounds::Round for Round3<P> {
     type Id = PartyId;
     type Error = String;
-    type DirectMessage = Round3Direct<P>;
-    type BroadcastMessage = ();
-    type ReceivingState = Round3Receiving<P>;
-    fn execute(
-        &self,
-    ) -> (
-        Self::ReceivingState,
-        Vec<(Self::Id, Self::DirectMessage)>,
-        Self::BroadcastMessage,
-    ) {
-        // XOR the vectors together
-        // TODO: is there a better way?
-        let mut rho = vec![0; self.data.rho_bits.len()];
-        for (_party_id, data) in self.datas.iter() {
-            for (i, x) in data.rho_bits.iter().enumerate() {
-                rho[i] ^= x;
-            }
-        }
-        let rho = rho.into_boxed_slice();
+    type Payload = Scalar;
+    type Message = Round3Direct<P>;
+    type NextRound = AuxData<P>;
 
-        let aux = (&self.data.session_info, &rho, &self.data.party_id);
+    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+        let aux = (&self.data.session_info, &self.rho, &self.data.party_id);
         let mod_proof = ModProof::random(
             &mut OsRng,
             &self.secret_data.paillier_sk,
@@ -419,10 +325,6 @@ impl<P: SchemeParams> rounds::RoundStart for Round3<P> {
 
         let mut dms = Vec::new();
         for (party_id, data) in self.datas.iter() {
-            if party_id == &self.data.party_id {
-                continue;
-            }
-
             let fac_proof = FacProof::random(&mut OsRng, &self.secret_data.paillier_sk, &aux);
 
             let x_secret = self.secret_data.xs_secret[party_id];
@@ -448,19 +350,111 @@ impl<P: SchemeParams> rounds::RoundStart for Round3<P> {
             dms.push((party_id.clone(), Round3Direct { data2 }));
         }
 
-        let mut masks = HoleMap::new(&self.data.session_info.parties);
-        masks.try_insert(
-            &self.data.party_id,
-            self.secret_data.xs_secret[&self.data.party_id],
-        );
+        rounds::ToSend::Direct(dms)
+    }
 
-        let rec_state = Round3Receiving {
-            masks,
-            rho,
-            phantom: PhantomData,
-        };
+    fn verify_received(
+        &self,
+        from: &Self::Id,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        let sender_data = &self.datas[from];
 
-        (rec_state, dms, ())
+        let x_secret = msg
+            .data2
+            .paillier_enc_x
+            .decrypt(&self.secret_data.paillier_sk)
+            .unwrap();
+
+        if &Point::GENERATOR * &x_secret != sender_data.xs_public[&self.data.party_id] {
+            // TODO: paper has `\mu` calculation here.
+            return Err("Mismatched secret x".to_string());
+        }
+
+        let aux = (&self.data.session_info, &self.rho, from);
+
+        if !msg.data2.mod_proof.verify(&sender_data.paillier_pk, &aux) {
+            return Err("Mod proof verification failed".to_string());
+        }
+
+        if !msg.data2.fac_proof.verify() {
+            return Err("Fac proof verification failed".to_string());
+        }
+
+        if !msg
+            .data2
+            .sch_proof_y
+            .verify(&sender_data.sch_commitment_y, &sender_data.y_public, &aux)
+        {
+            // CHECK: not sending the commitment the second time in `msg`,
+            // since we already got it from the previous round.
+            return Err("Sch proof verification (Y) failed".to_string());
+        }
+
+        if !msg.data2.sch_proof_x.verify(
+            &sender_data.sch_commitments_x[&self.data.party_id],
+            &sender_data.xs_public[&self.data.party_id],
+            &aux,
+        ) {
+            // CHECK: not sending the commitment the second time in `msg`,
+            // since we already got it from the previous round.
+            return Err("Sch proof verification (Y) failed".to_string());
+        }
+
+        Ok(x_secret)
+    }
+
+    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+        let x_mask = payloads.values().sum();
+
+        let xs_masks_public = self
+            .datas
+            .keys()
+            .map(|party_id| {
+                (
+                    party_id.clone(),
+                    self.datas
+                        .values()
+                        .map(|data| data.xs_public[party_id])
+                        .sum(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let ys_public = self
+            .datas
+            .iter()
+            .map(|(party_id, data)| (party_id.clone(), data.y_public))
+            .collect::<BTreeMap<_, _>>();
+
+        let paillier_pks = self
+            .datas
+            .iter()
+            .map(|(party_id, data)| (party_id.clone(), data.paillier_pk.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        let paillier_bases = self
+            .datas
+            .iter()
+            .map(|(party_id, data)| (party_id.clone(), data.paillier_base))
+            .collect::<BTreeMap<_, _>>();
+
+        let paillier_publics = self
+            .datas
+            .iter()
+            .map(|(party_id, data)| (party_id.clone(), data.paillier_public))
+            .collect::<BTreeMap<_, _>>();
+
+        AuxData {
+            x_mask,
+            y: self.secret_data.y_secret.clone(),
+            paillier_sk: self.secret_data.paillier_sk,
+            xs_masks_public,
+            ys_public,
+            paillier_pks,
+            paillier_bases,
+            paillier_publics,
+        }
     }
 }
 
@@ -471,149 +465,6 @@ pub struct FullData2<P: SchemeParams> {
     sch_proof_y: SchProof,                   // `pi_i`
     paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
     sch_proof_x: SchProof,                   // `psi_i,j`
-}
-
-pub struct Round3Receiving<P: SchemeParams> {
-    masks: HoleMap<PartyId, Scalar>,
-    rho: Box<[u8]>,
-    phantom: PhantomData<P>,
-}
-
-impl<P: SchemeParams> rounds::RoundReceiving for Round3Receiving<P> {
-    type Id = PartyId;
-    type NextState = AuxData<P>;
-    type DirectMessage = Round3Direct<P>;
-    type BroadcastMessage = ();
-    type Error = String;
-    type Round = Round3<P>;
-
-    fn receive_direct(
-        &mut self,
-        round: &Self::Round,
-        from: &Self::Id,
-        msg: &Self::DirectMessage,
-    ) -> rounds::OnReceive<Self::Error> {
-        let sender_data = &round.datas[from];
-
-        let x_secret = msg
-            .data2
-            .paillier_enc_x
-            .decrypt(&round.secret_data.paillier_sk)
-            .unwrap();
-
-        if &Point::GENERATOR * &x_secret != sender_data.xs_public[&round.data.party_id] {
-            // TODO: paper has `\mu` calculation here.
-            return rounds::OnReceive::Fatal("Mismatched secret x".to_string());
-        }
-
-        let aux = (&round.data.session_info, &self.rho, from);
-
-        if !msg.data2.mod_proof.verify(&sender_data.paillier_pk, &aux) {
-            return rounds::OnReceive::Fatal("Mod proof verification failed".to_string());
-        }
-
-        if !msg.data2.fac_proof.verify() {
-            return rounds::OnReceive::Fatal("Fac proof verification failed".to_string());
-        }
-
-        if !msg
-            .data2
-            .sch_proof_y
-            .verify(&sender_data.sch_commitment_y, &sender_data.y_public, &aux)
-        {
-            // CHECK: not sending the commitment the second time in `msg`,
-            // since we already got it from the previous round.
-            return rounds::OnReceive::Fatal("Sch proof verification (Y) failed".to_string());
-        }
-
-        if !msg.data2.sch_proof_x.verify(
-            &sender_data.sch_commitments_x[&round.data.party_id],
-            &sender_data.xs_public[&round.data.party_id],
-            &aux,
-        ) {
-            // CHECK: not sending the commitment the second time in `msg`,
-            // since we already got it from the previous round.
-            return rounds::OnReceive::Fatal("Sch proof verification (Y) failed".to_string());
-        }
-
-        match self.masks.try_insert(from, x_secret) {
-            OnInsert::Ok => rounds::OnReceive::Ok,
-            OnInsert::AlreadyExists => rounds::OnReceive::NonFatal("Repeating message".to_string()),
-            OnInsert::OutOfBounds => {
-                rounds::OnReceive::NonFatal("Invalid message: index out of bounds".to_string())
-            }
-        }
-    }
-
-    fn try_finalize(
-        self,
-        round: Self::Round,
-    ) -> Result<rounds::OnFinalize<Self, Self::NextState>, Self::Error> {
-        let masks = match self.masks.try_finalize() {
-            Ok(masks) => masks,
-            Err(masks) => {
-                let r = Round3Receiving {
-                    masks,
-                    rho: self.rho,
-                    phantom: PhantomData,
-                };
-                return Ok(rounds::OnFinalize::NotFinished(r));
-            }
-        };
-
-        let x_mask = masks.values().sum();
-
-        let xs_masks_public = round
-            .datas
-            .keys()
-            .map(|party_id| {
-                (
-                    party_id.clone(),
-                    round
-                        .datas
-                        .values()
-                        .map(|data| data.xs_public[&party_id])
-                        .sum(),
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-
-        let ys_public = round
-            .datas
-            .iter()
-            .map(|(party_id, data)| (party_id.clone(), data.y_public))
-            .collect::<BTreeMap<_, _>>();
-
-        let paillier_pks = round
-            .datas
-            .iter()
-            .map(|(party_id, data)| (party_id.clone(), data.paillier_pk.clone()))
-            .collect::<BTreeMap<_, _>>();
-
-        let paillier_bases = round
-            .datas
-            .iter()
-            .map(|(party_id, data)| (party_id.clone(), data.paillier_base))
-            .collect::<BTreeMap<_, _>>();
-
-        let paillier_publics = round
-            .datas
-            .iter()
-            .map(|(party_id, data)| (party_id.clone(), data.paillier_public))
-            .collect::<BTreeMap<_, _>>();
-
-        let result = AuxData {
-            x_mask,
-            y: round.secret_data.y_secret.clone(),
-            paillier_sk: round.secret_data.paillier_sk,
-            xs_masks_public,
-            ys_public,
-            paillier_pks,
-            paillier_bases,
-            paillier_publics,
-        };
-        Ok(rounds::OnFinalize::Finished(result))
-    }
 }
 
 pub struct AuxData<P: SchemeParams> {
@@ -644,7 +495,7 @@ mod tests {
         let parties = [PartyId(111), PartyId(222), PartyId(333)];
 
         let session_info = SessionInfo {
-            parties: parties.clone().to_vec(),
+            parties: parties.to_vec(),
             kappa: 256,
         };
 
@@ -665,26 +516,8 @@ mod tests {
 
         let r2 = step(r1).unwrap();
         let r3 = step(r2).unwrap();
-        let aux_datas = step(r3).unwrap();
+        let _aux_datas = step(r3).unwrap();
 
-        // Check that the sets of public keys are the same at each node
-        /*
-        let public_sets = shares
-            .iter()
-            .map(|(_id, s)| s.public.clone())
-            .collect::<Vec<_>>();
-
-        assert!(public_sets[1..].iter().all(|pk| pk == &public_sets[0]));
-
-        // Check that the public keys correspond to the secret key shares
-        let public_set = &public_sets[0];
-
-        let public_from_secret = shares
-            .into_iter()
-            .map(|(id, s)| (id, &Point::GENERATOR * &s.secret))
-            .collect::<BTreeMap<_, _>>();
-
-        assert!(public_set == &public_from_secret);
-        */
+        // TODO: do some checks here
     }
 }

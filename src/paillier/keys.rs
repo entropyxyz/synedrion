@@ -3,7 +3,7 @@ use rand_core::{CryptoRng, RngCore};
 
 use super::params::PaillierParams;
 use super::uint::Uint;
-use crate::tools::hashing::{Chain, HashEncoding, HashInto, Hashable, XofHash};
+use crate::tools::hashing::{Chain, HashInto, Hashable, XofHash};
 
 pub struct SecretKeyPaillier<P: PaillierParams> {
     p: P::PrimeUint,

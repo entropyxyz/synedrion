@@ -6,7 +6,6 @@ use rand_core::OsRng;
 
 use super::rounds;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
-use crate::tools::collections::{HoleMap, OnInsert};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::tools::random::random_bits;
@@ -38,6 +37,16 @@ pub struct SessionInfo {
     pub(crate) kappa: usize,
 }
 
+impl SessionInfo {
+    pub fn other_parties(&self, id: &PartyId) -> Vec<PartyId> {
+        self.parties
+            .iter()
+            .cloned()
+            .filter(|pid| pid != id)
+            .collect()
+    }
+}
+
 impl Hashable for SessionInfo {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.parties).chain(&(self.kappa as u32))
@@ -45,79 +54,13 @@ impl Hashable for SessionInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct Round1Bcast {
-    hash: Scalar,
-}
-
-pub struct Round1 {
-    secret_data: SecretData,
-    data: FullData,
-}
-
-impl Round1 {
-    pub fn new(session_info: &SessionInfo, party_id: &PartyId) -> Self {
-        let secret = NonZeroScalar::random(&mut OsRng);
-        let public = &Point::GENERATOR * &secret;
-
-        let rid = random_bits(session_info.kappa);
-        let proof_secret = SchSecret::random(&mut OsRng);
-        let commitment = SchCommitment::new(&proof_secret);
-        let u = random_bits(session_info.kappa);
-
-        let data = FullData {
-            session_info: session_info.clone(),
-            party_id: party_id.clone(),
-            rid,
-            public,
-            commitment,
-            u,
-        };
-
-        let secret_data = SecretData {
-            key_share: secret,
-            sch_secret: proof_secret,
-        };
-
-        Self { secret_data, data }
-    }
-}
-
-impl rounds::RoundStart for Round1 {
-    type Id = PartyId;
-    type Error = String;
-    type DirectMessage = ();
-    type BroadcastMessage = Round1Bcast;
-    type ReceivingState = Round1Receiving;
-    fn execute(
-        &self,
-    ) -> (
-        Self::ReceivingState,
-        Vec<(Self::Id, Self::DirectMessage)>,
-        Self::BroadcastMessage,
-    ) {
-        let hash = self.data.hash();
-        let bcast = Round1Bcast { hash };
-        let dms = Vec::new();
-        let mut hashes = HoleMap::new(&self.data.session_info.parties);
-        hashes.try_insert(&self.data.party_id, hash);
-
-        (Round1Receiving { hashes }, dms, bcast)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct FullData {
+pub struct FullData {
     session_info: SessionInfo,
     party_id: PartyId,         // i
     rid: Box<[u8]>,            // rid_i
     public: Point,             // X_i
     commitment: SchCommitment, // A_i
     u: Box<[u8]>,              // u_i
-}
-
-struct SecretData {
-    key_share: NonZeroScalar,
-    sch_secret: SchSecret,
 }
 
 impl FullData {
@@ -133,180 +76,169 @@ impl FullData {
     }
 }
 
-pub struct Round1Receiving {
-    hashes: HoleMap<PartyId, Scalar>, // V_j
+struct SecretData {
+    key_share: NonZeroScalar,
+    sch_secret: SchSecret,
 }
 
-impl rounds::RoundReceiving for Round1Receiving {
-    type Id = PartyId;
-    type NextState = Round2;
-    type DirectMessage = ();
-    type BroadcastMessage = Round1Bcast;
-    type Error = String;
-    type Round = Round1;
+#[derive(Debug, Clone)]
+pub struct Round1Bcast {
+    hash: Scalar,
+}
 
-    const BCAST_REQUIRES_CONSENSUS: bool = true;
+pub struct Round1 {
+    other_parties: Vec<PartyId>,
+    secret_data: SecretData,
+    data: FullData,
+}
 
-    fn receive_bcast(
-        &mut self,
-        _round: &Self::Round,
-        from: &Self::Id,
-        msg: &Self::BroadcastMessage,
-    ) -> rounds::OnReceive<Self::Error> {
-        // TODO: check that msg.session_info == self.session_info
-        match self.hashes.try_insert(from, msg.hash) {
-            OnInsert::Ok => rounds::OnReceive::Ok,
-            OnInsert::AlreadyExists => rounds::OnReceive::NonFatal("Repeating message".to_string()),
-            OnInsert::OutOfBounds => {
-                rounds::OnReceive::NonFatal("Invalid message: index out of bounds".to_string())
-            }
+impl Round1 {
+    pub fn new(session_info: &SessionInfo, party_id: &PartyId) -> Self {
+        let secret = NonZeroScalar::random(&mut OsRng);
+        let public = &Point::GENERATOR * &secret;
+
+        let rid = random_bits(session_info.kappa);
+        let proof_secret = SchSecret::random(&mut OsRng);
+        let commitment = SchCommitment::new(&proof_secret);
+        let u = random_bits(session_info.kappa);
+
+        let other_parties = session_info.other_parties(party_id);
+
+        let data = FullData {
+            session_info: session_info.clone(),
+            party_id: party_id.clone(),
+            rid,
+            public,
+            commitment,
+            u,
+        };
+
+        let secret_data = SecretData {
+            key_share: secret,
+            sch_secret: proof_secret,
+        };
+
+        Self {
+            other_parties,
+            secret_data,
+            data,
         }
     }
+}
 
-    fn try_finalize(
-        self,
-        round: Self::Round,
-    ) -> Result<rounds::OnFinalize<Self, Self::NextState>, Self::Error> {
-        match self.hashes.try_finalize() {
-            Ok(hashes) => {
-                let r = Round2 {
-                    data: round.data,
-                    secret_data: round.secret_data,
-                    hashes,
-                };
-                Ok(rounds::OnFinalize::Finished(r))
-            }
-            Err(hashes) => {
-                let r = Round1Receiving { hashes };
-                Ok(rounds::OnFinalize::NotFinished(r))
-            }
+impl rounds::Round for Round1 {
+    type Id = PartyId;
+    type Error = String;
+    type Payload = Scalar;
+    type Message = Round1Bcast;
+    type NextRound = Round2;
+
+    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+        let hash = self.data.hash();
+        rounds::ToSend::Broadcast {
+            ids: self.other_parties.clone(),
+            message: Round1Bcast { hash },
+            needs_consensus: true,
+        }
+    }
+    fn verify_received(
+        &self,
+        _from: &Self::Id,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        Ok(msg.hash)
+    }
+    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+        Round2 {
+            hashes: payloads,
+            other_parties: self.other_parties,
+            data: self.data,
+            secret_data: self.secret_data,
         }
     }
 }
 
 pub struct Round2 {
+    other_parties: Vec<PartyId>,
     secret_data: SecretData,
     data: FullData,
     hashes: BTreeMap<PartyId, Scalar>, // V_j
 }
 
+#[derive(Clone)]
 pub struct Round2Bcast {
     data: FullData,
 }
 
-impl rounds::RoundStart for Round2 {
+impl rounds::Round for Round2 {
     type Id = PartyId;
     type Error = String;
-    type DirectMessage = ();
-    type BroadcastMessage = Round2Bcast;
-    type ReceivingState = Round2Receiving;
-    fn execute(
+    type Payload = FullData;
+    type Message = Round2Bcast;
+    type NextRound = Round3;
+
+    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+        rounds::ToSend::Broadcast {
+            ids: self.other_parties.clone(),
+            message: Round2Bcast {
+                data: self.data.clone(),
+            },
+            needs_consensus: false,
+        }
+    }
+    fn verify_received(
         &self,
-    ) -> (
-        Self::ReceivingState,
-        Vec<(Self::Id, Self::DirectMessage)>,
-        Self::BroadcastMessage,
-    ) {
-        let bcast = Round2Bcast {
-            data: self.data.clone(),
-        };
-        let dms = Vec::new();
-
-        let mut datas = HoleMap::new(&self.data.session_info.parties);
-        datas.try_insert(&self.data.party_id, self.data.clone());
-
-        (Round2Receiving { datas }, dms, bcast)
-    }
-}
-
-pub struct Round2Receiving {
-    datas: HoleMap<PartyId, FullData>,
-}
-
-impl rounds::RoundReceiving for Round2Receiving {
-    type Id = PartyId;
-    type NextState = Round3;
-    type DirectMessage = ();
-    type BroadcastMessage = Round2Bcast;
-    type Error = String;
-    type Round = Round2;
-
-    fn receive_bcast(
-        &mut self,
-        round: &Self::Round,
         from: &Self::Id,
-        msg: &Self::BroadcastMessage,
-    ) -> rounds::OnReceive<Self::Error> {
-        // TODO: check that msg.session_info == self.session_info
-
-        // TODO: check that index is in range
-        if &msg.data.hash() != round.hashes.get(from).unwrap() {
-            return rounds::OnReceive::NonFatal("Invalid hash".to_string());
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        if &msg.data.hash() != self.hashes.get(from).unwrap() {
+            return Err("Invalid hash".to_string());
         }
 
-        match self.datas.try_insert(from, msg.data.clone()) {
-            OnInsert::Ok => rounds::OnReceive::Ok,
-            OnInsert::AlreadyExists => rounds::OnReceive::NonFatal("Repeating message".to_string()),
-            OnInsert::OutOfBounds => {
-                rounds::OnReceive::NonFatal("Invalid message: index out of bounds".to_string())
-            }
-        }
+        Ok(msg.data)
     }
-
-    fn try_finalize(
-        self,
-        round: Self::Round,
-    ) -> Result<rounds::OnFinalize<Self, Self::NextState>, Self::Error> {
-        let datas = match self.datas.try_finalize() {
-            Ok(datas) => datas,
-            Err(datas) => {
-                let r = Round2Receiving { datas };
-                return Ok(rounds::OnFinalize::NotFinished(r));
+    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+        // XOR the vectors together
+        // TODO: is there a better way?
+        let mut rid = self.data.rid.clone();
+        for (_party_id, data) in payloads.iter() {
+            for (i, x) in data.rid.iter().enumerate() {
+                rid[i] ^= x;
             }
-        };
+        }
 
-        Ok(rounds::OnFinalize::Finished(Round3 {
-            datas,
-            data: round.data,
-            secret_data: round.secret_data,
-        }))
+        Round3 {
+            datas: payloads,
+            data: self.data,
+            rid,
+            secret_data: self.secret_data,
+            other_parties: self.other_parties,
+        }
     }
 }
 
 pub struct Round3 {
     datas: BTreeMap<PartyId, FullData>,
-    data: FullData, // TODO: duplicate of what we already have in `datas`
+    data: FullData,
+    rid: Box<[u8]>,
     secret_data: SecretData,
+    other_parties: Vec<PartyId>,
 }
 
+#[derive(Clone)]
 pub struct Round3Bcast {
     proof: SchProof,
 }
 
-impl rounds::RoundStart for Round3 {
+impl rounds::Round for Round3 {
     type Id = PartyId;
     type Error = String;
-    type DirectMessage = ();
-    type BroadcastMessage = Round3Bcast;
-    type ReceivingState = Round3Receiving;
-    fn execute(
-        &self,
-    ) -> (
-        Self::ReceivingState,
-        Vec<(Self::Id, Self::DirectMessage)>,
-        Self::BroadcastMessage,
-    ) {
-        // XOR the vectors together
-        // TODO: is there a better way?
-        let mut rid = vec![0; self.data.rid.len()];
-        for (_party_id, data) in self.datas.iter() {
-            for (i, x) in data.rid.iter().enumerate() {
-                rid[i] ^= x;
-            }
-        }
-        let rid = rid.into_boxed_slice();
+    type Payload = bool;
+    type Message = Round3Bcast;
+    type NextRound = KeyShare;
 
-        let aux = (&self.data.session_info, &self.data.party_id, &rid);
+    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+        let aux = (&self.data.session_info, &self.data.party_id, &self.rid);
         let proof = SchProof::new(
             &self.secret_data.sch_secret,
             &self.secret_data.key_share.clone().into_scalar(),
@@ -314,79 +246,40 @@ impl rounds::RoundStart for Round3 {
             &self.data.public,
             &aux,
         );
-
-        // TODO: this could be a HoleSet
-        let mut parties_verified = HoleMap::<Self::Id, bool>::new(&self.data.session_info.parties);
-        parties_verified.try_insert(&self.data.party_id, true);
-        (
-            Round3Receiving {
-                rid,
-                parties_verified,
-            },
-            Vec::new(),
-            Round3Bcast { proof },
-        )
+        rounds::ToSend::Broadcast {
+            ids: self.other_parties.clone(),
+            message: Round3Bcast { proof },
+            needs_consensus: false,
+        }
     }
-}
-
-pub struct Round3Receiving {
-    rid: Box<[u8]>,
-    parties_verified: HoleMap<PartyId, bool>,
-}
-
-impl rounds::RoundReceiving for Round3Receiving {
-    type Id = PartyId;
-    type NextState = KeyShare;
-    type DirectMessage = ();
-    type BroadcastMessage = Round3Bcast;
-    type Error = String;
-    type Round = Round3;
-
-    fn receive_bcast(
-        &mut self,
-        round: &Self::Round,
+    fn verify_received(
+        &self,
         from: &Self::Id,
-        msg: &Self::BroadcastMessage,
-    ) -> rounds::OnReceive<Self::Error> {
-        let party_data = &round.datas[from];
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        let party_data = self.datas.get(from).unwrap();
 
         let aux = (&party_data.session_info, &party_data.party_id, &self.rid);
         if !msg
             .proof
             .verify(&party_data.commitment, &party_data.public, &aux)
         {
-            return rounds::OnReceive::NonFatal("Schnorr verification failed".to_string());
+            return Err("Schnorr verification failed".to_string());
         }
-
-        self.parties_verified.try_insert(from, true);
-
-        rounds::OnReceive::Ok
+        Ok(true)
     }
-
-    fn try_finalize(
-        self,
-        round: Self::Round,
-    ) -> Result<rounds::OnFinalize<Self, Self::NextState>, Self::Error> {
-        let _parties_verified = match self.parties_verified.try_finalize() {
-            Ok(parties_verified) => parties_verified,
-            Err(parties_verified) => {
-                let r = Round3Receiving {
-                    rid: self.rid,
-                    parties_verified,
-                };
-                return Ok(rounds::OnFinalize::NotFinished(r));
-            }
-        };
-
-        Ok(rounds::OnFinalize::Finished(KeyShare {
-            rid: round.data.rid,
-            public: round
-                .datas
-                .into_iter()
-                .map(|(party_id, data)| (party_id, data.public))
-                .collect(),
-            secret: round.secret_data.key_share,
-        }))
+    fn finalize(self, _payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+        let mut public_keys: BTreeMap<Self::Id, Point> = self
+            .datas
+            .into_iter()
+            .map(|(party_id, data)| (party_id, data.public))
+            .collect();
+        public_keys.insert(self.data.party_id, self.data.public);
+        KeyShare {
+            rid: self.rid,
+            public: public_keys,
+            secret: self.secret_data.key_share,
+        }
     }
 }
 
@@ -410,7 +303,7 @@ mod tests {
         let parties = [PartyId(111), PartyId(222), PartyId(333)];
 
         let session_info = SessionInfo {
-            parties: parties.clone().to_vec(),
+            parties: parties.to_vec(),
             kappa: 256,
         };
 
@@ -427,8 +320,8 @@ mod tests {
         // Check that the sets of public keys are the same at each node
 
         let public_sets = shares
-            .iter()
-            .map(|(_id, s)| s.public.clone())
+            .values()
+            .map(|s| s.public.clone())
             .collect::<Vec<_>>();
 
         assert!(public_sets[1..].iter().all(|pk| pk == &public_sets[0]));

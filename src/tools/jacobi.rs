@@ -170,7 +170,7 @@ mod tests {
 
     // Reference from `num-modular` - supports long `p`, but only positive `a`.
     fn jacobi_symbol_ref(a: &Word, p: &Word) -> JacobiSymbol {
-        match a.jacobi(&p) {
+        match a.jacobi(p) {
             1 => JacobiSymbol::One,
             -1 => JacobiSymbol::MinusOne,
             0 => JacobiSymbol::Zero,
