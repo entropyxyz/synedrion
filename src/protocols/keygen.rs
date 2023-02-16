@@ -151,7 +151,6 @@ impl rounds::Round for Round1 {
     fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
         Round2 {
             hashes: payloads,
-            other_parties: self.other_parties,
             data: self.data,
             secret_data: self.secret_data,
         }
@@ -159,7 +158,6 @@ impl rounds::Round for Round1 {
 }
 
 pub struct Round2 {
-    other_parties: Vec<PartyId>,
     secret_data: SecretData,
     data: FullData,
     hashes: BTreeMap<PartyId, Scalar>, // V_j
@@ -179,7 +177,7 @@ impl rounds::Round for Round2 {
 
     fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
         rounds::ToSend::Broadcast {
-            ids: self.other_parties.clone(),
+            ids: self.hashes.keys().cloned().collect(),
             message: Round2Bcast {
                 data: self.data.clone(),
             },
@@ -212,7 +210,6 @@ impl rounds::Round for Round2 {
             data: self.data,
             rid,
             secret_data: self.secret_data,
-            other_parties: self.other_parties,
         }
     }
 }
@@ -222,7 +219,6 @@ pub struct Round3 {
     data: FullData,
     rid: Box<[u8]>,
     secret_data: SecretData,
-    other_parties: Vec<PartyId>,
 }
 
 #[derive(Clone)]
@@ -247,7 +243,7 @@ impl rounds::Round for Round3 {
             &aux,
         );
         rounds::ToSend::Broadcast {
-            ids: self.other_parties.clone(),
+            ids: self.datas.keys().cloned().collect(),
             message: Round3Bcast { proof },
             needs_consensus: false,
         }
