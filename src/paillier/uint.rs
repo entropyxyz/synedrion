@@ -7,7 +7,7 @@ use crypto_bigint::{
 };
 use crypto_primes::RandomPrimeWithRng;
 
-use crate::tools::hashing::{HashEncoding, HashInto};
+use crate::tools::hashing::{Chain, HashInto, Hashable};
 
 pub trait Uint: Zero + Integer + RandomMod + RandomPrimeWithRng {
     fn sub(&self, rhs: &Self) -> Self;
@@ -92,19 +92,17 @@ impl Uint for U128 {
     }
 }
 
-impl HashEncoding for U128 {
-    type Repr = <U128 as Encoding>::Repr;
-    fn to_hashable_bytes(&self) -> Self::Repr {
-        self.to_be_bytes()
+impl Hashable for U128 {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(&self.to_be_bytes())
     }
 }
 
-impl HashEncoding for DynResidue<{ nlimbs!(128) }> {
-    type Repr = <U128 as Encoding>::Repr;
-    fn to_hashable_bytes(&self) -> Self::Repr {
+impl Hashable for DynResidue<{ nlimbs!(128) }> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
         // TODO: I don't think we really need `retrieve()` here,
         // but `DynResidue` objects are not serializable at the moment.
-        self.retrieve().to_be_bytes()
+        digest.chain(&self.retrieve())
     }
 }
 

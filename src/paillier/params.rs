@@ -10,7 +10,7 @@ use crypto_bigint::{
 };
 
 use super::uint::Uint;
-use crate::tools::hashing::{HashEncoding, HashInto};
+use crate::tools::hashing::{HashInto, Hashable};
 use crate::tools::jacobi::JacobiSymbolTrait;
 
 pub trait PaillierParams: PartialEq + Eq + Clone {
@@ -29,14 +29,14 @@ pub trait PaillierParams: PartialEq + Eq + Clone {
         + JacobiSymbolTrait
         + Encoding
         + HashInto
-        + HashEncoding
+        + Hashable
         + core::fmt::Display
         + core::ops::Rem<NonZero<Self::FieldElement>>;
     type GroupElement: Clone
         + Copy
         + PartialEq
         + Eq
-        + HashEncoding
+        + Hashable
         + core::ops::Neg<Output = Self::GroupElement>
         + core::ops::Add<Self::GroupElement, Output = Self::GroupElement>
         + Invert<Output = CtOption<Self::GroupElement>>

@@ -4,6 +4,7 @@
 //! where $g$ is a EC generator.
 
 use rand_core::{CryptoRng, RngCore};
+use serde::{Deserialize, Serialize};
 
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
@@ -21,7 +22,7 @@ impl SchSecret {
 }
 
 /// Public data for the proof (~ verifying key)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SchCommitment(Point);
 
 impl SchCommitment {

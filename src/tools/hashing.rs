@@ -7,12 +7,6 @@ use sha3::Shake256;
 use super::group::{NonZeroScalar, Scalar};
 
 /// Encodes the object into bytes for hashing purposes.
-pub trait HashEncoding: Sized {
-    type Repr: AsRef<[u8]> + Clone + Sized;
-    fn to_hashable_bytes(&self) -> Self::Repr;
-}
-
-/// Encodes the object into bytes for hashing purposes.
 pub trait HashInto {
     fn from_reader(reader: &mut impl XofReader) -> Self;
 }
@@ -38,7 +32,7 @@ pub trait Chain: Sized {
         self.chain_raw_bytes(&len).chain_raw_bytes(bytes.as_ref())
     }
 
-    fn chain(self, hashable: &impl Hashable) -> Self {
+    fn chain<T: Hashable>(self, hashable: &T) -> Self {
         hashable.chain(self)
     }
 }
@@ -154,13 +148,6 @@ impl Hashable for &[u8] {
 impl<const N: usize> Hashable for [u8; N] {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain_bytes(self)
-    }
-}
-
-impl<T: HashEncoding> Hashable for T {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        let bytes = self.to_hashable_bytes();
-        digest.chain_bytes(&bytes)
     }
 }
 

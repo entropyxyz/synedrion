@@ -3,6 +3,7 @@
 use alloc::collections::BTreeMap;
 
 use rand_core::OsRng;
+use serde::{Deserialize, Serialize};
 
 use super::rounds;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
@@ -12,7 +13,7 @@ use crate::tools::random::random_bits;
 
 /// $\mathcal{P}_i$.
 // Eventually this will be a node's public key which can be used as an address to send messages to.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PartyId(pub(crate) u32);
 
 impl Hashable for PartyId {
@@ -22,7 +23,7 @@ impl Hashable for PartyId {
 }
 
 /// $sid$ ("session ID") in the paper
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionInfo {
     // `G`, `q`, and `g` (curve group, order, and the generator) are hardcoded,
     // so we're not saving them here.
@@ -53,7 +54,7 @@ impl Hashable for SessionInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData {
     session_info: SessionInfo,
     party_id: PartyId,         // i
@@ -81,7 +82,7 @@ struct SecretData {
     sch_secret: SchSecret,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Round1Bcast {
     hash: Scalar,
 }
@@ -163,7 +164,7 @@ pub struct Round2 {
     hashes: BTreeMap<PartyId, Scalar>, // V_j
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Round2Bcast {
     data: FullData,
 }

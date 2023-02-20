@@ -5,25 +5,30 @@
 use core::default::Default;
 use core::ops::{Add, Mul, Sub};
 
+use k256::elliptic_curve::group::ff::PrimeField;
 use k256::elliptic_curve::{
     bigint::U256, // Note that this type is different from typenum::U256
+    generic_array::GenericArray,
     hash2curve::{ExpandMsgXmd, GroupDigest},
     ops::Reduce,
-    sec1::ToEncodedPoint,
+    sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::ConstantTimeEq,
     AffineXCoordinate,
     Field,
     FieldSize,
 };
-use k256::FieldBytes;
+use k256::{FieldBytes, Secp256k1};
 use rand_core::{CryptoRng, RngCore};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{digest::Digest, Sha256};
 
 use crate::tools::hashing::{Chain, Hashable};
+use crate::tools::serde::{deserialize, serialize, TryFromBytes};
 
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendNonZeroScalar = k256::NonZeroScalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
+pub(crate) type CompressedPointSize = <FieldSize<Secp256k1> as ModulusSize>::CompressedPointSize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Scalar(BackendScalar);
@@ -53,8 +58,43 @@ impl Scalar {
         ))
     }
 
-    pub fn to_bytes(self) -> Vec<u8> {
-        self.0.to_bytes().to_vec()
+    pub fn to_bytes(self) -> k256::FieldBytes {
+        self.0.to_bytes()
+    }
+
+    pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let arr = GenericArray::<u8, FieldSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
+            .ok_or("Invalid length of a curve scalar")?;
+
+        BackendScalar::from_repr_vartime(arr)
+            .map(Self)
+            .ok_or_else(|| "Invalid curve scalar representation".into())
+    }
+}
+
+impl Serialize for Scalar {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize(&self.0.to_bytes(), serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Scalar {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize(deserializer)
+    }
+}
+
+impl TryFromBytes for Scalar {
+    type Error = String;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 
@@ -136,14 +176,54 @@ impl Point {
         ))
     }
 
-    pub fn to_bytes(self) -> Box<[u8]> {
-        self.0.to_affine().to_encoded_point(true).as_bytes().into()
+    pub(crate) fn try_from_compressed_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let ep = EncodedPoint::<Secp256k1>::from_bytes(bytes).map_err(|err| format!("{err}"))?;
+
+        // Unwrap CtOption into Option
+        let cp_opt: Option<BackendPoint> = BackendPoint::from_encoded_point(&ep).into();
+        cp_opt
+            .map(Self)
+            .ok_or_else(|| "Invalid curve point representation".into())
+    }
+
+    pub(crate) fn to_compressed_array(self) -> GenericArray<u8, CompressedPointSize> {
+        *GenericArray::<u8, CompressedPointSize>::from_slice(
+            self.0.to_affine().to_encoded_point(true).as_bytes(),
+        )
+    }
+}
+
+impl Serialize for Point {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize(&self.to_compressed_array(), serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Point {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize(deserializer)
+    }
+}
+
+impl TryFromBytes for Point {
+    type Error = String;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_compressed_bytes(bytes)
     }
 }
 
 impl Hashable for Point {
     fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.to_bytes())
+        let arr = self.to_compressed_array();
+        let arr_ref: &[u8] = arr.as_ref();
+        digest.chain(&arr_ref)
     }
 }
 
@@ -301,15 +381,4 @@ impl<'a> core::iter::Sum<&'a Self> for Point {
     fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
         iter.cloned().sum()
     }
-}
-
-pub fn point_to_scalar(point: &Point) -> NonZeroScalar {
-    // TODO: the operation is defined as acting on G\{infinity point}.
-    // should we check in runitme? Make a NonInfinityPoint type?
-    debug_assert!(point != &Point::IDENTITY);
-
-    // TODO: check that it's the right thing to do, cryptographically speaking.
-    NonZeroScalar(
-        <BackendNonZeroScalar as Reduce<U256>>::from_be_bytes_reduced(point.0.to_affine().x()),
-    )
 }
