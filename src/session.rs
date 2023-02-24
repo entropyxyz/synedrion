@@ -8,7 +8,7 @@ mod tests {
     use tokio::time::{sleep, Duration};
 
     use crate::protocols::keygen::{PartyId, Round1, Round2, Round3, SessionInfo};
-    use crate::protocols::rounds::{OnFinalize, OnReceive, Round, ToSend};
+    use crate::protocols::rounds::{ConsensusWrapper, OnFinalize, OnReceive, Round, ToSend};
     use crate::tools::collections::HoleMap;
 
     type Id = PartyId;
@@ -45,7 +45,10 @@ mod tests {
         println!("\n*** {my_id:?}: Starting Round 1 ***\n");
 
         let round1 = Round1::new(&session_info, &my_id);
-        let (mut accum1, to_send) = round1.get_messages();
+
+        let round1_c = ConsensusWrapper(round1);
+
+        let (mut accum1, to_send) = round1_c.get_messages();
 
         match to_send {
             ToSend::Broadcast { message, ids, .. } => {
@@ -77,9 +80,8 @@ mod tests {
         };
 
         let mut next_messages = Vec::<(PartyId, Box<[u8]>)>::new();
-        let mut broadcasts = HoleMap::<Id, <Round1 as Round>::Message>::new(accum1.keys().cloned());
 
-        let round2 = loop {
+        let (round2, broadcasts) = loop {
             let (id_from, message_bytes) = rx.recv().await.unwrap();
 
             let (round, subround, message_bytes2) = deserialize_with_round(&message_bytes);
@@ -87,16 +89,12 @@ mod tests {
 
             if round == 1 && subround == 0 {
                 let message: <Round1 as Round>::Message = deserialize_message(&message_bytes2);
-                match round1.receive(&mut accum1, &id_from, message.clone()) {
+                match round1_c.receive(&mut accum1, &id_from, message.clone()) {
                     OnReceive::Ok => {}
                     OnReceive::InvalidId => panic!("Invalid ID"),
                     OnReceive::AlreadyReceived => panic!("Already received from this ID"),
                     OnReceive::Fatal(err) => panic!("Error validating message: {err}"),
                 };
-
-                let bc = broadcasts.get_mut(&id_from).unwrap();
-                assert!(bc.is_none());
-                *bc = Some(message);
             } else if round == 1 && subround == 1 {
                 println!("{my_id:?}: pushing 1-1 message");
                 next_messages.push((id_from, message_bytes2));
@@ -104,17 +102,12 @@ mod tests {
                 panic!("{my_id:?}: unexpected message from round {round}-{subround}");
             }
 
-            if Round1::can_finalize(&accum1) {
-                match round1.clone().try_finalize(accum1.clone()) {
+            if ConsensusWrapper::<Round1>::can_finalize(&accum1) {
+                match round1_c.clone().try_finalize(accum1.clone()) {
                     OnFinalize::NotFinished(_) => panic!("Could not finalize"),
                     OnFinalize::Finished(s) => break s,
                 };
             }
-        };
-
-        let broadcasts = match broadcasts.try_finalize() {
-            Err(_) => panic!("Could not finalize"),
-            Ok(s) => s,
         };
 
         println!("\n*** {my_id:?}: Starting Round 1 consensus ***\n");
@@ -154,9 +147,9 @@ mod tests {
 
         loop {
             if bc_accum.can_finalize() {
-                match round1.clone().try_finalize(accum1.clone()) {
-                    OnFinalize::NotFinished(_) => panic!("Could not finalize"),
-                    OnFinalize::Finished(_) => break,
+                match bc_accum.clone().try_finalize() {
+                    Err(_) => panic!("Could not finalize"),
+                    Ok(_) => break,
                 };
             }
 

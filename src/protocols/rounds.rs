@@ -15,7 +15,7 @@ pub enum ToSend<Id, Message> {
 pub(crate) trait Round: Sized {
     type Id: Sized + Eq + Ord + Clone;
     type Error: Sized;
-    type Message: Sized;
+    type Message: Sized + Clone;
     type Payload: Sized + Clone;
     type NextRound: Sized;
 
@@ -81,6 +81,41 @@ pub(crate) trait Round: Sized {
         };
 
         OnFinalize::Finished(self.finalize(accum_final))
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ConsensusWrapper<R: Round>(pub(crate) R);
+
+impl<R: Round> Round for ConsensusWrapper<R> {
+    type Id = R::Id;
+    type Error = R::Error;
+    type Message = R::Message;
+    type Payload = (R::Payload, R::Message);
+    type NextRound = (R::NextRound, BTreeMap<Self::Id, Self::Message>);
+
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+        self.0.to_send()
+    }
+    fn verify_received(
+        &self,
+        from: &Self::Id,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        self.0
+            .verify_received(from, msg.clone())
+            .map(|payload| (payload, msg))
+    }
+    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+        let (payloads, messages): (
+            BTreeMap<Self::Id, R::Payload>,
+            BTreeMap<Self::Id, R::Message>,
+        ) = payloads
+            .into_iter()
+            .map(|(id, (payload, message))| ((id.clone(), payload), (id, message)))
+            .unzip();
+        let next_round = self.0.finalize(payloads);
+        (next_round, messages)
     }
 }
 
