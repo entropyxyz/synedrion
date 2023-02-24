@@ -10,6 +10,7 @@ use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 
 /// Secret data the proof is based on (~ signing key)
+#[derive(Clone)]
 pub(crate) struct SchSecret(
     /// `\alpha`
     NonZeroScalar,

@@ -66,6 +66,11 @@ pub(crate) trait Round: Sized {
         }
     }
 
+    // TODO: move to accum when it is its own type?
+    fn can_finalize(accum: &HoleMap<Self::Id, Self::Payload>) -> bool {
+        accum.can_finalize()
+    }
+
     fn try_finalize(
         self,
         accum: HoleMap<Self::Id, Self::Payload>,

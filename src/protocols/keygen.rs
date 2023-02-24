@@ -77,16 +77,18 @@ impl FullData {
     }
 }
 
+#[derive(Clone)]
 struct SecretData {
     key_share: NonZeroScalar,
     sch_secret: SchSecret,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Round1Bcast {
     hash: Scalar,
 }
 
+#[derive(Clone)]
 pub struct Round1 {
     other_parties: Vec<PartyId>,
     secret_data: SecretData,
@@ -158,6 +160,7 @@ impl rounds::Round for Round1 {
     }
 }
 
+#[derive(Clone)]
 pub struct Round2 {
     secret_data: SecretData,
     data: FullData,
