@@ -119,6 +119,50 @@ impl<R: Round> Round for ConsensusWrapper<R> {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct ConsensusRound<R: Round> {
+    pub(crate) id: R::Id,
+    pub(crate) broadcasts: BTreeMap<R::Id, R::Message>,
+}
+
+impl<R: Round> Round for ConsensusRound<R>
+where
+    <R as Round>::Message: PartialEq,
+{
+    type Id = R::Id;
+    type Error = String;
+    type Message = BTreeMap<Self::Id, R::Message>;
+    type Payload = ();
+    type NextRound = ();
+
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+        ToSend::Broadcast {
+            ids: self.broadcasts.keys().cloned().collect(),
+            message: self.broadcasts.clone(),
+            needs_consensus: false,
+        }
+    }
+    fn verify_received(
+        &self,
+        _from: &Self::Id,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        // TODO: should we save our own broadcast,
+        // and check that the other nodes received it?
+        // Or is this excessive since they are signed by us anyway?
+        for (id, broadcast) in msg {
+            if id != self.id && self.broadcasts[&id] != broadcast {
+                // TODO: specify which node the conflicting broadcast was from
+                return Err("Received conflicting broadcasts".into());
+            }
+        }
+        Ok(())
+    }
+    fn finalize(self, _payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+        ()
+    }
+}
+
 pub(crate) enum OnFinalize<ThisState, NextState> {
     Finished(NextState),
     NotFinished(ThisState),

@@ -8,7 +8,9 @@ mod tests {
     use tokio::time::{sleep, Duration};
 
     use crate::protocols::keygen::{PartyId, Round1, Round2, Round3, SessionInfo};
-    use crate::protocols::rounds::{ConsensusWrapper, OnFinalize, OnReceive, Round, ToSend};
+    use crate::protocols::rounds::{
+        ConsensusRound, ConsensusWrapper, OnFinalize, OnReceive, Round, ToSend,
+    };
     use crate::tools::collections::HoleMap;
 
     type Id = PartyId;
@@ -112,70 +114,58 @@ mod tests {
 
         println!("\n*** {my_id:?}: Starting Round 1 consensus ***\n");
 
-        // Re-broadcast
-        let bc_list = broadcasts.iter().collect::<Vec<_>>();
-        let message = serialize_message(&bc_list);
-        let message_bytes = serialize_with_round(1, 1, &message);
-        println!("{my_id:?}: sending 1-1 message");
+        let round1_bc = ConsensusRound::<Round1> {
+            id: my_id.clone(),
+            broadcasts,
+        };
+        let (mut accum11, to_send) = round1_bc.get_messages();
 
-        for id_to in broadcasts.keys() {
-            tx.send((my_id.clone(), id_to.clone(), message_bytes.clone()))
-                .await
-                .unwrap();
-        }
-
-        let mut bc_accum = HoleMap::<Id, ()>::new(broadcasts.keys().cloned());
-
-        for (id_from, message_bytes) in next_messages.drain(0..) {
-            println!("{my_id:?}: applying a cached 1-1 message from {id_from:?}");
-            let message: Vec<(Id, <Round1 as Round>::Message)> =
-                deserialize_message(&message_bytes);
-            // TODO: check that id is among node ids, check that all ids are present
-            for (id, msg) in message {
-                // TODO: should we save our own broadcast,
-                // and check that the other nodes received them?
-                // Or is this excessive since they are signed by us anyway?
-                if id != my_id && broadcasts[&id] != msg {
-                    panic!("{my_id:?}: {id_from:?} received a different broadcast from {id:?}");
+        match to_send {
+            ToSend::Broadcast { message, ids, .. } => {
+                let message_bytes = serialize_message(&message);
+                for id_to in ids {
+                    println!("{my_id:?}: sending broadcast to {id_to:?}");
+                    tx.send((
+                        my_id.clone(),
+                        id_to.clone(),
+                        serialize_with_round(1, 1, &message_bytes),
+                    ))
+                    .await
+                    .unwrap();
                 }
             }
-
-            let acc = bc_accum.get_mut(&id_from).unwrap();
-            assert!(acc.is_none());
-            *acc = Some(());
-        }
+            ToSend::Direct(_msgs) => {
+                unimplemented!()
+            }
+        };
 
         loop {
-            if bc_accum.can_finalize() {
-                match bc_accum.clone().try_finalize() {
-                    Err(_) => panic!("Could not finalize"),
-                    Ok(_) => break,
-                };
-            }
-
             let (id_from, message_bytes) = rx.recv().await.unwrap();
 
             let (round, subround, message_bytes2) = deserialize_with_round(&message_bytes);
             println!("{my_id:?}: received a message from {id_from:?} for round {round}-{subround}");
 
             if round == 1 && subround == 1 {
-                let message: Vec<(Id, <Round1 as Round>::Message)> =
+                let message: <ConsensusRound<Round1> as Round>::Message =
                     deserialize_message(&message_bytes2);
-
-                // TODO: check that id is among node ids, check that all ids are present
-                for (id, msg) in message {
-                    if id != my_id && broadcasts[&id] != msg {
-                        panic!("{my_id:?}: {id_from:?} received a different broadcast from {id:?}");
-                    }
-                }
-
-                let acc = bc_accum.get_mut(&id_from).unwrap();
-                assert!(acc.is_none());
-                *acc = Some(());
+                match round1_bc.receive(&mut accum11, &id_from, message.clone()) {
+                    OnReceive::Ok => {}
+                    OnReceive::InvalidId => panic!("Invalid ID"),
+                    OnReceive::AlreadyReceived => panic!("Already received from this ID"),
+                    OnReceive::Fatal(err) => panic!("Error validating message: {err}"),
+                };
             } else if round == 2 && subround == 0 {
+                println!("{my_id:?}: pushing 2-0 message");
                 next_messages.push((id_from, message_bytes2));
             } else {
                 panic!("{my_id:?}: unexpected message from round {round}-{subround}");
+            }
+
+            if ConsensusRound::<Round1>::can_finalize(&accum11) {
+                match round1_bc.clone().try_finalize(accum11.clone()) {
+                    OnFinalize::NotFinished(_) => panic!("Could not finalize"),
+                    OnFinalize::Finished(_) => break,
+                };
             }
         }
 
