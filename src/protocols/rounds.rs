@@ -86,10 +86,26 @@ pub(crate) trait Round: Sized {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct ConsensusWrapper<R: Round>(pub(crate) R);
+// TODO: find a way to move `get_messages()` in this trait.
+// For now it will just stay a marker trait.
+pub(crate) trait BroadcastRound: Round {}
 
-impl<R: Round> Round for ConsensusWrapper<R> {
+pub(crate) trait DirectRound: Round {}
+
+pub(crate) trait ConsensusBroadcastRound: BroadcastRound {
+    fn id(&self) -> Self::Id;
+}
+
+#[derive(Clone)]
+pub(crate) struct ConsensusWrapper<R: ConsensusBroadcastRound>(pub(crate) R);
+
+impl<R: ConsensusBroadcastRound> ConsensusWrapper<R> {
+    pub(crate) fn id(&self) -> R::Id {
+        self.0.id()
+    }
+}
+
+impl<R: ConsensusBroadcastRound> Round for ConsensusWrapper<R> {
     type Id = R::Id;
     type Error = R::Error;
     type Message = R::Message;
@@ -121,13 +137,15 @@ impl<R: Round> Round for ConsensusWrapper<R> {
     }
 }
 
+impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusWrapper<R> {}
+
 #[derive(Clone)]
 pub(crate) struct ConsensusRound<R: Round> {
     pub(crate) id: R::Id,
     pub(crate) broadcasts: BTreeMap<R::Id, R::Message>,
 }
 
-impl<R: Round> Round for ConsensusRound<R>
+impl<R: ConsensusBroadcastRound> Round for ConsensusRound<R>
 where
     <R as Round>::Message: PartialEq,
 {
@@ -163,6 +181,11 @@ where
     fn finalize(self, _payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
         ()
     }
+}
+
+impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusRound<R> where
+    <R as Round>::Message: PartialEq
+{
 }
 
 pub(crate) enum OnFinalize<ThisState, NextState> {

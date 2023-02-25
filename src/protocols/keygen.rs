@@ -160,6 +160,14 @@ impl rounds::Round for Round1 {
     }
 }
 
+impl rounds::BroadcastRound for Round1 {}
+
+impl rounds::ConsensusBroadcastRound for Round1 {
+    fn id(&self) -> Self::Id {
+        self.data.party_id.clone()
+    }
+}
+
 #[derive(Clone)]
 pub struct Round2 {
     secret_data: SecretData,
@@ -217,6 +225,8 @@ impl rounds::Round for Round2 {
         }
     }
 }
+
+impl rounds::BroadcastRound for Round2 {}
 
 #[derive(Clone)]
 pub struct Round3 {
@@ -283,6 +293,8 @@ impl rounds::Round for Round3 {
         }
     }
 }
+
+impl rounds::BroadcastRound for Round3 {}
 
 #[derive(Clone)]
 pub struct KeyShare {

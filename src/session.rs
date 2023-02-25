@@ -9,7 +9,8 @@ mod tests {
 
     use crate::protocols::keygen::{KeyShare, PartyId, Round1, Round2, Round3, SessionInfo};
     use crate::protocols::rounds::{
-        ConsensusRound, ConsensusWrapper, OnFinalize, OnReceive, Round, ToSend,
+        BroadcastRound, ConsensusBroadcastRound, ConsensusRound, ConsensusWrapper, OnFinalize,
+        OnReceive, Round, ToSend,
     };
     use crate::tools::collections::HoleMap;
 
@@ -37,7 +38,7 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct PreConsensusSubstage<R: Round<Id = PartyId>>
+    struct PreConsensusSubstage<R: ConsensusBroadcastRound<Id = PartyId>>
     where
         for<'de> <R as Round>::Message: Deserialize<'de>,
     {
@@ -45,7 +46,7 @@ mod tests {
         accum: Option<HoleMap<R::Id, <ConsensusWrapper<R> as Round>::Payload>>,
     }
 
-    impl<R: Round<Id = PartyId>> PreConsensusSubstage<R>
+    impl<R: ConsensusBroadcastRound<Id = PartyId>> PreConsensusSubstage<R>
     where
         for<'de> <R as Round>::Message: Deserialize<'de>,
     {
@@ -80,13 +81,15 @@ mod tests {
             }
         }
 
-        fn finalize(self) -> <ConsensusWrapper<R> as Round>::NextRound {
-            finalize(self.round, self.accum.unwrap())
+        fn finalize(self) -> (R::Id, <ConsensusWrapper<R> as Round>::NextRound) {
+            // TODO: make it so that finalize() result could be immediately passed
+            // to the new() of the next round withour restructuring
+            (self.round.id(), finalize(self.round, self.accum.unwrap()))
         }
     }
 
     #[derive(Clone)]
-    struct ConsensusSubstage<R: Round<Id = PartyId>>
+    struct ConsensusSubstage<R: ConsensusBroadcastRound<Id = PartyId>>
     where
         R::Message: PartialEq,
         for<'de> <R as Round>::Message: Deserialize<'de>,
@@ -96,7 +99,7 @@ mod tests {
         accum: Option<HoleMap<R::Id, <ConsensusRound<R> as Round>::Payload>>,
     }
 
-    impl<R: Round<Id = PartyId>> ConsensusSubstage<R>
+    impl<R: ConsensusBroadcastRound<Id = PartyId>> ConsensusSubstage<R>
     where
         R::Message: PartialEq,
         for<'de> <R as Round>::Message: Deserialize<'de>,
@@ -189,20 +192,6 @@ mod tests {
         }
     }
 
-    enum Stage {
-        Round1(PreConsensusSubstage<Round1>),
-        Round1Consensus(ConsensusSubstage<Round1>),
-        Round2(NormalSubstage<Round2>),
-        Round3(NormalSubstage<Round3>),
-        Result(KeyShare),
-    }
-
-    struct Session {
-        id: PartyId,
-        next_stage_messages: Vec<(PartyId, Box<[u8]>)>,
-        stage: Stage,
-    }
-
     fn get_messages<R: Round<Id = PartyId>>(
         round: &R,
         stage_num: u8,
@@ -262,118 +251,171 @@ mod tests {
         }
     }
 
-    impl Session {
+    // TODO: may be able to get rid of the clone requirement - perhaps with `take_mut`.
+    trait SessionStages: Clone {
+        fn get_messages(&mut self) -> ToSend<Id, Box<[u8]>>;
+        fn receive_current_stage(&mut self, from: Id, message_bytes: &[u8]);
+        fn is_finished_receiving(&self) -> bool;
+        fn finalize_stage(self) -> Self;
+        fn is_final_stage(&self) -> bool;
+        fn current_stage_num(&self) -> u8;
+        fn stages_num(&self) -> u8;
+        fn result(&self) -> Self::Result;
+        type Result;
+    }
+
+    #[derive(Clone)]
+    enum KeygenStage {
+        Round1(PreConsensusSubstage<Round1>),
+        Round1Consensus(ConsensusSubstage<Round1>),
+        Round2(NormalSubstage<Round2>),
+        Round3(NormalSubstage<Round3>),
+        Result(KeyShare),
+    }
+
+    impl KeygenStage {
         fn new(session_info: &SessionInfo, my_id: &Id) -> Self {
             let round1 = Round1::new(session_info, my_id);
-            Self {
-                id: my_id.clone(),
-                next_stage_messages: Vec::new(),
-                stage: Stage::Round1(PreConsensusSubstage::new(round1)),
-            }
+            Self::Round1(PreConsensusSubstage::new(round1))
         }
+    }
+
+    impl SessionStages for KeygenStage {
+        type Result = KeyShare;
 
         fn get_messages(&mut self) -> ToSend<Id, Box<[u8]>> {
             let stage_num = self.current_stage_num();
-            match &mut self.stage {
+            match self {
                 // TODO: attach the stage number a level higher
-                Stage::Round1(r) => r.get_messages(stage_num),
-                Stage::Round1Consensus(r) => r.get_messages(stage_num),
-                Stage::Round2(r) => r.get_messages(stage_num),
-                Stage::Round3(r) => r.get_messages(stage_num),
+                Self::Round1(r) => r.get_messages(stage_num),
+                Self::Round1Consensus(r) => r.get_messages(stage_num),
+                Self::Round2(r) => r.get_messages(stage_num),
+                Self::Round3(r) => r.get_messages(stage_num),
                 _ => panic!(),
             }
         }
 
         fn receive_current_stage(&mut self, from: Id, message_bytes: &[u8]) {
-            match &mut self.stage {
-                Stage::Round1(r) => r.receive(from, &message_bytes),
-                Stage::Round1Consensus(r) => r.receive(from, &message_bytes),
-                Stage::Round2(r) => r.receive(from, &message_bytes),
-                Stage::Round3(r) => r.receive(from, &message_bytes),
+            match self {
+                Self::Round1(r) => r.receive(from, &message_bytes),
+                Self::Round1Consensus(r) => r.receive(from, &message_bytes),
+                Self::Round2(r) => r.receive(from, &message_bytes),
+                Self::Round3(r) => r.receive(from, &message_bytes),
                 _ => panic!(),
             }
-        }
-
-        fn receive(&mut self, from: Id, message_bytes: &[u8]) {
-            let stage_num = self.current_stage_num();
-            let max_stages = self.stages_num();
-            let (stage, message_bytes) = deserialize_with_round(&message_bytes);
-
-            if stage == stage_num + 1 && stage <= max_stages {
-                self.next_stage_messages.push((from, message_bytes));
-            } else if stage == stage_num {
-                self.receive_current_stage(from, &message_bytes);
-            } else {
-                panic!(
-                    "{:?}: unexpected message from round {stage} (current stage: {})",
-                    self.id, stage_num
-                );
-            }
-        }
-
-        fn receive_cached_message(&mut self) {
-            let (from, message_bytes) = self.next_stage_messages.pop().unwrap();
-            self.receive_current_stage(from, &message_bytes);
         }
 
         fn is_finished_receiving(&self) -> bool {
-            match &self.stage {
-                Stage::Round1(r) => r.is_finished_receiving(),
-                Stage::Round1Consensus(r) => r.is_finished_receiving(),
-                Stage::Round2(r) => r.is_finished_receiving(),
-                Stage::Round3(r) => r.is_finished_receiving(),
+            match &self {
+                Self::Round1(r) => r.is_finished_receiving(),
+                Self::Round1Consensus(r) => r.is_finished_receiving(),
+                Self::Round2(r) => r.is_finished_receiving(),
+                Self::Round3(r) => r.is_finished_receiving(),
                 _ => panic!(),
             }
         }
 
-        fn finalize_stage(&mut self) {
-            let new_stage = match &self.stage {
-                Stage::Round1(r) => {
-                    let (new_round, broadcasts) = r.clone().finalize();
-                    Stage::Round1Consensus(ConsensusSubstage::new(
-                        self.id.clone(),
-                        new_round,
-                        broadcasts,
-                    ))
+        fn finalize_stage(self) -> Self {
+            match self {
+                Self::Round1(r) => {
+                    let (id, (new_round, broadcasts)) = r.finalize();
+                    Self::Round1Consensus(ConsensusSubstage::new(id, new_round, broadcasts))
                 }
-                Stage::Round1Consensus(r) => {
-                    let next_round = r.clone().finalize();
-                    Stage::Round2(NormalSubstage::new(next_round))
-                }
-                Stage::Round2(r) => Stage::Round3(NormalSubstage::new(r.clone().finalize())),
-                Stage::Round3(r) => Stage::Result(r.clone().finalize()),
+                Self::Round1Consensus(r) => Self::Round2(NormalSubstage::new(r.finalize())),
+                Self::Round2(r) => Self::Round3(NormalSubstage::new(r.finalize())),
+                Self::Round3(r) => Self::Result(r.finalize()),
                 _ => panic!(),
-            };
-
-            self.stage = new_stage;
+            }
         }
 
         fn result(&self) -> KeyShare {
-            match &self.stage {
-                Stage::Result(r) => r.clone(),
+            match self {
+                Self::Result(r) => r.clone(),
                 _ => panic!(),
             }
         }
 
         fn is_final_stage(&self) -> bool {
-            match self.stage {
-                Stage::Result(_) => true,
+            match self {
+                Self::Result(_) => true,
                 _ => false,
             }
         }
 
         fn current_stage_num(&self) -> u8 {
-            match self.stage {
-                Stage::Round1(_) => 1,
-                Stage::Round1Consensus(_) => 2,
-                Stage::Round2(_) => 3,
-                Stage::Round3(_) => 4,
+            match self {
+                Self::Round1(_) => 1,
+                Self::Round1Consensus(_) => 2,
+                Self::Round2(_) => 3,
+                Self::Round3(_) => 4,
                 _ => panic!(),
             }
         }
 
         fn stages_num(&self) -> u8 {
             4
+        }
+    }
+
+    struct Session<S: SessionStages> {
+        next_stage_messages: Vec<(PartyId, Box<[u8]>)>,
+        stage: S,
+    }
+
+    impl<S: SessionStages> Session<S> {
+        fn new(stage: S) -> Self {
+            Self {
+                next_stage_messages: Vec::new(),
+                stage,
+            }
+        }
+
+        fn get_messages(&mut self) -> ToSend<Id, Box<[u8]>> {
+            self.stage.get_messages()
+        }
+
+        fn receive(&mut self, from: Id, message_bytes: &[u8]) {
+            let stage_num = self.stage.current_stage_num();
+            let max_stages = self.stage.stages_num();
+            let (stage, message_bytes) = deserialize_with_round(&message_bytes);
+
+            if stage == stage_num + 1 && stage <= max_stages {
+                self.next_stage_messages.push((from, message_bytes));
+            } else if stage == stage_num {
+                self.stage.receive_current_stage(from, &message_bytes);
+            } else {
+                panic!("Unexpected message from round {stage} (current stage: {stage_num})");
+            }
+        }
+
+        fn receive_cached_message(&mut self) {
+            let (from, message_bytes) = self.next_stage_messages.pop().unwrap();
+            self.stage.receive_current_stage(from, &message_bytes);
+        }
+
+        fn is_finished_receiving(&self) -> bool {
+            self.stage.is_finished_receiving()
+        }
+
+        fn finalize_stage(&mut self) {
+            // TODO: check that there are no cached messages left
+            self.stage = self.stage.clone().finalize_stage();
+        }
+
+        fn result(&self) -> S::Result {
+            self.stage.result()
+        }
+
+        fn is_final_stage(&self) -> bool {
+            self.stage.is_final_stage()
+        }
+
+        fn current_stage_num(&self) -> u8 {
+            self.stage.current_stage_num()
+        }
+
+        fn stages_num(&self) -> u8 {
+            self.stage.stages_num()
         }
 
         fn has_cached_messages(&self) -> bool {
@@ -388,7 +430,7 @@ mod tests {
         session_info: SessionInfo,
     ) -> KeyShare {
         let mut rx = rx;
-        let mut session = Session::new(&session_info, &my_id);
+        let mut session = Session::new(KeygenStage::new(&session_info, &my_id));
 
         while !session.is_final_stage() {
             println!(
