@@ -218,6 +218,7 @@ impl rounds::Round for Round2 {
     }
 }
 
+#[derive(Clone)]
 pub struct Round3 {
     datas: BTreeMap<PartyId, FullData>,
     data: FullData,

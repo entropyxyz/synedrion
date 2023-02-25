@@ -36,215 +36,307 @@ mod tests {
         rmp_serde::decode::from_slice(message_bytes).unwrap()
     }
 
-    async fn node(
+    enum Stage {
+        Round1(ConsensusWrapper<Round1>),
+        Round1R {
+            round: ConsensusWrapper<Round1>,
+            accum: HoleMap<PartyId, <ConsensusWrapper<Round1> as Round>::Payload>,
+        },
+        Round1Consensus {
+            next_round: Round2,
+            round: ConsensusRound<Round1>,
+        },
+        Round1ConsensusR {
+            next_round: Round2,
+            round: ConsensusRound<Round1>,
+            accum: HoleMap<PartyId, <ConsensusRound<Round1> as Round>::Payload>,
+        },
+        Round2(Round2),
+        Round2R {
+            round: Round2,
+            accum: HoleMap<PartyId, <Round2 as Round>::Payload>,
+        },
+        Result(Round3),
+    }
+
+    struct Session {
+        id: PartyId,
+        next_stage_messages: Vec<(PartyId, Box<[u8]>)>,
+        stage: Stage,
+    }
+
+    fn get_messages<R: Round<Id = PartyId>>(
+        round: &R,
+        stage_num: u8,
+    ) -> (HoleMap<Id, R::Payload>, ToSend<Id, Box<[u8]>>)
+    where
+        R::Message: Serialize,
+    {
+        let (accum, to_send) = round.get_messages();
+        let to_send = match to_send {
+            ToSend::Broadcast { message, ids, .. } => {
+                let message_bytes = serialize_message(&message);
+                let full_message_bytes = serialize_with_round(stage_num, 0, &message_bytes);
+                ToSend::Broadcast {
+                    message: full_message_bytes,
+                    ids,
+                    needs_consensus: false,
+                }
+            }
+            ToSend::Direct(msgs) => ToSend::Direct(
+                msgs.into_iter()
+                    .map(|(id, message)| {
+                        let message_bytes = serialize_message(&message);
+                        let full_message_bytes = serialize_with_round(stage_num, 0, &message_bytes);
+                        (id, full_message_bytes)
+                    })
+                    .collect(),
+            ),
+        };
+        (accum, to_send)
+    }
+
+    fn receive<R: Round<Id = PartyId>>(
+        round: &R,
+        accum: &mut HoleMap<Id, R::Payload>,
+        from: &Id,
+        message_bytes: &[u8],
+    ) where
+        for<'de> R::Message: Deserialize<'de>,
+    {
+        let message: R::Message = deserialize_message(&message_bytes);
+        match round.receive(accum, from, message) {
+            OnReceive::Ok => {}
+            OnReceive::InvalidId => panic!("Invalid ID"),
+            OnReceive::AlreadyReceived => panic!("Already received from this ID"),
+            OnReceive::Fatal(_err) => panic!("Error validating message"),
+        };
+    }
+
+    fn finalize<R: Round<Id = PartyId>>(round: R, accum: HoleMap<Id, R::Payload>) -> R::NextRound {
+        if R::can_finalize(&accum) {
+            match round.try_finalize(accum) {
+                OnFinalize::NotFinished(_) => panic!("Could not finalize"),
+                OnFinalize::Finished(next_round) => next_round,
+            }
+        } else {
+            panic!();
+        }
+    }
+
+    impl Session {
+        fn new(session_info: &SessionInfo, my_id: &Id) -> Self {
+            let round1 = Round1::new(session_info, my_id);
+            Self {
+                id: my_id.clone(),
+                next_stage_messages: Vec::new(),
+                stage: Stage::Round1(ConsensusWrapper(round1)),
+            }
+        }
+
+        fn get_messages(&mut self) -> ToSend<Id, Box<[u8]>> {
+            let stage_num = self.current_stage_num();
+            let (new_stage, to_send) = match &self.stage {
+                Stage::Round1(r) => {
+                    let (accum, to_send) = get_messages(r, stage_num);
+                    // TODO: may be possible to avoid cloning here
+                    let new_stage = Stage::Round1R {
+                        round: r.clone(),
+                        accum,
+                    };
+                    (new_stage, to_send)
+                }
+                Stage::Round1Consensus { round, next_round } => {
+                    let (accum, to_send) = get_messages(round, stage_num);
+                    // TODO: may be possible to avoid cloning here
+                    let new_stage = Stage::Round1ConsensusR {
+                        next_round: next_round.clone(),
+                        round: round.clone(),
+                        accum,
+                    };
+                    (new_stage, to_send)
+                }
+                Stage::Round2(r) => {
+                    let (accum, to_send) = get_messages(r, stage_num);
+                    // TODO: may be possible to avoid cloning here
+                    let new_stage = Stage::Round2R {
+                        round: r.clone(),
+                        accum,
+                    };
+                    (new_stage, to_send)
+                }
+                _ => panic!(),
+            };
+            self.stage = new_stage;
+            to_send
+        }
+
+        fn receive(&mut self, from: Id, message_bytes: &[u8]) {
+            let stage_num = self.current_stage_num();
+            let max_stages = self.stages_num();
+            let (stage, _, message_bytes) = deserialize_with_round(&message_bytes);
+
+            if stage == stage_num + 1 && stage <= max_stages {
+                self.next_stage_messages.push((from, message_bytes));
+            } else if stage == stage_num {
+                match &mut self.stage {
+                    Stage::Round1R { round, accum } => receive(round, accum, &from, &message_bytes),
+                    Stage::Round1ConsensusR { round, accum, .. } => {
+                        receive(round, accum, &from, &message_bytes)
+                    }
+                    Stage::Round2R { round, accum } => receive(round, accum, &from, &message_bytes),
+                    _ => panic!(),
+                }
+            } else {
+                panic!(
+                    "{:?}: unexpected message from round {stage} (current stage: {})",
+                    self.id, stage_num
+                );
+            }
+        }
+
+        fn receive_cached_message(&mut self) {
+            let (from, message_bytes) = self.next_stage_messages.pop().unwrap();
+
+            match &mut self.stage {
+                Stage::Round1R { round, accum } => receive(round, accum, &from, &message_bytes),
+                Stage::Round1ConsensusR { round, accum, .. } => {
+                    receive(round, accum, &from, &message_bytes)
+                }
+                Stage::Round2R { round, accum } => receive(round, accum, &from, &message_bytes),
+                _ => panic!(),
+            }
+        }
+
+        fn is_finished_receiving(&self) -> bool {
+            match &self.stage {
+                Stage::Round1R { accum, .. } => ConsensusWrapper::<Round1>::can_finalize(&accum),
+                Stage::Round1ConsensusR { accum, .. } => {
+                    ConsensusRound::<Round1>::can_finalize(&accum)
+                }
+                Stage::Round2R { accum, .. } => Round2::can_finalize(&accum),
+                _ => panic!(),
+            }
+        }
+
+        fn finalize_stage(&mut self) {
+            let new_stage = match &self.stage {
+                Stage::Round1R { round, accum } => {
+                    let (new_round, broadcasts) = finalize(round.clone(), accum.clone());
+                    Stage::Round1Consensus {
+                        next_round: new_round,
+                        round: ConsensusRound::<Round1> {
+                            id: self.id.clone(),
+                            broadcasts,
+                        },
+                    }
+                }
+                Stage::Round1ConsensusR {
+                    next_round,
+                    round,
+                    accum,
+                } => {
+                    finalize(round.clone(), accum.clone());
+                    Stage::Round2(next_round.clone())
+                }
+                Stage::Round2R { round, accum } => {
+                    let next_round = finalize(round.clone(), accum.clone());
+                    Stage::Result(next_round)
+                }
+                _ => panic!(),
+            };
+
+            self.stage = new_stage;
+        }
+
+        fn result(&self) -> Round3 {
+            match &self.stage {
+                Stage::Result(r) => r.clone(),
+                _ => panic!(),
+            }
+        }
+
+        fn is_final_stage(&self) -> bool {
+            match self.stage {
+                Stage::Result(_) => true,
+                _ => false,
+            }
+        }
+
+        fn current_stage_num(&self) -> u8 {
+            match self.stage {
+                Stage::Round1(_) => 1,
+                Stage::Round1R { .. } => 1,
+                Stage::Round1Consensus { .. } => 2,
+                Stage::Round1ConsensusR { .. } => 2,
+                Stage::Round2(_) => 3,
+                Stage::Round2R { .. } => 3,
+                _ => panic!(),
+            }
+        }
+
+        fn stages_num(&self) -> u8 {
+            3
+        }
+
+        fn has_cached_messages(&self) -> bool {
+            self.next_stage_messages.len() > 0
+        }
+    }
+
+    async fn node_session(
         tx: mpsc::Sender<(Id, Id, Box<[u8]>)>,
         rx: mpsc::Receiver<Message>,
         my_id: Id,
         session_info: SessionInfo,
     ) -> Round3 {
         let mut rx = rx;
+        let mut session = Session::new(&session_info, &my_id);
 
-        println!("\n*** {my_id:?}: Starting Round 1 ***\n");
+        while !session.is_final_stage() {
+            println!(
+                "*** {:?}: starting stage {}",
+                my_id,
+                session.current_stage_num()
+            );
 
-        let round1 = Round1::new(&session_info, &my_id);
+            let to_send = session.get_messages();
 
-        let round1_c = ConsensusWrapper(round1);
-
-        let (mut accum1, to_send) = round1_c.get_messages();
-
-        match to_send {
-            ToSend::Broadcast { message, ids, .. } => {
-                let message_bytes = serialize_message(&message);
-                for id_to in ids {
-                    println!("{my_id:?}: sending broadcast to {id_to:?}");
-                    tx.send((
-                        my_id.clone(),
-                        id_to.clone(),
-                        serialize_with_round(1, 0, &message_bytes),
-                    ))
-                    .await
-                    .unwrap();
+            match to_send {
+                ToSend::Broadcast { message, ids, .. } => {
+                    for id_to in ids {
+                        tx.send((my_id.clone(), id_to.clone(), message.clone()))
+                            .await
+                            .unwrap();
+                    }
                 }
-            }
-            ToSend::Direct(msgs) => {
-                for (id_to, message) in msgs.into_iter() {
-                    println!("{my_id:?}: sending direct to {id_to:?}");
-                    let message_bytes = serialize_message(&message);
-                    tx.send((
-                        my_id.clone(),
-                        id_to.clone(),
-                        serialize_with_round(1, 0, &message_bytes),
-                    ))
-                    .await
-                    .unwrap();
+                ToSend::Direct(msgs) => {
+                    for (id_to, message) in msgs.into_iter() {
+                        tx.send((my_id.clone(), id_to.clone(), message))
+                            .await
+                            .unwrap();
+                    }
                 }
-            }
-        };
-
-        let mut next_messages = Vec::<(PartyId, Box<[u8]>)>::new();
-
-        let (round2, broadcasts) = loop {
-            let (id_from, message_bytes) = rx.recv().await.unwrap();
-
-            let (round, subround, message_bytes2) = deserialize_with_round(&message_bytes);
-            println!("{my_id:?}: received a message from {id_from:?} for round {round}-{subround}");
-
-            if round == 1 && subround == 0 {
-                let message: <Round1 as Round>::Message = deserialize_message(&message_bytes2);
-                match round1_c.receive(&mut accum1, &id_from, message.clone()) {
-                    OnReceive::Ok => {}
-                    OnReceive::InvalidId => panic!("Invalid ID"),
-                    OnReceive::AlreadyReceived => panic!("Already received from this ID"),
-                    OnReceive::Fatal(err) => panic!("Error validating message: {err}"),
-                };
-            } else if round == 1 && subround == 1 {
-                println!("{my_id:?}: pushing 1-1 message");
-                next_messages.push((id_from, message_bytes2));
-            } else {
-                panic!("{my_id:?}: unexpected message from round {round}-{subround}");
-            }
-
-            if ConsensusWrapper::<Round1>::can_finalize(&accum1) {
-                match round1_c.clone().try_finalize(accum1.clone()) {
-                    OnFinalize::NotFinished(_) => panic!("Could not finalize"),
-                    OnFinalize::Finished(s) => break s,
-                };
-            }
-        };
-
-        println!("\n*** {my_id:?}: Starting Round 1 consensus ***\n");
-
-        let round1_bc = ConsensusRound::<Round1> {
-            id: my_id.clone(),
-            broadcasts,
-        };
-        let (mut accum11, to_send) = round1_bc.get_messages();
-
-        match to_send {
-            ToSend::Broadcast { message, ids, .. } => {
-                let message_bytes = serialize_message(&message);
-                for id_to in ids {
-                    println!("{my_id:?}: sending broadcast to {id_to:?}");
-                    tx.send((
-                        my_id.clone(),
-                        id_to.clone(),
-                        serialize_with_round(1, 1, &message_bytes),
-                    ))
-                    .await
-                    .unwrap();
-                }
-            }
-            ToSend::Direct(_msgs) => {
-                unimplemented!()
-            }
-        };
-
-        loop {
-            let (id_from, message_bytes) = rx.recv().await.unwrap();
-
-            let (round, subround, message_bytes2) = deserialize_with_round(&message_bytes);
-            println!("{my_id:?}: received a message from {id_from:?} for round {round}-{subround}");
-
-            if round == 1 && subround == 1 {
-                let message: <ConsensusRound<Round1> as Round>::Message =
-                    deserialize_message(&message_bytes2);
-                match round1_bc.receive(&mut accum11, &id_from, message.clone()) {
-                    OnReceive::Ok => {}
-                    OnReceive::InvalidId => panic!("Invalid ID"),
-                    OnReceive::AlreadyReceived => panic!("Already received from this ID"),
-                    OnReceive::Fatal(err) => panic!("Error validating message: {err}"),
-                };
-            } else if round == 2 && subround == 0 {
-                println!("{my_id:?}: pushing 2-0 message");
-                next_messages.push((id_from, message_bytes2));
-            } else {
-                panic!("{my_id:?}: unexpected message from round {round}-{subround}");
-            }
-
-            if ConsensusRound::<Round1>::can_finalize(&accum11) {
-                match round1_bc.clone().try_finalize(accum11.clone()) {
-                    OnFinalize::NotFinished(_) => panic!("Could not finalize"),
-                    OnFinalize::Finished(_) => break,
-                };
-            }
-        }
-
-        println!("\n*** {my_id:?}: Finished Round 1 ***\n");
-
-        println!("\n*** {my_id:?}: Starting Round 2 ***\n");
-
-        let (mut accum2, to_send) = round2.get_messages();
-
-        for (id_from, message_bytes) in next_messages {
-            println!("{my_id:?}: applying a cached message from {id_from:?}");
-
-            let message: <Round2 as Round>::Message = deserialize_message(&message_bytes);
-            match round2.receive(&mut accum2, &id_from, message) {
-                OnReceive::Ok => {}
-                OnReceive::InvalidId => panic!("Invalid ID"),
-                OnReceive::AlreadyReceived => panic!("Already received from this ID"),
-                OnReceive::Fatal(err) => panic!("Error validating message: {err}"),
             };
+
+            println!("{:?}: applying cached messages", my_id);
+
+            while session.has_cached_messages() {
+                session.receive_cached_message();
+            }
+
+            while !session.is_finished_receiving() {
+                println!("{:?}: waiting for a message", my_id);
+                let (id_from, message_bytes) = rx.recv().await.unwrap();
+                println!("{:?}: applying the message", my_id);
+                session.receive(id_from, &message_bytes);
+            }
+
+            println!("{:?}: finalizing the stage", my_id);
+            session.finalize_stage();
         }
 
-        match to_send {
-            ToSend::Broadcast { message, ids, .. } => {
-                for id_to in ids {
-                    println!("{my_id:?}: sending broadcast to {id_to:?}");
-                    let message_bytes = serialize_message(&message);
-                    tx.send((
-                        my_id.clone(),
-                        id_to.clone(),
-                        serialize_with_round(2, 0, &message_bytes),
-                    ))
-                    .await
-                    .unwrap();
-                }
-            }
-            ToSend::Direct(msgs) => {
-                for (id_to, message) in msgs.into_iter() {
-                    println!("{my_id:?}: sending direct to {id_to:?}");
-                    let message_bytes = serialize_message(&message);
-                    tx.send((
-                        my_id.clone(),
-                        id_to.clone(),
-                        serialize_with_round(2, 0, &message_bytes),
-                    ))
-                    .await
-                    .unwrap();
-                }
-            }
-        };
-
-        let round3 = loop {
-            if Round2::can_finalize(&accum2) {
-                match round2.clone().try_finalize(accum2.clone()) {
-                    OnFinalize::NotFinished(_) => panic!("Could not finalize"),
-                    OnFinalize::Finished(s) => break s,
-                };
-            }
-
-            let (id_from, message_bytes) = rx.recv().await.unwrap();
-
-            let (round, subround, message_bytes) = deserialize_with_round(&message_bytes);
-            println!("{my_id:?}: received a message from {id_from:?} for round {round}");
-
-            if round == 2 && subround == 0 {
-                let message: <Round2 as Round>::Message = deserialize_message(&message_bytes);
-                match round2.receive(&mut accum2, &id_from, message) {
-                    OnReceive::Ok => {}
-                    OnReceive::InvalidId => panic!("Invalid ID"),
-                    OnReceive::AlreadyReceived => panic!("Already received from this ID"),
-                    OnReceive::Fatal(err) => panic!("Error validating message: {err}"),
-                };
-            } else {
-                panic!("{my_id:?}: unexpected message from round {round}");
-            }
-        };
-
-        println!("\n*** {my_id:?}: Finished Round 2 ***\n");
-
-        round3
+        session.result()
     }
 
     async fn message_dispatcher(
@@ -321,7 +413,7 @@ mod tests {
         let handles: Vec<tokio::task::JoinHandle<Round3>> = rx_map
             .into_iter()
             .map(|(id, rx)| {
-                let node_task = node(dispatcher_tx.clone(), rx, id, session_info.clone());
+                let node_task = node_session(dispatcher_tx.clone(), rx, id, session_info.clone());
                 tokio::spawn(async move { node_task.await })
             })
             .collect::<Vec<_>>();
