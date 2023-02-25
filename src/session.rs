@@ -171,6 +171,17 @@ mod tests {
             to_send
         }
 
+        fn receive_current_stage(&mut self, from: Id, message_bytes: &[u8]) {
+            match &mut self.stage {
+                Stage::Round1R { round, accum } => receive(round, accum, &from, &message_bytes),
+                Stage::Round1ConsensusR { round, accum, .. } => {
+                    receive(round, accum, &from, &message_bytes)
+                }
+                Stage::Round2R { round, accum } => receive(round, accum, &from, &message_bytes),
+                _ => panic!(),
+            }
+        }
+
         fn receive(&mut self, from: Id, message_bytes: &[u8]) {
             let stage_num = self.current_stage_num();
             let max_stages = self.stages_num();
@@ -179,14 +190,7 @@ mod tests {
             if stage == stage_num + 1 && stage <= max_stages {
                 self.next_stage_messages.push((from, message_bytes));
             } else if stage == stage_num {
-                match &mut self.stage {
-                    Stage::Round1R { round, accum } => receive(round, accum, &from, &message_bytes),
-                    Stage::Round1ConsensusR { round, accum, .. } => {
-                        receive(round, accum, &from, &message_bytes)
-                    }
-                    Stage::Round2R { round, accum } => receive(round, accum, &from, &message_bytes),
-                    _ => panic!(),
-                }
+                self.receive_current_stage(from, &message_bytes);
             } else {
                 panic!(
                     "{:?}: unexpected message from round {stage} (current stage: {})",
@@ -197,15 +201,7 @@ mod tests {
 
         fn receive_cached_message(&mut self) {
             let (from, message_bytes) = self.next_stage_messages.pop().unwrap();
-
-            match &mut self.stage {
-                Stage::Round1R { round, accum } => receive(round, accum, &from, &message_bytes),
-                Stage::Round1ConsensusR { round, accum, .. } => {
-                    receive(round, accum, &from, &message_bytes)
-                }
-                Stage::Round2R { round, accum } => receive(round, accum, &from, &message_bytes),
-                _ => panic!(),
-            }
+            self.receive_current_stage(from, &message_bytes);
         }
 
         fn is_finished_receiving(&self) -> bool {
