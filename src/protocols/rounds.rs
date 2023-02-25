@@ -1,5 +1,7 @@
 use alloc::collections::BTreeMap;
 
+use serde::Serialize;
+
 use crate::tools::collections::HoleMap;
 
 pub enum ToSend<Id, Message> {
@@ -13,9 +15,9 @@ pub enum ToSend<Id, Message> {
 }
 
 pub(crate) trait Round: Sized {
-    type Id: Sized + Eq + Ord + Clone;
+    type Id: Sized + Eq + Ord + Clone + Serialize;
     type Error: Sized;
-    type Message: Sized + Clone;
+    type Message: Sized + Clone + Serialize;
     type Payload: Sized + Clone;
     type NextRound: Sized;
 

@@ -38,7 +38,7 @@ impl Hashable for SchCommitment {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct SchChallenge(Scalar);
 
 impl SchChallenge {
@@ -54,7 +54,7 @@ impl SchChallenge {
 }
 
 /// Schnorr PoK of a secret scalar.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct SchProof {
     challenge: SchChallenge,
     proof: Scalar,

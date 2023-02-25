@@ -226,7 +226,7 @@ pub struct Round3 {
     secret_data: SecretData,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Round3Bcast {
     proof: SchProof,
 }
@@ -284,6 +284,7 @@ impl rounds::Round for Round3 {
     }
 }
 
+#[derive(Clone)]
 pub struct KeyShare {
     pub rid: Box<[u8]>,
     pub public: BTreeMap<PartyId, Point>,
