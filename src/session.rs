@@ -26,13 +26,13 @@ mod tests {
         rmp_serde::decode::from_slice(message_bytes).unwrap()
     }
 
-    fn serialize_with_round(round: u8, subround: u8, message: &[u8]) -> Box<[u8]> {
-        rmp_serde::encode::to_vec(&(round, subround, message))
+    fn serialize_with_round(round: u8, message: &[u8]) -> Box<[u8]> {
+        rmp_serde::encode::to_vec(&(round, message))
             .unwrap()
             .into_boxed_slice()
     }
 
-    fn deserialize_with_round(message_bytes: &[u8]) -> (u8, u8, Box<[u8]>) {
+    fn deserialize_with_round(message_bytes: &[u8]) -> (u8, Box<[u8]>) {
         rmp_serde::decode::from_slice(message_bytes).unwrap()
     }
 
@@ -76,7 +76,7 @@ mod tests {
         let to_send = match to_send {
             ToSend::Broadcast { message, ids, .. } => {
                 let message_bytes = serialize_message(&message);
-                let full_message_bytes = serialize_with_round(stage_num, 0, &message_bytes);
+                let full_message_bytes = serialize_with_round(stage_num, &message_bytes);
                 ToSend::Broadcast {
                     message: full_message_bytes,
                     ids,
@@ -87,7 +87,7 @@ mod tests {
                 msgs.into_iter()
                     .map(|(id, message)| {
                         let message_bytes = serialize_message(&message);
-                        let full_message_bytes = serialize_with_round(stage_num, 0, &message_bytes);
+                        let full_message_bytes = serialize_with_round(stage_num, &message_bytes);
                         (id, full_message_bytes)
                     })
                     .collect(),
@@ -185,7 +185,7 @@ mod tests {
         fn receive(&mut self, from: Id, message_bytes: &[u8]) {
             let stage_num = self.current_stage_num();
             let max_stages = self.stages_num();
-            let (stage, _, message_bytes) = deserialize_with_round(&message_bytes);
+            let (stage, message_bytes) = deserialize_with_round(&message_bytes);
 
             if stage == stage_num + 1 && stage <= max_stages {
                 self.next_stage_messages.push((from, message_bytes));
