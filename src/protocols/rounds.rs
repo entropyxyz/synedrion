@@ -173,9 +173,7 @@ where
         }
         Ok(())
     }
-    fn finalize(self, _payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
-        ()
-    }
+    fn finalize(self, _payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {}
 }
 
 impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusRound<R> where

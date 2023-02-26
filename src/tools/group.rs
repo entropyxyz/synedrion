@@ -13,7 +13,6 @@ use k256::elliptic_curve::{
     ops::Reduce,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::ConstantTimeEq,
-    AffineXCoordinate,
     Field,
     FieldSize,
 };
