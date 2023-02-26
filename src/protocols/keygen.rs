@@ -141,7 +141,6 @@ impl rounds::Round for Round1 {
         rounds::ToSend::Broadcast {
             ids: self.other_parties.clone(),
             message: Round1Bcast { hash },
-            needs_consensus: true,
         }
     }
     fn verify_received(
@@ -193,7 +192,6 @@ impl rounds::Round for Round2 {
             message: Round2Bcast {
                 data: self.data.clone(),
             },
-            needs_consensus: false,
         }
     }
     fn verify_received(
@@ -260,7 +258,6 @@ impl rounds::Round for Round3 {
         rounds::ToSend::Broadcast {
             ids: self.datas.keys().cloned().collect(),
             message: Round3Bcast { proof },
-            needs_consensus: false,
         }
     }
     fn verify_received(

@@ -57,12 +57,12 @@ mod tests {
             }
         }
 
-        fn get_messages(&mut self, stage_num: u8) -> ToSend<R::Id, Box<[u8]>> {
+        fn get_messages(&mut self) -> ToSend<R::Id, Box<[u8]>> {
             if self.accum.is_some() {
                 panic!();
             }
 
-            let (accum, to_send) = get_messages(&self.round, stage_num);
+            let (accum, to_send) = get_messages(&self.round);
             self.accum = Some(accum);
             to_send
         }
@@ -116,12 +116,12 @@ mod tests {
             }
         }
 
-        fn get_messages(&mut self, stage_num: u8) -> ToSend<R::Id, Box<[u8]>> {
+        fn get_messages(&mut self) -> ToSend<R::Id, Box<[u8]>> {
             if self.accum.is_some() {
                 panic!();
             }
 
-            let (accum, to_send) = get_messages(&self.round, stage_num);
+            let (accum, to_send) = get_messages(&self.round);
             self.accum = Some(accum);
             to_send
         }
@@ -163,12 +163,12 @@ mod tests {
             Self { round, accum: None }
         }
 
-        fn get_messages(&mut self, stage_num: u8) -> ToSend<R::Id, Box<[u8]>> {
+        fn get_messages(&mut self) -> ToSend<R::Id, Box<[u8]>> {
             if self.accum.is_some() {
                 panic!();
             }
 
-            let (accum, to_send) = get_messages(&self.round, stage_num);
+            let (accum, to_send) = get_messages(&self.round);
             self.accum = Some(accum);
             to_send
         }
@@ -194,7 +194,6 @@ mod tests {
 
     fn get_messages<R: Round<Id = PartyId>>(
         round: &R,
-        stage_num: u8,
     ) -> (HoleMap<Id, R::Payload>, ToSend<Id, Box<[u8]>>)
     where
         R::Message: Serialize,
@@ -202,21 +201,12 @@ mod tests {
         let (accum, to_send) = round.get_messages();
         let to_send = match to_send {
             ToSend::Broadcast { message, ids, .. } => {
-                let message_bytes = serialize_message(&message);
-                let full_message_bytes = serialize_with_round(stage_num, &message_bytes);
-                ToSend::Broadcast {
-                    message: full_message_bytes,
-                    ids,
-                    needs_consensus: false,
-                }
+                let message = serialize_message(&message);
+                ToSend::Broadcast { message, ids }
             }
             ToSend::Direct(msgs) => ToSend::Direct(
                 msgs.into_iter()
-                    .map(|(id, message)| {
-                        let message_bytes = serialize_message(&message);
-                        let full_message_bytes = serialize_with_round(stage_num, &message_bytes);
-                        (id, full_message_bytes)
-                    })
+                    .map(|(id, message)| (id, serialize_message(&message)))
                     .collect(),
             ),
         };
@@ -284,13 +274,11 @@ mod tests {
         type Result = KeyShare;
 
         fn get_messages(&mut self) -> ToSend<Id, Box<[u8]>> {
-            let stage_num = self.current_stage_num();
             match self {
-                // TODO: attach the stage number a level higher
-                Self::Round1(r) => r.get_messages(stage_num),
-                Self::Round1Consensus(r) => r.get_messages(stage_num),
-                Self::Round2(r) => r.get_messages(stage_num),
-                Self::Round3(r) => r.get_messages(stage_num),
+                Self::Round1(r) => r.get_messages(),
+                Self::Round1Consensus(r) => r.get_messages(),
+                Self::Round2(r) => r.get_messages(),
+                Self::Round3(r) => r.get_messages(),
                 _ => panic!(),
             }
         }
@@ -371,7 +359,20 @@ mod tests {
         }
 
         fn get_messages(&mut self) -> ToSend<Id, Box<[u8]>> {
-            self.stage.get_messages()
+            let to_send = self.stage.get_messages();
+            let stage_num = self.stage.current_stage_num();
+            match to_send {
+                ToSend::Broadcast { ids, message } => ToSend::Broadcast {
+                    ids,
+                    message: serialize_with_round(stage_num, &message),
+                },
+                ToSend::Direct(messages) => ToSend::Direct(
+                    messages
+                        .into_iter()
+                        .map(|(id, message)| (id, serialize_with_round(stage_num, &message)))
+                        .collect(),
+                ),
+            }
         }
 
         fn receive(&mut self, from: Id, message_bytes: &[u8]) {

@@ -5,11 +5,7 @@ use serde::Serialize;
 use crate::tools::collections::HoleMap;
 
 pub enum ToSend<Id, Message> {
-    Broadcast {
-        ids: Vec<Id>,
-        message: Message,
-        needs_consensus: bool,
-    },
+    Broadcast { ids: Vec<Id>, message: Message },
     // TODO: return an iterator instead, since preparing one message can take some time
     Direct(Vec<(Id, Message)>),
 }
@@ -159,7 +155,6 @@ where
         ToSend::Broadcast {
             ids: self.broadcasts.keys().cloned().collect(),
             message: self.broadcasts.clone(),
-            needs_consensus: false,
         }
     }
     fn verify_received(
