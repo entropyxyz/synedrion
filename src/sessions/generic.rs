@@ -3,10 +3,25 @@ use alloc::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::protocols::generic::{
-    ConsensusBroadcastRound, ConsensusRound, ConsensusWrapper, OnFinalize, OnReceive, Round, ToSend,
+    ConsensusBroadcastRound, ConsensusRound, ConsensusWrapper, OnFinalize, OnReceive, Round,
+    ToSendTyped,
 };
 use crate::protocols::keygen::PartyId;
 use crate::tools::collections::HoleMap;
+
+/// Serialized messages without the stage number specified.
+pub enum ToSendSerialized<Id> {
+    Broadcast { ids: Vec<Id>, message: Box<[u8]> },
+    // TODO: return an iterator instead, since preparing one message can take some time
+    Direct(Vec<(Id, Box<[u8]>)>),
+}
+
+/// Serialized messages with the stage number specified.
+pub enum ToSend<Id> {
+    Broadcast { ids: Vec<Id>, message: Box<[u8]> },
+    // TODO: return an iterator instead, since preparing one message can take some time
+    Direct(Vec<(Id, Box<[u8]>)>),
+}
 
 fn serialize_message(message: &impl Serialize) -> Box<[u8]> {
     rmp_serde::encode::to_vec(message)
@@ -48,7 +63,7 @@ where
         }
     }
 
-    pub(crate) fn get_messages(&mut self) -> ToSend<R::Id, Box<[u8]>> {
+    pub(crate) fn get_messages(&mut self) -> ToSendSerialized<R::Id> {
         if self.accum.is_some() {
             panic!();
         }
@@ -107,7 +122,7 @@ where
         }
     }
 
-    pub(crate) fn get_messages(&mut self) -> ToSend<R::Id, Box<[u8]>> {
+    pub(crate) fn get_messages(&mut self) -> ToSendSerialized<R::Id> {
         if self.accum.is_some() {
             panic!();
         }
@@ -154,7 +169,7 @@ where
         Self { round, accum: None }
     }
 
-    pub(crate) fn get_messages(&mut self) -> ToSend<R::Id, Box<[u8]>> {
+    pub(crate) fn get_messages(&mut self) -> ToSendSerialized<R::Id> {
         if self.accum.is_some() {
             panic!();
         }
@@ -185,17 +200,17 @@ where
 
 fn get_messages<R: Round<Id = PartyId>>(
     round: &R,
-) -> (HoleMap<R::Id, R::Payload>, ToSend<R::Id, Box<[u8]>>)
+) -> (HoleMap<R::Id, R::Payload>, ToSendSerialized<R::Id>)
 where
     R::Message: Serialize,
 {
     let (accum, to_send) = round.get_messages();
     let to_send = match to_send {
-        ToSend::Broadcast { message, ids, .. } => {
+        ToSendTyped::Broadcast { message, ids, .. } => {
             let message = serialize_message(&message);
-            ToSend::Broadcast { message, ids }
+            ToSendSerialized::Broadcast { message, ids }
         }
-        ToSend::Direct(msgs) => ToSend::Direct(
+        ToSendTyped::Direct(msgs) => ToSendSerialized::Direct(
             msgs.into_iter()
                 .map(|(id, message)| (id, serialize_message(&message)))
                 .collect(),
@@ -234,7 +249,7 @@ fn finalize<R: Round<Id = PartyId>>(round: R, accum: HoleMap<R::Id, R::Payload>)
 
 // TODO: may be able to get rid of the clone requirement - perhaps with `take_mut`.
 pub trait SessionState: Clone {
-    fn get_messages(&mut self) -> ToSend<PartyId, Box<[u8]>>;
+    fn get_messages(&mut self) -> ToSendSerialized<PartyId>;
     fn receive_current_stage(&mut self, from: PartyId, message_bytes: &[u8]);
     fn is_finished_receiving(&self) -> bool;
     fn finalize_stage(self) -> Self;
@@ -258,15 +273,15 @@ impl<S: SessionState> Session<S> {
         }
     }
 
-    pub fn get_messages(&mut self) -> ToSend<PartyId, Box<[u8]>> {
+    pub fn get_messages(&mut self) -> ToSend<PartyId> {
         let to_send = self.state.get_messages();
         let stage_num = self.state.current_stage_num();
         match to_send {
-            ToSend::Broadcast { ids, message } => ToSend::Broadcast {
+            ToSendSerialized::Broadcast { ids, message } => ToSend::Broadcast {
                 ids,
                 message: serialize_with_round(stage_num, &message),
             },
-            ToSend::Direct(messages) => ToSend::Direct(
+            ToSendSerialized::Direct(messages) => ToSend::Direct(
                 messages
                     .into_iter()
                     .map(|(id, message)| (id, serialize_with_round(stage_num, &message)))

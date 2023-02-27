@@ -4,7 +4,7 @@ use crypto_bigint::Pow;
 use rand_core::OsRng;
 
 use super::keygen::{PartyId, SessionInfo};
-use super::generic::{ToSend, Round};
+use super::generic::{ToSendTyped, Round};
 use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
@@ -183,8 +183,8 @@ impl<P: SchemeParams> Round for Round1<P> {
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
-        ToSend::Broadcast {
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
+        ToSendTyped::Broadcast {
             message: Round1Bcast {
                 hash: self.data.hash(),
             },
@@ -228,8 +228,8 @@ impl<P: SchemeParams> Round for Round2<P> {
     type Message = Round2Bcast<P>;
     type NextRound = Round3<P>;
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
-        ToSend::Broadcast {
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
+        ToSendTyped::Broadcast {
             message: Round2Bcast {
                 data: self.data.clone(),
             },
@@ -306,7 +306,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Message = Round3Direct<P>;
     type NextRound = AuxData<P>;
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
         let aux = (&self.data.session_info, &self.rho, &self.data.party_id);
         let mod_proof = ModProof::random(
             &mut OsRng,
@@ -350,7 +350,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             dms.push((party_id.clone(), Round3Direct { data2 }));
         }
 
-        ToSend::Direct(dms)
+        ToSendTyped::Direct(dms)
     }
 
     fn verify_received(

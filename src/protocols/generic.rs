@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::tools::collections::HoleMap;
 
-pub enum ToSend<Id, Message> {
+pub enum ToSendTyped<Id, Message> {
     Broadcast { ids: Vec<Id>, message: Message },
     // TODO: return an iterator instead, since preparing one message can take some time
     Direct(Vec<(Id, Message)>),
@@ -17,7 +17,7 @@ pub(crate) trait Round: Sized {
     type Payload: Sized + Clone;
     type NextRound: Sized;
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message>;
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message>;
     fn verify_received(
         &self,
         from: &Self::Id,
@@ -25,17 +25,21 @@ pub(crate) trait Round: Sized {
     ) -> Result<Self::Payload, Self::Error>;
     fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound;
 
+    // TODO: wrap `self` into a "receiving" newtype so that `get_messages()`
+    // could not be called twice?
     fn get_messages(
         &self,
     ) -> (
         HoleMap<Self::Id, Self::Payload>,
-        ToSend<Self::Id, Self::Message>,
+        ToSendTyped<Self::Id, Self::Message>,
     ) {
         let to_send = self.to_send();
 
         let accum = match &to_send {
-            ToSend::Broadcast { ids, .. } => HoleMap::new(ids.iter().cloned()),
-            ToSend::Direct(messages) => HoleMap::new(messages.iter().map(|(id, _msg)| id.clone())),
+            ToSendTyped::Broadcast { ids, .. } => HoleMap::new(ids.iter().cloned()),
+            ToSendTyped::Direct(messages) => {
+                HoleMap::new(messages.iter().map(|(id, _msg)| id.clone()))
+            }
         };
 
         (accum, to_send)
@@ -108,7 +112,7 @@ impl<R: ConsensusBroadcastRound> Round for ConsensusWrapper<R> {
     type Payload = (R::Payload, R::Message);
     type NextRound = (R::NextRound, BTreeMap<Self::Id, Self::Message>);
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
         self.0.to_send()
     }
     fn verify_received(
@@ -151,8 +155,8 @@ where
     type Payload = ();
     type NextRound = ();
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
-        ToSend::Broadcast {
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
+        ToSendTyped::Broadcast {
             ids: self.broadcasts.keys().cloned().collect(),
             message: self.broadcasts.clone(),
         }
@@ -233,12 +237,12 @@ pub(crate) mod tests {
             let (accum, to_send) = state.get_messages();
 
             match to_send {
-                ToSend::Broadcast { message, ids, .. } => {
+                ToSendTyped::Broadcast { message, ids, .. } => {
                     for id_to in ids {
                         messages.push((id_to.clone(), id_from.clone(), message.clone()));
                     }
                 }
-                ToSend::Direct(msgs) => {
+                ToSendTyped::Direct(msgs) => {
                     for (id_to, message) in msgs.into_iter() {
                         messages.push((id_to.clone(), id_from.clone(), message.clone()));
                     }

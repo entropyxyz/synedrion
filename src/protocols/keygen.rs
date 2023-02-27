@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
-use super::generic::{BroadcastRound, ConsensusBroadcastRound, Round, ToSend};
+use super::generic::{BroadcastRound, ConsensusBroadcastRound, Round, ToSendTyped};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
@@ -136,9 +136,9 @@ impl Round for Round1 {
     type Message = Round1Bcast;
     type NextRound = Round2;
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
         let hash = self.data.hash();
-        ToSend::Broadcast {
+        ToSendTyped::Broadcast {
             ids: self.other_parties.clone(),
             message: Round1Bcast { hash },
         }
@@ -186,8 +186,8 @@ impl Round for Round2 {
     type Message = Round2Bcast;
     type NextRound = Round3;
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
-        ToSend::Broadcast {
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
+        ToSendTyped::Broadcast {
             ids: self.hashes.keys().cloned().collect(),
             message: Round2Bcast {
                 data: self.data.clone(),
@@ -246,7 +246,7 @@ impl Round for Round3 {
     type Message = Round3Bcast;
     type NextRound = KeyShare;
 
-    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
         let aux = (&self.data.session_info, &self.data.party_id, &self.rid);
         let proof = SchProof::new(
             &self.secret_data.sch_secret,
@@ -255,7 +255,7 @@ impl Round for Round3 {
             &self.data.public,
             &aux,
         );
-        ToSend::Broadcast {
+        ToSendTyped::Broadcast {
             ids: self.datas.keys().cloned().collect(),
             message: Round3Bcast { proof },
         }

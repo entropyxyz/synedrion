@@ -1,5 +1,6 @@
-use super::generic::{ConsensusSubstage, NormalSubstage, PreConsensusSubstage, SessionState};
-use crate::protocols::generic::ToSend;
+use super::generic::{
+    ConsensusSubstage, NormalSubstage, PreConsensusSubstage, SessionState, ToSendSerialized,
+};
 use crate::protocols::keygen::{KeyShare, PartyId, Round1, Round2, Round3, SessionInfo};
 
 #[derive(Clone)]
@@ -24,7 +25,7 @@ impl KeygenState {
 impl SessionState for KeygenState {
     type Result = KeyShare;
 
-    fn get_messages(&mut self) -> ToSend<PartyId, Box<[u8]>> {
+    fn get_messages(&mut self) -> ToSendSerialized<PartyId> {
         match &mut self.0 {
             KeygenStage::Round1(r) => r.get_messages(),
             KeygenStage::Round1Consensus(r) => r.get_messages(),

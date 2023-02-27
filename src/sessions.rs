@@ -1,7 +1,7 @@
 mod generic;
 mod keygen;
 
-pub use generic::Session;
+pub use generic::{Session, ToSend};
 pub use keygen::KeygenState;
 
 #[cfg(test)]
@@ -12,8 +12,7 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio::time::{sleep, Duration};
 
-    use super::{KeygenState, Session};
-    use crate::protocols::generic::ToSend;
+    use super::{KeygenState, Session, ToSend};
     use crate::protocols::keygen::{PartyId, SessionInfo};
     use crate::KeyShare;
 
