@@ -13,8 +13,8 @@ mod tests {
     use tokio::time::{sleep, Duration};
 
     use super::{KeygenState, Session};
+    use crate::protocols::generic::ToSend;
     use crate::protocols::keygen::{PartyId, SessionInfo};
-    use crate::protocols::rounds::ToSend;
     use crate::KeyShare;
 
     type Id = PartyId;

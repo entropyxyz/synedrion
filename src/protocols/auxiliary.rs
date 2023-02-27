@@ -4,7 +4,7 @@ use crypto_bigint::Pow;
 use rand_core::OsRng;
 
 use super::keygen::{PartyId, SessionInfo};
-use super::rounds;
+use super::generic::{ToSend, Round};
 use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
@@ -176,15 +176,15 @@ pub struct Round1Bcast {
     hash: Box<[u8]>, // `V_j`
 }
 
-impl<P: SchemeParams> rounds::Round for Round1<P> {
+impl<P: SchemeParams> Round for Round1<P> {
     type Id = PartyId;
     type Error = String;
     type Payload = Box<[u8]>;
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
 
-    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
-        rounds::ToSend::Broadcast {
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+        ToSend::Broadcast {
             message: Round1Bcast {
                 hash: self.data.hash(),
             },
@@ -221,15 +221,15 @@ pub struct Round2Bcast<P: SchemeParams> {
     data: FullData<P>,
 }
 
-impl<P: SchemeParams> rounds::Round for Round2<P> {
+impl<P: SchemeParams> Round for Round2<P> {
     type Id = PartyId;
     type Error = String;
     type Payload = FullData<P>;
     type Message = Round2Bcast<P>;
     type NextRound = Round3<P>;
 
-    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
-        rounds::ToSend::Broadcast {
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+        ToSend::Broadcast {
             message: Round2Bcast {
                 data: self.data.clone(),
             },
@@ -299,14 +299,14 @@ pub struct Round3Direct<P: SchemeParams> {
     data2: FullData2<P>,
 }
 
-impl<P: SchemeParams> rounds::Round for Round3<P> {
+impl<P: SchemeParams> Round for Round3<P> {
     type Id = PartyId;
     type Error = String;
     type Payload = Scalar;
     type Message = Round3Direct<P>;
     type NextRound = AuxData<P>;
 
-    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
         let aux = (&self.data.session_info, &self.rho, &self.data.party_id);
         let mod_proof = ModProof::random(
             &mut OsRng,
@@ -350,7 +350,7 @@ impl<P: SchemeParams> rounds::Round for Round3<P> {
             dms.push((party_id.clone(), Round3Direct { data2 }));
         }
 
-        rounds::ToSend::Direct(dms)
+        ToSend::Direct(dms)
     }
 
     fn verify_received(
@@ -488,7 +488,7 @@ mod tests {
 
     use super::*;
     use crate::protocols::keygen::PartyId;
-    use crate::protocols::rounds::tests::step;
+    use crate::protocols::generic::tests::step;
 
     #[test]
     fn execute_auxiliary() {

@@ -1,6 +1,6 @@
 use super::generic::{ConsensusSubstage, NormalSubstage, PreConsensusSubstage, SessionState};
+use crate::protocols::generic::ToSend;
 use crate::protocols::keygen::{KeyShare, PartyId, Round1, Round2, Round3, SessionInfo};
-use crate::protocols::rounds::ToSend;
 
 #[derive(Clone)]
 enum KeygenStage {

@@ -2,10 +2,10 @@ use alloc::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::protocols::keygen::PartyId;
-use crate::protocols::rounds::{
+use crate::protocols::generic::{
     ConsensusBroadcastRound, ConsensusRound, ConsensusWrapper, OnFinalize, OnReceive, Round, ToSend,
 };
+use crate::protocols::keygen::PartyId;
 use crate::tools::collections::HoleMap;
 
 fn serialize_message(message: &impl Serialize) -> Box<[u8]> {

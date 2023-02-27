@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
-use super::rounds;
+use super::generic::{BroadcastRound, ConsensusBroadcastRound, Round, ToSend};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
@@ -129,16 +129,16 @@ impl Round1 {
     }
 }
 
-impl rounds::Round for Round1 {
+impl Round for Round1 {
     type Id = PartyId;
     type Error = String;
     type Payload = Scalar;
     type Message = Round1Bcast;
     type NextRound = Round2;
 
-    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
         let hash = self.data.hash();
-        rounds::ToSend::Broadcast {
+        ToSend::Broadcast {
             ids: self.other_parties.clone(),
             message: Round1Bcast { hash },
         }
@@ -159,9 +159,9 @@ impl rounds::Round for Round1 {
     }
 }
 
-impl rounds::BroadcastRound for Round1 {}
+impl BroadcastRound for Round1 {}
 
-impl rounds::ConsensusBroadcastRound for Round1 {
+impl ConsensusBroadcastRound for Round1 {
     fn id(&self) -> Self::Id {
         self.data.party_id.clone()
     }
@@ -179,15 +179,15 @@ pub struct Round2Bcast {
     data: FullData,
 }
 
-impl rounds::Round for Round2 {
+impl Round for Round2 {
     type Id = PartyId;
     type Error = String;
     type Payload = FullData;
     type Message = Round2Bcast;
     type NextRound = Round3;
 
-    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
-        rounds::ToSend::Broadcast {
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
+        ToSend::Broadcast {
             ids: self.hashes.keys().cloned().collect(),
             message: Round2Bcast {
                 data: self.data.clone(),
@@ -224,7 +224,7 @@ impl rounds::Round for Round2 {
     }
 }
 
-impl rounds::BroadcastRound for Round2 {}
+impl BroadcastRound for Round2 {}
 
 #[derive(Clone)]
 pub struct Round3 {
@@ -239,14 +239,14 @@ pub struct Round3Bcast {
     proof: SchProof,
 }
 
-impl rounds::Round for Round3 {
+impl Round for Round3 {
     type Id = PartyId;
     type Error = String;
     type Payload = bool;
     type Message = Round3Bcast;
     type NextRound = KeyShare;
 
-    fn to_send(&self) -> rounds::ToSend<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSend<Self::Id, Self::Message> {
         let aux = (&self.data.session_info, &self.data.party_id, &self.rid);
         let proof = SchProof::new(
             &self.secret_data.sch_secret,
@@ -255,7 +255,7 @@ impl rounds::Round for Round3 {
             &self.data.public,
             &aux,
         );
-        rounds::ToSend::Broadcast {
+        ToSend::Broadcast {
             ids: self.datas.keys().cloned().collect(),
             message: Round3Bcast { proof },
         }
@@ -291,7 +291,7 @@ impl rounds::Round for Round3 {
     }
 }
 
-impl rounds::BroadcastRound for Round3 {}
+impl BroadcastRound for Round3 {}
 
 #[derive(Clone)]
 pub struct KeyShare {
@@ -305,7 +305,7 @@ mod tests {
 
     use alloc::collections::BTreeMap;
 
-    use crate::protocols::rounds::tests::step;
+    use crate::protocols::generic::tests::step;
 
     use super::*;
 
