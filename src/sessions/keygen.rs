@@ -1,7 +1,9 @@
 use super::generic::{
     ConsensusSubstage, NormalSubstage, PreConsensusSubstage, SessionState, ToSendSerialized,
 };
-use crate::protocols::keygen::{KeyShare, PartyId, Round1, Round2, Round3, SessionInfo};
+use crate::protocols::generic::SessionId;
+use crate::protocols::keygen::{KeyShare, Round1, Round2, Round3, SchemeParams};
+use crate::tools::collections::PartyIdx;
 
 #[derive(Clone)]
 enum KeygenStage {
@@ -15,27 +17,27 @@ enum KeygenStage {
 #[derive(Clone)]
 pub struct KeygenState(KeygenStage);
 
-impl KeygenState {
-    pub fn new(session_info: &SessionInfo, my_id: &PartyId) -> Self {
-        let round1 = Round1::new(session_info, my_id);
-        Self(KeygenStage::Round1(PreConsensusSubstage::new(round1)))
-    }
-}
-
 impl SessionState for KeygenState {
     type Result = KeyShare;
 
-    fn get_messages(&mut self) -> ToSendSerialized<PartyId> {
+    type Context = SchemeParams;
+
+    fn new(session_id: &SessionId, params: &SchemeParams, index: PartyIdx) -> Self {
+        let round1 = Round1::new(session_id, params, index);
+        Self(KeygenStage::Round1(PreConsensusSubstage::new(round1)))
+    }
+
+    fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
         match &mut self.0 {
-            KeygenStage::Round1(r) => r.get_messages(),
-            KeygenStage::Round1Consensus(r) => r.get_messages(),
-            KeygenStage::Round2(r) => r.get_messages(),
-            KeygenStage::Round3(r) => r.get_messages(),
+            KeygenStage::Round1(r) => r.get_messages(num_parties, index),
+            KeygenStage::Round1Consensus(r) => r.get_messages(num_parties, index),
+            KeygenStage::Round2(r) => r.get_messages(num_parties, index),
+            KeygenStage::Round3(r) => r.get_messages(num_parties, index),
             _ => panic!(),
         }
     }
 
-    fn receive_current_stage(&mut self, from: PartyId, message_bytes: &[u8]) {
+    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) {
         match &mut self.0 {
             KeygenStage::Round1(r) => r.receive(from, message_bytes),
             KeygenStage::Round1Consensus(r) => r.receive(from, message_bytes),
@@ -58,8 +60,8 @@ impl SessionState for KeygenState {
     fn finalize_stage(self) -> Self {
         Self(match self.0 {
             KeygenStage::Round1(r) => {
-                let (id, (new_round, broadcasts)) = r.finalize();
-                KeygenStage::Round1Consensus(ConsensusSubstage::new(id, new_round, broadcasts))
+                let (new_round, broadcasts) = r.finalize();
+                KeygenStage::Round1Consensus(ConsensusSubstage::new(new_round, broadcasts))
             }
             KeygenStage::Round1Consensus(r) => {
                 KeygenStage::Round2(NormalSubstage::new(r.finalize()))

@@ -1,19 +1,15 @@
-use alloc::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::protocols::generic::{
-    ConsensusBroadcastRound, ConsensusRound, ConsensusWrapper, OnFinalize, OnReceive, Round,
-    ToSendTyped,
+    ConsensusBroadcastRound, ConsensusRound, ConsensusWrapper, Round, SessionId, ToSendTyped,
 };
-use crate::protocols::keygen::PartyId;
-use crate::tools::collections::HoleMap;
+use crate::tools::collections::{HoleVec, HoleVecAccum, PartyIdx};
 
 /// Serialized messages without the stage number specified.
-pub enum ToSendSerialized<Id> {
-    Broadcast { ids: Vec<Id>, message: Box<[u8]> },
+pub enum ToSendSerialized {
+    Broadcast(Box<[u8]>),
     // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(Id, Box<[u8]>)>),
+    Direct(Vec<(PartyIdx, Box<[u8]>)>),
 }
 
 /// Serialized messages with the stage number specified.
@@ -44,15 +40,15 @@ fn deserialize_with_round(message_bytes: &[u8]) -> (u8, Box<[u8]>) {
 }
 
 #[derive(Clone)]
-pub(crate) struct PreConsensusSubstage<R: ConsensusBroadcastRound<Id = PartyId>>
+pub(crate) struct PreConsensusSubstage<R: ConsensusBroadcastRound>
 where
     for<'de> <R as Round>::Message: Deserialize<'de>,
 {
     round: ConsensusWrapper<R>,
-    accum: Option<HoleMap<R::Id, <ConsensusWrapper<R> as Round>::Payload>>,
+    accum: Option<HoleVecAccum<<ConsensusWrapper<R> as Round>::Payload>>,
 }
 
-impl<R: ConsensusBroadcastRound<Id = PartyId>> PreConsensusSubstage<R>
+impl<R: ConsensusBroadcastRound> PreConsensusSubstage<R>
 where
     for<'de> <R as Round>::Message: Deserialize<'de>,
 {
@@ -63,85 +59,84 @@ where
         }
     }
 
-    pub(crate) fn get_messages(&mut self) -> ToSendSerialized<R::Id> {
+    pub(crate) fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
         if self.accum.is_some() {
             panic!();
         }
 
-        let (accum, to_send) = get_messages(&self.round);
+        let to_send = get_messages(&self.round);
+        let accum =
+            HoleVecAccum::<<ConsensusWrapper<R> as Round>::Payload>::new(num_parties, index);
         self.accum = Some(accum);
         to_send
     }
 
-    pub(crate) fn receive(&mut self, from: R::Id, message_bytes: &[u8]) {
+    pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) {
         match self.accum.as_mut() {
-            Some(accum) => receive(&self.round, accum, &from, message_bytes),
+            Some(accum) => receive(&self.round, accum, from, message_bytes),
             None => panic!(),
         }
     }
 
     pub(crate) fn is_finished_receiving(&self) -> bool {
         match &self.accum {
-            Some(accum) => ConsensusWrapper::<R>::can_finalize(accum),
+            Some(accum) => accum.can_finalize(),
             None => panic!(),
         }
     }
 
-    pub(crate) fn finalize(self) -> (R::Id, <ConsensusWrapper<R> as Round>::NextRound) {
+    pub(crate) fn finalize(self) -> <ConsensusWrapper<R> as Round>::NextRound {
         // TODO: make it so that finalize() result could be immediately passed
         // to the new() of the next round withour restructuring
-        (self.round.id(), finalize(self.round, self.accum.unwrap()))
+        finalize(self.round, self.accum.unwrap())
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct ConsensusSubstage<R: ConsensusBroadcastRound<Id = PartyId>>
+pub(crate) struct ConsensusSubstage<R: ConsensusBroadcastRound>
 where
     R::Message: PartialEq,
     for<'de> <R as Round>::Message: Deserialize<'de>,
 {
     round: ConsensusRound<R>,
     next_round: R::NextRound,
-    accum: Option<HoleMap<R::Id, <ConsensusRound<R> as Round>::Payload>>,
+    accum: Option<HoleVecAccum<<ConsensusRound<R> as Round>::Payload>>,
 }
 
-impl<R: ConsensusBroadcastRound<Id = PartyId>> ConsensusSubstage<R>
+impl<R: ConsensusBroadcastRound> ConsensusSubstage<R>
 where
     R::Message: PartialEq,
     for<'de> <R as Round>::Message: Deserialize<'de>,
 {
-    pub(crate) fn new(
-        id: R::Id,
-        next_round: R::NextRound,
-        broadcasts: BTreeMap<R::Id, R::Message>,
-    ) -> Self {
+    pub(crate) fn new(next_round: R::NextRound, broadcasts: HoleVec<R::Message>) -> Self {
         Self {
             next_round,
-            round: ConsensusRound { broadcasts, id },
+            round: ConsensusRound { broadcasts },
             accum: None,
         }
     }
 
-    pub(crate) fn get_messages(&mut self) -> ToSendSerialized<R::Id> {
+    pub(crate) fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
         if self.accum.is_some() {
             panic!();
         }
 
-        let (accum, to_send) = get_messages(&self.round);
+        let to_send = get_messages(&self.round);
+        let accum = HoleVecAccum::<<ConsensusRound<R> as Round>::Payload>::new(num_parties, index);
         self.accum = Some(accum);
         to_send
     }
 
-    pub(crate) fn receive(&mut self, from: R::Id, message_bytes: &[u8]) {
+    pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) {
         match self.accum.as_mut() {
-            Some(accum) => receive(&self.round, accum, &from, message_bytes),
+            Some(accum) => receive(&self.round, accum, from, message_bytes),
             None => panic!(),
         }
     }
 
     pub(crate) fn is_finished_receiving(&self) -> bool {
         match &self.accum {
-            Some(accum) => ConsensusRound::<R>::can_finalize(accum),
+            Some(accum) => accum.can_finalize(),
             None => panic!(),
         }
     }
@@ -153,15 +148,15 @@ where
 }
 
 #[derive(Clone)]
-pub(crate) struct NormalSubstage<R: Round<Id = PartyId>>
+pub(crate) struct NormalSubstage<R: Round>
 where
     for<'de> <R as Round>::Message: Deserialize<'de>,
 {
     round: R,
-    accum: Option<HoleMap<R::Id, R::Payload>>,
+    accum: Option<HoleVecAccum<R::Payload>>,
 }
 
-impl<R: Round<Id = PartyId>> NormalSubstage<R>
+impl<R: Round> NormalSubstage<R>
 where
     for<'de> <R as Round>::Message: Deserialize<'de>,
 {
@@ -169,26 +164,27 @@ where
         Self { round, accum: None }
     }
 
-    pub(crate) fn get_messages(&mut self) -> ToSendSerialized<R::Id> {
+    pub(crate) fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
         if self.accum.is_some() {
             panic!();
         }
 
-        let (accum, to_send) = get_messages(&self.round);
+        let to_send = get_messages(&self.round);
+        let accum = HoleVecAccum::<R::Payload>::new(num_parties, index);
         self.accum = Some(accum);
         to_send
     }
 
-    pub(crate) fn receive(&mut self, from: R::Id, message_bytes: &[u8]) {
+    pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) {
         match self.accum.as_mut() {
-            Some(accum) => receive(&self.round, accum, &from, message_bytes),
+            Some(accum) => receive(&self.round, accum, from, message_bytes),
             None => panic!(),
         }
     }
 
     pub(crate) fn is_finished_receiving(&self) -> bool {
         match &self.accum {
-            Some(accum) => R::can_finalize(accum),
+            Some(accum) => accum.can_finalize(),
             None => panic!(),
         }
     }
@@ -198,49 +194,56 @@ where
     }
 }
 
-fn get_messages<R: Round<Id = PartyId>>(
-    round: &R,
-) -> (HoleMap<R::Id, R::Payload>, ToSendSerialized<R::Id>)
+fn get_messages<R: Round>(round: &R) -> ToSendSerialized
 where
     R::Message: Serialize,
 {
-    let (accum, to_send) = round.get_messages();
-    let to_send = match to_send {
-        ToSendTyped::Broadcast { message, ids, .. } => {
+    match round.to_send() {
+        ToSendTyped::Broadcast(message) => {
             let message = serialize_message(&message);
-            ToSendSerialized::Broadcast { message, ids }
+            ToSendSerialized::Broadcast(message)
         }
-        ToSendTyped::Direct(msgs) => ToSendSerialized::Direct(
-            msgs.into_iter()
-                .map(|(id, message)| (id, serialize_message(&message)))
+        ToSendTyped::Direct(messages) => ToSendSerialized::Direct(
+            messages
+                .into_iter()
+                .map(|(idx, message)| (idx, serialize_message(&message)))
                 .collect(),
         ),
-    };
-    (accum, to_send)
+    }
 }
 
-fn receive<R: Round<Id = PartyId>>(
+fn receive<R: Round>(
     round: &R,
-    accum: &mut HoleMap<R::Id, R::Payload>,
-    from: &R::Id,
+    accum: &mut HoleVecAccum<R::Payload>,
+    from: PartyIdx,
     message_bytes: &[u8],
 ) where
     for<'de> R::Message: Deserialize<'de>,
 {
     let message: R::Message = deserialize_message(message_bytes);
-    match round.receive(accum, from, message) {
-        OnReceive::Ok => {}
-        OnReceive::InvalidId => panic!("Invalid ID"),
-        OnReceive::AlreadyReceived => panic!("Already received from this ID"),
-        OnReceive::Fatal(_err) => panic!("Error validating message"),
+
+    let slot = match accum.get_mut(from) {
+        Some(slot) => slot,
+        None => panic!("Invalid ID"),
     };
+
+    if slot.is_some() {
+        panic!("Already received from this ID");
+    }
+
+    let payload = match round.verify_received(from, message) {
+        Ok(res) => res,
+        Err(_) => panic!("Error validating message"),
+    };
+
+    *slot = Some(payload);
 }
 
-fn finalize<R: Round<Id = PartyId>>(round: R, accum: HoleMap<R::Id, R::Payload>) -> R::NextRound {
-    if R::can_finalize(&accum) {
-        match round.try_finalize(accum) {
-            OnFinalize::NotFinished(_) => panic!("Could not finalize"),
-            OnFinalize::Finished(next_round) => next_round,
+fn finalize<R: Round>(round: R, accum: HoleVecAccum<R::Payload>) -> R::NextRound {
+    if accum.can_finalize() {
+        match accum.finalize() {
+            Ok(finalized) => round.finalize(finalized),
+            Err(_) => panic!("Could not finalize"),
         }
     } else {
         panic!();
@@ -249,8 +252,10 @@ fn finalize<R: Round<Id = PartyId>>(round: R, accum: HoleMap<R::Id, R::Payload>)
 
 // TODO: may be able to get rid of the clone requirement - perhaps with `take_mut`.
 pub trait SessionState: Clone {
-    fn get_messages(&mut self) -> ToSendSerialized<PartyId>;
-    fn receive_current_stage(&mut self, from: PartyId, message_bytes: &[u8]);
+    type Context;
+    fn new(session_id: &SessionId, context: &Self::Context, index: PartyIdx) -> Self;
+    fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized;
+    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]);
     fn is_finished_receiving(&self) -> bool;
     fn finalize_stage(self) -> Self;
     fn is_final_stage(&self) -> bool;
@@ -260,45 +265,79 @@ pub trait SessionState: Clone {
     type Result;
 }
 
-pub struct Session<S: SessionState> {
-    next_stage_messages: Vec<(PartyId, Box<[u8]>)>,
+pub trait PartyId: Clone + PartialEq {}
+
+pub struct Session<S: SessionState, I: PartyId> {
+    index: PartyIdx,
+    my_id: I,
+    all_parties: Vec<I>,
+    next_stage_messages: Vec<(PartyIdx, Box<[u8]>)>,
     state: S,
 }
 
-impl<S: SessionState> Session<S> {
-    pub fn new(state: S) -> Self {
+impl<S: SessionState, I: PartyId> Session<S, I> {
+    pub fn new(
+        session_id: &SessionId,
+        all_parties: &[I],
+        party_id: &I,
+        context: &S::Context,
+    ) -> Self {
+        let index = all_parties.iter().position(|id| id == party_id).unwrap();
+        let index = PartyIdx::from_usize(index);
+
+        // CHECK: in the paper session id includes all the party ID's;
+        // but since it's going to contain a random component too
+        // (to distinguish sessions on the same node sets),
+        // it might as well be completely random, right?
+
+        let state = S::new(session_id, context, index);
         Self {
+            index,
+            my_id: party_id.clone(),
+            all_parties: all_parties.to_vec(),
             next_stage_messages: Vec::new(),
             state,
         }
     }
 
-    pub fn get_messages(&mut self) -> ToSend<PartyId> {
-        let to_send = self.state.get_messages();
+    pub fn get_messages(&mut self) -> ToSend<I> {
+        let to_send = self.state.get_messages(self.all_parties.len(), self.index);
         let stage_num = self.state.current_stage_num();
         match to_send {
-            ToSendSerialized::Broadcast { ids, message } => ToSend::Broadcast {
-                ids,
-                message: serialize_with_round(stage_num, &message),
-            },
+            ToSendSerialized::Broadcast(message) => {
+                let ids = self
+                    .all_parties
+                    .iter()
+                    .cloned()
+                    .filter(|id| id != &self.my_id)
+                    .collect();
+                let message = serialize_with_round(stage_num, &message);
+                ToSend::Broadcast { ids, message }
+            }
             ToSendSerialized::Direct(messages) => ToSend::Direct(
                 messages
                     .into_iter()
-                    .map(|(id, message)| (id, serialize_with_round(stage_num, &message)))
+                    .map(|(index, message)| {
+                        let id = self.all_parties[index.as_usize()].clone();
+                        let message = serialize_with_round(stage_num, &message);
+                        (id, message)
+                    })
                     .collect(),
             ),
         }
     }
 
-    pub fn receive(&mut self, from: PartyId, message_bytes: &[u8]) {
+    pub fn receive(&mut self, from: &I, message_bytes: &[u8]) {
         let stage_num = self.state.current_stage_num();
         let max_stages = self.state.stages_num();
         let (stage, message_bytes) = deserialize_with_round(message_bytes);
+        let index = self.all_parties.iter().position(|id| id == from).unwrap();
+        let index = PartyIdx::from_usize(index);
 
         if stage == stage_num + 1 && stage <= max_stages {
-            self.next_stage_messages.push((from, message_bytes));
+            self.next_stage_messages.push((index, message_bytes));
         } else if stage == stage_num {
-            self.state.receive_current_stage(from, &message_bytes);
+            self.state.receive_current_stage(index, &message_bytes);
         } else {
             panic!("Unexpected message from round {stage} (current stage: {stage_num})");
         }

@@ -1,38 +1,50 @@
-use alloc::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
 
-use serde::Serialize;
+use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum, PartyIdx};
+use crate::tools::hashing::{Chain, Hashable};
 
-use crate::tools::collections::HoleMap;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionId([u8; 32]);
 
-pub enum ToSendTyped<Id, Message> {
-    Broadcast { ids: Vec<Id>, message: Message },
+impl SessionId {
+    pub fn random() -> Self {
+        use rand_core::{OsRng, RngCore};
+        let mut bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut bytes);
+        Self(bytes)
+    }
+}
+
+impl Hashable for SessionId {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(&self.0)
+    }
+}
+
+pub(crate) enum ToSendTyped<Message> {
+    Broadcast(Message),
     // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(Id, Message)>),
+    Direct(Vec<(PartyIdx, Message)>),
 }
 
 pub(crate) trait Round: Sized {
-    type Id: Sized + Eq + Ord + Clone + Serialize;
     type Error: Sized;
     type Message: Sized + Clone + Serialize;
     type Payload: Sized + Clone;
     type NextRound: Sized;
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message>;
+    fn to_send(&self) -> ToSendTyped<Self::Message>;
     fn verify_received(
         &self,
-        from: &Self::Id,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error>;
-    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound;
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound;
 
+    /*
     // TODO: wrap `self` into a "receiving" newtype so that `get_messages()`
     // could not be called twice?
-    fn get_messages(
-        &self,
-    ) -> (
-        HoleMap<Self::Id, Self::Payload>,
-        ToSendTyped<Self::Id, Self::Message>,
-    ) {
+    fn get_messages(&self) -> (HoleVecAccum<Self::Payload>, ToSendTyped<Self::Message>) {
         let to_send = self.to_send();
 
         let accum = match &to_send {
@@ -47,8 +59,8 @@ pub(crate) trait Round: Sized {
 
     fn receive(
         &self,
-        accum: &mut HoleMap<Self::Id, Self::Payload>,
-        from: &Self::Id,
+        accum: &mut HoleVecAccum<Self::Payload>,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> OnReceive<Self::Error> {
         let val_ref = match accum.get_mut(from) {
@@ -69,14 +81,14 @@ pub(crate) trait Round: Sized {
     }
 
     // TODO: move to accum when it is its own type?
-    fn can_finalize(accum: &HoleMap<Self::Id, Self::Payload>) -> bool {
+    fn can_finalize(accum: &HoleVecAccum<Self::Payload>) -> bool {
         accum.can_finalize()
     }
 
     fn try_finalize(
         self,
-        accum: HoleMap<Self::Id, Self::Payload>,
-    ) -> OnFinalize<(Self, HoleMap<Self::Id, Self::Payload>), Self::NextRound> {
+        accum: HoleVec<Self::Payload>,
+    ) -> OnFinalize<(Self, HoleVec<Self::Payload>), Self::NextRound> {
         let accum_final = match accum.try_finalize() {
             Ok(accum_final) => accum_final,
             Err(accum) => return OnFinalize::NotFinished((self, accum)),
@@ -84,6 +96,7 @@ pub(crate) trait Round: Sized {
 
         OnFinalize::Finished(self.finalize(accum_final))
     }
+    */
 }
 
 // TODO: find a way to move `get_messages()` in this trait.
@@ -92,46 +105,33 @@ pub(crate) trait BroadcastRound: Round {}
 
 pub(crate) trait DirectRound: Round {}
 
-pub(crate) trait ConsensusBroadcastRound: BroadcastRound {
-    fn id(&self) -> Self::Id;
-}
+pub(crate) trait ConsensusBroadcastRound: BroadcastRound {}
 
 #[derive(Clone)]
 pub(crate) struct ConsensusWrapper<R: ConsensusBroadcastRound>(pub(crate) R);
 
-impl<R: ConsensusBroadcastRound> ConsensusWrapper<R> {
-    pub(crate) fn id(&self) -> R::Id {
-        self.0.id()
-    }
-}
+impl<R: ConsensusBroadcastRound> ConsensusWrapper<R> {}
 
 impl<R: ConsensusBroadcastRound> Round for ConsensusWrapper<R> {
-    type Id = R::Id;
     type Error = R::Error;
     type Message = R::Message;
     type Payload = (R::Payload, R::Message);
-    type NextRound = (R::NextRound, BTreeMap<Self::Id, Self::Message>);
+    type NextRound = (R::NextRound, HoleVec<Self::Message>);
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSendTyped<Self::Message> {
         self.0.to_send()
     }
     fn verify_received(
         &self,
-        from: &Self::Id,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         self.0
             .verify_received(from, msg.clone())
             .map(|payload| (payload, msg))
     }
-    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
-        let (payloads, messages): (
-            BTreeMap<Self::Id, R::Payload>,
-            BTreeMap<Self::Id, R::Message>,
-        ) = payloads
-            .into_iter()
-            .map(|(id, (payload, message))| ((id.clone(), payload), (id, message)))
-            .unzip();
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+        let (payloads, messages) = payloads.unzip();
         let next_round = self.0.finalize(payloads);
         (next_round, messages)
     }
@@ -141,43 +141,46 @@ impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusWrapper<R> {}
 
 #[derive(Clone)]
 pub(crate) struct ConsensusRound<R: Round> {
-    pub(crate) id: R::Id,
-    pub(crate) broadcasts: BTreeMap<R::Id, R::Message>,
+    pub(crate) broadcasts: HoleVec<R::Message>,
 }
 
 impl<R: ConsensusBroadcastRound> Round for ConsensusRound<R>
 where
     <R as Round>::Message: PartialEq,
 {
-    type Id = R::Id;
     type Error = String;
-    type Message = BTreeMap<Self::Id, R::Message>;
+    type Message = HoleVec<R::Message>;
     type Payload = ();
     type NextRound = ();
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
-        ToSendTyped::Broadcast {
-            ids: self.broadcasts.keys().cloned().collect(),
-            message: self.broadcasts.clone(),
-        }
+    fn to_send(&self) -> ToSendTyped<Self::Message> {
+        ToSendTyped::Broadcast(self.broadcasts.clone())
     }
     fn verify_received(
         &self,
-        _from: &Self::Id,
+        _from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        // TODO: should we save our own broadcast,
+        // CHECK: should we save our own broadcast,
         // and check that the other nodes received it?
         // Or is this excessive since they are signed by us anyway?
-        for (id, broadcast) in msg {
-            if id != self.id && self.broadcasts[&id] != broadcast {
+        if msg.len() != self.broadcasts.len() {
+            return Err("Unexpected number of broadcasts received".into());
+        }
+        for (idx, broadcast) in msg.range().zip(msg.iter()) {
+            if !self
+                .broadcasts
+                .get(idx)
+                .map(|bc| bc == broadcast)
+                .unwrap_or(true)
+            {
                 // TODO: specify which node the conflicting broadcast was from
                 return Err("Received conflicting broadcasts".into());
             }
         }
         Ok(())
     }
-    fn finalize(self, _payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {}
+    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Self::NextRound {}
 }
 
 impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusRound<R> where
@@ -185,6 +188,7 @@ impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusRound<R> where
 {
 }
 
+/*
 pub(crate) enum OnFinalize<ThisState, NextState> {
     Finished(NextState),
     NotFinished(ThisState),
@@ -197,92 +201,72 @@ pub(crate) enum OnReceive<Error> {
     AlreadyReceived,
     Fatal(Error),
 }
+*/
 
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use crate::tools::collections::HoleMap;
-
     use super::*;
-
-    #[cfg(test)]
-    use alloc::collections::BTreeMap;
 
     #[derive(Debug)]
     pub(crate) enum StepError<Error> {
-        Transition(Error),
-        Logic(String),
+        Finalize,
+        InvalidIndex,
+        RepeatingMessage,
+        Receive(Error),
     }
 
-    impl<Error> From<Error> for StepError<Error> {
-        fn from(err: Error) -> Self {
-            Self::Transition(err)
-        }
-    }
-
-    pub(crate) fn step<R: Round>(
-        init: BTreeMap<R::Id, R>,
-    ) -> Result<BTreeMap<R::Id, R::NextRound>, StepError<R::Error>>
-    where
-        R::Id: Eq + Ord + Clone,
-        R::Message: Clone,
-    {
+    pub(crate) fn step<R: Round>(init: Vec<R>) -> Result<Vec<R::NextRound>, StepError<R::Error>> {
         // Collect outgoing messages
 
-        let mut accums = BTreeMap::<R::Id, HoleMap<R::Id, R::Payload>>::new();
+        let mut accums = (0..init.len())
+            .map(|idx| HoleVecAccum::<R::Payload>::new(init.len(), PartyIdx::from_usize(idx)))
+            .collect::<Vec<_>>();
         // `to, from, message`
-        let mut messages = Vec::<(R::Id, R::Id, R::Message)>::new();
+        let mut all_messages = Vec::<(PartyIdx, PartyIdx, R::Message)>::new();
 
-        for (id_from, state) in init.iter() {
-            let (accum, to_send) = state.get_messages();
+        for (idx_from, round) in init.iter().enumerate() {
+            let to_send = round.to_send();
+            let idx_from = PartyIdx::from_usize(idx_from);
 
             match to_send {
-                ToSendTyped::Broadcast { message, ids, .. } => {
-                    for id_to in ids {
-                        messages.push((id_to.clone(), id_from.clone(), message.clone()));
+                ToSendTyped::Broadcast(message) => {
+                    for idx_to in HoleRange::new(init.len(), idx_from) {
+                        all_messages.push((idx_to, idx_from, message.clone()));
                     }
                 }
-                ToSendTyped::Direct(msgs) => {
-                    for (id_to, message) in msgs.into_iter() {
-                        messages.push((id_to.clone(), id_from.clone(), message.clone()));
+                ToSendTyped::Direct(messages) => {
+                    for (idx_to, message) in messages.into_iter() {
+                        all_messages.push((idx_to, idx_from, message));
                     }
                 }
             }
-
-            accums.insert(id_from.clone(), accum);
         }
 
         // Send out messages
 
-        for (id_to, id_from, message) in messages.into_iter() {
-            let round = &init[&id_to];
-            let accum = accums.get_mut(&id_to).unwrap();
-            match round.receive(accum, &id_from, message) {
-                OnReceive::Ok => {}
-                OnReceive::InvalidId => return Err(StepError::Logic("Invalid ID".into())),
-                OnReceive::AlreadyReceived => {
-                    return Err(StepError::Logic("Already received from this ID".into()))
-                }
-                OnReceive::Fatal(err) => return Err(StepError::Transition(err)),
-            };
+        for (idx_to, idx_from, message) in all_messages.into_iter() {
+            let round = &init[idx_to.as_usize()];
+            let accum = accums.get_mut(idx_to.as_usize()).unwrap();
+            let slot = accum.get_mut(idx_from).ok_or(StepError::InvalidIndex)?;
+            if slot.is_some() {
+                return Err(StepError::RepeatingMessage);
+            }
+            *slot = Some(
+                round
+                    .verify_received(idx_from, message)
+                    .map_err(StepError::Receive)?,
+            );
         }
 
         // Check that all the states are finished
 
-        let mut result = BTreeMap::<R::Id, R::NextRound>::new();
-        for (id, round) in init.into_iter() {
-            let accum = accums[&id].clone();
-            let maybe_next_state = round.try_finalize(accum);
+        let mut result = Vec::<R::NextRound>::new();
 
-            let next_state = match maybe_next_state {
-                OnFinalize::NotFinished(_) => {
-                    return Err(StepError::Logic(
-                        "State not finished after all messages are sent".to_string(),
-                    ))
-                }
-                OnFinalize::Finished(s) => s,
-            };
-            result.insert(id, next_state);
+        for (round, accum) in init.into_iter().zip(accums.into_iter()) {
+            let accum_final = accum.finalize().map_err(|_| StepError::Finalize)?;
+            let next_state = round.finalize(accum_final);
+            result.push(next_state);
         }
 
         Ok(result)

@@ -1,63 +1,49 @@
 //! ECDSA key generation (Fig. 5).
 
-use alloc::collections::BTreeMap;
-
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
-use super::generic::{BroadcastRound, ConsensusBroadcastRound, Round, ToSendTyped};
+use super::generic::{BroadcastRound, ConsensusBroadcastRound, Round, SessionId, ToSendTyped};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
+use crate::tools::collections::{HoleVec, PartyIdx};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::tools::random::random_bits;
 
 /// $\mathcal{P}_i$.
 // Eventually this will be a node's public key which can be used as an address to send messages to.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PartyId(pub(crate) u32);
+//#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+//pub struct PartyId(pub(crate) u32);
 
-impl Hashable for PartyId {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
-    }
-}
-
-/// $sid$ ("session ID") in the paper
+// TODO: merge with SchemeParams from auxiliary.rs
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SessionInfo {
+pub struct SchemeParams {
     // `G`, `q`, and `g` (curve group, order, and the generator) are hardcoded,
     // so we're not saving them here.
 
-    // TODO: should it be all parties, or only other parties (excluding the ones it's sent to?)
-    // TODO: use BTreeSet instead (it is ordered)?
-    // Or check that PartyIds are distinct on construction?
-    // $\bm{P}$
-    pub(crate) parties: Vec<PartyId>,
-
+    // CHECK: do we need to include any type of session id (list of parties or hash thereof)
+    // at this level?
     /// Security parameter: `kappa = log2(curve order)`
-    pub(crate) kappa: usize,
+    pub(crate) security_parameter: usize,
 }
 
-impl SessionInfo {
-    pub fn other_parties(&self, id: &PartyId) -> Vec<PartyId> {
-        self.parties
-            .iter()
-            .cloned()
-            .filter(|pid| pid != id)
-            .collect()
+impl SchemeParams {
+    pub fn new(security_parameter: usize) -> Self {
+        Self { security_parameter }
     }
 }
 
-impl Hashable for SessionInfo {
+impl Hashable for SchemeParams {
     fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.parties).chain(&(self.kappa as u32))
+        digest.chain(&(self.security_parameter as u32))
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData {
-    session_info: SessionInfo,
-    party_id: PartyId,         // i
+    // TODO: include SchemeParams here?
+    session_id: SessionId,
+    party_idx: PartyIdx,       // i
     rid: Box<[u8]>,            // rid_i
     public: Point,             // X_i
     commitment: SchCommitment, // A_i
@@ -67,8 +53,8 @@ pub struct FullData {
 impl FullData {
     fn hash(&self) -> Scalar {
         Hash::new_with_dst(b"Keygen")
-            .chain(&self.session_info)
-            .chain(&self.party_id)
+            .chain(&self.session_id)
+            .chain(&self.party_idx)
             .chain(&self.rid)
             .chain(&self.public)
             .chain(&self.commitment)
@@ -89,27 +75,24 @@ pub struct Round1Bcast {
 }
 
 #[derive(Clone)]
-pub struct Round1 {
-    other_parties: Vec<PartyId>,
+pub(crate) struct Round1 {
     secret_data: SecretData,
     data: FullData,
 }
 
 impl Round1 {
-    pub fn new(session_info: &SessionInfo, party_id: &PartyId) -> Self {
+    pub fn new(session_id: &SessionId, scheme_params: &SchemeParams, party_idx: PartyIdx) -> Self {
         let secret = NonZeroScalar::random(&mut OsRng);
         let public = &Point::GENERATOR * &secret;
 
-        let rid = random_bits(session_info.kappa);
+        let rid = random_bits(scheme_params.security_parameter);
         let proof_secret = SchSecret::random(&mut OsRng);
         let commitment = SchCommitment::new(&proof_secret);
-        let u = random_bits(session_info.kappa);
-
-        let other_parties = session_info.other_parties(party_id);
+        let u = random_bits(scheme_params.security_parameter);
 
         let data = FullData {
-            session_info: session_info.clone(),
-            party_id: party_id.clone(),
+            session_id: session_id.clone(),
+            party_idx,
             rid,
             public,
             commitment,
@@ -121,36 +104,28 @@ impl Round1 {
             sch_secret: proof_secret,
         };
 
-        Self {
-            other_parties,
-            secret_data,
-            data,
-        }
+        Self { secret_data, data }
     }
 }
 
 impl Round for Round1 {
-    type Id = PartyId;
     type Error = String;
     type Payload = Scalar;
     type Message = Round1Bcast;
     type NextRound = Round2;
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
+    fn to_send(&self) -> ToSendTyped<Self::Message> {
         let hash = self.data.hash();
-        ToSendTyped::Broadcast {
-            ids: self.other_parties.clone(),
-            message: Round1Bcast { hash },
-        }
+        ToSendTyped::Broadcast(Round1Bcast { hash })
     }
     fn verify_received(
         &self,
-        _from: &Self::Id,
+        _from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         Ok(msg.hash)
     }
-    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
         Round2 {
             hashes: payloads,
             data: self.data,
@@ -161,17 +136,13 @@ impl Round for Round1 {
 
 impl BroadcastRound for Round1 {}
 
-impl ConsensusBroadcastRound for Round1 {
-    fn id(&self) -> Self::Id {
-        self.data.party_id.clone()
-    }
-}
+impl ConsensusBroadcastRound for Round1 {}
 
 #[derive(Clone)]
 pub struct Round2 {
     secret_data: SecretData,
     data: FullData,
-    hashes: BTreeMap<PartyId, Scalar>, // V_j
+    hashes: HoleVec<Scalar>, // V_j
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -180,23 +151,19 @@ pub struct Round2Bcast {
 }
 
 impl Round for Round2 {
-    type Id = PartyId;
     type Error = String;
     type Payload = FullData;
     type Message = Round2Bcast;
     type NextRound = Round3;
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
-        ToSendTyped::Broadcast {
-            ids: self.hashes.keys().cloned().collect(),
-            message: Round2Bcast {
-                data: self.data.clone(),
-            },
-        }
+    fn to_send(&self) -> ToSendTyped<Self::Message> {
+        ToSendTyped::Broadcast(Round2Bcast {
+            data: self.data.clone(),
+        })
     }
     fn verify_received(
         &self,
-        from: &Self::Id,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         if &msg.data.hash() != self.hashes.get(from).unwrap() {
@@ -205,11 +172,11 @@ impl Round for Round2 {
 
         Ok(msg.data)
     }
-    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rid = self.data.rid.clone();
-        for (_party_id, data) in payloads.iter() {
+        for data in payloads.iter() {
             for (i, x) in data.rid.iter().enumerate() {
                 rid[i] ^= x;
             }
@@ -228,7 +195,7 @@ impl BroadcastRound for Round2 {}
 
 #[derive(Clone)]
 pub struct Round3 {
-    datas: BTreeMap<PartyId, FullData>,
+    datas: HoleVec<FullData>,
     data: FullData,
     rid: Box<[u8]>,
     secret_data: SecretData,
@@ -240,14 +207,13 @@ pub struct Round3Bcast {
 }
 
 impl Round for Round3 {
-    type Id = PartyId;
     type Error = String;
     type Payload = bool;
     type Message = Round3Bcast;
     type NextRound = KeyShare;
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
-        let aux = (&self.data.session_info, &self.data.party_id, &self.rid);
+    fn to_send(&self) -> ToSendTyped<Self::Message> {
+        let aux = (&self.data.session_id, &self.data.party_idx, &self.rid);
         let proof = SchProof::new(
             &self.secret_data.sch_secret,
             &self.secret_data.key_share.clone().into_scalar(),
@@ -255,19 +221,16 @@ impl Round for Round3 {
             &self.data.public,
             &aux,
         );
-        ToSendTyped::Broadcast {
-            ids: self.datas.keys().cloned().collect(),
-            message: Round3Bcast { proof },
-        }
+        ToSendTyped::Broadcast(Round3Bcast { proof })
     }
     fn verify_received(
         &self,
-        from: &Self::Id,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         let party_data = self.datas.get(from).unwrap();
 
-        let aux = (&party_data.session_info, &party_data.party_id, &self.rid);
+        let aux = (&party_data.session_id, &party_data.party_idx, &self.rid);
         if !msg
             .proof
             .verify(&party_data.commitment, &party_data.public, &aux)
@@ -276,13 +239,9 @@ impl Round for Round3 {
         }
         Ok(true)
     }
-    fn finalize(self, _payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
-        let mut public_keys: BTreeMap<Self::Id, Point> = self
-            .datas
-            .into_iter()
-            .map(|(party_id, data)| (party_id, data.public))
-            .collect();
-        public_keys.insert(self.data.party_id, self.data.public);
+    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+        let datas = self.datas.into_vec(self.data);
+        let public_keys = datas.into_iter().map(|data| data.public).collect();
         KeyShare {
             rid: self.rid,
             public: public_keys,
@@ -296,14 +255,12 @@ impl BroadcastRound for Round3 {}
 #[derive(Clone)]
 pub struct KeyShare {
     pub rid: Box<[u8]>,
-    pub public: BTreeMap<PartyId, Point>,
+    pub public: Vec<Point>,
     pub secret: NonZeroScalar,
 }
 
 #[cfg(test)]
 mod tests {
-
-    use alloc::collections::BTreeMap;
 
     use crate::protocols::generic::tests::step;
 
@@ -311,18 +268,17 @@ mod tests {
 
     #[test]
     fn execute_keygen() {
-        let parties = [PartyId(111), PartyId(222), PartyId(333)];
-
-        let session_info = SessionInfo {
-            parties: parties.to_vec(),
-            kappa: 256,
+        let scheme_params = SchemeParams {
+            security_parameter: 256,
         };
 
-        let r1 = BTreeMap::from([
-            (parties[0].clone(), Round1::new(&session_info, &parties[0])),
-            (parties[1].clone(), Round1::new(&session_info, &parties[1])),
-            (parties[2].clone(), Round1::new(&session_info, &parties[2])),
-        ]);
+        let session_id = SessionId::random();
+
+        let r1 = vec![
+            Round1::new(&session_id, &scheme_params, PartyIdx::from_usize(0)),
+            Round1::new(&session_id, &scheme_params, PartyIdx::from_usize(1)),
+            Round1::new(&session_id, &scheme_params, PartyIdx::from_usize(2)),
+        ];
 
         let r2 = step(r1).unwrap();
         let r3 = step(r2).unwrap();
@@ -330,10 +286,7 @@ mod tests {
 
         // Check that the sets of public keys are the same at each node
 
-        let public_sets = shares
-            .values()
-            .map(|s| s.public.clone())
-            .collect::<Vec<_>>();
+        let public_sets = shares.iter().map(|s| s.public.clone()).collect::<Vec<_>>();
 
         assert!(public_sets[1..].iter().all(|pk| pk == &public_sets[0]));
 
@@ -341,9 +294,9 @@ mod tests {
         let public_set = &public_sets[0];
 
         let public_from_secret = shares
-            .into_iter()
-            .map(|(id, s)| (id, &Point::GENERATOR * &s.secret))
-            .collect::<BTreeMap<_, _>>();
+            .iter()
+            .map(|s| &Point::GENERATOR * &s.secret)
+            .collect::<Vec<_>>();
 
         assert!(public_set == &public_from_secret);
     }

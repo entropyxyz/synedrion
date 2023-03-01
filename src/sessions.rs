@@ -13,20 +13,32 @@ mod tests {
     use tokio::time::{sleep, Duration};
 
     use super::{KeygenState, Session, ToSend};
-    use crate::protocols::keygen::{PartyId, SessionInfo};
+    use crate::protocols::generic::SessionId;
+    use crate::protocols::keygen::SchemeParams;
+    use crate::sessions::generic::PartyId;
     use crate::KeyShare;
 
-    type Id = PartyId;
-    type Message = (PartyId, Box<[u8]>);
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    struct Id(u32);
+
+    impl PartyId for Id {}
+
+    type MessageOut = (Id, Id, Box<[u8]>);
+    type MessageIn = (Id, Box<[u8]>);
 
     async fn node_session(
-        tx: mpsc::Sender<(Id, Id, Box<[u8]>)>,
-        rx: mpsc::Receiver<Message>,
+        tx: mpsc::Sender<MessageOut>,
+        rx: mpsc::Receiver<MessageIn>,
+        all_parties: Vec<Id>,
         my_id: Id,
-        session_info: SessionInfo,
     ) -> KeyShare {
         let mut rx = rx;
-        let mut session = Session::new(KeygenState::new(&session_info, &my_id));
+
+        let scheme_params = SchemeParams::new(256);
+        let session_id = SessionId::random();
+
+        let mut session =
+            Session::<KeygenState, Id>::new(&session_id, &all_parties, &my_id, &scheme_params);
 
         while !session.is_final_stage() {
             println!(
@@ -64,7 +76,7 @@ mod tests {
                 println!("{my_id:?}: waiting for a message");
                 let (id_from, message_bytes) = rx.recv().await.unwrap();
                 println!("{my_id:?}: applying the message");
-                session.receive(id_from, &message_bytes);
+                session.receive(&id_from, &message_bytes);
             }
 
             println!("{my_id:?}: finalizing the stage");
@@ -75,11 +87,11 @@ mod tests {
     }
 
     async fn message_dispatcher(
-        txs: BTreeMap<Id, mpsc::Sender<Message>>,
-        rx: mpsc::Receiver<(Id, Id, Box<[u8]>)>,
+        txs: BTreeMap<Id, mpsc::Sender<MessageIn>>,
+        rx: mpsc::Receiver<MessageOut>,
     ) {
         let mut rx = rx;
-        let mut messages = Vec::<(Id, Id, Box<[u8]>)>::new();
+        let mut messages = Vec::<MessageOut>::new();
         loop {
             let msg = match rx.recv().await {
                 Some(msg) => msg,
@@ -110,20 +122,15 @@ mod tests {
 
     #[tokio::test]
     async fn keygen() {
-        let parties = [PartyId(111), PartyId(222), PartyId(333)];
+        let parties = vec![Id(111), Id(222), Id(333)];
 
-        let session_info = SessionInfo {
-            parties: parties.to_vec(),
-            kappa: 256,
-        };
-
-        let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<(Id, Id, Box<[u8]>)>(100);
+        let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
 
         let channels = parties
             .iter()
-            .map(|_id| mpsc::channel::<Message>(100))
+            .map(|_id| mpsc::channel::<MessageIn>(100))
             .collect::<Vec<_>>();
-        let (txs, rxs): (Vec<mpsc::Sender<Message>>, Vec<mpsc::Receiver<Message>>) =
+        let (txs, rxs): (Vec<mpsc::Sender<MessageIn>>, Vec<mpsc::Receiver<MessageIn>>) =
             channels.into_iter().unzip();
         let tx_map = parties
             .iter()
@@ -142,7 +149,7 @@ mod tests {
         let handles: Vec<tokio::task::JoinHandle<KeyShare>> = rx_map
             .into_iter()
             .map(|(id, rx)| {
-                let node_task = node_session(dispatcher_tx.clone(), rx, id, session_info.clone());
+                let node_task = node_session(dispatcher_tx.clone(), rx, parties.clone(), id);
                 tokio::spawn(async move { node_task.await })
             })
             .collect::<Vec<_>>();
