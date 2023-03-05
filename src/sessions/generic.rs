@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::protocols::generic::{
-    ConsensusBroadcastRound, ConsensusRound, ConsensusWrapper, Round, SessionId, ToSendTyped,
+    ConsensusBroadcastRound, ConsensusRound, Round, SessionId, ToSendTyped,
 };
 use crate::tools::collections::{HoleVec, HoleVecAccum, PartyIdx};
 
@@ -37,59 +37,6 @@ fn serialize_with_round(round: u8, message: &[u8]) -> Box<[u8]> {
 
 fn deserialize_with_round(message_bytes: &[u8]) -> (u8, Box<[u8]>) {
     rmp_serde::decode::from_slice(message_bytes).unwrap()
-}
-
-#[derive(Clone)]
-pub(crate) struct PreConsensusSubstage<R: ConsensusBroadcastRound>
-where
-    for<'de> <R as Round>::Message: Deserialize<'de>,
-{
-    round: ConsensusWrapper<R>,
-    accum: Option<HoleVecAccum<<ConsensusWrapper<R> as Round>::Payload>>,
-}
-
-impl<R: ConsensusBroadcastRound> PreConsensusSubstage<R>
-where
-    for<'de> <R as Round>::Message: Deserialize<'de>,
-{
-    pub(crate) fn new(round: R) -> Self {
-        Self {
-            round: ConsensusWrapper(round),
-            accum: None,
-        }
-    }
-
-    pub(crate) fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
-        if self.accum.is_some() {
-            panic!();
-        }
-
-        let to_send = get_messages(&self.round);
-        let accum =
-            HoleVecAccum::<<ConsensusWrapper<R> as Round>::Payload>::new(num_parties, index);
-        self.accum = Some(accum);
-        to_send
-    }
-
-    pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) {
-        match self.accum.as_mut() {
-            Some(accum) => receive(&self.round, accum, from, message_bytes),
-            None => panic!(),
-        }
-    }
-
-    pub(crate) fn is_finished_receiving(&self) -> bool {
-        match &self.accum {
-            Some(accum) => accum.can_finalize(),
-            None => panic!(),
-        }
-    }
-
-    pub(crate) fn finalize(self) -> <ConsensusWrapper<R> as Round>::NextRound {
-        // TODO: make it so that finalize() result could be immediately passed
-        // to the new() of the next round withour restructuring
-        finalize(self.round, self.accum.unwrap())
-    }
 }
 
 #[derive(Clone)]

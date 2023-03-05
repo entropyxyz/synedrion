@@ -1,13 +1,11 @@
-use super::generic::{
-    ConsensusSubstage, NormalSubstage, PreConsensusSubstage, SessionState, ToSendSerialized,
-};
-use crate::protocols::generic::SessionId;
+use super::generic::{ConsensusSubstage, NormalSubstage, SessionState, ToSendSerialized};
+use crate::protocols::generic::{ConsensusWrapper, SessionId};
 use crate::protocols::keygen::{KeyShare, Round1, Round2, Round3, SchemeParams};
 use crate::tools::collections::PartyIdx;
 
 #[derive(Clone)]
 enum KeygenStage {
-    Round1(PreConsensusSubstage<Round1>),
+    Round1(NormalSubstage<ConsensusWrapper<Round1>>),
     Round1Consensus(ConsensusSubstage<Round1>),
     Round2(NormalSubstage<Round2>),
     Round3(NormalSubstage<Round3>),
@@ -24,7 +22,9 @@ impl SessionState for KeygenState {
 
     fn new(session_id: &SessionId, params: &SchemeParams, index: PartyIdx) -> Self {
         let round1 = Round1::new(session_id, params, index);
-        Self(KeygenStage::Round1(PreConsensusSubstage::new(round1)))
+        Self(KeygenStage::Round1(NormalSubstage::new(ConsensusWrapper(
+            round1,
+        ))))
     }
 
     fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
