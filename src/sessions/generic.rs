@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use crate::protocols::generic::{
-    ConsensusBroadcastRound, ConsensusRound, Round, SessionId, ToSendTyped,
-};
-use crate::tools::collections::{HoleVec, HoleVecAccum, PartyIdx};
+use crate::protocols::generic::{Round, SessionId, ToSendTyped};
+use crate::tools::collections::{HoleVecAccum, PartyIdx};
 
 /// Serialized messages without the stage number specified.
 pub enum ToSendSerialized {
@@ -40,61 +38,6 @@ fn deserialize_with_round(message_bytes: &[u8]) -> (u8, Box<[u8]>) {
 }
 
 #[derive(Clone)]
-pub(crate) struct ConsensusSubstage<R: ConsensusBroadcastRound>
-where
-    R::Message: PartialEq,
-    for<'de> <R as Round>::Message: Deserialize<'de>,
-{
-    round: ConsensusRound<R>,
-    next_round: R::NextRound,
-    accum: Option<HoleVecAccum<<ConsensusRound<R> as Round>::Payload>>,
-}
-
-impl<R: ConsensusBroadcastRound> ConsensusSubstage<R>
-where
-    R::Message: PartialEq,
-    for<'de> <R as Round>::Message: Deserialize<'de>,
-{
-    pub(crate) fn new(next_round: R::NextRound, broadcasts: HoleVec<R::Message>) -> Self {
-        Self {
-            next_round,
-            round: ConsensusRound { broadcasts },
-            accum: None,
-        }
-    }
-
-    pub(crate) fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
-        if self.accum.is_some() {
-            panic!();
-        }
-
-        let to_send = get_messages(&self.round);
-        let accum = HoleVecAccum::<<ConsensusRound<R> as Round>::Payload>::new(num_parties, index);
-        self.accum = Some(accum);
-        to_send
-    }
-
-    pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) {
-        match self.accum.as_mut() {
-            Some(accum) => receive(&self.round, accum, from, message_bytes),
-            None => panic!(),
-        }
-    }
-
-    pub(crate) fn is_finished_receiving(&self) -> bool {
-        match &self.accum {
-            Some(accum) => accum.can_finalize(),
-            None => panic!(),
-        }
-    }
-
-    pub(crate) fn finalize(self) -> R::NextRound {
-        finalize(self.round, self.accum.unwrap());
-        self.next_round
-    }
-}
-
-#[derive(Clone)]
 pub(crate) struct NormalSubstage<R: Round>
 where
     for<'de> <R as Round>::Message: Deserialize<'de>,
@@ -116,17 +59,47 @@ where
             panic!();
         }
 
-        let to_send = get_messages(&self.round);
+        let to_send = match self.round.to_send() {
+            ToSendTyped::Broadcast(message) => {
+                let message = serialize_message(&message);
+                ToSendSerialized::Broadcast(message)
+            }
+            ToSendTyped::Direct(messages) => ToSendSerialized::Direct(
+                messages
+                    .into_iter()
+                    .map(|(idx, message)| (idx, serialize_message(&message)))
+                    .collect(),
+            ),
+        };
+
         let accum = HoleVecAccum::<R::Payload>::new(num_parties, index);
         self.accum = Some(accum);
         to_send
     }
 
     pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) {
-        match self.accum.as_mut() {
-            Some(accum) => receive(&self.round, accum, from, message_bytes),
+        let accum = match self.accum.as_mut() {
+            Some(accum) => accum,
             None => panic!(),
+        };
+
+        let message: R::Message = deserialize_message(message_bytes);
+
+        let slot = match accum.get_mut(from) {
+            Some(slot) => slot,
+            None => panic!("Invalid ID"),
+        };
+
+        if slot.is_some() {
+            panic!("Already received from this ID");
         }
+
+        let payload = match self.round.verify_received(from, message) {
+            Ok(res) => res,
+            Err(_) => panic!("Error validating message"),
+        };
+
+        *slot = Some(payload);
     }
 
     pub(crate) fn is_finished_receiving(&self) -> bool {
@@ -137,63 +110,19 @@ where
     }
 
     pub(crate) fn finalize(self) -> R::NextRound {
-        finalize(self.round, self.accum.unwrap())
-    }
-}
+        let accum = match self.accum {
+            Some(accum) => accum,
+            None => panic!(),
+        };
 
-fn get_messages<R: Round>(round: &R) -> ToSendSerialized
-where
-    R::Message: Serialize,
-{
-    match round.to_send() {
-        ToSendTyped::Broadcast(message) => {
-            let message = serialize_message(&message);
-            ToSendSerialized::Broadcast(message)
+        if accum.can_finalize() {
+            match accum.finalize() {
+                Ok(finalized) => self.round.finalize(finalized),
+                Err(_) => panic!("Could not finalize"),
+            }
+        } else {
+            panic!();
         }
-        ToSendTyped::Direct(messages) => ToSendSerialized::Direct(
-            messages
-                .into_iter()
-                .map(|(idx, message)| (idx, serialize_message(&message)))
-                .collect(),
-        ),
-    }
-}
-
-fn receive<R: Round>(
-    round: &R,
-    accum: &mut HoleVecAccum<R::Payload>,
-    from: PartyIdx,
-    message_bytes: &[u8],
-) where
-    for<'de> R::Message: Deserialize<'de>,
-{
-    let message: R::Message = deserialize_message(message_bytes);
-
-    let slot = match accum.get_mut(from) {
-        Some(slot) => slot,
-        None => panic!("Invalid ID"),
-    };
-
-    if slot.is_some() {
-        panic!("Already received from this ID");
-    }
-
-    let payload = match round.verify_received(from, message) {
-        Ok(res) => res,
-        Err(_) => panic!("Error validating message"),
-    };
-
-    *slot = Some(payload);
-}
-
-fn finalize<R: Round>(round: R, accum: HoleVecAccum<R::Payload>) -> R::NextRound {
-    if accum.can_finalize() {
-        match accum.finalize() {
-            Ok(finalized) => round.finalize(finalized),
-            Err(_) => panic!("Could not finalize"),
-        }
-    } else {
-        panic!();
     }
 }
 

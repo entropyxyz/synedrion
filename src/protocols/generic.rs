@@ -40,63 +40,6 @@ pub(crate) trait Round: Sized {
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error>;
     fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound;
-
-    /*
-    // TODO: wrap `self` into a "receiving" newtype so that `get_messages()`
-    // could not be called twice?
-    fn get_messages(&self) -> (HoleVecAccum<Self::Payload>, ToSendTyped<Self::Message>) {
-        let to_send = self.to_send();
-
-        let accum = match &to_send {
-            ToSendTyped::Broadcast { ids, .. } => HoleMap::new(ids.iter().cloned()),
-            ToSendTyped::Direct(messages) => {
-                HoleMap::new(messages.iter().map(|(id, _msg)| id.clone()))
-            }
-        };
-
-        (accum, to_send)
-    }
-
-    fn receive(
-        &self,
-        accum: &mut HoleVecAccum<Self::Payload>,
-        from: PartyIdx,
-        msg: Self::Message,
-    ) -> OnReceive<Self::Error> {
-        let val_ref = match accum.get_mut(from) {
-            None => return OnReceive::InvalidId,
-            Some(val) => match val {
-                Some(_) => return OnReceive::AlreadyReceived,
-                None => val,
-            },
-        };
-
-        match self.verify_received(from, msg) {
-            Ok(payload) => {
-                *val_ref = Some(payload);
-                OnReceive::Ok
-            }
-            Err(err) => OnReceive::Fatal(err),
-        }
-    }
-
-    // TODO: move to accum when it is its own type?
-    fn can_finalize(accum: &HoleVecAccum<Self::Payload>) -> bool {
-        accum.can_finalize()
-    }
-
-    fn try_finalize(
-        self,
-        accum: HoleVec<Self::Payload>,
-    ) -> OnFinalize<(Self, HoleVec<Self::Payload>), Self::NextRound> {
-        let accum_final = match accum.try_finalize() {
-            Ok(accum_final) => accum_final,
-            Err(accum) => return OnFinalize::NotFinished((self, accum)),
-        };
-
-        OnFinalize::Finished(self.finalize(accum_final))
-    }
-    */
 }
 
 // TODO: find a way to move `get_messages()` in this trait.
@@ -112,11 +55,14 @@ pub(crate) struct ConsensusWrapper<R: ConsensusBroadcastRound>(pub(crate) R);
 
 impl<R: ConsensusBroadcastRound> ConsensusWrapper<R> {}
 
-impl<R: ConsensusBroadcastRound> Round for ConsensusWrapper<R> {
+impl<R: ConsensusBroadcastRound> Round for ConsensusWrapper<R>
+where
+    R::NextRound: Round,
+{
     type Error = R::Error;
     type Message = R::Message;
     type Payload = (R::Payload, R::Message);
-    type NextRound = (R::NextRound, HoleVec<Self::Message>);
+    type NextRound = ConsensusRound<R>;
 
     fn to_send(&self) -> ToSendTyped<Self::Message> {
         self.0.to_send()
@@ -133,14 +79,18 @@ impl<R: ConsensusBroadcastRound> Round for ConsensusWrapper<R> {
     fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
         let (payloads, messages) = payloads.unzip();
         let next_round = self.0.finalize(payloads);
-        (next_round, messages)
+        ConsensusRound {
+            next_round,
+            broadcasts: messages,
+        }
     }
 }
 
-impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusWrapper<R> {}
+impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusWrapper<R> where R::NextRound: Round {}
 
 #[derive(Clone)]
 pub(crate) struct ConsensusRound<R: Round> {
+    next_round: R::NextRound,
     pub(crate) broadcasts: HoleVec<R::Message>,
 }
 
@@ -151,7 +101,7 @@ where
     type Error = String;
     type Message = HoleVec<R::Message>;
     type Payload = ();
-    type NextRound = ();
+    type NextRound = R::NextRound;
 
     fn to_send(&self) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(self.broadcasts.clone())
@@ -180,28 +130,15 @@ where
         }
         Ok(())
     }
-    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Self::NextRound {}
+    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+        self.next_round
+    }
 }
 
 impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusRound<R> where
     <R as Round>::Message: PartialEq
 {
 }
-
-/*
-pub(crate) enum OnFinalize<ThisState, NextState> {
-    Finished(NextState),
-    NotFinished(ThisState),
-}
-
-// TODO: Is it even possible to have a fatal error on reception of a message?
-pub(crate) enum OnReceive<Error> {
-    Ok,
-    InvalidId,
-    AlreadyReceived,
-    Fatal(Error),
-}
-*/
 
 #[cfg(test)]
 pub(crate) mod tests {
