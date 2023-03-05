@@ -3,7 +3,7 @@
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
-use super::generic::{BroadcastRound, ConsensusBroadcastRound, Round, SessionId, ToSendTyped};
+use super::generic::{BroadcastRound, NeedsConsensus, Round, SessionId, ToSendTyped};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::{HoleVec, PartyIdx};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
@@ -136,7 +136,7 @@ impl Round for Round1 {
 
 impl BroadcastRound for Round1 {}
 
-impl ConsensusBroadcastRound for Round1 {}
+impl NeedsConsensus for Round1 {}
 
 #[derive(Clone)]
 pub struct Round2 {

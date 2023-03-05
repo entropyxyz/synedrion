@@ -1,14 +1,14 @@
-use super::generic::{NormalSubstage, SessionState, ToSendSerialized};
-use crate::protocols::generic::{ConsensusRound, ConsensusWrapper, SessionId};
+use super::generic::{SessionState, Stage, ToSendSerialized};
+use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround, SessionId};
 use crate::protocols::keygen::{KeyShare, Round1, Round2, Round3, SchemeParams};
 use crate::tools::collections::PartyIdx;
 
 #[derive(Clone)]
 enum KeygenStage {
-    Round1(NormalSubstage<ConsensusWrapper<Round1>>),
-    Round1Consensus(NormalSubstage<ConsensusRound<Round1>>),
-    Round2(NormalSubstage<Round2>),
-    Round3(NormalSubstage<Round3>),
+    Round1(Stage<PreConsensusSubround<Round1>>),
+    Round1Consensus(Stage<ConsensusSubround<Round1>>),
+    Round2(Stage<Round2>),
+    Round3(Stage<Round3>),
     Result(KeyShare),
 }
 
@@ -22,7 +22,7 @@ impl SessionState for KeygenState {
 
     fn new(session_id: &SessionId, params: &SchemeParams, index: PartyIdx) -> Self {
         let round1 = Round1::new(session_id, params, index);
-        Self(KeygenStage::Round1(NormalSubstage::new(ConsensusWrapper(
+        Self(KeygenStage::Round1(Stage::new(PreConsensusSubround(
             round1,
         ))))
     }
@@ -59,13 +59,9 @@ impl SessionState for KeygenState {
 
     fn finalize_stage(self) -> Self {
         Self(match self.0 {
-            KeygenStage::Round1(r) => {
-                KeygenStage::Round1Consensus(NormalSubstage::new(r.finalize()))
-            }
-            KeygenStage::Round1Consensus(r) => {
-                KeygenStage::Round2(NormalSubstage::new(r.finalize()))
-            }
-            KeygenStage::Round2(r) => KeygenStage::Round3(NormalSubstage::new(r.finalize())),
+            KeygenStage::Round1(r) => KeygenStage::Round1Consensus(Stage::new(r.finalize())),
+            KeygenStage::Round1Consensus(r) => KeygenStage::Round2(Stage::new(r.finalize())),
+            KeygenStage::Round2(r) => KeygenStage::Round3(Stage::new(r.finalize())),
             KeygenStage::Round3(r) => KeygenStage::Result(r.finalize()),
             _ => panic!(),
         })

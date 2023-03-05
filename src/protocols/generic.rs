@@ -48,21 +48,21 @@ pub(crate) trait BroadcastRound: Round {}
 
 pub(crate) trait DirectRound: Round {}
 
-pub(crate) trait ConsensusBroadcastRound: BroadcastRound {}
+pub(crate) trait NeedsConsensus: BroadcastRound {}
 
 #[derive(Clone)]
-pub(crate) struct ConsensusWrapper<R: ConsensusBroadcastRound>(pub(crate) R);
+pub(crate) struct PreConsensusSubround<R: NeedsConsensus>(pub(crate) R);
 
-impl<R: ConsensusBroadcastRound> ConsensusWrapper<R> {}
+impl<R: NeedsConsensus> PreConsensusSubround<R> {}
 
-impl<R: ConsensusBroadcastRound> Round for ConsensusWrapper<R>
+impl<R: NeedsConsensus> Round for PreConsensusSubround<R>
 where
     R::NextRound: Round,
 {
     type Error = R::Error;
     type Message = R::Message;
     type Payload = (R::Payload, R::Message);
-    type NextRound = ConsensusRound<R>;
+    type NextRound = ConsensusSubround<R>;
 
     fn to_send(&self) -> ToSendTyped<Self::Message> {
         self.0.to_send()
@@ -79,22 +79,22 @@ where
     fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
         let (payloads, messages) = payloads.unzip();
         let next_round = self.0.finalize(payloads);
-        ConsensusRound {
+        ConsensusSubround {
             next_round,
             broadcasts: messages,
         }
     }
 }
 
-impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusWrapper<R> where R::NextRound: Round {}
+impl<R: NeedsConsensus> BroadcastRound for PreConsensusSubround<R> where R::NextRound: Round {}
 
 #[derive(Clone)]
-pub(crate) struct ConsensusRound<R: Round> {
+pub(crate) struct ConsensusSubround<R: Round> {
     next_round: R::NextRound,
     pub(crate) broadcasts: HoleVec<R::Message>,
 }
 
-impl<R: ConsensusBroadcastRound> Round for ConsensusRound<R>
+impl<R: NeedsConsensus> Round for ConsensusSubround<R>
 where
     <R as Round>::Message: PartialEq,
 {
@@ -135,7 +135,7 @@ where
     }
 }
 
-impl<R: ConsensusBroadcastRound> BroadcastRound for ConsensusRound<R> where
+impl<R: NeedsConsensus> BroadcastRound for ConsensusSubround<R> where
     <R as Round>::Message: PartialEq
 {
 }

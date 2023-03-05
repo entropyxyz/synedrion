@@ -38,7 +38,7 @@ fn deserialize_with_round(message_bytes: &[u8]) -> (u8, Box<[u8]>) {
 }
 
 #[derive(Clone)]
-pub(crate) struct NormalSubstage<R: Round>
+pub(crate) struct Stage<R: Round>
 where
     for<'de> <R as Round>::Message: Deserialize<'de>,
 {
@@ -46,7 +46,7 @@ where
     accum: Option<HoleVecAccum<R::Payload>>,
 }
 
-impl<R: Round> NormalSubstage<R>
+impl<R: Round> Stage<R>
 where
     for<'de> <R as Round>::Message: Deserialize<'de>,
 {
