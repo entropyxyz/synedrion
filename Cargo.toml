@@ -11,7 +11,7 @@ sha3 = { version = "0.10", default-features = false }
 digest = { version = "0.10", default-features = false, features = ["alloc"]}
 
 crypto-bigint = "0.5"
-crypto-primes = { git = "https://github.com/entropyxyz/crypto-primes.git", branch = "master" }
+crypto-primes = "0.2"
 
 serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"
