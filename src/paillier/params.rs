@@ -46,8 +46,7 @@ pub trait PaillierParams: PartialEq + Eq + Clone {
         + for<'a> Mul<&'a Self::GroupElement, Output = Self::GroupElement>;
 
     fn mul_to_field_elem(lhs: &Self::PrimeUint, rhs: &Self::PrimeUint) -> Self::FieldElement {
-        let (hi, lo) = lhs.mul_wide(rhs);
-        (lo, hi).into()
+        lhs.mul_wide(rhs).into()
     }
 
     fn field_elem_to_group_elem(

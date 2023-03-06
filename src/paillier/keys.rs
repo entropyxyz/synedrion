@@ -45,8 +45,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
     }
 
     pub fn rns_split(&self, elem: &P::FieldElement) -> (P::PrimeUintMod, P::PrimeUintMod) {
-        let p_big: P::FieldElement = (P::PrimeUint::ZERO, self.p).into();
-        let q_big: P::FieldElement = (P::PrimeUint::ZERO, self.q).into();
+        let p_big: P::FieldElement = (self.p, P::PrimeUint::ZERO).into();
+        let q_big: P::FieldElement = (self.q, P::PrimeUint::ZERO).into();
         let (_, p): (P::PrimeUint, P::PrimeUint) = (*elem % NonZero::new(p_big).unwrap()).into();
         let p = P::puint_to_puint_mod(&p, &self.p);
         let (_, q): (P::PrimeUint, P::PrimeUint) = (*elem % NonZero::new(q_big).unwrap()).into();
@@ -57,14 +57,14 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
     pub fn rns_join(&self, rns: &(P::PrimeUintMod, P::PrimeUintMod)) -> P::FieldElement {
         let (p_part, q_part) = *rns;
         let pk = self.public_key();
-        let p_big: P::FieldElement = (P::PrimeUint::ZERO, self.p).into();
-        let q_big: P::FieldElement = (P::PrimeUint::ZERO, self.q).into();
+        let p_big: P::FieldElement = (self.p, P::PrimeUint::ZERO).into();
+        let q_big: P::FieldElement = (self.q, P::PrimeUint::ZERO).into();
         let pq_big = p_big.add(&q_big);
         let pq_m = P::field_elem_to_group_elem(&pq_big, &pk.modulus());
         let inv = pq_m.invert().unwrap();
 
-        let p_part_big: P::FieldElement = (P::PrimeUint::ZERO, p_part.retrieve()).into();
-        let q_part_big: P::FieldElement = (P::PrimeUint::ZERO, q_part.retrieve()).into();
+        let p_part_big: P::FieldElement = (p_part.retrieve(), P::PrimeUint::ZERO).into();
+        let q_part_big: P::FieldElement = (q_part.retrieve(), P::PrimeUint::ZERO).into();
 
         let p_big_m = P::field_elem_to_group_elem(&p_big, &pk.modulus());
         let q_big_m = P::field_elem_to_group_elem(&q_big, &pk.modulus());
