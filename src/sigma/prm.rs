@@ -3,9 +3,11 @@
 //! Publish $(N, s, t)$ and prove that we know a secret $\lambda$ such that
 //! $s = t^\lambda \mod N$.
 
-use crypto_bigint::{AddMod, Pow, Zero};
 use rand_core::{CryptoRng, RngCore};
 
+use serde::{Deserialize, Serialize};
+
+use crate::paillier::uint::{Pow, Retrieve, UintLike, UintModLike, Zero};
 use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 
@@ -14,7 +16,7 @@ use crate::tools::hashing::{Chain, Hashable, XofHash};
 struct PrmSecret<P: PaillierParams> {
     public_key: PublicKeyPaillier<P>,
     /// `a_i`
-    secret: Vec<P::FieldElement>,
+    secret: Vec<P::DoubleUint>,
 }
 
 impl<P: PaillierParams> PrmSecret<P> {
@@ -24,7 +26,7 @@ impl<P: PaillierParams> PrmSecret<P> {
         security_parameter: usize,
     ) -> Self {
         let secret = (0..security_parameter)
-            .map(|_| sk.random_exponent(rng))
+            .map(|_| sk.random_field_elem(rng))
             .collect::<Vec<_>>();
         Self {
             public_key: sk.public_key(),
@@ -33,12 +35,16 @@ impl<P: PaillierParams> PrmSecret<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PrmCommitment<P: PaillierParams>(Vec<P::GroupElement>);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PrmCommitment<P: PaillierParams>(Vec<P::DoubleUint>);
 
 impl<P: PaillierParams> PrmCommitment<P> {
-    pub(crate) fn new(secret: &PrmSecret<P>, base: &P::GroupElement) -> Self {
-        let commitment = secret.secret.iter().map(|a| base.pow(a)).collect();
+    pub(crate) fn new(secret: &PrmSecret<P>, base: &P::DoubleUintMod) -> Self {
+        let commitment = secret
+            .secret
+            .iter()
+            .map(|a| base.pow(a).retrieve())
+            .collect();
         Self(commitment)
     }
 
@@ -53,13 +59,13 @@ impl<P: PaillierParams> Hashable for PrmCommitment<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
     fn new<P: PaillierParams>(
         aux: &impl Hashable,
-        public: &P::GroupElement,
+        public: &P::DoubleUintMod,
         commitment: &PrmCommitment<P>,
     ) -> Self {
         // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
@@ -79,21 +85,23 @@ impl Hashable for PrmChallenge {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound = "PrmCommitment<P>: Serialize + for<'x> Deserialize<'x>")]
 pub(crate) struct PrmProof<P: PaillierParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
-    proof: Vec<P::FieldElement>,
+    proof: Vec<P::DoubleUint>,
 }
 
 impl<P: PaillierParams> PrmProof<P> {
     /// Create a proof that we know the `secret`.
+    // TODO: should it take `public` and `base` as non-mod uints too, to match verify()?
     pub(crate) fn random(
         rng: &mut (impl RngCore + CryptoRng),
         sk: &SecretKeyPaillier<P>,
-        secret: &P::FieldElement,
-        base: &P::GroupElement,
-        public: &P::GroupElement,
+        secret: &P::DoubleUint,
+        base: &P::DoubleUintMod,
+        public: &P::DoubleUintMod,
         aux: &impl Hashable,
         security_parameter: usize,
     ) -> Self {
@@ -101,7 +109,7 @@ impl<P: PaillierParams> PrmProof<P> {
         let commitment = PrmCommitment::new(&proof_secret, base);
 
         let totient = sk.totient();
-        let zero = P::FieldElement::ZERO;
+        let zero = P::DoubleUint::ZERO;
         let challenge = PrmChallenge::new(aux, public, &commitment);
         let proof = proof_secret
             .secret
@@ -119,11 +127,16 @@ impl<P: PaillierParams> PrmProof<P> {
     /// Verify that the proof is correct for a secret corresponding to the given `public`.
     pub(crate) fn verify(
         &self,
-        base: &P::GroupElement,
-        public: &P::GroupElement,
+        pk: &PublicKeyPaillier<P>,
+        base: &P::DoubleUint,
+        public: &P::DoubleUint,
         aux: &impl Hashable,
     ) -> bool {
-        let challenge = PrmChallenge::new(aux, public, &self.commitment);
+        let modulus = pk.modulus();
+        let base_mod = P::DoubleUintMod::new(base, &modulus);
+        let public_mod = P::DoubleUintMod::new(public, &modulus);
+
+        let challenge = PrmChallenge::new(aux, &public_mod, &self.commitment);
         if challenge != self.challenge {
             return false;
         }
@@ -131,11 +144,11 @@ impl<P: PaillierParams> PrmProof<P> {
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a = self.commitment.0[i];
+            let a = P::DoubleUintMod::new(&self.commitment.0[i], &modulus);
             let test = if e {
-                base.pow(&z) == a * public
+                base_mod.pow(&z) == a * public_mod
             } else {
-                base.pow(&z) == a
+                base_mod.pow(&z) == a
             };
             if !test {
                 return false;
@@ -166,6 +179,9 @@ mod tests {
 
         let base = pk.random_group_elem(&mut OsRng);
         let secret = sk.random_field_elem(&mut OsRng);
+        // TODO: find a way to express it better; for some reason Rust
+        // does not pick the right `Pow` impl otherwise.
+        // Do we have to wrap DynResidue in our own type too?
         let public = base.pow(&secret);
 
         let aux: &[u8] = b"abcde";
@@ -179,6 +195,6 @@ mod tests {
             &aux,
             security_parameter,
         );
-        assert!(proof.verify(&base, &public, &aux));
+        assert!(proof.verify(&pk, &base.retrieve(), &public.retrieve(), &aux));
     }
 }

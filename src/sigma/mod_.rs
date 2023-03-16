@@ -1,22 +1,23 @@
 //! Proof of Paillier-Blum modulus ($\Pi_{mod}$, Fig. 16)
 
-use crypto_bigint::{modular::Retrieve, Pow};
 use rand_core::{CryptoRng, RngCore};
+use serde::{Deserialize, Serialize};
 
+use crate::paillier::uint::{Pow, RandomMod, Retrieve, UintLike, UintModLike};
 use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
 use crate::tools::{
     hashing::{Chain, Hashable, XofHash},
     jacobi::{JacobiSymbol, JacobiSymbolTrait},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ModCommitment<P: PaillierParams>(P::FieldElement);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ModCommitment<P: PaillierParams>(P::DoubleUint);
 
 impl<P: PaillierParams> ModCommitment<P> {
     pub fn random(rng: &mut (impl RngCore + CryptoRng), pk: &PublicKeyPaillier<P>) -> Self {
         let w = loop {
-            let w = pk.random_group_elem_raw(rng);
-            if P::FieldElement::jacobi_symbol(&w, &pk.modulus()) == JacobiSymbol::MinusOne {
+            let w = P::DoubleUint::random_mod(rng, &pk.modulus());
+            if w.jacobi_symbol(&pk.modulus()) == JacobiSymbol::MinusOne {
                 break w;
             }
         };
@@ -24,31 +25,35 @@ impl<P: PaillierParams> ModCommitment<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ModChallenge<P: PaillierParams>(Vec<P::FieldElement>);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ModChallenge<P: PaillierParams>(Vec<P::DoubleUint>);
 
 impl<P: PaillierParams> ModChallenge<P> {
     fn new(aux: &impl Hashable, pk: &PublicKeyPaillier<P>, security_parameter: usize) -> Self {
         // CHECK: should we hash the modulus (N) here too?
-        let digest = XofHash::new_with_dst(b"mod-challenge").chain(aux);
-        let ys = pk.hash_to_group_elems_raw(digest, security_parameter);
+        let mut reader = XofHash::new_with_dst(b"mod-challenge")
+            .chain(aux)
+            .finalize_reader();
+        let modulus = pk.modulus();
+        let ys = (0..security_parameter)
+            .map(|_| P::DoubleUint::hash_into_mod(&mut reader, &modulus))
+            .collect();
         Self(ys)
     }
-
-    fn security_parameter(&self) -> usize {
-        self.0.len()
-    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModProofElem<P: PaillierParams> {
-    x: P::FieldElement,
+    x: P::DoubleUint,
     a: bool,
     b: bool,
-    z: P::FieldElement,
+    z: P::DoubleUint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(serialize = "ModCommitment<P>: Serialize, ModChallenge<P>: Serialize"))]
+#[serde(bound(deserialize = "ModCommitment<P>: for<'x> Deserialize<'x>,
+    ModChallenge<P>: for<'x> Deserialize<'x>"))]
 pub(crate) struct ModProof<P: PaillierParams> {
     commitment: ModCommitment<P>,
     challenge: ModChallenge<P>,
@@ -98,7 +103,7 @@ impl<P: PaillierParams> ModProof<P> {
                 let y_4th_parts = sk.sqrt(&y_sqrt).unwrap();
                 let y_4th = sk.rns_join(&y_4th_parts);
 
-                let y = P::field_elem_to_group_elem(&challenge.0[i], &pk.modulus());
+                let y = P::DoubleUintMod::new(&challenge.0[i], &pk.modulus());
                 let z = y.pow(&sk.inv_modulus());
 
                 ModProofElem {
@@ -125,11 +130,11 @@ impl<P: PaillierParams> ModProof<P> {
         }
 
         let modulus = pk.modulus();
-        let w = P::field_elem_to_group_elem(&self.commitment.0, &modulus);
+        let w = P::DoubleUintMod::new(&self.commitment.0, &modulus);
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
-            let z_m = P::field_elem_to_group_elem(&elem.z, &modulus);
-            let mut y_m = P::field_elem_to_group_elem(y, &modulus);
-            if z_m.pow(&modulus) != y_m {
+            let z_m = P::DoubleUintMod::new(&elem.z, &modulus);
+            let mut y_m = P::DoubleUintMod::new(y, &modulus);
+            if z_m.pow(modulus.as_ref()) != y_m {
                 return false;
             }
 
@@ -139,7 +144,7 @@ impl<P: PaillierParams> ModProof<P> {
             if elem.b {
                 y_m = y_m * &w;
             }
-            let x = P::field_elem_to_group_elem(&elem.x, &modulus);
+            let x = P::DoubleUintMod::new(&elem.x, &modulus);
             let x_sq = x * &x;
             let x_4 = x_sq * &x_sq;
             if y_m != x_4 {

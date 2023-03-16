@@ -2,19 +2,20 @@ use alloc::collections::BTreeMap;
 
 use crypto_bigint::Pow;
 use rand_core::OsRng;
+use serde::{Deserialize, Serialize};
 
-use super::keygen::{PartyId, SessionInfo};
-use super::generic::{ToSendTyped, Round};
+use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, SessionId, ToSendTyped};
 use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
     params::{PaillierParams, PaillierTest},
-    uint::Uint,
+    uint::{Retrieve, UintLike},
 };
 use crate::sigma::fac::FacProof;
 use crate::sigma::mod_::ModProof;
 use crate::sigma::prm::PrmProof;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
+use crate::tools::collections::{HoleVec, PartyIdx};
 use crate::tools::group::{zero_sum_scalars, NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
@@ -33,40 +34,39 @@ impl SchemeParams for TestSchemeParams {
 }
 
 pub struct Round1<P: SchemeParams> {
-    other_parties: Vec<PartyId>,
     data: FullData<P>,
     secret_data: SecretData<P>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData<P: SchemeParams> {
-    session_info: SessionInfo,                                      // $sid$
-    party_id: PartyId,                                              // $i$
-    xs_public: BTreeMap<PartyId, Point>,                            // $\bm{X}_i$
-    sch_commitments_x: BTreeMap<PartyId, SchCommitment>,            // $\bm{A}_i$
-    y_public: Point,                                                // $Y_i$,
-    sch_commitment_y: SchCommitment,                                // $B_i$
-    paillier_pk: PublicKeyPaillier<P::Paillier>,                    // $N_i$
-    paillier_public: <P::Paillier as PaillierParams>::GroupElement, // $s_i$
-    paillier_base: <P::Paillier as PaillierParams>::GroupElement,   // $t_i$
-    prm_proof: PrmProof<P::Paillier>,                               // $\hat{\psi}_i$
-    rho_bits: Box<[u8]>,                                            // $\rho_i$
-    u_bits: Box<[u8]>,                                              // $u_i$
+    session_id: SessionId,                                        // $sid$
+    party_idx: PartyIdx,                                          // $i$
+    xs_public: Vec<Point>,                                        // $\bm{X}_i$
+    sch_commitments_x: Vec<SchCommitment>,                        // $\bm{A}_i$
+    y_public: Point,                                              // $Y_i$,
+    sch_commitment_y: SchCommitment,                              // $B_i$
+    paillier_pk: PublicKeyPaillier<P::Paillier>,                  // $N_i$
+    paillier_public: <P::Paillier as PaillierParams>::DoubleUint, // $s_i$
+    paillier_base: <P::Paillier as PaillierParams>::DoubleUint,   // $t_i$
+    prm_proof: PrmProof<P::Paillier>,                             // $\hat{\psi}_i$
+    rho_bits: Box<[u8]>,                                          // $\rho_i$
+    u_bits: Box<[u8]>,                                            // $u_i$
 }
 
 struct SecretData<P: SchemeParams> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
     y_secret: NonZeroScalar,
-    xs_secret: BTreeMap<PartyId, Scalar>,
+    xs_secret: Vec<Scalar>,
     sch_secret_y: SchSecret,
-    sch_secrets_x: BTreeMap<PartyId, SchSecret>,
+    sch_secrets_x: Vec<SchSecret>,
 }
 
 impl<P: SchemeParams> FullData<P> {
     fn hash(&self) -> Box<[u8]> {
         Hash::new_with_dst(b"Auxiliary")
-            .chain(&self.session_info)
-            .chain(&self.party_id)
+            .chain(&self.session_id)
+            .chain(&self.party_idx)
             .chain(&self.xs_public)
             .chain(&self.sch_commitments_x)
             .chain(&self.y_public)
@@ -82,7 +82,12 @@ impl<P: SchemeParams> FullData<P> {
 }
 
 impl<P: SchemeParams> Round1<P> {
-    pub fn new(session_info: &SessionInfo, party_id: &PartyId) -> Self {
+    pub fn new(
+        session_id: &SessionId,
+        scheme_params: &P,
+        party_idx: PartyIdx,
+        num_parties: usize,
+    ) -> Self {
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(&mut OsRng);
         let paillier_pk = paillier_sk.public_key();
         let y_secret = NonZeroScalar::random(&mut OsRng);
@@ -91,27 +96,19 @@ impl<P: SchemeParams> Round1<P> {
         let sch_secret_y = SchSecret::random(&mut OsRng); // $\tau$
         let sch_commitment_y = SchCommitment::new(&sch_secret_y); // $B_i$
 
-        let xs_secret = zero_sum_scalars(&mut OsRng, session_info.parties.len());
-
-        let xs_secret: BTreeMap<PartyId, Scalar> = session_info
-            .parties
+        let xs_secret = zero_sum_scalars(&mut OsRng, num_parties);
+        let xs_public = xs_secret
             .iter()
             .cloned()
-            .zip(xs_secret.iter().cloned())
-            .collect::<BTreeMap<_, _>>();
-
-        let xs_public = xs_secret
-            .clone()
-            .into_iter()
-            .map(|(party_id, x)| (party_id, &Point::GENERATOR * &x))
-            .collect::<BTreeMap<_, _>>();
+            .map(|x| &Point::GENERATOR * &x)
+            .collect();
 
         let r = paillier_pk.random_invertible_group_elem(&mut OsRng);
         let lambda = paillier_sk.random_field_elem(&mut OsRng);
         let paillier_base = r * &r; // TODO: use `square()` when it's available
         let paillier_public = paillier_base.pow(&lambda);
 
-        let aux = (session_info, party_id);
+        let aux = (session_id, &party_idx);
         let prm_proof = PrmProof::random(
             &mut OsRng,
             &paillier_sk,
@@ -119,37 +116,33 @@ impl<P: SchemeParams> Round1<P> {
             &paillier_base,
             &paillier_public,
             &aux,
-            session_info.kappa,
+            P::SECURITY_PARAMETER,
         );
 
         // $\tau_j$
-        let sch_secrets_x = session_info
-            .parties
-            .iter()
-            .map(|party| (party.clone(), SchSecret::random(&mut OsRng)))
-            .collect::<BTreeMap<_, _>>();
+        let sch_secrets_x: Vec<SchSecret> = (0..num_parties)
+            .map(|_| SchSecret::random(&mut OsRng))
+            .collect();
 
         // $A_i^j$
         let sch_commitments_x = sch_secrets_x
             .iter()
-            .map(|(party, secret)| (party.clone(), SchCommitment::new(secret)))
-            .collect::<BTreeMap<_, _>>();
+            .map(|secret| SchCommitment::new(secret))
+            .collect();
 
-        let rho_bits = random_bits(session_info.kappa);
-        let u_bits = random_bits(session_info.kappa);
-
-        let other_parties = session_info.other_parties(party_id);
+        let rho_bits = random_bits(P::SECURITY_PARAMETER);
+        let u_bits = random_bits(P::SECURITY_PARAMETER);
 
         let data = FullData {
-            session_info: session_info.clone(),
-            party_id: party_id.clone(),
+            session_id: session_id.clone(),
+            party_idx,
             xs_public,
             sch_commitments_x,
             y_public,
             sch_commitment_y,
             paillier_pk,
-            paillier_public,
-            paillier_base,
+            paillier_public: paillier_public.retrieve(),
+            paillier_base: paillier_base.retrieve(),
             prm_proof,
             rho_bits,
             u_bits,
@@ -163,45 +156,36 @@ impl<P: SchemeParams> Round1<P> {
             sch_secret_y,
         };
 
-        Self {
-            other_parties,
-            data,
-            secret_data,
-        }
+        Self { data, secret_data }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Round1Bcast {
     hash: Box<[u8]>, // `V_j`
 }
 
 impl<P: SchemeParams> Round for Round1<P> {
-    type Id = PartyId;
     type Error = String;
     type Payload = Box<[u8]>;
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
-        ToSendTyped::Broadcast {
-            message: Round1Bcast {
-                hash: self.data.hash(),
-            },
-            ids: self.other_parties.clone(),
-            needs_consensus: true,
-        }
+    fn to_send(&self) -> ToSendTyped<Self::Message> {
+        ToSendTyped::Broadcast(Round1Bcast {
+            hash: self.data.hash(),
+        })
     }
 
     fn verify_received(
         &self,
-        _from: &Self::Id,
+        _from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         Ok(msg.hash)
     }
 
-    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
         Round2 {
             data: self.data,
             secret_data: self.secret_data,
@@ -210,69 +194,70 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 }
 
+impl<P: SchemeParams> BroadcastRound for Round1<P> {}
+
+impl<P: SchemeParams> NeedsConsensus for Round1<P> {}
+
 pub struct Round2<P: SchemeParams> {
     data: FullData<P>,
     secret_data: SecretData<P>,
-    hashes: BTreeMap<PartyId, Box<[u8]>>, // V_j
+    hashes: HoleVec<Box<[u8]>>, // V_j
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound = "FullData<P>: Serialize")]
 pub struct Round2Bcast<P: SchemeParams> {
     data: FullData<P>,
 }
 
 impl<P: SchemeParams> Round for Round2<P> {
-    type Id = PartyId;
     type Error = String;
     type Payload = FullData<P>;
     type Message = Round2Bcast<P>;
     type NextRound = Round3<P>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
-        ToSendTyped::Broadcast {
-            message: Round2Bcast {
-                data: self.data.clone(),
-            },
-            ids: self.hashes.keys().cloned().collect(),
-            needs_consensus: false,
-        }
+    fn to_send(&self) -> ToSendTyped<Self::Message> {
+        ToSendTyped::Broadcast(Round2Bcast {
+            data: self.data.clone(),
+        })
     }
 
     fn verify_received(
         &self,
-        from: &Self::Id,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         if &msg.data.hash() != self.hashes.get(from).unwrap() {
             return Err("Invalid hash".to_string());
         }
 
-        if msg.data.paillier_pk.modulus().bits() < 8 * P::SECURITY_PARAMETER {
+        if msg.data.paillier_pk.modulus().as_ref().bits() < 8 * P::SECURITY_PARAMETER {
             return Err("Paillier modulus is too small".to_string());
         }
 
-        let sum_x: Point = msg.data.xs_public.values().sum();
+        let sum_x: Point = msg.data.xs_public.iter().sum();
         if sum_x != Point::IDENTITY {
             return Err("Sum of X points is not identity".to_string());
         }
 
-        let aux = (&self.data.session_info, from);
-        if !msg
-            .data
-            .prm_proof
-            .verify(&msg.data.paillier_base, &msg.data.paillier_public, &aux)
-        {
+        let aux = (&self.data.session_id, &from);
+        if !msg.data.prm_proof.verify(
+            &msg.data.paillier_pk,
+            &msg.data.paillier_base,
+            &msg.data.paillier_public,
+            &aux,
+        ) {
             return Err("PRM verification failed".to_string());
         }
 
         Ok(msg.data)
     }
 
-    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rho = self.data.rho_bits.clone();
-        for (_party_id, data) in payloads.iter() {
+        for data in payloads.iter() {
             for (i, x) in data.rho_bits.iter().enumerate() {
                 rho[i] ^= x;
             }
@@ -287,27 +272,44 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
+impl<P: SchemeParams> BroadcastRound for Round2<P> {}
+
 pub struct Round3<P: SchemeParams> {
     rho: Box<[u8]>,
     data: FullData<P>,
     secret_data: SecretData<P>,
-    datas: BTreeMap<PartyId, FullData<P>>,
+    datas: HoleVec<FullData<P>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "ModProof<P::Paillier>: Serialize,
+    FacProof<P::Paillier>: Serialize,
+    Ciphertext<P::Paillier>: Serialize"))]
+#[serde(bound(deserialize = "ModProof<P::Paillier>: for<'x> Deserialize<'x>,
+    FacProof<P::Paillier>: for<'x> Deserialize<'x>,
+    Ciphertext<P::Paillier>: for<'x> Deserialize<'x>"))]
+pub struct FullData2<P: SchemeParams> {
+    mod_proof: ModProof<P::Paillier>,        // `psi_j`
+    fac_proof: FacProof<P::Paillier>,        // `phi_j,i`
+    sch_proof_y: SchProof,                   // `pi_i`
+    paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
+    sch_proof_x: SchProof,                   // `psi_i,j`
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound = "FullData2<P>: Serialize + for<'x> Deserialize<'x>")]
 pub struct Round3Direct<P: SchemeParams> {
     data2: FullData2<P>,
 }
 
 impl<P: SchemeParams> Round for Round3<P> {
-    type Id = PartyId;
     type Error = String;
     type Payload = Scalar;
     type Message = Round3Direct<P>;
     type NextRound = AuxData<P>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Id, Self::Message> {
-        let aux = (&self.data.session_info, &self.rho, &self.data.party_id);
+    fn to_send(&self) -> ToSendTyped<Self::Message> {
+        let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);
         let mod_proof = ModProof::random(
             &mut OsRng,
             &self.secret_data.paillier_sk,
@@ -324,17 +326,17 @@ impl<P: SchemeParams> Round for Round3<P> {
         );
 
         let mut dms = Vec::new();
-        for (party_id, data) in self.datas.iter() {
+        for (party_idx, data) in self.datas.enumerate() {
             let fac_proof = FacProof::random(&mut OsRng, &self.secret_data.paillier_sk, &aux);
 
-            let x_secret = self.secret_data.xs_secret[party_id];
-            let x_public = self.data.xs_public[party_id];
+            let x_secret = self.secret_data.xs_secret[party_idx.as_usize()];
+            let x_public = self.data.xs_public[party_idx.as_usize()];
             let ciphertext = Ciphertext::new(&data.paillier_pk, &x_secret);
 
             let sch_proof_x = SchProof::new(
-                &self.secret_data.sch_secrets_x[party_id],
+                &self.secret_data.sch_secrets_x[party_idx.as_usize()],
                 &x_secret,
-                &self.data.sch_commitments_x[party_id],
+                &self.data.sch_commitments_x[party_idx.as_usize()],
                 &x_public,
                 &aux,
             );
@@ -347,7 +349,7 @@ impl<P: SchemeParams> Round for Round3<P> {
                 sch_proof_x,
             };
 
-            dms.push((party_id.clone(), Round3Direct { data2 }));
+            dms.push((party_idx, Round3Direct { data2 }));
         }
 
         ToSendTyped::Direct(dms)
@@ -355,10 +357,10 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn verify_received(
         &self,
-        from: &Self::Id,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        let sender_data = &self.datas[from];
+        let sender_data = &self.datas.get(from).unwrap();
 
         let x_secret = msg
             .data2
@@ -366,12 +368,12 @@ impl<P: SchemeParams> Round for Round3<P> {
             .decrypt(&self.secret_data.paillier_sk)
             .unwrap();
 
-        if &Point::GENERATOR * &x_secret != sender_data.xs_public[&self.data.party_id] {
+        if &Point::GENERATOR * &x_secret != sender_data.xs_public[self.data.party_idx.as_usize()] {
             // TODO: paper has `\mu` calculation here.
             return Err("Mismatched secret x".to_string());
         }
 
-        let aux = (&self.data.session_info, &self.rho, from);
+        let aux = (&self.data.session_id, &self.rho, &from);
 
         if !msg.data2.mod_proof.verify(&sender_data.paillier_pk, &aux) {
             return Err("Mod proof verification failed".to_string());
@@ -392,8 +394,8 @@ impl<P: SchemeParams> Round for Round3<P> {
         }
 
         if !msg.data2.sch_proof_x.verify(
-            &sender_data.sch_commitments_x[&self.data.party_id],
-            &sender_data.xs_public[&self.data.party_id],
+            &sender_data.sch_commitments_x[self.data.party_idx.as_usize()],
+            &sender_data.xs_public[self.data.party_idx.as_usize()],
             &aux,
         ) {
             // CHECK: not sending the commitment the second time in `msg`,
@@ -404,46 +406,32 @@ impl<P: SchemeParams> Round for Round3<P> {
         Ok(x_secret)
     }
 
-    fn finalize(self, payloads: BTreeMap<Self::Id, Self::Payload>) -> Self::NextRound {
-        let x_mask = payloads.values().sum();
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+        let secrets = payloads.into_vec(self.secret_data.xs_secret[self.data.party_idx.as_usize()]);
+        let x_mask = secrets.iter().sum();
 
-        let xs_masks_public = self
-            .datas
-            .keys()
-            .map(|party_id| {
-                (
-                    party_id.clone(),
-                    self.datas
-                        .values()
-                        .map(|data| data.xs_public[party_id])
-                        .sum(),
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
+        let datas = self.datas.into_vec(self.data);
 
-        let ys_public = self
-            .datas
+        let xs_masks_public = (0..datas.len())
+            .map(|idx| datas.iter().map(|data| data.xs_public[idx]).sum())
+            .collect::<Vec<_>>();
+
+        let ys_public = datas.iter().map(|data| data.y_public).collect::<Vec<_>>();
+
+        let paillier_pks = datas
             .iter()
-            .map(|(party_id, data)| (party_id.clone(), data.y_public))
-            .collect::<BTreeMap<_, _>>();
+            .map(|data| data.paillier_pk.clone())
+            .collect::<Vec<_>>();
 
-        let paillier_pks = self
-            .datas
+        let paillier_bases = datas
             .iter()
-            .map(|(party_id, data)| (party_id.clone(), data.paillier_pk.clone()))
-            .collect::<BTreeMap<_, _>>();
+            .map(|data| data.paillier_base)
+            .collect::<Vec<_>>();
 
-        let paillier_bases = self
-            .datas
+        let paillier_publics = datas
             .iter()
-            .map(|(party_id, data)| (party_id.clone(), data.paillier_base))
-            .collect::<BTreeMap<_, _>>();
-
-        let paillier_publics = self
-            .datas
-            .iter()
-            .map(|(party_id, data)| (party_id.clone(), data.paillier_public))
-            .collect::<BTreeMap<_, _>>();
+            .map(|data| data.paillier_public)
+            .collect::<Vec<_>>();
 
         AuxData {
             x_mask,
@@ -458,15 +446,6 @@ impl<P: SchemeParams> Round for Round3<P> {
     }
 }
 
-#[derive(Clone)]
-pub struct FullData2<P: SchemeParams> {
-    mod_proof: ModProof<P::Paillier>,        // `psi_j`
-    fac_proof: FacProof<P::Paillier>,        // `phi_j,i`
-    sch_proof_y: SchProof,                   // `pi_i`
-    paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
-    sch_proof_x: SchProof,                   // `psi_i,j`
-}
-
 pub struct AuxData<P: SchemeParams> {
     // secret
     x_mask: Scalar,
@@ -474,45 +453,28 @@ pub struct AuxData<P: SchemeParams> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
 
     // public
-    xs_masks_public: BTreeMap<PartyId, Point>,
-    ys_public: BTreeMap<PartyId, Point>,
-    paillier_pks: BTreeMap<PartyId, PublicKeyPaillier<P::Paillier>>,
-    paillier_bases: BTreeMap<PartyId, <P::Paillier as PaillierParams>::GroupElement>,
-    paillier_publics: BTreeMap<PartyId, <P::Paillier as PaillierParams>::GroupElement>,
+    xs_masks_public: Vec<Point>,
+    ys_public: Vec<Point>,
+    paillier_pks: Vec<PublicKeyPaillier<P::Paillier>>,
+    paillier_bases: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
+    paillier_publics: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
 }
 
 #[cfg(test)]
 mod tests {
 
-    use alloc::collections::BTreeMap;
-
     use super::*;
-    use crate::protocols::keygen::PartyId;
     use crate::protocols::generic::tests::step;
 
     #[test]
     fn execute_auxiliary() {
-        let parties = [PartyId(111), PartyId(222), PartyId(333)];
+        let session_id = SessionId::random();
 
-        let session_info = SessionInfo {
-            parties: parties.to_vec(),
-            kappa: 256,
-        };
-
-        let r1 = BTreeMap::from([
-            (
-                parties[0].clone(),
-                Round1::<TestSchemeParams>::new(&session_info, &parties[0]),
-            ),
-            (
-                parties[1].clone(),
-                Round1::<TestSchemeParams>::new(&session_info, &parties[1]),
-            ),
-            (
-                parties[2].clone(),
-                Round1::<TestSchemeParams>::new(&session_info, &parties[2]),
-            ),
-        ]);
+        let r1 = vec![
+            Round1::new(&session_id, &TestSchemeParams, PartyIdx::from_usize(0), 3),
+            Round1::new(&session_id, &TestSchemeParams, PartyIdx::from_usize(1), 3),
+            Round1::new(&session_id, &TestSchemeParams, PartyIdx::from_usize(2), 3),
+        ];
 
         let r2 = step(r1).unwrap();
         let r3 = step(r2).unwrap();

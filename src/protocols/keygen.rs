@@ -262,9 +262,8 @@ pub struct KeyShare {
 #[cfg(test)]
 mod tests {
 
-    use crate::protocols::generic::tests::step;
-
     use super::*;
+    use crate::protocols::generic::tests::step;
 
     #[test]
     fn execute_keygen() {

@@ -97,17 +97,17 @@ fn swap<T: SmallMod>(j: JacobiSymbol, a: T, p: T) -> (JacobiSymbol, T, T) {
 }
 
 pub trait JacobiSymbolTrait {
-    fn jacobi_symbol(a: &Self, p: &Self) -> JacobiSymbol;
+    fn jacobi_symbol(&self, p: &Self) -> JacobiSymbol;
 }
 
 impl JacobiSymbolTrait for Word {
-    fn jacobi_symbol(a: &Self, p: &Self) -> JacobiSymbol {
+    fn jacobi_symbol(&self, p: &Self) -> JacobiSymbol {
         if *p & 1 == 0 {
             panic!("`p` must be an odd integer");
         }
 
         let mut result = JacobiSymbol::One; // Keep track of all the sign flips here.
-        let mut a = *a;
+        let mut a = *self;
         let mut p = *p;
 
         while a != 0 {
@@ -133,13 +133,13 @@ impl JacobiSymbolTrait for Word {
 }
 
 impl<const L: usize> JacobiSymbolTrait for Uint<L> {
-    fn jacobi_symbol(a: &Self, p: &Self) -> JacobiSymbol {
+    fn jacobi_symbol(&self, p: &Self) -> JacobiSymbol {
         if p.is_even().into() {
             panic!("`p` must be an odd integer");
         }
 
         let mut result = JacobiSymbol::One; // Keep track of all the sign flips here.
-        let mut a = *a;
+        let mut a = *self;
         let mut p = *p;
 
         while (!a.is_zero()).into() {
@@ -148,7 +148,7 @@ impl<const L: usize> JacobiSymbolTrait for Uint<L> {
             a = a.rem(&NonZero::new(p).unwrap());
 
             if p.bits() <= Word::BITS as usize {
-                return result * Word::jacobi_symbol(&a.as_words()[0], &p.as_words()[0]);
+                return result * a.as_words()[0].jacobi_symbol(&p.as_words()[0]);
             }
         }
         if p == Uint::<L>::ONE {

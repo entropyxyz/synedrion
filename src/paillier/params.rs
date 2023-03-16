@@ -1,19 +1,19 @@
-use core::ops::Mul;
+use core::ops::Sub;
 
-use crypto_bigint::subtle::CtOption;
-use crypto_bigint::{
-    modular::{
-        runtime_mod::{DynResidue, DynResidueParams},
-        Retrieve,
-    },
-    nlimbs, AddMod, Encoding, Invert, NonZero, Pow, U128, U64,
-};
+use serde::{Deserialize, Serialize};
 
-use super::uint::Uint;
+use super::uint::{HasWide, U128Mod, U64Mod, UintLike, UintModLike, U128, U64};
 use crate::tools::hashing::{HashInto, Hashable};
 use crate::tools::jacobi::JacobiSymbolTrait;
 
-pub trait PaillierParams: PartialEq + Eq + Clone {
+pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug {
+    type SingleUint: UintLike + HasWide<Wide = Self::DoubleUint>;
+    type SingleUintMod: UintModLike<RawUint = Self::SingleUint>;
+    type DoubleUint: UintLike + Serialize + for<'de> Deserialize<'de>;
+    type DoubleUintMod: Hashable + UintModLike<RawUint = Self::DoubleUint>;
+    //type QuadUint: Uint;
+
+    /*
     type PrimeUint: Uint + core::ops::Shr<usize, Output = Self::PrimeUint> + core::fmt::Display;
     type PrimeUintMod: Pow<Self::PrimeUint>
         + PartialEq
@@ -44,7 +44,9 @@ pub trait PaillierParams: PartialEq + Eq + Clone {
         + Pow<Self::FieldElement>
         + Retrieve<Output = Self::FieldElement>
         + for<'a> Mul<&'a Self::GroupElement, Output = Self::GroupElement>;
+    */
 
+    /*
     fn mul_to_field_elem(lhs: &Self::PrimeUint, rhs: &Self::PrimeUint) -> Self::FieldElement {
         lhs.mul_wide(rhs).into()
     }
@@ -55,17 +57,19 @@ pub trait PaillierParams: PartialEq + Eq + Clone {
     ) -> Self::GroupElement;
 
     fn puint_to_puint_mod(x: &Self::PrimeUint, modulus: &Self::PrimeUint) -> Self::PrimeUintMod;
+    */
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
-    type PrimeUint = U64;
-    type PrimeUintMod = DynResidue<{ nlimbs!(64) }>;
-    type FieldElement = U128;
-    type GroupElement = DynResidue<{ nlimbs!(128) }>;
+    type SingleUint = U64;
+    type SingleUintMod = U64Mod;
+    type DoubleUint = U128;
+    type DoubleUintMod = U128Mod;
 
+    /*
     fn field_elem_to_group_elem(
         x: &Self::FieldElement,
         modulus: &Self::FieldElement,
@@ -78,4 +82,5 @@ impl PaillierParams for PaillierTest {
         let params = DynResidueParams::new(modulus);
         DynResidue::new(x, params)
     }
+    */
 }

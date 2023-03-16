@@ -1,11 +1,12 @@
 use core::marker::PhantomData;
 
 use rand_core::{CryptoRng, RngCore};
+use serde::{Deserialize, Serialize};
 
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
 use crate::tools::hashing::Hashable;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: PaillierParams>(PhantomData<P>);
 
 impl<P: PaillierParams> FacProof<P> {

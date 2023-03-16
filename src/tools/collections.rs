@@ -157,11 +157,11 @@ impl<T> HoleVec<T> {
         self.elems.iter()
     }
 
-    /*
     pub fn enumerate(&self) -> core::iter::Zip<HoleRange, core::slice::Iter<'_, T>> {
         HoleRange::new(self.len(), self.hole_at()).zip(self.elems.iter())
     }
 
+    /*
     pub fn into_enumerate(self) -> core::iter::Zip<HoleRange, alloc::vec::IntoIter<T>> {
         HoleRange::new(self.len(), self.hole_at()).zip(self.elems.into_iter())
     }

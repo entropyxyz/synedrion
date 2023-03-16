@@ -1,9 +1,12 @@
+use serde::{Deserialize, Serialize};
+
 use super::keys::{PublicKeyPaillier, SecretKeyPaillier};
 use super::params::PaillierParams;
 use crate::tools::group::Scalar;
 
 // TODO: implement actual encryption
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound = "PublicKeyPaillier<P>: Serialize + for<'x> Deserialize<'x>")]
 pub struct Ciphertext<P: PaillierParams>(Scalar, PublicKeyPaillier<P>);
 
 impl<P: PaillierParams> Ciphertext<P> {
