@@ -1,3 +1,6 @@
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+
 use serde::{Deserialize, Serialize};
 
 use crate::protocols::generic::{Round, SessionId, ToSendTyped};

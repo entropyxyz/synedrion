@@ -1,5 +1,9 @@
 //! ECDSA key generation (Fig. 5).
 
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
@@ -261,6 +265,7 @@ pub struct KeyShare {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
 
     use super::*;
     use crate::protocols::generic::tests::step;

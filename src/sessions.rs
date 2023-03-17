@@ -7,6 +7,7 @@ pub use keygen::KeygenState;
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeMap;
+    use alloc::vec;
 
     use rand::seq::SliceRandom;
     use tokio::sync::mpsc;

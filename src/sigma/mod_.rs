@@ -1,5 +1,7 @@
 //! Proof of Paillier-Blum modulus ($\Pi_{mod}$, Fig. 16)
 
+use alloc::vec::Vec;
+
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 

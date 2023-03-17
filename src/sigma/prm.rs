@@ -3,6 +3,8 @@
 //! Publish $(N, s, t)$ and prove that we know a secret $\lambda$ such that
 //! $s = t^\lambda \mod N$.
 
+use alloc::vec::Vec;
+
 use rand_core::{CryptoRng, RngCore};
 
 use serde::{Deserialize, Serialize};
