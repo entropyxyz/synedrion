@@ -53,16 +53,12 @@ mod tests {
             match to_send {
                 ToSend::Broadcast { message, ids, .. } => {
                     for id_to in ids {
-                        tx.send((my_id.clone(), id_to.clone(), message.clone()))
-                            .await
-                            .unwrap();
+                        tx.send((my_id, id_to, message.clone())).await.unwrap();
                     }
                 }
                 ToSend::Direct(msgs) => {
                     for (id_to, message) in msgs.into_iter() {
-                        tx.send((my_id.clone(), id_to.clone(), message))
-                            .await
-                            .unwrap();
+                        tx.send((my_id, id_to, message)).await.unwrap();
                     }
                 }
             };
@@ -145,13 +141,13 @@ mod tests {
             .collect::<BTreeMap<_, _>>();
 
         let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
-        let dispatcher = tokio::spawn(async move { dispatcher_task.await });
+        let dispatcher = tokio::spawn(dispatcher_task);
 
         let handles: Vec<tokio::task::JoinHandle<KeyShare>> = rx_map
             .into_iter()
             .map(|(id, rx)| {
                 let node_task = node_session(dispatcher_tx.clone(), rx, parties.clone(), id);
-                tokio::spawn(async move { node_task.await })
+                tokio::spawn(node_task)
             })
             .collect::<Vec<_>>();
 
@@ -159,7 +155,7 @@ mod tests {
         drop(dispatcher_tx);
 
         for handle in handles {
-            let result = handle.await.unwrap();
+            let _result = handle.await.unwrap();
             println!("Got result");
         }
 

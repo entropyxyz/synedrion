@@ -1,10 +1,7 @@
-use core::ops::Sub;
-
 use serde::{Deserialize, Serialize};
 
 use super::uint::{HasWide, U128Mod, U64Mod, UintLike, UintModLike, U128, U64};
-use crate::tools::hashing::{HashInto, Hashable};
-use crate::tools::jacobi::JacobiSymbolTrait;
+use crate::tools::hashing::Hashable;
 
 pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug {
     type SingleUint: UintLike + HasWide<Wide = Self::DoubleUint>;

@@ -1,17 +1,17 @@
-use core::ops::{Add, BitAnd, Mul, Neg, Rem, Shl, Shr, Sub};
+use core::ops::{Add, BitAnd, Mul, Neg, Rem, Shl, Shr};
 
 use digest::XofReader;
 use rand_core::{CryptoRng, RngCore};
 
 use crypto_bigint::subtle::{ConstantTimeLess, CtOption};
+use crypto_bigint::Bounded;
 use crypto_bigint::{
     modular::runtime_mod::{DynResidue, DynResidueParams},
-    nlimbs, CtChoice, Encoding, Limb, Uint, Word,
+    nlimbs, Encoding, Limb, Uint, Word,
 };
-use crypto_bigint::{Bounded, PowBoundedExp};
 
-use crate::tools::hashing::{Chain, HashInto, Hashable};
-use crate::tools::jacobi::{JacobiSymbol, JacobiSymbolTrait};
+use crate::tools::hashing::{Chain, Hashable};
+use crate::tools::jacobi::JacobiSymbolTrait;
 
 pub use crypto_bigint::{
     modular::Retrieve, CheckedAdd, CheckedMul, CheckedSub, Integer, Invert, NonZero, Pow,
@@ -97,7 +97,7 @@ impl<const L: usize> UintLike for Uint<L> {
             }
             n.as_limbs_mut()[n_limbs - 1] = n.as_limbs()[n_limbs - 1] & mask;
 
-            if n.ct_lt(&backend_modulus).into() {
+            if n.ct_lt(backend_modulus).into() {
                 return n;
             }
         }
@@ -112,7 +112,7 @@ impl<const L: usize> UintLike for Uint<L> {
     }
 
     fn inv_odd_mod(&self, modulus: &Self) -> CtOption<Self> {
-        let (res, choice) = self.inv_odd_mod(&modulus);
+        let (res, choice) = self.inv_odd_mod(modulus);
         CtOption::new(res, choice.into())
     }
 

@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum, PartyIdx};
+use crate::tools::collections::{HoleVec, PartyIdx};
 use crate::tools::hashing::{Chain, Hashable};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +147,7 @@ impl<R: NeedsConsensus> BroadcastRound for ConsensusSubround<R> where
 pub(crate) mod tests {
 
     use super::*;
+    use crate::tools::collections::{HoleRange, HoleVecAccum};
 
     #[derive(Debug)]
     pub(crate) enum StepError<Error> {
