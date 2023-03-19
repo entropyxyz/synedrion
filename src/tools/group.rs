@@ -2,6 +2,9 @@
 //! `elliptic_curves` has a somewhat unstable API,
 //! and we isolate all the related logic here.
 
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::default::Default;
 use core::ops::{Add, Mul, Sub};
 

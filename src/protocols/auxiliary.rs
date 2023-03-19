@@ -1,10 +1,12 @@
-use alloc::collections::BTreeMap;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
 use crypto_bigint::Pow;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
-use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, SessionId, ToSendTyped};
+use super::generic::{BroadcastRound, NeedsConsensus, Round, SessionId, ToSendTyped};
 use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
@@ -84,7 +86,7 @@ impl<P: SchemeParams> FullData<P> {
 impl<P: SchemeParams> Round1<P> {
     pub fn new(
         session_id: &SessionId,
-        scheme_params: &P,
+        _scheme_params: &P,
         party_idx: PartyIdx,
         num_parties: usize,
     ) -> Self {
@@ -125,10 +127,7 @@ impl<P: SchemeParams> Round1<P> {
             .collect();
 
         // $A_i^j$
-        let sch_commitments_x = sch_secrets_x
-            .iter()
-            .map(|secret| SchCommitment::new(secret))
-            .collect();
+        let sch_commitments_x = sch_secrets_x.iter().map(SchCommitment::new).collect();
 
         let rho_bits = random_bits(P::SECURITY_PARAMETER);
         let u_bits = random_bits(P::SECURITY_PARAMETER);

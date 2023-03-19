@@ -1,4 +1,6 @@
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 
 use digest::{Digest, ExtendableOutput, Output, Update, XofReader};
 use sha2::Sha256;

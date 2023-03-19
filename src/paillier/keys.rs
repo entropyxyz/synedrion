@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use super::uint::{
     CheckedAdd, CheckedMul, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, RandomMod,
-    Retrieve, UintLike, UintModLike, Zero,
+    Retrieve, UintLike, UintModLike,
 };
-use crate::tools::hashing::{Chain, HashInto, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable};
 
 pub struct SecretKeyPaillier<P: PaillierParams> {
     p: P::SingleUint,
@@ -104,7 +104,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let m_nz = self.totient();
         let m = m_nz.as_ref();
         let k = m.trailing_zeros();
-        let m_odd = m.clone() >> k;
+        let m_odd = *m >> k;
         let x = self.public_key().modulus();
 
         let a = x.as_ref().inv_odd_mod(&m_odd).unwrap();
@@ -137,7 +137,7 @@ pub struct PublicKeyPaillier<P: PaillierParams> {
 impl<P: PaillierParams> PublicKeyPaillier<P> {
     pub fn modulus(&self) -> NonZero<P::DoubleUint> {
         // TODO: or just store it as NonZero to begin with?
-        NonZero::new(self.modulus.clone()).unwrap()
+        NonZero::new(self.modulus).unwrap()
     }
 
     pub fn random_group_elem(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::DoubleUintMod {

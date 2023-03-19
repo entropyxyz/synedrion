@@ -1,3 +1,6 @@
+use alloc::boxed::Box;
+use alloc::vec;
+
 use rand_core::{OsRng, RngCore};
 
 pub fn random_bits(min_bits: usize) -> Box<[u8]> {
