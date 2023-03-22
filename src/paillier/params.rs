@@ -23,6 +23,8 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug {
 pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
+    // We need 129 bit primes because we need DoubleUint to accommodate all the possible
+    // values of curve scalar, which is 256 bits long.
     const PRIME_BITS: usize = 129;
     type SingleUint = U192;
     type SingleUintMod = U192Mod;

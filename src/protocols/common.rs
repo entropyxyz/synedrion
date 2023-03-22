@@ -21,6 +21,8 @@ impl Hashable for SessionId {
     }
 }
 
+// TODO: this trait can include curve scalar/point types as well,
+// but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Clone {
     const SECURITY_PARAMETER: usize;
     type Paillier: PaillierParams;
