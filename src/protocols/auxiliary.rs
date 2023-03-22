@@ -6,11 +6,12 @@ use crypto_bigint::Pow;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
-use super::generic::{BroadcastRound, NeedsConsensus, Round, SessionId, ToSendTyped};
+use super::common::{SchemeParams, SessionId};
+use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
-    params::{PaillierParams, PaillierTest},
+    params::PaillierParams,
     uint::{Retrieve, UintLike},
 };
 use crate::sigma::fac::FacProof;
@@ -21,19 +22,6 @@ use crate::tools::collections::{HoleVec, PartyIdx};
 use crate::tools::group::{zero_sum_scalars, NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
-
-pub trait SchemeParams: Clone {
-    const SECURITY_PARAMETER: usize;
-    type Paillier: PaillierParams;
-}
-
-#[derive(Clone)]
-pub struct TestSchemeParams;
-
-impl SchemeParams for TestSchemeParams {
-    const SECURITY_PARAMETER: usize = 10;
-    type Paillier = PaillierTest;
-}
 
 pub struct Round1<P: SchemeParams> {
     data: FullData<P>,
@@ -84,12 +72,7 @@ impl<P: SchemeParams> FullData<P> {
 }
 
 impl<P: SchemeParams> Round1<P> {
-    pub fn new(
-        session_id: &SessionId,
-        _scheme_params: &P,
-        party_idx: PartyIdx,
-        num_parties: usize,
-    ) -> Self {
+    pub fn new(session_id: &SessionId, party_idx: PartyIdx, num_parties: usize) -> Self {
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(&mut OsRng);
         let paillier_pk = paillier_sk.public_key();
         let y_secret = NonZeroScalar::random(&mut OsRng);
@@ -462,17 +445,19 @@ pub struct AuxData<P: SchemeParams> {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
+    use super::Round1;
+    use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
+    use crate::tools::collections::PartyIdx;
 
     #[test]
     fn execute_auxiliary() {
         let session_id = SessionId::random();
 
         let r1 = vec![
-            Round1::new(&session_id, &TestSchemeParams, PartyIdx::from_usize(0), 3),
-            Round1::new(&session_id, &TestSchemeParams, PartyIdx::from_usize(1), 3),
-            Round1::new(&session_id, &TestSchemeParams, PartyIdx::from_usize(2), 3),
+            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(0), 3),
+            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(1), 3),
+            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(2), 3),
         ];
 
         let r2 = step(r1).unwrap();

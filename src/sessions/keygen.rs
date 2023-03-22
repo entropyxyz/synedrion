@@ -1,27 +1,27 @@
 use super::generic::{SessionState, Stage, ToSendSerialized};
-use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround, SessionId};
-use crate::protocols::keygen::{KeyShare, Round1, Round2, Round3, SchemeParams};
+use crate::protocols::common::{SchemeParams, SessionId};
+use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
+use crate::protocols::keygen::{KeyShare, Round1, Round2, Round3};
 use crate::tools::collections::PartyIdx;
 
 #[derive(Clone)]
-enum KeygenStage {
-    Round1(Stage<PreConsensusSubround<Round1>>),
-    Round1Consensus(Stage<ConsensusSubround<Round1>>),
-    Round2(Stage<Round2>),
-    Round3(Stage<Round3>),
+enum KeygenStage<P: SchemeParams> {
+    Round1(Stage<PreConsensusSubround<Round1<P>>>),
+    Round1Consensus(Stage<ConsensusSubround<Round1<P>>>),
+    Round2(Stage<Round2<P>>),
+    Round3(Stage<Round3<P>>),
     Result(KeyShare),
 }
 
 #[derive(Clone)]
-pub struct KeygenState(KeygenStage);
+pub struct KeygenState<P: SchemeParams>(KeygenStage<P>);
 
-impl SessionState for KeygenState {
+impl<P: SchemeParams> SessionState for KeygenState<P> {
     type Result = KeyShare;
+    type Context = ();
 
-    type Context = SchemeParams;
-
-    fn new(session_id: &SessionId, params: &SchemeParams, index: PartyIdx) -> Self {
-        let round1 = Round1::new(session_id, params, index);
+    fn new(session_id: &SessionId, _context: &(), index: PartyIdx) -> Self {
+        let round1 = Round1::<P>::new(session_id, index);
         Self(KeygenStage::Round1(Stage::new(PreConsensusSubround(
             round1,
         ))))

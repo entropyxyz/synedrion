@@ -3,45 +3,18 @@
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 
-use super::generic::{BroadcastRound, NeedsConsensus, Round, SessionId, ToSendTyped};
+use super::common::{SchemeParams, SessionId};
+use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::{HoleVec, PartyIdx};
 use crate::tools::group::{NonZeroScalar, Point, Scalar};
-use crate::tools::hashing::{Chain, Hash, Hashable};
+use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
-
-/// $\mathcal{P}_i$.
-// Eventually this will be a node's public key which can be used as an address to send messages to.
-//#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-//pub struct PartyId(pub(crate) u32);
-
-// TODO: merge with SchemeParams from auxiliary.rs
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SchemeParams {
-    // `G`, `q`, and `g` (curve group, order, and the generator) are hardcoded,
-    // so we're not saving them here.
-
-    // CHECK: do we need to include any type of session id (list of parties or hash thereof)
-    // at this level?
-    /// Security parameter: `kappa = log2(curve order)`
-    pub(crate) security_parameter: usize,
-}
-
-impl SchemeParams {
-    pub fn new(security_parameter: usize) -> Self {
-        Self { security_parameter }
-    }
-}
-
-impl Hashable for SchemeParams {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&(self.security_parameter as u32))
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData {
@@ -79,20 +52,21 @@ pub struct Round1Bcast {
 }
 
 #[derive(Clone)]
-pub(crate) struct Round1 {
+pub(crate) struct Round1<P: SchemeParams> {
     secret_data: SecretData,
     data: FullData,
+    phantom: PhantomData<P>,
 }
 
-impl Round1 {
-    pub fn new(session_id: &SessionId, scheme_params: &SchemeParams, party_idx: PartyIdx) -> Self {
+impl<P: SchemeParams> Round1<P> {
+    pub fn new(session_id: &SessionId, party_idx: PartyIdx) -> Self {
         let secret = NonZeroScalar::random(&mut OsRng);
         let public = &Point::GENERATOR * &secret;
 
-        let rid = random_bits(scheme_params.security_parameter);
+        let rid = random_bits(P::SECURITY_PARAMETER);
         let proof_secret = SchSecret::random(&mut OsRng);
         let commitment = SchCommitment::new(&proof_secret);
-        let u = random_bits(scheme_params.security_parameter);
+        let u = random_bits(P::SECURITY_PARAMETER);
 
         let data = FullData {
             session_id: session_id.clone(),
@@ -108,15 +82,19 @@ impl Round1 {
             sch_secret: proof_secret,
         };
 
-        Self { secret_data, data }
+        Self {
+            secret_data,
+            data,
+            phantom: PhantomData,
+        }
     }
 }
 
-impl Round for Round1 {
+impl<P: SchemeParams> Round for Round1<P> {
     type Error = String;
     type Payload = Scalar;
     type Message = Round1Bcast;
-    type NextRound = Round2;
+    type NextRound = Round2<P>;
 
     fn to_send(&self) -> ToSendTyped<Self::Message> {
         let hash = self.data.hash();
@@ -134,19 +112,21 @@ impl Round for Round1 {
             hashes: payloads,
             data: self.data,
             secret_data: self.secret_data,
+            phantom: PhantomData,
         }
     }
 }
 
-impl BroadcastRound for Round1 {}
+impl<P: SchemeParams> BroadcastRound for Round1<P> {}
 
-impl NeedsConsensus for Round1 {}
+impl<P: SchemeParams> NeedsConsensus for Round1<P> {}
 
 #[derive(Clone)]
-pub struct Round2 {
+pub struct Round2<P: SchemeParams> {
     secret_data: SecretData,
     data: FullData,
     hashes: HoleVec<Scalar>, // V_j
+    phantom: PhantomData<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -154,11 +134,11 @@ pub struct Round2Bcast {
     data: FullData,
 }
 
-impl Round for Round2 {
+impl<P: SchemeParams> Round for Round2<P> {
     type Error = String;
     type Payload = FullData;
     type Message = Round2Bcast;
-    type NextRound = Round3;
+    type NextRound = Round3<P>;
 
     fn to_send(&self) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round2Bcast {
@@ -191,18 +171,20 @@ impl Round for Round2 {
             data: self.data,
             rid,
             secret_data: self.secret_data,
+            phantom: PhantomData,
         }
     }
 }
 
-impl BroadcastRound for Round2 {}
+impl<P: SchemeParams> BroadcastRound for Round2<P> {}
 
 #[derive(Clone)]
-pub struct Round3 {
+pub struct Round3<P: SchemeParams> {
     datas: HoleVec<FullData>,
     data: FullData,
     rid: Box<[u8]>,
     secret_data: SecretData,
+    phantom: PhantomData<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -210,7 +192,7 @@ pub struct Round3Bcast {
     proof: SchProof,
 }
 
-impl Round for Round3 {
+impl<P: SchemeParams> Round for Round3<P> {
     type Error = String;
     type Payload = bool;
     type Message = Round3Bcast;
@@ -254,7 +236,7 @@ impl Round for Round3 {
     }
 }
 
-impl BroadcastRound for Round3 {}
+impl<P: SchemeParams> BroadcastRound for Round3<P> {}
 
 #[derive(Clone)]
 pub struct KeyShare {
@@ -268,20 +250,17 @@ mod tests {
     use alloc::vec;
 
     use super::*;
+    use crate::protocols::common::TestSchemeParams;
     use crate::protocols::generic::tests::step;
 
     #[test]
     fn execute_keygen() {
-        let scheme_params = SchemeParams {
-            security_parameter: 256,
-        };
-
         let session_id = SessionId::random();
 
         let r1 = vec![
-            Round1::new(&session_id, &scheme_params, PartyIdx::from_usize(0)),
-            Round1::new(&session_id, &scheme_params, PartyIdx::from_usize(1)),
-            Round1::new(&session_id, &scheme_params, PartyIdx::from_usize(2)),
+            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(0)),
+            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(1)),
+            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(2)),
         ];
 
         let r2 = step(r1).unwrap();

@@ -4,25 +4,6 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::tools::collections::{HoleVec, PartyIdx};
-use crate::tools::hashing::{Chain, Hashable};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionId([u8; 32]);
-
-impl SessionId {
-    pub fn random() -> Self {
-        use rand_core::{OsRng, RngCore};
-        let mut bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut bytes);
-        Self(bytes)
-    }
-}
-
-impl Hashable for SessionId {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.0)
-    }
-}
 
 pub(crate) enum ToSendTyped<Message> {
     Broadcast(Message),
@@ -32,7 +13,7 @@ pub(crate) enum ToSendTyped<Message> {
 
 pub(crate) trait Round: Sized {
     type Error: Sized;
-    type Message: Sized + Clone + Serialize;
+    type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
     type Payload: Sized + Clone;
     type NextRound: Sized;
 

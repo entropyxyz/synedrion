@@ -3,7 +3,8 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::protocols::generic::{Round, SessionId, ToSendTyped};
+use crate::protocols::common::SessionId;
+use crate::protocols::generic::{Round, ToSendTyped};
 use crate::tools::collections::{HoleVecAccum, PartyIdx};
 
 /// Serialized messages without the stage number specified.

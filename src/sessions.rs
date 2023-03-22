@@ -14,8 +14,7 @@ mod tests {
     use tokio::time::{sleep, Duration};
 
     use super::{KeygenState, Session, ToSend};
-    use crate::protocols::generic::SessionId;
-    use crate::protocols::keygen::SchemeParams;
+    use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::sessions::generic::PartyId;
     use crate::KeyShare;
 
@@ -35,11 +34,14 @@ mod tests {
     ) -> KeyShare {
         let mut rx = rx;
 
-        let scheme_params = SchemeParams::new(256);
         let session_id = SessionId::random();
 
-        let mut session =
-            Session::<KeygenState, Id>::new(&session_id, &all_parties, &my_id, &scheme_params);
+        let mut session = Session::<KeygenState<TestSchemeParams>, Id>::new(
+            &session_id,
+            &all_parties,
+            &my_id,
+            &(),
+        );
 
         while !session.is_final_stage() {
             println!(
