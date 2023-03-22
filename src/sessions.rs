@@ -10,6 +10,7 @@ mod tests {
     use alloc::vec;
 
     use rand::seq::SliceRandom;
+    use rand_core::OsRng;
     use tokio::sync::mpsc;
     use tokio::time::{sleep, Duration};
 
@@ -37,6 +38,7 @@ mod tests {
         let session_id = SessionId::random();
 
         let mut session = Session::<KeygenState<TestSchemeParams>, Id>::new(
+            &mut OsRng,
             &session_id,
             &all_parties,
             &my_id,
@@ -50,7 +52,7 @@ mod tests {
                 session.current_stage_num()
             );
 
-            let to_send = session.get_messages();
+            let to_send = session.get_messages(&mut OsRng);
 
             match to_send {
                 ToSend::Broadcast { message, ids, .. } => {

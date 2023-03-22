@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
+use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use crate::protocols::common::SessionId;
@@ -58,12 +59,17 @@ where
         Self { round, accum: None }
     }
 
-    pub(crate) fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
+    pub(crate) fn get_messages(
+        &mut self,
+        rng: &mut (impl RngCore + CryptoRng),
+        num_parties: usize,
+        index: PartyIdx,
+    ) -> ToSendSerialized {
         if self.accum.is_some() {
             panic!();
         }
 
-        let to_send = match self.round.to_send() {
+        let to_send = match self.round.to_send(rng) {
             ToSendTyped::Broadcast(message) => {
                 let message = serialize_message(&message);
                 ToSendSerialized::Broadcast(message)
@@ -133,8 +139,18 @@ where
 // TODO: may be able to get rid of the clone requirement - perhaps with `take_mut`.
 pub trait SessionState: Clone {
     type Context;
-    fn new(session_id: &SessionId, context: &Self::Context, index: PartyIdx) -> Self;
-    fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized;
+    fn new(
+        rng: &mut (impl RngCore + CryptoRng),
+        session_id: &SessionId,
+        context: &Self::Context,
+        index: PartyIdx,
+    ) -> Self;
+    fn get_messages(
+        &mut self,
+        rng: &mut (impl RngCore + CryptoRng),
+        num_parties: usize,
+        index: PartyIdx,
+    ) -> ToSendSerialized;
     fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]);
     fn is_finished_receiving(&self) -> bool;
     fn finalize_stage(self) -> Self;
@@ -157,6 +173,7 @@ pub struct Session<S: SessionState, I: PartyId> {
 
 impl<S: SessionState, I: PartyId> Session<S, I> {
     pub fn new(
+        rng: &mut (impl RngCore + CryptoRng),
         session_id: &SessionId,
         all_parties: &[I],
         party_id: &I,
@@ -170,7 +187,7 @@ impl<S: SessionState, I: PartyId> Session<S, I> {
         // (to distinguish sessions on the same node sets),
         // it might as well be completely random, right?
 
-        let state = S::new(session_id, context, index);
+        let state = S::new(rng, session_id, context, index);
         Self {
             index,
             my_id: party_id.clone(),
@@ -180,8 +197,10 @@ impl<S: SessionState, I: PartyId> Session<S, I> {
         }
     }
 
-    pub fn get_messages(&mut self) -> ToSend<I> {
-        let to_send = self.state.get_messages(self.all_parties.len(), self.index);
+    pub fn get_messages(&mut self, rng: &mut (impl RngCore + CryptoRng)) -> ToSend<I> {
+        let to_send = self
+            .state
+            .get_messages(rng, self.all_parties.len(), self.index);
         let stage_num = self.state.current_stage_num();
         match to_send {
             ToSendSerialized::Broadcast(message) => {

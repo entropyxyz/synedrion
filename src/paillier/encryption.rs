@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use rand_core::{CryptoRng, OsRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::keys::{PublicKeyPaillier, SecretKeyPaillier};
@@ -12,7 +12,7 @@ use super::uint::{
 use crate::tools::group::Scalar;
 
 /// Paillier ciphertext.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Ciphertext<P: PaillierParams> {
     ciphertext: P::QuadUint,
     phantom: PhantomData<P>,
@@ -28,7 +28,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Encrypts the plaintext with the provided randomizer.
-    fn new_with_randomizer(
+    pub fn new_with_randomizer(
         pk: &PublicKeyPaillier<P>,
         plaintext: &Scalar,
         randomzier: &P::DoubleUint,
@@ -66,10 +66,14 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Encrypts the plaintext with a random randomizer.
-    pub fn new(pk: &PublicKeyPaillier<P>, plaintext: &Scalar) -> Self {
+    pub fn new(
+        rng: &mut (impl RngCore + CryptoRng),
+        pk: &PublicKeyPaillier<P>,
+        plaintext: &Scalar,
+    ) -> Self {
         // TODO: use an explicit RNG parameter
         // TODO: this is an ephemeral secret, use a SecretBox
-        let randomizer = Self::randomizer(&mut OsRng, pk);
+        let randomizer = Self::randomizer(rng, pk);
         Self::new_with_randomizer(pk, plaintext, &randomizer)
     }
 
@@ -147,7 +151,7 @@ mod tests {
         let plaintext = Scalar::random(&mut OsRng);
         let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
         let pk = sk.public_key();
-        let ciphertext = Ciphertext::<PaillierTest>::new(&pk, &plaintext);
+        let ciphertext = Ciphertext::<PaillierTest>::new(&mut OsRng, &pk, &plaintext);
         let plaintext_back = ciphertext.decrypt(&sk).unwrap();
         assert_eq!(plaintext, plaintext_back);
     }

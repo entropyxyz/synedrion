@@ -1,6 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use crate::tools::collections::{HoleVec, PartyIdx};
@@ -17,7 +18,7 @@ pub(crate) trait Round: Sized {
     type Payload: Sized + Clone;
     type NextRound: Sized;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message>;
+    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message>;
     fn verify_received(
         &self,
         from: PartyIdx,
@@ -48,8 +49,8 @@ where
     type Payload = (R::Payload, R::Message);
     type NextRound = ConsensusSubround<R>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message> {
-        self.0.to_send()
+    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+        self.0.to_send(rng)
     }
     fn verify_received(
         &self,
@@ -87,7 +88,7 @@ where
     type Payload = ();
     type NextRound = R::NextRound;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(self.broadcasts.clone())
     }
     fn verify_received(
@@ -138,7 +139,10 @@ pub(crate) mod tests {
         Receive(Error),
     }
 
-    pub(crate) fn step<R: Round>(init: Vec<R>) -> Result<Vec<R::NextRound>, StepError<R::Error>> {
+    pub(crate) fn step<R: Round>(
+        rng: &mut (impl RngCore + CryptoRng),
+        init: Vec<R>,
+    ) -> Result<Vec<R::NextRound>, StepError<R::Error>> {
         // Collect outgoing messages
 
         let mut accums = (0..init.len())
@@ -148,7 +152,7 @@ pub(crate) mod tests {
         let mut all_messages = Vec::<(PartyIdx, PartyIdx, R::Message)>::new();
 
         for (idx_from, round) in init.iter().enumerate() {
-            let to_send = round.to_send();
+            let to_send = round.to_send(rng);
             let idx_from = PartyIdx::from_usize(idx_from);
 
             match to_send {

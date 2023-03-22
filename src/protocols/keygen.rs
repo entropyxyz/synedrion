@@ -5,7 +5,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-use rand_core::OsRng;
+use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::common::{SchemeParams, SessionId};
@@ -59,12 +59,16 @@ pub(crate) struct Round1<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> Round1<P> {
-    pub fn new(session_id: &SessionId, party_idx: PartyIdx) -> Self {
-        let secret = NonZeroScalar::random(&mut OsRng);
+    pub fn new(
+        rng: &mut (impl RngCore + CryptoRng),
+        session_id: &SessionId,
+        party_idx: PartyIdx,
+    ) -> Self {
+        let secret = NonZeroScalar::random(rng);
         let public = &Point::GENERATOR * &secret;
 
         let rid = random_bits(P::SECURITY_PARAMETER);
-        let proof_secret = SchSecret::random(&mut OsRng);
+        let proof_secret = SchSecret::random(rng);
         let commitment = SchCommitment::new(&proof_secret);
         let u = random_bits(P::SECURITY_PARAMETER);
 
@@ -96,7 +100,7 @@ impl<P: SchemeParams> Round for Round1<P> {
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let hash = self.data.hash();
         ToSendTyped::Broadcast(Round1Bcast { hash })
     }
@@ -140,7 +144,7 @@ impl<P: SchemeParams> Round for Round2<P> {
     type Message = Round2Bcast;
     type NextRound = Round3<P>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round2Bcast {
             data: self.data.clone(),
         })
@@ -198,7 +202,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Message = Round3Bcast;
     type NextRound = KeyShare;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.data.party_idx, &self.rid);
         let proof = SchProof::new(
             &self.secret_data.sch_secret,
@@ -249,6 +253,8 @@ pub struct KeyShare {
 mod tests {
     use alloc::vec;
 
+    use rand_core::OsRng;
+
     use super::*;
     use crate::protocols::common::TestSchemeParams;
     use crate::protocols::generic::tests::step;
@@ -258,14 +264,14 @@ mod tests {
         let session_id = SessionId::random();
 
         let r1 = vec![
-            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(0)),
-            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(1)),
-            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(2)),
+            Round1::<TestSchemeParams>::new(&mut OsRng, &session_id, PartyIdx::from_usize(0)),
+            Round1::<TestSchemeParams>::new(&mut OsRng, &session_id, PartyIdx::from_usize(1)),
+            Round1::<TestSchemeParams>::new(&mut OsRng, &session_id, PartyIdx::from_usize(2)),
         ];
 
-        let r2 = step(r1).unwrap();
-        let r3 = step(r2).unwrap();
-        let shares = step(r3).unwrap();
+        let r2 = step(&mut OsRng, r1).unwrap();
+        let r3 = step(&mut OsRng, r2).unwrap();
+        let shares = step(&mut OsRng, r3).unwrap();
 
         // Check that the sets of public keys are the same at each node
 

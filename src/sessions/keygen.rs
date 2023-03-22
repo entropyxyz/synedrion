@@ -1,3 +1,5 @@
+use rand_core::{CryptoRng, RngCore};
+
 use super::generic::{SessionState, Stage, ToSendSerialized};
 use crate::protocols::common::{SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
@@ -20,19 +22,29 @@ impl<P: SchemeParams> SessionState for KeygenState<P> {
     type Result = KeyShare;
     type Context = ();
 
-    fn new(session_id: &SessionId, _context: &(), index: PartyIdx) -> Self {
-        let round1 = Round1::<P>::new(session_id, index);
+    fn new(
+        rng: &mut (impl RngCore + CryptoRng),
+        session_id: &SessionId,
+        _context: &(),
+        index: PartyIdx,
+    ) -> Self {
+        let round1 = Round1::<P>::new(rng, session_id, index);
         Self(KeygenStage::Round1(Stage::new(PreConsensusSubround(
             round1,
         ))))
     }
 
-    fn get_messages(&mut self, num_parties: usize, index: PartyIdx) -> ToSendSerialized {
+    fn get_messages(
+        &mut self,
+        rng: &mut (impl RngCore + CryptoRng),
+        num_parties: usize,
+        index: PartyIdx,
+    ) -> ToSendSerialized {
         match &mut self.0 {
-            KeygenStage::Round1(r) => r.get_messages(num_parties, index),
-            KeygenStage::Round1Consensus(r) => r.get_messages(num_parties, index),
-            KeygenStage::Round2(r) => r.get_messages(num_parties, index),
-            KeygenStage::Round3(r) => r.get_messages(num_parties, index),
+            KeygenStage::Round1(r) => r.get_messages(rng, num_parties, index),
+            KeygenStage::Round1Consensus(r) => r.get_messages(rng, num_parties, index),
+            KeygenStage::Round2(r) => r.get_messages(rng, num_parties, index),
+            KeygenStage::Round3(r) => r.get_messages(rng, num_parties, index),
             _ => panic!(),
         }
     }

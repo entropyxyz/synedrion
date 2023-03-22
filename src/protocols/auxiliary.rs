@@ -3,7 +3,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crypto_bigint::Pow;
-use rand_core::OsRng;
+use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::common::{SchemeParams, SessionId};
@@ -72,30 +72,35 @@ impl<P: SchemeParams> FullData<P> {
 }
 
 impl<P: SchemeParams> Round1<P> {
-    pub fn new(session_id: &SessionId, party_idx: PartyIdx, num_parties: usize) -> Self {
-        let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(&mut OsRng);
+    pub fn new(
+        rng: &mut (impl RngCore + CryptoRng),
+        session_id: &SessionId,
+        party_idx: PartyIdx,
+        num_parties: usize,
+    ) -> Self {
+        let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
         let paillier_pk = paillier_sk.public_key();
-        let y_secret = NonZeroScalar::random(&mut OsRng);
+        let y_secret = NonZeroScalar::random(rng);
         let y_public = &Point::GENERATOR * &y_secret;
 
-        let sch_secret_y = SchSecret::random(&mut OsRng); // $\tau$
+        let sch_secret_y = SchSecret::random(rng); // $\tau$
         let sch_commitment_y = SchCommitment::new(&sch_secret_y); // $B_i$
 
-        let xs_secret = zero_sum_scalars(&mut OsRng, num_parties);
+        let xs_secret = zero_sum_scalars(rng, num_parties);
         let xs_public = xs_secret
             .iter()
             .cloned()
             .map(|x| &Point::GENERATOR * &x)
             .collect();
 
-        let r = paillier_pk.random_invertible_group_elem(&mut OsRng);
-        let lambda = paillier_sk.random_field_elem(&mut OsRng);
+        let r = paillier_pk.random_invertible_group_elem(rng);
+        let lambda = paillier_sk.random_field_elem(rng);
         let paillier_base = r * &r; // TODO: use `square()` when it's available
         let paillier_public = paillier_base.pow(&lambda);
 
         let aux = (session_id, &party_idx);
         let prm_proof = PrmProof::random(
-            &mut OsRng,
+            rng,
             &paillier_sk,
             &lambda,
             &paillier_base,
@@ -105,9 +110,8 @@ impl<P: SchemeParams> Round1<P> {
         );
 
         // $\tau_j$
-        let sch_secrets_x: Vec<SchSecret> = (0..num_parties)
-            .map(|_| SchSecret::random(&mut OsRng))
-            .collect();
+        let sch_secrets_x: Vec<SchSecret> =
+            (0..num_parties).map(|_| SchSecret::random(rng)).collect();
 
         // $A_i^j$
         let sch_commitments_x = sch_secrets_x.iter().map(SchCommitment::new).collect();
@@ -153,7 +157,7 @@ impl<P: SchemeParams> Round for Round1<P> {
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
             hash: self.data.hash(),
         })
@@ -198,7 +202,7 @@ impl<P: SchemeParams> Round for Round2<P> {
     type Message = Round2Bcast<P>;
     type NextRound = Round3<P>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round2Bcast {
             data: self.data.clone(),
         })
@@ -290,10 +294,10 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Message = Round3Direct<P>;
     type NextRound = AuxData<P>;
 
-    fn to_send(&self) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);
         let mod_proof = ModProof::random(
-            &mut OsRng,
+            rng,
             &self.secret_data.paillier_sk,
             &aux,
             P::SECURITY_PARAMETER,
@@ -309,11 +313,11 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         let mut dms = Vec::new();
         for (party_idx, data) in self.datas.enumerate() {
-            let fac_proof = FacProof::random(&mut OsRng, &self.secret_data.paillier_sk, &aux);
+            let fac_proof = FacProof::random(rng, &self.secret_data.paillier_sk, &aux);
 
             let x_secret = self.secret_data.xs_secret[party_idx.as_usize()];
             let x_public = self.data.xs_public[party_idx.as_usize()];
-            let ciphertext = Ciphertext::new(&data.paillier_pk, &x_secret);
+            let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &x_secret);
 
             let sch_proof_x = SchProof::new(
                 &self.secret_data.sch_secrets_x[party_idx.as_usize()],
@@ -445,6 +449,8 @@ pub struct AuxData<P: SchemeParams> {
 #[cfg(test)]
 mod tests {
 
+    use rand_core::OsRng;
+
     use super::Round1;
     use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
@@ -455,14 +461,14 @@ mod tests {
         let session_id = SessionId::random();
 
         let r1 = vec![
-            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(0), 3),
-            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(1), 3),
-            Round1::<TestSchemeParams>::new(&session_id, PartyIdx::from_usize(2), 3),
+            Round1::<TestSchemeParams>::new(&mut OsRng, &session_id, PartyIdx::from_usize(0), 3),
+            Round1::<TestSchemeParams>::new(&mut OsRng, &session_id, PartyIdx::from_usize(1), 3),
+            Round1::<TestSchemeParams>::new(&mut OsRng, &session_id, PartyIdx::from_usize(2), 3),
         ];
 
-        let r2 = step(r1).unwrap();
-        let r3 = step(r2).unwrap();
-        let _aux_datas = step(r3).unwrap();
+        let r2 = step(&mut OsRng, r1).unwrap();
+        let r3 = step(&mut OsRng, r2).unwrap();
+        let _aux_datas = step(&mut OsRng, r3).unwrap();
 
         // TODO: do some checks here
     }
