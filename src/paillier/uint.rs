@@ -18,14 +18,6 @@ pub use crypto_bigint::{
 };
 pub use crypto_primes::RandomPrimeWithRng;
 
-// Alternatively, we could just make `UintLike` a marker trait for a combination of `crypto_bigint`
-// traits and use `crypto_bigint::Uint` directly.
-// A newtype is used for several reasons:
-// - we can implement foreign traits for it (most notably, `Serialize`/`Deserialize` and
-//   arithmetic traits)
-// - we don't have to import `crypto_bigint` traits everywhere -
-//   now they are contained in this module.
-
 // TODO: currently in Rust bounds on `&Self` are not propagated,
 // so we can't say "an UintLike x, y support &x + &y" -
 // we would have to specify this bound at every place it is used (and it is a long one).
@@ -33,6 +25,7 @@ pub use crypto_primes::RandomPrimeWithRng;
 // which means that we will have to either clone or copy `x`.
 // Copying `x` when the underlying operations really support taking it by reference
 // involves a slight overhead, but it's better than monstrous trait bounds everywhere.
+
 pub trait UintLike:
     Sized
     + Integer
