@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use super::uint::{
     CheckedAdd, CheckedMul, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, RandomMod,
-    Retrieve, UintLike, UintModLike,
+    RandomPrimeWithRng, Retrieve, UintLike, UintModLike,
 };
 use crate::tools::hashing::{Chain, Hashable};
 
@@ -15,8 +15,8 @@ pub struct SecretKeyPaillier<P: PaillierParams> {
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
     pub fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        let p = P::SingleUint::safe_prime_with_rng(rng);
-        let q = P::SingleUint::safe_prime_with_rng(rng);
+        let p = P::SingleUint::safe_prime_with_rng(rng, P::PRIME_BITS);
+        let q = P::SingleUint::safe_prime_with_rng(rng, P::PRIME_BITS);
 
         Self { p, q }
     }
@@ -135,6 +135,10 @@ pub struct PublicKeyPaillier<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> PublicKeyPaillier<P> {
+    pub fn modulus_raw(&self) -> P::DoubleUint {
+        self.modulus
+    }
+
     pub fn modulus(&self) -> NonZero<P::DoubleUint> {
         // TODO: or just store it as NonZero to begin with?
         NonZero::new(self.modulus).unwrap()
@@ -158,21 +162,6 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
             }
         }
     }
-
-    /*
-    pub fn random_group_elem_raw(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::DoubleUint {
-        P::DoubleUint::random_mod(rng, &NonZero::new(self.modulus).unwrap())
-    }
-
-    pub fn hash_to_group_elems_raw(&self, digest: XofHash, count: usize) -> Vec<P::DoubleUint> {
-        let mut reader = digest.finalize_reader();
-        (0..count)
-            .map(|_| {
-                P::DoubleUint::from_reader(&mut reader) % NonZero::new(self.modulus).unwrap()
-            })
-            .collect()
-    }
-    */
 }
 
 impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {

@@ -1,7 +1,4 @@
-use core::ops::{Add, BitAnd, Mul, Neg, Rem, Shl, Shr};
-
-use digest::XofReader;
-use rand_core::{CryptoRng, RngCore};
+use core::ops::{Add, BitAnd, Div, Mul, Neg, Rem, Shl, Shr, Sub};
 
 use crypto_bigint::subtle::{ConstantTimeLess, CtOption};
 use crypto_bigint::Bounded;
@@ -9,13 +6,15 @@ use crypto_bigint::{
     modular::runtime_mod::{DynResidue, DynResidueParams},
     nlimbs, Encoding, Limb, Uint, Word,
 };
+use digest::XofReader;
 
+use crate::tools::group::Scalar;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::jacobi::JacobiSymbolTrait;
 
 pub use crypto_bigint::{
     modular::Retrieve, CheckedAdd, CheckedMul, CheckedSub, Integer, Invert, NonZero, Pow,
-    RandomMod, Zero, U128, U64,
+    RandomMod, Square, Zero, U192, U384, U768,
 };
 pub use crypto_primes::RandomPrimeWithRng;
 
@@ -55,6 +54,7 @@ pub trait UintLike:
     + for<'a> CheckedSub<&'a Self>
     + for<'a> CheckedMul<&'a Self>
     + Rem<NonZero<Self>, Output = Self>
+    + Div<NonZero<Self>, Output = Self>
 {
     // TODO: do we really need this? Or can we just use a simple RNG and `random_mod()`?
     fn hash_into_mod(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self;
@@ -62,9 +62,6 @@ pub trait UintLike:
     fn trailing_zeros(&self) -> usize;
     fn inv_odd_mod(&self, modulus: &Self) -> CtOption<Self>;
     fn inv_mod2k(&self, k: usize) -> Self;
-    fn safe_prime_with_rng(rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        <Self as RandomPrimeWithRng>::safe_prime_with_rng(rng, <Self as Integer>::BITS)
-    }
     fn wrapping_sub(&self, other: &Self) -> Self;
     fn wrapping_mul(&self, other: &Self) -> Self;
     fn bits(&self) -> usize;
@@ -73,6 +70,7 @@ pub trait UintLike:
 pub trait HasWide: Sized {
     type Wide;
     fn mul_wide(&self, other: &Self) -> Self::Wide;
+    fn square_wide(&self) -> Self::Wide;
     fn into_wide(self) -> Self::Wide;
     fn try_from_wide(value: Self::Wide) -> Option<Self>;
 }
@@ -163,6 +161,7 @@ pub trait UintModLike:
     + Retrieve<Output = Self::RawUint>
     + Invert<Output = CtOption<Self>>
     + Mul<Output = Self>
+    + Sub<Output = Self>
     + for<'a> Mul<&'a Self, Output = Self>
 {
     type RawUint: UintLike;
@@ -184,10 +183,13 @@ impl<const L: usize> Hashable for DynResidue<L> {
     }
 }
 
-impl HasWide for U64 {
-    type Wide = U128;
+impl HasWide for U192 {
+    type Wide = U384;
     fn mul_wide(&self, other: &Self) -> Self::Wide {
         self.mul_wide(other).into()
+    }
+    fn square_wide(&self) -> Self::Wide {
+        self.square_wide().into()
     }
     fn into_wide(self) -> Self::Wide {
         (self, Self::ZERO).into()
@@ -201,5 +203,52 @@ impl HasWide for U64 {
     }
 }
 
-pub type U64Mod = DynResidue<{ nlimbs!(64) }>;
-pub type U128Mod = DynResidue<{ nlimbs!(128) }>;
+impl HasWide for U384 {
+    type Wide = U768;
+    fn mul_wide(&self, other: &Self) -> Self::Wide {
+        self.mul_wide(other).into()
+    }
+    fn square_wide(&self) -> Self::Wide {
+        self.square_wide().into()
+    }
+    fn into_wide(self) -> Self::Wide {
+        (self, Self::ZERO).into()
+    }
+    fn try_from_wide(value: Self::Wide) -> Option<Self> {
+        let (hi, lo): (Self, Self) = value.into();
+        if hi.is_zero().into() {
+            return Some(lo);
+        }
+        None
+    }
+}
+
+// TODO: use regular From and TryFrom?
+pub trait FromScalar {
+    fn from_scalar(value: &Scalar) -> Self;
+    fn try_to_scalar(&self) -> Option<Scalar>;
+}
+
+impl FromScalar for U384 {
+    fn from_scalar(value: &Scalar) -> Self {
+        let scalar_bytes = value.to_be_bytes();
+        let mut repr = Self::ZERO.to_be_bytes();
+
+        let uint_len = repr.as_ref().len();
+        let scalar_len = scalar_bytes.len();
+
+        debug_assert!(uint_len >= scalar_len);
+        repr.as_mut()[uint_len - scalar_len..].copy_from_slice(&scalar_bytes);
+        Self::from_be_bytes(repr)
+    }
+
+    fn try_to_scalar(&self) -> Option<Scalar> {
+        let repr = self.to_be_bytes();
+        let scalar_len = Scalar::repr_len();
+        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).ok()
+    }
+}
+
+pub type U192Mod = DynResidue<{ nlimbs!(192) }>;
+pub type U384Mod = DynResidue<{ nlimbs!(384) }>;
+pub type U768Mod = DynResidue<{ nlimbs!(768) }>;

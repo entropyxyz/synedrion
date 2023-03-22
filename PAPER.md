@@ -9,6 +9,7 @@ Replies from Nikos Makriyannis are marked as (NM)
 - `sid` and `ssid`: (NM) The `sid` is the "session identifier" while the `ssid` is the "sub-session identifier". The sid does not change while the ssid changes after each key refresh.
 - `[m]` (e.g. in Fig. 17): (NM) `[m]={1,...,m}`.
 - `Z_N^*`: (NM) all the invertible elements mod N, so it includes 1.
+- In Definition 2.2, the `\rho` argument is the randomizer - it should be freshly sampled each time (and therefore it is omitted as an argument when `enc()` is used later in the protocol)
 
 
 # Protocol
@@ -56,6 +57,18 @@ A (NM): `m` is the statistical security parameter for the proofs in question (wh
 Q: Does it matter when selecting `p`, `q` for the Paillier modulus that `p-1` and `q-1` only have small shared divisors (like it is for RSA)?
 
 A (NM): Sampling the Paillier modulus in the same way as an RSA modulus is reasonable (afaict, for random `p` and `q`, `p-1` and `q-1` will not share a large factor).
+
+---
+
+Q: In Fig.6, in the step 1 of Output, there's a special value `\mu` calculated if `x_j^i` does not correspond to `X_j^i`. Is it explained somewhere what that value is, and why the protocol does not just fail?
+
+A (NM): This `\mu` is the randomizer of the ciphertext `C_j^i` i.e. `enc(x_j^i; \mu)=C_j^i`. The purpose of this is for the other parties to re-calculate the encryption and be convinced that `Pj` sent the wrong value (i.e. there is a discrepancy between small `x_j^i` and big `X_j^i` -- the other parties cannot know this without some help from `P_i`).
+
+---
+
+Q: Also, in the calculation of `\mu`, what is `N` without the index? Is it supposed to be `N_j`?
+
+A (NM): It's supposed to be `N_i` (the party that knows the private key for this `N`)
 
 
 # Layering

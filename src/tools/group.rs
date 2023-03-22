@@ -11,6 +11,7 @@ use core::ops::{Add, Mul, Sub};
 use k256::elliptic_curve::group::ff::PrimeField;
 use k256::elliptic_curve::{
     bigint::U256, // Note that this type is different from typenum::U256
+    generic_array::typenum::marker_traits::Unsigned,
     generic_array::GenericArray,
     hash2curve::{ExpandMsgXmd, GroupDigest},
     ops::Reduce,
@@ -60,11 +61,16 @@ impl Scalar {
         ))
     }
 
-    pub fn to_bytes(self) -> k256::FieldBytes {
+    pub fn to_be_bytes(self) -> k256::FieldBytes {
+        // TODO: add a test that it really is a big endian representation - docs don't guarantee it.
         self.0.to_bytes()
     }
 
-    pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub fn repr_len() -> usize {
+        <FieldSize<Secp256k1> as Unsigned>::to_usize()
+    }
+
+    pub(crate) fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
         let arr = GenericArray::<u8, FieldSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
             .ok_or("Invalid length of a curve scalar")?;
 
@@ -96,7 +102,7 @@ impl TryFromBytes for Scalar {
     type Error = String;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
+        Self::try_from_be_bytes(bytes)
     }
 }
 
