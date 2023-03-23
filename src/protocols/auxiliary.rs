@@ -455,6 +455,7 @@ mod tests {
     use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::tools::collections::PartyIdx;
+    use crate::tools::group::{Point, Scalar};
 
     #[test]
     fn execute_auxiliary() {
@@ -468,8 +469,22 @@ mod tests {
 
         let r2 = step(&mut OsRng, r1).unwrap();
         let r3 = step(&mut OsRng, r2).unwrap();
-        let _aux_datas = step(&mut OsRng, r3).unwrap();
+        let aux_datas = step(&mut OsRng, r3).unwrap();
 
-        // TODO: do some checks here
+        // Check that public points correspond to secret scalars
+        for (idx, data) in aux_datas.iter().enumerate() {
+            for other_data in aux_datas.iter() {
+                assert_eq!(
+                    &Point::GENERATOR * &data.x_mask,
+                    other_data.xs_masks_public[idx]
+                );
+                assert_eq!(&Point::GENERATOR * &data.y, other_data.ys_public[idx]);
+            }
+        }
+
+        // The resulting sum of masks should be zero, since the combined secret key
+        // should not change after applying the masks at each node.
+        let mask_sum: Scalar = aux_datas.iter().map(|data| data.x_mask).sum();
+        assert_eq!(mask_sum, Scalar::ZERO);
     }
 }
