@@ -10,6 +10,7 @@ Replies from Nikos Makriyannis are marked as (NM)
 - `[m]` (e.g. in Fig. 17): (NM) `[m]={1,...,m}`.
 - `Z_N^*`: (NM) all the invertible elements mod N, so it includes 1.
 - In Definition 2.2, the `\rho` argument is the randomizer - it should be freshly sampled each time (and therefore it is omitted as an argument when `enc()` is used later in the protocol)
+- Intervals: `I = +- 2^l`, `J = +- 2^l_prime`, `I_eps = +- 2^(l + eps)`, `J_eps = +- 2^(l_prime + eps)` (In Section 3, but seems to be present only in the working copy of the paper)
 
 
 # Protocol

@@ -175,6 +175,16 @@ impl<T> HoleVec<T> {
         result.insert(self.hole_at.as_usize(), elem);
         result
     }
+
+    pub fn map<F, V>(self, f: F) -> HoleVec<V>
+    where
+        F: FnMut(T) -> V,
+    {
+        HoleVec {
+            elems: self.elems.into_iter().map(f).collect(),
+            hole_at: self.hole_at,
+        }
+    }
 }
 
 impl<T: Clone> Clone for HoleVec<T> {
