@@ -135,6 +135,17 @@ impl<P: PaillierParams> Ciphertext<P> {
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
         ciphertext_mod_n.pow(&sk.inv_modulus()).retrieve()
     }
+
+    pub fn homomorphic_mul(&self, pk: &PublicKeyPaillier<P>, rhs: &Scalar) -> Self {
+        let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
+        let ciphertext_mod = P::QuadUintMod::new(&self.ciphertext, &modulus_squared);
+        let plaintext_uint = P::DoubleUint::from_scalar(rhs).into_wide();
+        let ciphertext = ciphertext_mod.pow(&plaintext_uint).retrieve();
+        Self {
+            ciphertext,
+            phantom: PhantomData,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -166,5 +177,19 @@ mod tests {
             Ciphertext::<PaillierTest>::new_with_randomizer(&pk, &plaintext, &randomizer);
         let randomizer_back = ciphertext.derive_randomizer(&sk);
         assert_eq!(randomizer, randomizer_back);
+    }
+
+    #[test]
+    fn homomorphic_mul() {
+        let plaintext = Scalar::random(&mut OsRng);
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
+        let pk = sk.public_key();
+        let ciphertext = Ciphertext::<PaillierTest>::new(&mut OsRng, &pk, &plaintext);
+
+        let coeff = Scalar::random(&mut OsRng);
+        let new_ciphertext = ciphertext.homomorphic_mul(&pk, &coeff);
+        let new_plaintext = new_ciphertext.decrypt(&sk);
+
+        assert_eq!(&plaintext * &coeff, new_plaintext);
     }
 }
