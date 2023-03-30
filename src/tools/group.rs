@@ -18,7 +18,7 @@ use k256::elliptic_curve::{
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::ConstantTimeEq,
     Field,
-    FieldSize,
+    FieldBytesSize,
 };
 use k256::{FieldBytes, Secp256k1};
 use rand_core::{CryptoRng, RngCore};
@@ -31,7 +31,8 @@ use crate::tools::serde::{deserialize, serialize, TryFromBytes};
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendNonZeroScalar = k256::NonZeroScalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
-pub(crate) type CompressedPointSize = <FieldSize<Secp256k1> as ModulusSize>::CompressedPointSize;
+pub(crate) type CompressedPointSize =
+    <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Scalar(BackendScalar);
@@ -52,13 +53,11 @@ impl Scalar {
         result
     }
 
-    pub fn from_digest(d: impl Digest<OutputSize = FieldSize<k256::Secp256k1>>) -> Self {
+    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
         // There's currently no way to make the required digest output size
         // depend on the target scalar size, so we are hardcoding it to 256 bit
         // (that is, equal to the scalar size).
-        Self(<BackendScalar as Reduce<U256>>::from_be_bytes_reduced(
-            d.finalize(),
-        ))
+        Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&d.finalize()))
     }
 
     pub fn to_be_bytes(self) -> k256::FieldBytes {
@@ -67,12 +66,13 @@ impl Scalar {
     }
 
     pub fn repr_len() -> usize {
-        <FieldSize<Secp256k1> as Unsigned>::to_usize()
+        <FieldBytesSize<Secp256k1> as Unsigned>::to_usize()
     }
 
     pub(crate) fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let arr = GenericArray::<u8, FieldSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
-            .ok_or("Invalid length of a curve scalar")?;
+        let arr =
+            GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
+                .ok_or("Invalid length of a curve scalar")?;
 
         BackendScalar::from_repr_vartime(arr)
             .map(Self)
@@ -137,11 +137,13 @@ impl NonZeroScalar {
         Scalar(*self.0)
     }
 
-    pub fn from_digest(d: impl Digest<OutputSize = FieldSize<k256::Secp256k1>>) -> Self {
+    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
         // There's currently no way to make the required digest output size
         // depend on the target scalar size, so we are hardcoding it to 256 bit
         // (that is, equal to the scalar size).
-        Self(<BackendNonZeroScalar as Reduce<U256>>::from_be_bytes_reduced(d.finalize()))
+        Self(<BackendNonZeroScalar as Reduce<U256>>::reduce_bytes(
+            &d.finalize(),
+        ))
     }
 
     pub fn to_bytes(&self) -> FieldBytes {
@@ -180,7 +182,7 @@ impl Point {
     /// [IETF hash-to-curve standard](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/)
     pub fn from_data(dst: &[u8], data: &[&[u8]]) -> Option<Self> {
         Some(Self(
-            k256::Secp256k1::hash_from_bytes::<ExpandMsgXmd<Sha256>>(data, dst).ok()?,
+            k256::Secp256k1::hash_from_bytes::<ExpandMsgXmd<Sha256>>(data, &[dst]).ok()?,
         ))
     }
 

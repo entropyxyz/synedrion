@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-k256 = { version = "0.11", default-features = false, features = ["ecdsa", "arithmetic", "hash2curve"] }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "hash2curve"] }
 rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
