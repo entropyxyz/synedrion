@@ -39,7 +39,7 @@ pub struct Scalar(BackendScalar);
 
 impl Scalar {
     pub const ZERO: Self = Self(BackendScalar::ZERO);
-    const ONE: Self = Self(BackendScalar::ONE);
+    pub const ONE: Self = Self(BackendScalar::ONE);
 
     pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
         Self(BackendScalar::random(rng))

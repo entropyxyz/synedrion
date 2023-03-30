@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::uint::{
-    FromScalar, HasWide, U192Mod, U384Mod, U768Mod, UintLike, UintModLike, U192, U384, U768,
+    FromScalar, HasWide, U1280Mod, U320Mod, U640Mod, UintLike, UintModLike, U1280, U320, U640,
 };
 use crate::tools::hashing::Hashable;
 
@@ -23,13 +23,13 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug {
 pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
-    // We need 129 bit primes because we need DoubleUint to accommodate all the possible
-    // values of curve scalar, which is 256 bits long.
-    const PRIME_BITS: usize = 129;
-    type SingleUint = U192;
-    type SingleUintMod = U192Mod;
-    type DoubleUint = U384;
-    type DoubleUintMod = U384Mod;
-    type QuadUint = U768;
-    type QuadUintMod = U768Mod;
+    // We need 257-bit primes because we need DoubleUint to accommodate all the possible
+    // values of curve scalar squared, which is 512 bits.
+    const PRIME_BITS: usize = 257;
+    type SingleUint = U320;
+    type SingleUintMod = U320Mod;
+    type DoubleUint = U640;
+    type DoubleUintMod = U640Mod;
+    type QuadUint = U1280;
+    type QuadUintMod = U1280Mod;
 }

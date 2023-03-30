@@ -78,7 +78,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Attempts to decrypt this ciphertext.
-    pub fn decrypt(&self, sk: &SecretKeyPaillier<P>) -> Option<Scalar> {
+    pub fn decrypt(&self, sk: &SecretKeyPaillier<P>) -> Scalar {
         // TODO: these can be precalculated
         let pk = sk.public_key();
         let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
@@ -110,7 +110,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         let x_mod = P::DoubleUintMod::new(&x, &pk.modulus());
 
         let plaintext_uint = (x_mod * mu).retrieve();
-        plaintext_uint.try_to_scalar()
+        plaintext_uint.to_scalar()
     }
 
     /// Derive the randomizer used to create this ciphertext.
@@ -152,7 +152,7 @@ mod tests {
         let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
         let pk = sk.public_key();
         let ciphertext = Ciphertext::<PaillierTest>::new(&mut OsRng, &pk, &plaintext);
-        let plaintext_back = ciphertext.decrypt(&sk).unwrap();
+        let plaintext_back = ciphertext.decrypt(&sk);
         assert_eq!(plaintext, plaintext_back);
     }
 

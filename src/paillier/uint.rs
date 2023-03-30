@@ -14,7 +14,7 @@ use crate::tools::jacobi::JacobiSymbolTrait;
 
 pub use crypto_bigint::{
     modular::Retrieve, CheckedAdd, CheckedMul, CheckedSub, Integer, Invert, NonZero, Pow,
-    RandomMod, Square, Zero, U192, U384, U768,
+    RandomMod, Square, Zero, U1280, U320, U640,
 };
 pub use crypto_primes::RandomPrimeWithRng;
 
@@ -176,8 +176,8 @@ impl<const L: usize> Hashable for DynResidue<L> {
     }
 }
 
-impl HasWide for U192 {
-    type Wide = U384;
+impl HasWide for U320 {
+    type Wide = U640;
     fn mul_wide(&self, other: &Self) -> Self::Wide {
         self.mul_wide(other).into()
     }
@@ -196,8 +196,8 @@ impl HasWide for U192 {
     }
 }
 
-impl HasWide for U384 {
-    type Wide = U768;
+impl HasWide for U640 {
+    type Wide = U1280;
     fn mul_wide(&self, other: &Self) -> Self::Wide {
         self.mul_wide(other).into()
     }
@@ -216,14 +216,16 @@ impl HasWide for U384 {
     }
 }
 
-// TODO: use regular From and TryFrom?
+// TODO: use regular From?
 pub trait FromScalar {
     fn from_scalar(value: &Scalar) -> Self;
-    fn try_to_scalar(&self) -> Option<Scalar>;
+    fn to_scalar(&self) -> Scalar;
 }
 
-impl FromScalar for U384 {
+// TODO: can we generalize it? Or put it in a macro?
+impl FromScalar for U640 {
     fn from_scalar(value: &Scalar) -> Self {
+        // TODO: can we cast Scalar to Uint and use to_words()?
         let scalar_bytes = value.to_be_bytes();
         let mut repr = Self::ZERO.to_be_bytes();
 
@@ -235,13 +237,26 @@ impl FromScalar for U384 {
         Self::from_be_bytes(repr)
     }
 
-    fn try_to_scalar(&self) -> Option<Scalar> {
-        let repr = self.to_be_bytes();
+    fn to_scalar(&self) -> Scalar {
+        // TODO: can be precomputed
+        let p = NonZero::new(Self::from_scalar(&-Scalar::ONE).wrapping_add(&Self::ONE)).unwrap();
+        let mut r = self.rem(&p);
+
+        // Treating the values over Self::MAX / 2 as negative ones.
+        if self.bit(Self::BITS - 1).into() {
+            // TODO: can be precomputed
+            let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);
+            r = r.add_mod(&n_mod_p, &p);
+        }
+
+        let repr = r.to_be_bytes();
         let scalar_len = Scalar::repr_len();
-        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).ok()
+
+        // Can unwrap here since the value is within the Scalar range
+        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).unwrap()
     }
 }
 
-pub type U192Mod = DynResidue<{ nlimbs!(192) }>;
-pub type U384Mod = DynResidue<{ nlimbs!(384) }>;
-pub type U768Mod = DynResidue<{ nlimbs!(768) }>;
+pub type U320Mod = DynResidue<{ nlimbs!(320) }>;
+pub type U640Mod = DynResidue<{ nlimbs!(640) }>;
+pub type U1280Mod = DynResidue<{ nlimbs!(1280) }>;

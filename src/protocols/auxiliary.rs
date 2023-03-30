@@ -351,8 +351,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         let x_secret = msg
             .data2
             .paillier_enc_x
-            .decrypt(&self.secret_data.paillier_sk)
-            .unwrap();
+            .decrypt(&self.secret_data.paillier_sk);
 
         if &Point::GENERATOR * &x_secret != sender_data.xs_public[self.data.party_idx.as_usize()] {
             // TODO: paper has `\mu` calculation here.
