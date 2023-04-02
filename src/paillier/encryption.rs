@@ -146,6 +146,16 @@ impl<P: PaillierParams> Ciphertext<P> {
             phantom: PhantomData,
         }
     }
+
+    pub fn homomorphic_add(&self, pk: &PublicKeyPaillier<P>, rhs: &Self) -> Self {
+        let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
+        let lhs_mod = P::QuadUintMod::new(&self.ciphertext, &modulus_squared);
+        let rhs_mod = P::QuadUintMod::new(&rhs.ciphertext, &modulus_squared);
+        Self {
+            ciphertext: (lhs_mod * rhs_mod).retrieve(),
+            phantom: PhantomData,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -191,5 +201,41 @@ mod tests {
         let new_plaintext = new_ciphertext.decrypt(&sk);
 
         assert_eq!(&plaintext * &coeff, new_plaintext);
+    }
+
+    #[test]
+    fn homomorphic_add() {
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
+        let pk = sk.public_key();
+
+        let plaintext1 = Scalar::random(&mut OsRng);
+        let ciphertext1 = Ciphertext::<PaillierTest>::new(&mut OsRng, &pk, &plaintext1);
+
+        let plaintext2 = Scalar::random(&mut OsRng);
+        let ciphertext2 = Ciphertext::<PaillierTest>::new(&mut OsRng, &pk, &plaintext2);
+
+        let new_ciphertext = ciphertext1.homomorphic_add(&pk, &ciphertext2);
+        let new_plaintext = new_ciphertext.decrypt(&sk);
+
+        assert_eq!(&plaintext1 + &plaintext2, new_plaintext);
+    }
+
+    #[test]
+    fn affine_transform() {
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
+        let pk = sk.public_key();
+
+        let plaintext1 = Scalar::random(&mut OsRng);
+        let plaintext2 = Scalar::random(&mut OsRng);
+        let plaintext3 = Scalar::random(&mut OsRng);
+
+        let ciphertext1 = Ciphertext::<PaillierTest>::new(&mut OsRng, &pk, &plaintext1);
+        let ciphertext3 = Ciphertext::<PaillierTest>::new(&mut OsRng, &pk, &plaintext3);
+        let result = ciphertext1
+            .homomorphic_mul(&pk, &plaintext2)
+            .homomorphic_add(&pk, &ciphertext3);
+
+        let plaintext_back = result.decrypt(&sk);
+        assert_eq!(&plaintext1 * &plaintext2 + plaintext3, plaintext_back);
     }
 }
