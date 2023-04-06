@@ -136,6 +136,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         ciphertext_mod_n.pow(&sk.inv_modulus()).retrieve()
     }
 
+    // TODO: make a `Mul` impl?
     pub fn homomorphic_mul(&self, pk: &PublicKeyPaillier<P>, rhs: &Scalar) -> Self {
         let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
         let ciphertext_mod = P::QuadUintMod::new(&self.ciphertext, &modulus_squared);
@@ -147,6 +148,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         }
     }
 
+    // Todo make an `Add` impl?
     pub fn homomorphic_add(&self, pk: &PublicKeyPaillier<P>, rhs: &Self) -> Self {
         let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
         let lhs_mod = P::QuadUintMod::new(&self.ciphertext, &modulus_squared);

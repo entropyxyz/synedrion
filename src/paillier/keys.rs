@@ -8,6 +8,7 @@ use super::uint::{
 };
 use crate::tools::hashing::{Chain, Hashable};
 
+#[derive(Clone)]
 pub struct SecretKeyPaillier<P: PaillierParams> {
     p: P::SingleUint,
     q: P::SingleUint,
@@ -142,6 +143,10 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     pub fn modulus(&self) -> NonZero<P::DoubleUint> {
         // TODO: or just store it as NonZero to begin with?
         NonZero::new(self.modulus).unwrap()
+    }
+
+    pub fn random_group_elem_raw(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::DoubleUint {
+        P::DoubleUint::random_mod(rng, &self.modulus())
     }
 
     pub fn random_group_elem(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::DoubleUintMod {

@@ -16,7 +16,7 @@ use k256::elliptic_curve::{
     hash2curve::{ExpandMsgXmd, GroupDigest},
     ops::Reduce,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    subtle::ConstantTimeEq,
+    subtle::{ConstantTimeEq, CtOption},
     Field,
     FieldBytesSize,
 };
@@ -45,12 +45,21 @@ impl Scalar {
         Self(BackendScalar::random(rng))
     }
 
+    pub fn random_in_range_j(rng: &mut (impl CryptoRng + RngCore)) -> Self {
+        // TODO: find out what the range `\mathcal{J}` is.
+        Self(BackendScalar::random(rng))
+    }
+
     pub fn pow(&self, exp: usize) -> Self {
         let mut result = Self::ONE;
         for _ in 0..exp {
             result = &result * self;
         }
         result
+    }
+
+    pub fn invert(&self) -> CtOption<Self> {
+        self.0.invert().map(Self)
     }
 
     pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
@@ -252,8 +261,15 @@ impl From<usize> for Scalar {
 
 impl core::ops::Neg for Scalar {
     type Output = Self;
-    fn neg(self) -> Self {
+    fn neg(self) -> Self::Output {
         Self(-self.0)
+    }
+}
+
+impl<'a> core::ops::Neg for &'a Scalar {
+    type Output = Scalar;
+    fn neg(self) -> Self::Output {
+        Scalar(-self.0)
     }
 }
 

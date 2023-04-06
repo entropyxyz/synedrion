@@ -12,8 +12,10 @@ may not seem necessary from the security perspective, but it provides a quick wa
 to detect an invalid message at the cost of an increased message size.
 */
 
+pub(crate) mod aff_g;
 pub(crate) mod enc;
 pub(crate) mod fac;
+pub(crate) mod log_star;
 pub(crate) mod mod_;
 pub(crate) mod prm;
 pub(crate) mod sch;

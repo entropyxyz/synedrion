@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::tools::hashing::{Chain, Hashable};
 
+// TODO: should it be here? HoleVecs can just function with usizes I think.
+// Maybe it's better moved to `protocols/common`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PartyIdx(u32);
 
@@ -32,7 +34,7 @@ impl Hashable for PartyIdx {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct HoleVecAccum<T: Clone> {
     hole_at: PartyIdx,
     elems: Vec<Option<T>>,
@@ -57,6 +59,15 @@ impl<T: Clone> HoleVecAccum<T> {
             index
         };
         self.elems.get_mut(index.as_usize())
+    }
+
+    pub fn insert(&mut self, index: PartyIdx, value: T) -> Option<()> {
+        let slot = self.get_mut(index)?;
+        if slot.is_some() {
+            return None;
+        }
+        *slot = Some(value);
+        Some(())
     }
 
     pub fn can_finalize(&self) -> bool {
@@ -163,12 +174,6 @@ impl<T> HoleVec<T> {
     pub fn enumerate(&self) -> core::iter::Zip<HoleRange, core::slice::Iter<'_, T>> {
         HoleRange::new(self.len(), self.hole_at()).zip(self.elems.iter())
     }
-
-    /*
-    pub fn into_enumerate(self) -> core::iter::Zip<HoleRange, alloc::vec::IntoIter<T>> {
-        HoleRange::new(self.len(), self.hole_at()).zip(self.elems.into_iter())
-    }
-    */
 
     pub fn into_vec(self, elem: T) -> Vec<T> {
         let mut result = self.elems;

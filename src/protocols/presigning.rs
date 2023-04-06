@@ -1,8 +1,6 @@
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crypto_bigint::Pow;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
@@ -12,26 +10,18 @@ use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
     params::PaillierParams,
-    uint::{Retrieve, UintLike},
+    uint::Retrieve,
 };
+use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
-use crate::sigma::fac::FacProof;
-use crate::sigma::mod_::ModProof;
-use crate::sigma::prm::PrmProof;
-use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
-use crate::tools::collections::{HoleRange, HoleVec, PartyIdx};
-use crate::tools::group::{zero_sum_scalars, NonZeroScalar, Point, Scalar};
-use crate::tools::hashing::{Chain, Hash};
-use crate::tools::random::random_bits;
+use crate::sigma::log_star::LogStarProof;
+use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum, PartyIdx};
+use crate::tools::group::{Point, Scalar};
 
 // TODO: this should be somehow obtained from AuxData and KeyShare
 #[derive(Clone)]
 pub struct AuxDataPublic<P: PaillierParams> {
-    xs_public: Vec<Point>,
-    ys_public: Vec<Point>,
     paillier_pks: Vec<PublicKeyPaillier<P>>,
-    paillier_bases: Vec<P::DoubleUint>,
-    paillier_publics: Vec<P::DoubleUint>,
 }
 
 #[derive(Clone)]
@@ -44,6 +34,8 @@ pub struct PublicContext<P: PaillierParams> {
 }
 
 struct SecretData<P: PaillierParams> {
+    key_share: Scalar, // `x_i`
+    paillier_sk: SecretKeyPaillier<P>,
     k: Scalar,
     gamma: Scalar,
     rho: P::DoubleUint,
@@ -70,6 +62,8 @@ impl<P: SchemeParams> Round1Part1<P> {
         session_id: &SessionId,
         party_idx: PartyIdx,
         num_parties: usize,
+        key_share: &Scalar,
+        paillier_sk: &SecretKeyPaillier<P::Paillier>,
         aux_data: &AuxDataPublic<P::Paillier>,
     ) -> Self {
         let k = Scalar::random(rng);
@@ -90,7 +84,14 @@ impl<P: SchemeParams> Round1Part1<P> {
                 paillier_pk: pk.clone(),
                 aux_data: aux_data.clone(),
             },
-            secret_data: SecretData { k, gamma, rho, nu },
+            secret_data: SecretData {
+                key_share: *key_share,
+                paillier_sk: paillier_sk.clone(),
+                k,
+                gamma,
+                rho,
+                nu,
+            },
             k_ciphertext,
             g_ciphertext,
         }
@@ -159,7 +160,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     type Error = String;
     type Payload = ();
     type Message = Round1Direct<P::Paillier>;
-    type NextRound = ();
+    type NextRound = Round2<P>;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
@@ -194,8 +195,352 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     }
 
     fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Self::NextRound {
-        ()
+        // TODO: seems like we will have to pass the RNG to finalize() methods as well.
+        // In fact, if we pass an RNG here, we might not need one in to_send() -
+        // the messages can be created right in the constructor
+        // (but then we will need to return them separately as a tuple with the new round,
+        // so we don't have to store them)
+        use rand_core::OsRng;
+        Round2::new(&mut OsRng, self)
     }
 }
 
 impl<P: SchemeParams> DirectRound for Round1Part2<P> {}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound = "Ciphertext<P>: Serialize, AffGProof<P>: Serialize, LogStarProof<P>: Serialize")]
+pub struct Round2Direct<P: PaillierParams> {
+    gamma: Point,
+    d: Ciphertext<P>,
+    d_hat: Ciphertext<P>,
+    f: Ciphertext<P>,
+    f_hat: Ciphertext<P>,
+    psi: AffGProof<P>,
+    psi_hat: AffGProof<P>,
+    psi_hat_prime: LogStarProof<P>,
+}
+
+pub struct Round2<P: SchemeParams> {
+    context: PublicContext<P::Paillier>,
+    secret_data: SecretData<P::Paillier>,
+    k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
+    g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
+    // TODO: these are secret
+    betas: HoleVec<Scalar>,
+    betas_hat: HoleVec<Scalar>,
+}
+
+impl<P: SchemeParams> Round2<P> {
+    fn new(rng: &mut (impl RngCore + CryptoRng), round1: Round1Part2<P>) -> Self {
+        let mut betas = HoleVecAccum::new(round1.context.num_parties, round1.context.party_idx);
+        let mut betas_hat = HoleVecAccum::new(round1.context.num_parties, round1.context.party_idx);
+
+        let range = HoleRange::new(round1.context.num_parties, round1.context.party_idx);
+
+        range.for_each(|idx| {
+            let beta = Scalar::random_in_range_j(rng);
+            let beta_hat = Scalar::random_in_range_j(rng);
+
+            // TODO: can we do this without mutation?
+            // Create the HoleVec with betas first?
+            betas.insert(idx, beta).unwrap();
+            betas_hat.insert(idx, beta_hat).unwrap();
+        });
+
+        Self {
+            context: round1.context,
+            secret_data: round1.secret_data,
+            k_ciphertexts: round1.k_ciphertexts,
+            g_ciphertexts: round1.g_ciphertexts,
+            betas: betas.finalize().unwrap(),
+            betas_hat: betas_hat.finalize().unwrap(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Round2Payload {
+    gamma: Point,
+    alpha: Scalar,
+    alpha_hat: Scalar,
+}
+
+impl<P: SchemeParams> Round for Round2<P> {
+    type Error = String;
+    type Payload = Round2Payload;
+    type Message = Round2Direct<P::Paillier>;
+    type NextRound = Round3<P>;
+
+    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+        let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
+        //let aux = (&self.context.session_id, &self.context.party_idx);
+
+        let messages = range
+            .map(|idx| {
+                let gamma = &Point::GENERATOR * &self.secret_data.gamma;
+
+                let pk = &self.context.paillier_pk;
+                let target_pk = &self.context.aux_data.paillier_pks[idx.as_usize()];
+
+                let r = target_pk.random_group_elem_raw(rng);
+                let s = target_pk.random_group_elem_raw(rng);
+                let r_hat = target_pk.random_group_elem_raw(rng);
+                let s_hat = target_pk.random_group_elem_raw(rng);
+
+                let beta = self.betas.get(idx).unwrap();
+                let beta_hat = self.betas_hat.get(idx).unwrap();
+
+                let d = self.k_ciphertexts[idx.as_usize()]
+                    .homomorphic_mul(&target_pk, &self.secret_data.gamma)
+                    .homomorphic_add(
+                        &target_pk,
+                        &Ciphertext::new_with_randomizer(&target_pk, &-beta, &s),
+                    );
+                let f = Ciphertext::new_with_randomizer(&pk, &beta, &r);
+
+                let d_hat = self.k_ciphertexts[idx.as_usize()]
+                    .homomorphic_mul(&target_pk, &self.secret_data.key_share)
+                    .homomorphic_add(
+                        &target_pk,
+                        &Ciphertext::new_with_randomizer(&target_pk, &-beta_hat, &s_hat),
+                    );
+                let f_hat = Ciphertext::new_with_randomizer(&pk, &beta_hat, &r_hat);
+
+                let msg = Round2Direct {
+                    gamma,
+                    d,
+                    f,
+                    d_hat,
+                    f_hat,
+                    psi: AffGProof::random(rng),
+                    psi_hat: AffGProof::random(rng),
+                    psi_hat_prime: LogStarProof::random(rng),
+                };
+
+                (idx, msg)
+            })
+            .collect();
+        ToSendTyped::Direct(messages)
+    }
+
+    fn verify_received(
+        &self,
+        _from: PartyIdx,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        if !msg.psi.verify() {
+            return Err("Failed to verify EncProof".to_string());
+        }
+
+        if !msg.psi_hat.verify() {
+            return Err("Failed to verify EncProof".to_string());
+        }
+
+        if !msg.psi_hat_prime.verify() {
+            return Err("Failed to verify EncProof".to_string());
+        }
+
+        let alpha = msg.d.decrypt(&self.secret_data.paillier_sk);
+        let alpha_hat = msg.d_hat.decrypt(&self.secret_data.paillier_sk);
+
+        Ok(Round2Payload {
+            gamma: msg.gamma,
+            alpha,
+            alpha_hat,
+        })
+    }
+
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+        let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
+        let gamma = gamma + &Point::GENERATOR * &self.secret_data.gamma;
+
+        let big_delta = &gamma * &self.secret_data.k;
+
+        let alpha_sum: Scalar = payloads.iter().map(|payload| payload.alpha).sum();
+        let alpha_hat_sum: Scalar = payloads.iter().map(|payload| payload.alpha_hat).sum();
+
+        let beta_sum: Scalar = self.betas.iter().sum();
+        let beta_hat_sum: Scalar = self.betas_hat.iter().sum();
+
+        let delta = &self.secret_data.gamma * &self.secret_data.k + alpha_sum + beta_sum;
+        let chi = &self.secret_data.key_share * &self.secret_data.k + alpha_hat_sum + beta_hat_sum;
+
+        Round3 {
+            context: self.context,
+            secret_data: self.secret_data,
+            delta,
+            chi,
+            big_delta,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound = "LogStarProof<P>: Serialize")]
+pub struct Round3Bcast<P: PaillierParams> {
+    delta: Scalar,
+    big_delta: Point,
+    psi_hat_pprime: LogStarProof<P>,
+}
+
+pub struct Round3<P: SchemeParams> {
+    context: PublicContext<P::Paillier>,
+    secret_data: SecretData<P::Paillier>,
+    delta: Scalar,
+    chi: Scalar,
+    big_delta: Point,
+}
+
+#[derive(Clone)]
+pub struct Round3Payload {
+    delta: Scalar,
+    big_delta: Point,
+}
+
+impl<P: SchemeParams> Round for Round3<P> {
+    type Error = String;
+    type Payload = Round3Payload;
+    type Message = Round3Bcast<P::Paillier>;
+    type NextRound = PresigningData;
+
+    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+        let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
+
+        let messages = range
+            .map(|idx| {
+                let psi_hat_pprime = LogStarProof::random(rng);
+                let message = Round3Bcast {
+                    delta: self.delta,
+                    big_delta: self.big_delta,
+                    psi_hat_pprime,
+                };
+                (idx, message)
+            })
+            .collect();
+
+        ToSendTyped::Direct(messages)
+    }
+
+    fn verify_received(
+        &self,
+        _from: PartyIdx,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, Self::Error> {
+        if !msg.psi_hat_pprime.verify() {
+            return Err("Failed to verify Log-Star proof".to_string());
+        }
+        Ok(Round3Payload {
+            delta: msg.delta,
+            big_delta: msg.big_delta,
+        })
+    }
+
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+        let (deltas, big_deltas) = payloads
+            .map(|payload| (payload.delta, payload.big_delta))
+            .unzip();
+
+        let delta: Scalar = deltas.iter().sum();
+        let delta = delta + self.delta;
+
+        let big_delta: Point = big_deltas.iter().sum();
+        let big_delta = big_delta + self.big_delta;
+
+        // TODO: seems like we need to allow `finalize()` to result in an error.
+        // For now we just panic.
+        if &Point::GENERATOR * &delta != big_delta {
+            panic!("Deltas do not coincide");
+            // TODO: calculate the required proofs here according to the paper.
+        }
+
+        // TODO: was already calculated, and it's public, can store it and reuse.
+        let big_gamma = &Point::GENERATOR * &self.secret_data.gamma;
+
+        let big_r = &big_gamma * &delta.invert().unwrap();
+
+        PresigningData {
+            big_r,
+            k: self.secret_data.k,
+            chi: self.chi,
+        }
+    }
+}
+
+pub struct PresigningData {
+    big_r: Point,
+    k: Scalar,
+    chi: Scalar,
+}
+
+#[cfg(test)]
+mod tests {
+    use rand_core::OsRng;
+
+    use super::{AuxDataPublic, Round1Part1};
+    use crate::paillier::{PaillierParams, SecretKeyPaillier};
+    use crate::protocols::common::{SchemeParams, SessionId, TestSchemeParams};
+    use crate::protocols::generic::tests::step;
+    use crate::tools::collections::PartyIdx;
+    use crate::tools::group::Scalar;
+
+    fn make_aux_data<P: PaillierParams>(sks: &[&SecretKeyPaillier<P>]) -> AuxDataPublic<P> {
+        let paillier_pks = sks.iter().map(|sk| sk.public_key()).collect();
+
+        AuxDataPublic { paillier_pks }
+    }
+
+    #[test]
+    fn execute_presigning() {
+        let session_id = SessionId::random();
+
+        let sk1 =
+            SecretKeyPaillier::<<TestSchemeParams as SchemeParams>::Paillier>::random(&mut OsRng);
+        let sk2 =
+            SecretKeyPaillier::<<TestSchemeParams as SchemeParams>::Paillier>::random(&mut OsRng);
+        let sk3 =
+            SecretKeyPaillier::<<TestSchemeParams as SchemeParams>::Paillier>::random(&mut OsRng);
+
+        let x1 = Scalar::random(&mut OsRng);
+        let x2 = Scalar::random(&mut OsRng);
+        let x3 = Scalar::random(&mut OsRng);
+
+        let aux = make_aux_data(&[&sk1, &sk2, &sk3]);
+
+        let r1 = vec![
+            Round1Part1::<TestSchemeParams>::new(
+                &mut OsRng,
+                &session_id,
+                PartyIdx::from_usize(0),
+                3,
+                &x1,
+                &sk1,
+                &aux,
+            ),
+            Round1Part1::<TestSchemeParams>::new(
+                &mut OsRng,
+                &session_id,
+                PartyIdx::from_usize(1),
+                3,
+                &x2,
+                &sk2,
+                &aux,
+            ),
+            Round1Part1::<TestSchemeParams>::new(
+                &mut OsRng,
+                &session_id,
+                PartyIdx::from_usize(2),
+                3,
+                &x3,
+                &sk3,
+                &aux,
+            ),
+        ];
+
+        let r1p2 = step(&mut OsRng, r1).unwrap();
+        let r2 = step(&mut OsRng, r1p2).unwrap();
+        let r3 = step(&mut OsRng, r2).unwrap();
+        let _presigning_datas = step(&mut OsRng, r3).unwrap();
+
+        // TODO: what contracts do we expect?
+    }
+}

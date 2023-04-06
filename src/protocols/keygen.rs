@@ -42,6 +42,8 @@ impl FullData {
 
 #[derive(Clone)]
 struct SecretData {
+    // TODO: probably just a Scalar, since it will have a random mask added later,
+    // and we cannot ensure it won't turn it into zero.
     key_share: NonZeroScalar,
     sch_secret: SchSecret,
 }
