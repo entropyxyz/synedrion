@@ -15,12 +15,14 @@ use k256::elliptic_curve::{
     generic_array::GenericArray,
     hash2curve::{ExpandMsgXmd, GroupDigest},
     ops::Reduce,
+    point::AffineCoordinates,
+    scalar::IsHigh,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{ConstantTimeEq, CtOption},
     Field,
     FieldBytesSize,
 };
-use k256::{FieldBytes, Secp256k1};
+use k256::{ecdsa::hazmat::VerifyPrimitive, FieldBytes, Secp256k1};
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{digest::Digest, Sha256};
@@ -60,6 +62,14 @@ impl Scalar {
 
     pub fn invert(&self) -> CtOption<Self> {
         self.0.invert().map(Self)
+    }
+
+    pub fn normalize(&self) -> Self {
+        if self.0.is_high().into() {
+            -self
+        } else {
+            *self
+        }
     }
 
     pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
@@ -178,6 +188,26 @@ impl PartialEq<NonZeroScalar> for NonZeroScalar {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Signature(k256::ecdsa::Signature);
+
+impl Signature {
+    pub fn from_scalars(r: &Scalar, s: &Scalar) -> Option<Self> {
+        // TODO: call `normalize_s()` on the result?
+        // TODO: pass a message too and derive the recovery byte?
+        k256::ecdsa::Signature::from_scalars(r.0, s.0)
+            .map(Self)
+            .ok()
+    }
+
+    pub fn verify(&self, vkey: &Point, message: &Scalar) -> bool {
+        let verifier = vkey.0.to_affine();
+        verifier
+            .verify_prehashed(&message.0.to_bytes(), &self.0)
+            .is_ok()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point(BackendPoint);
 
@@ -185,6 +215,11 @@ impl Point {
     pub const GENERATOR: Self = Self(BackendPoint::GENERATOR);
 
     pub const IDENTITY: Self = Self(BackendPoint::IDENTITY);
+
+    pub fn x_coordinate(&self) -> Scalar {
+        let bytes = self.0.to_affine().x();
+        Scalar(<BackendScalar as Reduce<U256>>::reduce_bytes(&bytes))
+    }
 
     /// Hashes arbitrary data with the given domain separation tag
     /// into a valid EC point of the specified curve, using the algorithm described in the

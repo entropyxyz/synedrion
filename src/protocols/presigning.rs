@@ -21,7 +21,7 @@ use crate::tools::group::{Point, Scalar};
 // TODO: this should be somehow obtained from AuxData and KeyShare
 #[derive(Clone)]
 pub struct AuxDataPublic<P: PaillierParams> {
-    paillier_pks: Vec<PublicKeyPaillier<P>>,
+    pub paillier_pks: Vec<PublicKeyPaillier<P>>,
 }
 
 #[derive(Clone)]
@@ -371,6 +371,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             delta,
             chi,
             big_delta,
+            big_gamma: gamma,
         }
     }
 }
@@ -389,6 +390,7 @@ pub struct Round3<P: SchemeParams> {
     delta: Scalar,
     chi: Scalar,
     big_delta: Point,
+    big_gamma: Point,
 }
 
 #[derive(Clone)]
@@ -453,10 +455,8 @@ impl<P: SchemeParams> Round for Round3<P> {
             // TODO: calculate the required proofs here according to the paper.
         }
 
-        // TODO: was already calculated, and it's public, can store it and reuse.
-        let big_gamma = &Point::GENERATOR * &self.secret_data.gamma;
-
-        let big_r = &big_gamma * &delta.invert().unwrap();
+        // TODO: seems like we only need the x-coordinate of this (as a Scalar)
+        let big_r = &self.big_gamma * &delta.invert().unwrap();
 
         PresigningData {
             big_r,
@@ -467,9 +467,9 @@ impl<P: SchemeParams> Round for Round3<P> {
 }
 
 pub struct PresigningData {
-    big_r: Point,
-    k: Scalar,
-    chi: Scalar,
+    pub(crate) big_r: Point,
+    pub(crate) k: Scalar,
+    pub(crate) chi: Scalar,
 }
 
 #[cfg(test)]
@@ -539,7 +539,10 @@ mod tests {
         let r1p2 = step(&mut OsRng, r1).unwrap();
         let r2 = step(&mut OsRng, r1p2).unwrap();
         let r3 = step(&mut OsRng, r2).unwrap();
-        let _presigning_datas = step(&mut OsRng, r3).unwrap();
+        let presigning_datas = step(&mut OsRng, r3).unwrap();
+
+        assert_eq!(presigning_datas[0].big_r, presigning_datas[1].big_r);
+        assert_eq!(presigning_datas[0].big_r, presigning_datas[2].big_r);
 
         // TODO: what contracts do we expect?
     }
