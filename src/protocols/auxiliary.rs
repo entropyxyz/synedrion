@@ -37,8 +37,8 @@ pub struct FullData<P: SchemeParams> {
     y_public: Point,                                              // $Y_i$,
     sch_commitment_y: SchCommitment,                              // $B_i$
     paillier_pk: PublicKeyPaillier<P::Paillier>,                  // $N_i$
-    paillier_public: <P::Paillier as PaillierParams>::DoubleUint, // $s_i$
-    paillier_base: <P::Paillier as PaillierParams>::DoubleUint,   // $t_i$
+    rp_power: <P::Paillier as PaillierParams>::DoubleUint, // $s_i$
+    rp_generator: <P::Paillier as PaillierParams>::DoubleUint,   // $t_i$
     prm_proof: PrmProof<P::Paillier>,                             // $\hat{\psi}_i$
     rho_bits: Box<[u8]>,                                          // $\rho_i$
     u_bits: Box<[u8]>,                                            // $u_i$
@@ -62,8 +62,8 @@ impl<P: SchemeParams> FullData<P> {
             .chain(&self.y_public)
             .chain(&self.sch_commitment_y)
             .chain(&self.paillier_pk)
-            .chain(&self.paillier_public)
-            .chain(&self.paillier_base)
+            .chain(&self.rp_power)
+            .chain(&self.rp_generator)
             .chain(&self.prm_proof)
             .chain(&self.rho_bits)
             .chain(&self.u_bits)
@@ -95,16 +95,16 @@ impl<P: SchemeParams> Round1<P> {
 
         let r = paillier_pk.random_invertible_group_elem(rng);
         let lambda = paillier_sk.random_field_elem(rng);
-        let paillier_base = r * r; // TODO: use `square()` when it's available
-        let paillier_public = paillier_base.pow(&lambda);
+        let rp_generator = r * r; // TODO: use `square()` when it's available
+        let rp_power = rp_generator.pow(&lambda);
 
         let aux = (session_id, &party_idx);
         let prm_proof = PrmProof::random(
             rng,
             &paillier_sk,
             &lambda,
-            &paillier_base,
-            &paillier_public,
+            &rp_generator,
+            &rp_power,
             &aux,
             P::SECURITY_PARAMETER,
         );
@@ -127,8 +127,8 @@ impl<P: SchemeParams> Round1<P> {
             y_public,
             sch_commitment_y,
             paillier_pk,
-            paillier_public: paillier_public.retrieve(),
-            paillier_base: paillier_base.retrieve(),
+            rp_power: rp_power.retrieve(),
+            rp_generator: rp_generator.retrieve(),
             prm_proof,
             rho_bits,
             u_bits,
@@ -229,8 +229,8 @@ impl<P: SchemeParams> Round for Round2<P> {
         let aux = (&self.data.session_id, &from);
         if !msg.data.prm_proof.verify(
             &msg.data.paillier_pk,
-            &msg.data.paillier_base,
-            &msg.data.paillier_public,
+            &msg.data.rp_generator,
+            &msg.data.rp_power,
             &aux,
         ) {
             return Err("PRM verification failed".to_string());
@@ -393,11 +393,11 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
         let secrets = payloads.into_vec(self.secret_data.xs_secret[self.data.party_idx.as_usize()]);
-        let x_mask = secrets.iter().sum();
+        let share_change = secrets.iter().sum();
 
         let datas = self.datas.into_vec(self.data);
 
-        let xs_masks_public = (0..datas.len())
+        let public_share_changes = (0..datas.len())
             .map(|idx| datas.iter().map(|data| data.xs_public[idx]).sum())
             .collect::<Vec<_>>();
 
@@ -405,16 +405,16 @@ impl<P: SchemeParams> Round for Round3<P> {
             .into_iter()
             .enumerate()
             .map(|(idx, data)| AuxDataPublic {
-                x_mask: xs_masks_public[idx],
+                share_change: public_share_changes[idx],
                 y: data.y_public,
                 paillier_pk: data.paillier_pk,
-                paillier_base: data.paillier_base,
-                paillier_public: data.paillier_public,
+                rp_generator: data.rp_generator,
+                rp_power: data.rp_power,
             })
             .collect();
 
         let secret = AuxDataSecret {
-            x_mask,
+            share_change,
             y: self.secret_data.y_secret.clone(),
             paillier_sk: self.secret_data.paillier_sk,
         };
@@ -452,8 +452,8 @@ mod tests {
         for (idx, data) in aux_datas.iter().enumerate() {
             for other_data in aux_datas.iter() {
                 assert_eq!(
-                    &Point::GENERATOR * &data.secret.x_mask,
-                    other_data.public[idx].x_mask
+                    &Point::GENERATOR * &data.secret.share_change,
+                    other_data.public[idx].share_change
                 );
                 assert_eq!(&Point::GENERATOR * &data.secret.y, other_data.public[idx].y);
             }
@@ -461,7 +461,7 @@ mod tests {
 
         // The resulting sum of masks should be zero, since the combined secret key
         // should not change after applying the masks at each node.
-        let mask_sum: Scalar = aux_datas.iter().map(|data| data.secret.x_mask).sum();
+        let mask_sum: Scalar = aux_datas.iter().map(|data| data.secret.share_change).sum();
         assert_eq!(mask_sum, Scalar::ZERO);
     }
 }
