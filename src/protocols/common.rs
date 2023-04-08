@@ -2,8 +2,8 @@ use alloc::boxed::Box;
 
 use serde::{Deserialize, Serialize};
 
-use crate::paillier::params::{PaillierParams, PaillierTest};
-use crate::tools::group::{Point, Scalar};
+use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
+use crate::tools::group::{NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hashable};
 
 // TODO: this trait can include curve scalar/point types as well,
@@ -43,4 +43,23 @@ impl Hashable for SessionId {
 pub struct KeyShare {
     pub public: Box<[Point]>,
     pub secret: Scalar,
+}
+
+pub struct AuxDataSecret<P: PaillierParams> {
+    pub(crate) x_mask: Scalar,
+    pub(crate) y: NonZeroScalar,
+    pub(crate) paillier_sk: SecretKeyPaillier<P>,
+}
+
+pub struct AuxDataPublic<P: PaillierParams> {
+    pub(crate) x_mask: Point,
+    pub(crate) y: Point,
+    pub(crate) paillier_pk: PublicKeyPaillier<P>,
+    pub(crate) paillier_base: P::DoubleUint,
+    pub(crate) paillier_public: P::DoubleUint,
+}
+
+pub struct AuxData<P: PaillierParams> {
+    pub(crate) secret: AuxDataSecret<P>,
+    pub(crate) public: Box<[AuxDataPublic<P>]>,
 }

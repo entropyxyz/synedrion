@@ -6,7 +6,7 @@ use crypto_bigint::Pow;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{SchemeParams, SessionId};
+use super::common::{AuxData, AuxDataPublic, AuxDataSecret, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{
     encryption::Ciphertext,
@@ -292,7 +292,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Error = String;
     type Payload = Scalar;
     type Message = Round3Direct<P>;
-    type NextRound = AuxData<P>;
+    type NextRound = AuxData<P::Paillier>;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);
@@ -401,48 +401,26 @@ impl<P: SchemeParams> Round for Round3<P> {
             .map(|idx| datas.iter().map(|data| data.xs_public[idx]).sum())
             .collect::<Vec<_>>();
 
-        let ys_public = datas.iter().map(|data| data.y_public).collect::<Vec<_>>();
+        let public = datas
+            .into_iter()
+            .enumerate()
+            .map(|(idx, data)| AuxDataPublic {
+                x_mask: xs_masks_public[idx],
+                y: data.y_public,
+                paillier_pk: data.paillier_pk,
+                paillier_base: data.paillier_base,
+                paillier_public: data.paillier_public,
+            })
+            .collect();
 
-        let paillier_pks = datas
-            .iter()
-            .map(|data| data.paillier_pk.clone())
-            .collect::<Vec<_>>();
-
-        let paillier_bases = datas
-            .iter()
-            .map(|data| data.paillier_base)
-            .collect::<Vec<_>>();
-
-        let paillier_publics = datas
-            .iter()
-            .map(|data| data.paillier_public)
-            .collect::<Vec<_>>();
-
-        AuxData {
+        let secret = AuxDataSecret {
             x_mask,
             y: self.secret_data.y_secret.clone(),
             paillier_sk: self.secret_data.paillier_sk,
-            xs_masks_public,
-            ys_public,
-            paillier_pks,
-            paillier_bases,
-            paillier_publics,
-        }
+        };
+
+        AuxData { secret, public }
     }
-}
-
-pub struct AuxData<P: SchemeParams> {
-    // secret
-    x_mask: Scalar,
-    y: NonZeroScalar,
-    paillier_sk: SecretKeyPaillier<P::Paillier>,
-
-    // public
-    xs_masks_public: Vec<Point>,
-    ys_public: Vec<Point>,
-    paillier_pks: Vec<PublicKeyPaillier<P::Paillier>>,
-    paillier_bases: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
-    paillier_publics: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
 }
 
 #[cfg(test)]
@@ -474,16 +452,16 @@ mod tests {
         for (idx, data) in aux_datas.iter().enumerate() {
             for other_data in aux_datas.iter() {
                 assert_eq!(
-                    &Point::GENERATOR * &data.x_mask,
-                    other_data.xs_masks_public[idx]
+                    &Point::GENERATOR * &data.secret.x_mask,
+                    other_data.public[idx].x_mask
                 );
-                assert_eq!(&Point::GENERATOR * &data.y, other_data.ys_public[idx]);
+                assert_eq!(&Point::GENERATOR * &data.secret.y, other_data.public[idx].y);
             }
         }
 
         // The resulting sum of masks should be zero, since the combined secret key
         // should not change after applying the masks at each node.
-        let mask_sum: Scalar = aux_datas.iter().map(|data| data.x_mask).sum();
+        let mask_sum: Scalar = aux_datas.iter().map(|data| data.secret.x_mask).sum();
         assert_eq!(mask_sum, Scalar::ZERO);
     }
 }
