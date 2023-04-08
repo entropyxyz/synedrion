@@ -219,7 +219,7 @@ mod tests {
         let new_ciphertext = ciphertext1.homomorphic_add(&pk, &ciphertext2);
         let new_plaintext = new_ciphertext.decrypt(&sk);
 
-        assert_eq!(&plaintext1 + &plaintext2, new_plaintext);
+        assert_eq!(plaintext1 + plaintext2, new_plaintext);
     }
 
     #[test]

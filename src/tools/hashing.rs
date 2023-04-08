@@ -6,7 +6,7 @@ use digest::{Digest, ExtendableOutput, Output, Update, XofReader};
 use sha2::Sha256;
 use sha3::Shake256;
 
-use super::group::{NonZeroScalar, Scalar};
+use super::group::Scalar;
 
 /// Encodes the object into bytes for hashing purposes.
 pub trait HashInto {
@@ -72,10 +72,6 @@ impl Hash {
     pub fn finalize_to_scalar(self) -> Scalar {
         Scalar::from_digest(self.0)
     }
-
-    pub fn finalize_to_nz_scalar(self) -> NonZeroScalar {
-        NonZeroScalar::from_digest(self.0)
-    }
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
@@ -100,12 +96,6 @@ impl XofHash {
 
     pub fn finalize_boxed(self, output_size: usize) -> Box<[u8]> {
         self.0.finalize_boxed(output_size)
-    }
-
-    pub fn finalize_array<const N: usize>(self) -> [u8; N] {
-        let mut result = [0u8; N];
-        self.0.finalize_xof_into(&mut result);
-        result
     }
 
     pub fn finalize_reader(self) -> <Shake256 as ExtendableOutput>::Reader {

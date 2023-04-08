@@ -173,7 +173,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
                     &self.context.paillier_pk,
                     &self.secret_data.k,
                     &self.secret_data.rho,
-                    &k_ciphertext,
+                    k_ciphertext,
                     &aux,
                 );
                 (idx, Round1Direct(proof))
@@ -291,20 +291,20 @@ impl<P: SchemeParams> Round for Round2<P> {
                 let beta_hat = self.betas_hat.get(idx).unwrap();
 
                 let d = self.k_ciphertexts[idx.as_usize()]
-                    .homomorphic_mul(&target_pk, &self.secret_data.gamma)
+                    .homomorphic_mul(target_pk, &self.secret_data.gamma)
                     .homomorphic_add(
-                        &target_pk,
-                        &Ciphertext::new_with_randomizer(&target_pk, &-beta, &s),
+                        target_pk,
+                        &Ciphertext::new_with_randomizer(target_pk, &-beta, &s),
                     );
-                let f = Ciphertext::new_with_randomizer(&pk, &beta, &r);
+                let f = Ciphertext::new_with_randomizer(pk, beta, &r);
 
                 let d_hat = self.k_ciphertexts[idx.as_usize()]
-                    .homomorphic_mul(&target_pk, &self.secret_data.key_share)
+                    .homomorphic_mul(target_pk, &self.secret_data.key_share)
                     .homomorphic_add(
-                        &target_pk,
-                        &Ciphertext::new_with_randomizer(&target_pk, &-beta_hat, &s_hat),
+                        target_pk,
+                        &Ciphertext::new_with_randomizer(target_pk, &-beta_hat, &s_hat),
                     );
-                let f_hat = Ciphertext::new_with_randomizer(&pk, &beta_hat, &r_hat);
+                let f_hat = Ciphertext::new_with_randomizer(pk, beta_hat, &r_hat);
 
                 let msg = Round2Direct {
                     gamma,

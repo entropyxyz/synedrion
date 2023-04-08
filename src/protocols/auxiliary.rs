@@ -95,7 +95,7 @@ impl<P: SchemeParams> Round1<P> {
 
         let r = paillier_pk.random_invertible_group_elem(rng);
         let lambda = paillier_sk.random_field_elem(rng);
-        let paillier_base = r * &r; // TODO: use `square()` when it's available
+        let paillier_base = r * r; // TODO: use `square()` when it's available
         let paillier_public = paillier_base.pow(&lambda);
 
         let aux = (session_id, &party_idx);

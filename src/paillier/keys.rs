@@ -98,7 +98,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let p_part_m = P::DoubleUintMod::new(&p_part_big, &pk.modulus());
         let q_part_m = P::DoubleUintMod::new(&q_part_big, &pk.modulus());
 
-        (inv * &(p_part_m * &q_big_m + q_part_m * &p_big_m)).retrieve()
+        (inv * (p_part_m * q_big_m + q_part_m * p_big_m)).retrieve()
     }
 
     pub fn inv_modulus(&self) -> P::DoubleUint {

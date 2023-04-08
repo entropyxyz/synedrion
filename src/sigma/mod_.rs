@@ -144,11 +144,11 @@ impl<P: PaillierParams> ModProof<P> {
                 y_m = -y_m;
             }
             if elem.b {
-                y_m = y_m * &w;
+                y_m = y_m * w;
             }
             let x = P::DoubleUintMod::new(&elem.x, &modulus);
-            let x_sq = x * &x;
-            let x_4 = x_sq * &x_sq;
+            let x_sq = x * x; // TODO: use `square()` when available
+            let x_4 = x_sq * x_sq; // TODO: use `square()` when available
             if y_m != x_4 {
                 return false;
             }
