@@ -1,9 +1,9 @@
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
-use crate::protocols::common::{SchemeParams, SessionId};
+use crate::protocols::common::{KeyShare, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
-use crate::protocols::keygen::{KeyShare, Round1, Round2, Round3};
+use crate::protocols::keygen::{Round1, Round2, Round3};
 use crate::tools::collections::PartyIdx;
 
 #[derive(Clone)]

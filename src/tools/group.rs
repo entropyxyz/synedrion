@@ -216,6 +216,8 @@ impl Point {
 
     pub const IDENTITY: Self = Self(BackendPoint::IDENTITY);
 
+    // TODO: technically it can be any hash function from Point to Scalar, right?
+    // so we can just rename it to `to_scalar()` or something.
     pub fn x_coordinate(&self) -> Scalar {
         let bytes = self.0.to_affine().x();
         Scalar(<BackendScalar as Reduce<U256>>::reduce_bytes(&bytes))

@@ -8,11 +8,11 @@ use core::marker::PhantomData;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{SchemeParams, SessionId};
+use super::common::{KeyShare, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::{HoleVec, PartyIdx};
-use crate::tools::group::{NonZeroScalar, Point, Scalar};
+use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
 
@@ -44,7 +44,7 @@ impl FullData {
 struct SecretData {
     // TODO: probably just a Scalar, since it will have a random mask added later,
     // and we cannot ensure it won't turn it into zero.
-    key_share: NonZeroScalar,
+    key_share: Scalar,
     sch_secret: SchSecret,
 }
 
@@ -66,7 +66,7 @@ impl<P: SchemeParams> Round1<P> {
         session_id: &SessionId,
         party_idx: PartyIdx,
     ) -> Self {
-        let secret = NonZeroScalar::random(rng);
+        let secret = Scalar::random(rng);
         let public = &Point::GENERATOR * &secret;
 
         let rid = random_bits(P::SECURITY_PARAMETER);
@@ -208,7 +208,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         let aux = (&self.data.session_id, &self.data.party_idx, &self.rid);
         let proof = SchProof::new(
             &self.secret_data.sch_secret,
-            &self.secret_data.key_share.clone().into_scalar(),
+            &self.secret_data.key_share.clone(),
             &self.data.commitment,
             &self.data.public,
             &aux,
@@ -235,7 +235,6 @@ impl<P: SchemeParams> Round for Round3<P> {
         let datas = self.datas.into_vec(self.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
         KeyShare {
-            rid: self.rid,
             public: public_keys,
             secret: self.secret_data.key_share,
         }
@@ -243,13 +242,6 @@ impl<P: SchemeParams> Round for Round3<P> {
 }
 
 impl<P: SchemeParams> BroadcastRound for Round3<P> {}
-
-#[derive(Clone)]
-pub struct KeyShare {
-    pub rid: Box<[u8]>,
-    pub public: Vec<Point>,
-    pub secret: NonZeroScalar,
-}
 
 #[cfg(test)]
 mod tests {
@@ -287,7 +279,7 @@ mod tests {
         let public_from_secret = shares
             .iter()
             .map(|s| &Point::GENERATOR * &s.secret)
-            .collect::<Vec<_>>();
+            .collect();
 
         assert!(public_set == &public_from_secret);
     }
