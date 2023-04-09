@@ -1,10 +1,11 @@
+use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{SchemeParams, SessionId};
+use super::common::{AuxDataPublic, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{
     encryption::Ciphertext,
@@ -18,18 +19,12 @@ use crate::sigma::log_star::LogStarProof;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum, PartyIdx};
 use crate::tools::group::{Point, Scalar};
 
-// TODO: this should be somehow obtained from AuxData and KeyShare
-#[derive(Clone)]
-pub struct AuxDataPublic<P: PaillierParams> {
-    pub paillier_pks: Vec<PublicKeyPaillier<P>>,
-}
-
 #[derive(Clone)]
 pub struct PublicContext<P: PaillierParams> {
     session_id: SessionId,
     num_parties: usize,
     party_idx: PartyIdx,
-    aux_data: AuxDataPublic<P>,
+    aux_data: Box<[AuxDataPublic<P>]>,
     paillier_pk: PublicKeyPaillier<P>,
 }
 
@@ -64,12 +59,12 @@ impl<P: SchemeParams> Round1Part1<P> {
         num_parties: usize,
         key_share: &Scalar,
         paillier_sk: &SecretKeyPaillier<P::Paillier>,
-        aux_data: &AuxDataPublic<P::Paillier>,
+        aux_data: &[AuxDataPublic<P::Paillier>],
     ) -> Self {
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
 
-        let pk = &aux_data.paillier_pks[party_idx.as_usize()];
+        let pk = &aux_data[party_idx.as_usize()].paillier_pk;
         let rho = pk.random_invertible_group_elem(rng).retrieve();
         let nu = pk.random_invertible_group_elem(rng).retrieve();
 
@@ -82,7 +77,7 @@ impl<P: SchemeParams> Round1Part1<P> {
                 num_parties,
                 party_idx,
                 paillier_pk: pk.clone(),
-                aux_data: aux_data.clone(),
+                aux_data: aux_data.to_vec().into_boxed_slice(),
             },
             secret_data: SecretData {
                 key_share: *key_share,
@@ -280,7 +275,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                 let gamma = &Point::GENERATOR * &self.secret_data.gamma;
 
                 let pk = &self.context.paillier_pk;
-                let target_pk = &self.context.aux_data.paillier_pks[idx.as_usize()];
+                let target_pk = &self.context.aux_data[idx.as_usize()].paillier_pk;
 
                 let r = target_pk.random_group_elem_raw(rng);
                 let s = target_pk.random_group_elem_raw(rng);
@@ -477,16 +472,22 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{AuxDataPublic, Round1Part1};
+    use crate::paillier::uint::Zero;
     use crate::paillier::{PaillierParams, SecretKeyPaillier};
     use crate::protocols::common::{SchemeParams, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::tools::collections::PartyIdx;
-    use crate::tools::group::Scalar;
+    use crate::tools::group::{Point, Scalar};
 
-    fn make_aux_data<P: PaillierParams>(sks: &[&SecretKeyPaillier<P>]) -> AuxDataPublic<P> {
-        let paillier_pks = sks.iter().map(|sk| sk.public_key()).collect();
-
-        AuxDataPublic { paillier_pks }
+    fn make_aux_data<P: PaillierParams>(sks: &[&SecretKeyPaillier<P>]) -> Box<[AuxDataPublic<P>]> {
+        sks.into_iter()
+            .map(|sk| AuxDataPublic {
+                y: Point::GENERATOR,
+                rp_generator: P::DoubleUint::ZERO,
+                rp_power: P::DoubleUint::ZERO,
+                paillier_pk: sk.public_key(),
+            })
+            .collect()
     }
 
     #[test]

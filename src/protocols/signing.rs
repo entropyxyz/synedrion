@@ -76,19 +76,23 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Round1;
+    use crate::paillier::uint::Zero;
     use crate::paillier::{PaillierParams, SecretKeyPaillier};
-    use crate::protocols::common::{SchemeParams, SessionId, TestSchemeParams};
+    use crate::protocols::common::{AuxDataPublic, SchemeParams, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::protocols::presigning;
     use crate::tools::collections::PartyIdx;
     use crate::tools::group::{Point, Scalar};
 
-    fn make_aux_data<P: PaillierParams>(
-        sks: &[&SecretKeyPaillier<P>],
-    ) -> presigning::AuxDataPublic<P> {
-        let paillier_pks = sks.iter().map(|sk| sk.public_key()).collect();
-
-        presigning::AuxDataPublic { paillier_pks }
+    fn make_aux_data<P: PaillierParams>(sks: &[&SecretKeyPaillier<P>]) -> Box<[AuxDataPublic<P>]> {
+        sks.into_iter()
+            .map(|sk| AuxDataPublic {
+                y: Point::GENERATOR,
+                rp_generator: P::DoubleUint::ZERO,
+                rp_power: P::DoubleUint::ZERO,
+                paillier_pk: sk.public_key(),
+            })
+            .collect()
     }
 
     #[test]

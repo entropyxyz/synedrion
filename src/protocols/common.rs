@@ -48,19 +48,26 @@ pub struct KeyShare {
     pub public: Box<[Point]>, // `X`
 }
 
-/// The secret part of the result of the Auxiliary Info & Key Refresh protocol.
-pub struct AuxDataSecret<P: PaillierParams> {
+/// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
+pub struct KeyShareChange {
     /// The value to be added to the secret share.
-    pub(crate) share_change: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
+    pub(crate) secret: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
+    /// The value to be added to the public share of a remote node.
+    pub(crate) public: Box<[Point]>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
+}
+
+/// The secret part of the result of the Auxiliary Info & Key Refresh protocol -
+/// the secrets for the Paillier encryption and ZP proofs for this node.
+pub struct AuxDataSecret<P: PaillierParams> {
     pub(crate) y: NonZeroScalar, // TODO: a more descriptive name? Where is it even used?
     /// The Paillier secret key.
     pub(crate) paillier_sk: SecretKeyPaillier<P>,
 }
 
-/// The public part of the result of the Auxiliary Info & Key Refresh protocol.
+/// The public part of the result of the Auxiliary Info & Key Refresh protocol -
+/// the auxiliary info for the Paillier encryption and ZK proofs for a single remote node.
+#[derive(Clone)]
 pub struct AuxDataPublic<P: PaillierParams> {
-    /// The value to be added to the public share of a remote node.
-    pub(crate) share_change: Point, // `X_k^* - X_k == \sum_j X_j^k`
     pub(crate) y: Point, // TODO: a more descriptive name? Where is it even used?
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillier<P>,
