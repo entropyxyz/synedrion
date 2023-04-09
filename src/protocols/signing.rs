@@ -4,7 +4,7 @@ use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::generic::{BroadcastRound, Round, ToSendTyped};
-use super::presigning::PresigningData;
+use crate::protocols::common::PresigningData;
 use crate::tools::collections::{HoleVec, PartyIdx};
 use crate::tools::group::{Point, Scalar, Signature};
 

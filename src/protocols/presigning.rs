@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{AuxDataPublic, SchemeParams, SessionId};
+use super::common::{AuxDataPublic, PresigningData, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{
     encryption::Ciphertext,
@@ -461,12 +461,6 @@ impl<P: SchemeParams> Round for Round3<P> {
     }
 }
 
-pub struct PresigningData {
-    pub(crate) big_r: Point,
-    pub(crate) k: Scalar,
-    pub(crate) chi: Scalar,
-}
-
 #[cfg(test)]
 mod tests {
     use rand_core::OsRng;
@@ -474,7 +468,7 @@ mod tests {
     use super::{AuxDataPublic, Round1Part1};
     use crate::paillier::uint::Zero;
     use crate::paillier::{PaillierParams, SecretKeyPaillier};
-    use crate::protocols::common::{SchemeParams, SessionId, TestSchemeParams};
+    use crate::protocols::common::{PresigningData, SchemeParams, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::tools::collections::PartyIdx;
     use crate::tools::group::{Point, Scalar};

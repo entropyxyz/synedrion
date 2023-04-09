@@ -82,3 +82,10 @@ pub struct AuxData<P: PaillierParams> {
     pub(crate) secret: AuxDataSecret<P>,
     pub(crate) public: Box<[AuxDataPublic<P>]>,
 }
+
+/// The result of the Presigning protocol.
+pub struct PresigningData {
+    pub(crate) big_r: Point,
+    pub(crate) k: Scalar,
+    pub(crate) chi: Scalar,
+}
