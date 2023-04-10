@@ -273,13 +273,15 @@ impl<P: SchemeParams> Round for Round2<P> {
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
-        //let aux = (&self.context.session_id, &self.context.party_idx);
+        let aux = (&self.context.session_id, &self.context.party_idx);
+
+        let gamma = &Point::GENERATOR * &self.secret_data.gamma;
+        // TODO: technically it's already been precalculated somewhere earlier
+        let big_x = &Point::GENERATOR * &self.secret_data.key_share;
+        let pk = &self.context.paillier_pk;
 
         let messages = range
             .map(|idx| {
-                let gamma = &Point::GENERATOR * &self.secret_data.gamma;
-
-                let pk = &self.context.paillier_pk;
                 let target_pk = &self.context.aux_data[idx.as_usize()].paillier_pk;
 
                 let r = target_pk.random_group_elem_raw(rng);
@@ -306,14 +308,44 @@ impl<P: SchemeParams> Round for Round2<P> {
                     );
                 let f_hat = Ciphertext::new_with_randomizer(pk, beta_hat, &r_hat);
 
+                let psi = AffGProof::random(
+                    rng,
+                    &self.secret_data.gamma,
+                    &beta,
+                    &s,
+                    &r,
+                    target_pk,
+                    pk,
+                    &self.k_ciphertexts[idx.as_usize()],
+                    &d,
+                    &f,
+                    &gamma,
+                    &aux,
+                );
+
+                let psi_hat = AffGProof::random(
+                    rng,
+                    &self.secret_data.key_share,
+                    &beta_hat,
+                    &s_hat,
+                    &r_hat,
+                    target_pk,
+                    pk,
+                    &self.k_ciphertexts[idx.as_usize()],
+                    &d_hat,
+                    &f_hat,
+                    &big_x,
+                    &aux,
+                );
+
                 let msg = Round2Direct {
                     gamma,
                     d,
                     f,
                     d_hat,
                     f_hat,
-                    psi: AffGProof::random(rng),
-                    psi_hat: AffGProof::random(rng),
+                    psi,
+                    psi_hat,
                     psi_hat_prime: LogStarProof::random(rng),
                 };
 
@@ -325,14 +357,37 @@ impl<P: SchemeParams> Round for Round2<P> {
 
     fn verify_received(
         &self,
-        _from: PartyIdx,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        if !msg.psi.verify() {
+        let aux = (&self.context.session_id, &self.context.party_idx);
+        let pk = &self.context.paillier_pk;
+        let from_pk = &self.context.aux_data[from.as_usize()].paillier_pk;
+
+        // TODO: technically it's already been precalculated somewhere earlier
+        let big_x = &Point::GENERATOR * &self.secret_data.key_share;
+
+        if !msg.psi.verify(
+            &pk,
+            &from_pk,
+            &self.k_ciphertexts[self.context.party_idx.as_usize()],
+            &msg.d,
+            &msg.f,
+            &msg.gamma,
+            &aux,
+        ) {
             return Err("Failed to verify EncProof".to_string());
         }
 
-        if !msg.psi_hat.verify() {
+        if !msg.psi_hat.verify(
+            &pk,
+            &from_pk,
+            &self.k_ciphertexts[self.context.party_idx.as_usize()],
+            &msg.d_hat,
+            &msg.f_hat,
+            &big_x,
+            &aux,
+        ) {
             return Err("Failed to verify EncProof".to_string());
         }
 
