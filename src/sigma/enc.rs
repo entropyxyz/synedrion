@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
@@ -8,21 +6,28 @@ use crate::tools::group::Scalar;
 use crate::tools::hashing::Hashable;
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct EncProof<P: PaillierParams>(PhantomData<P>);
+#[serde(bound(serialize = "PublicKeyPaillier<P>: Serialize"))]
+#[serde(bound(deserialize = "PublicKeyPaillier<P>: for<'x> Deserialize<'x>"))]
+pub(crate) struct EncProof<P: PaillierParams>(PublicKeyPaillier<P>);
 
 impl<P: PaillierParams> EncProof<P> {
     pub fn random(
         _rng: &mut (impl RngCore + CryptoRng),
-        _pk: &PublicKeyPaillier<P>,
-        _secret: &Scalar,
-        _randomizer: &P::DoubleUint,
-        _ciphertext: &Ciphertext<P>,
-        _aux: &impl Hashable,
+        _secret: &Scalar,            // `k`
+        _randomizer: &P::DoubleUint, // `\rho`
+        pk: &PublicKeyPaillier<P>,   // `N_0`
+        _ciphertext: &Ciphertext<P>, // `K`
+        _aux: &impl Hashable,        // CHECK: used to derive `\hat{N}, s, t`
     ) -> Self {
-        Self(PhantomData)
+        Self(pk.clone())
     }
 
-    pub fn verify(&self) -> bool {
-        true
+    pub fn verify(
+        &self,
+        pk: &PublicKeyPaillier<P>,   // `N_0`
+        _ciphertext: &Ciphertext<P>, // `K`
+        _aux: &impl Hashable,        // CHECK: used to derive `\hat{N}, s, t`
+    ) -> bool {
+        &self.0 == pk
     }
 }

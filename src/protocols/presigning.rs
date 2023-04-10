@@ -165,9 +165,9 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
             .map(|idx| {
                 let proof = EncProof::random(
                     rng,
-                    &self.context.paillier_pk,
                     &self.secret_data.k,
                     &self.secret_data.rho,
+                    &self.context.paillier_pk,
                     k_ciphertext,
                     &aux,
                 );
@@ -179,10 +179,15 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
 
     fn verify_received(
         &self,
-        _from: PartyIdx,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        if msg.0.verify() {
+        let aux = (&self.context.session_id, &self.context.party_idx);
+        if msg.0.verify(
+            &self.context.aux_data[from.as_usize()].paillier_pk,
+            &self.k_ciphertexts[from.as_usize()],
+            &aux,
+        ) {
             Ok(())
         } else {
             Err("Failed to verify EncProof".to_string())
