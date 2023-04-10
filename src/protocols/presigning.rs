@@ -338,6 +338,17 @@ impl<P: SchemeParams> Round for Round2<P> {
                     &aux,
                 );
 
+                let psi_hat_prime = LogStarProof::random(
+                    rng,
+                    &self.secret_data.gamma,
+                    &self.secret_data.nu,
+                    pk,
+                    &self.k_ciphertexts[self.context.party_idx.as_usize()],
+                    &Point::GENERATOR,
+                    &gamma,
+                    &aux,
+                );
+
                 let msg = Round2Direct {
                     gamma,
                     d,
@@ -346,7 +357,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                     f_hat,
                     psi,
                     psi_hat,
-                    psi_hat_prime: LogStarProof::random(rng),
+                    psi_hat_prime,
                 };
 
                 (idx, msg)
@@ -391,7 +402,13 @@ impl<P: SchemeParams> Round for Round2<P> {
             return Err("Failed to verify EncProof".to_string());
         }
 
-        if !msg.psi_hat_prime.verify() {
+        if !msg.psi_hat_prime.verify(
+            &from_pk,
+            &self.g_ciphertexts[from.as_usize()],
+            &Point::GENERATOR,
+            &msg.gamma,
+            &aux,
+        ) {
             return Err("Failed to verify EncProof".to_string());
         }
 
@@ -427,6 +444,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             chi,
             big_delta,
             big_gamma: gamma,
+            k_ciphertexts: self.k_ciphertexts,
         }
     }
 }
@@ -446,6 +464,7 @@ pub struct Round3<P: SchemeParams> {
     chi: Scalar,
     big_delta: Point,
     big_gamma: Point,
+    k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
 }
 
 #[derive(Clone)]
@@ -462,10 +481,21 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
+        let aux = (&self.context.session_id, &self.context.party_idx);
+        let pk = &self.context.paillier_pk;
 
         let messages = range
             .map(|idx| {
-                let psi_hat_pprime = LogStarProof::random(rng);
+                let psi_hat_pprime = LogStarProof::random(
+                    rng,
+                    &self.secret_data.k,
+                    &self.secret_data.rho,
+                    pk,
+                    &self.k_ciphertexts[self.context.party_idx.as_usize()],
+                    &self.big_gamma,
+                    &self.big_delta,
+                    &aux,
+                );
                 let message = Round3Bcast {
                     delta: self.delta,
                     big_delta: self.big_delta,
@@ -480,10 +510,18 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn verify_received(
         &self,
-        _from: PartyIdx,
+        from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        if !msg.psi_hat_pprime.verify() {
+        let aux = (&self.context.session_id, &self.context.party_idx);
+        let from_pk = &self.context.aux_data[from.as_usize()].paillier_pk;
+        if !msg.psi_hat_pprime.verify(
+            &from_pk,
+            &self.k_ciphertexts[from.as_usize()],
+            &self.big_gamma,
+            &msg.big_delta,
+            &aux,
+        ) {
             return Err("Failed to verify Log-Star proof".to_string());
         }
         Ok(Round3Payload {
@@ -528,7 +566,7 @@ mod tests {
     use super::{AuxDataPublic, Round1Part1};
     use crate::paillier::uint::Zero;
     use crate::paillier::{PaillierParams, SecretKeyPaillier};
-    use crate::protocols::common::{PresigningData, SchemeParams, SessionId, TestSchemeParams};
+    use crate::protocols::common::{SchemeParams, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::tools::collections::PartyIdx;
     use crate::tools::group::{Point, Scalar};
