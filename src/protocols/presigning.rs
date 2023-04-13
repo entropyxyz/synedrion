@@ -275,9 +275,9 @@ impl<P: SchemeParams> Round for Round2<P> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
         let aux = (&self.context.session_id, &self.context.party_idx);
 
-        let gamma = &Point::GENERATOR * &self.secret_data.gamma;
+        let gamma = self.secret_data.gamma.mul_by_generator();
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = &Point::GENERATOR * &self.secret_data.key_share;
+        let big_x = self.secret_data.key_share.mul_by_generator();
         let pk = &self.context.paillier_pk;
 
         let messages = range
@@ -376,7 +376,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         let from_pk = &self.context.aux_data[from.as_usize()].paillier_pk;
 
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = &Point::GENERATOR * &self.secret_data.key_share;
+        let big_x = self.secret_data.key_share.mul_by_generator();
 
         if !msg.psi.verify(
             &pk,
@@ -424,7 +424,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
     fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
         let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
-        let gamma = gamma + &Point::GENERATOR * &self.secret_data.gamma;
+        let gamma = gamma + self.secret_data.gamma.mul_by_generator();
 
         let big_delta = &gamma * &self.secret_data.k;
 
@@ -543,7 +543,7 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         // TODO: seems like we need to allow `finalize()` to result in an error.
         // For now we just panic.
-        if &Point::GENERATOR * &delta != big_delta {
+        if delta.mul_by_generator() != big_delta {
             panic!("Deltas do not coincide");
             // TODO: calculate the required proofs here according to the paper.
         }

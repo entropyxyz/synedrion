@@ -28,7 +28,7 @@ pub(crate) struct SchCommitment(Point);
 
 impl SchCommitment {
     pub(crate) fn new(secret: &SchSecret) -> Self {
-        Self(&Point::GENERATOR * &secret.0)
+        Self(secret.0.mul_by_generator())
     }
 }
 
@@ -83,7 +83,7 @@ impl SchProof {
     ) -> bool {
         let challenge = SchChallenge::new(aux, public, commitment);
         challenge == self.challenge
-            && &Point::GENERATOR * &self.proof == commitment.0 + public * &challenge.0
+            && self.proof.mul_by_generator() == commitment.0 + public * &challenge.0
     }
 }
 
@@ -92,12 +92,12 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{SchCommitment, SchProof, SchSecret};
-    use crate::tools::group::{NonZeroScalar, Point};
+    use crate::tools::group::NonZeroScalar;
 
     #[test]
     fn protocol() {
         let secret = NonZeroScalar::random(&mut OsRng);
-        let public = &Point::GENERATOR * &secret;
+        let public = secret.mul_by_generator();
         let aux: &[u8] = b"abcde";
 
         let proof_secret = SchSecret::random(&mut OsRng);

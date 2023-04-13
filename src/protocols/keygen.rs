@@ -66,7 +66,7 @@ impl<P: SchemeParams> Round1<P> {
         party_idx: PartyIdx,
     ) -> Self {
         let secret = Scalar::random(rng);
-        let public = &Point::GENERATOR * &secret;
+        let public = secret.mul_by_generator();
 
         let rid = random_bits(P::SECURITY_PARAMETER);
         let proof_secret = SchSecret::random(rng);
@@ -275,10 +275,7 @@ mod tests {
         // Check that the public keys correspond to the secret key shares
         let public_set = &public_sets[0];
 
-        let public_from_secret = shares
-            .iter()
-            .map(|s| &Point::GENERATOR * &s.secret)
-            .collect();
+        let public_from_secret = shares.iter().map(|s| s.secret.mul_by_generator()).collect();
 
         assert!(public_set == &public_from_secret);
     }

@@ -83,7 +83,7 @@ impl<P: SchemeParams> Round1<P> {
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
         let paillier_pk = paillier_sk.public_key();
         let y_secret = NonZeroScalar::random(rng);
-        let y_public = &Point::GENERATOR * &y_secret;
+        let y_public = y_secret.mul_by_generator();
 
         let sch_secret_y = SchSecret::random(rng); // $\tau$
         let sch_commitment_y = SchCommitment::new(&sch_secret_y); // $B_i$
@@ -92,7 +92,7 @@ impl<P: SchemeParams> Round1<P> {
         let xs_public = xs_secret
             .iter()
             .cloned()
-            .map(|x| &Point::GENERATOR * &x)
+            .map(|x| x.mul_by_generator())
             .collect();
 
         let r = paillier_pk.random_invertible_group_elem(rng);
@@ -355,7 +355,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             .paillier_enc_x
             .decrypt(&self.secret_data.paillier_sk);
 
-        if &Point::GENERATOR * &x_secret != sender_data.xs_public[self.data.party_idx.as_usize()] {
+        if x_secret.mul_by_generator() != sender_data.xs_public[self.data.party_idx.as_usize()] {
             // TODO: paper has `\mu` calculation here.
             return Err("Mismatched secret x".to_string());
         }
@@ -438,7 +438,7 @@ mod tests {
     use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::tools::collections::PartyIdx;
-    use crate::tools::group::{Point, Scalar};
+    use crate::tools::group::Scalar;
 
     #[test]
     fn execute_auxiliary() {
@@ -457,8 +457,8 @@ mod tests {
         // Check that public points correspond to secret scalars
         for (idx, (change, aux)) in results.iter().enumerate() {
             for (other_change, other_aux) in results.iter() {
-                assert_eq!(&Point::GENERATOR * &change.secret, other_change.public[idx]);
-                assert_eq!(&Point::GENERATOR * &aux.secret.y, other_aux.public[idx].y);
+                assert_eq!(change.secret.mul_by_generator(), other_change.public[idx]);
+                assert_eq!(aux.secret.y.mul_by_generator(), other_aux.public[idx].y);
             }
         }
 

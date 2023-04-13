@@ -151,7 +151,7 @@ mod tests {
         let presigning_datas = step(&mut OsRng, r3).unwrap();
 
         let message = Scalar::random(&mut OsRng);
-        let verifying_key = &Point::GENERATOR * &(x1 + x2 + x3);
+        let verifying_key = (x1 + x2 + x3).mul_by_generator();
 
         let r1 = vec![
             Round1::new(&presigning_datas[0], &message, &verifying_key),

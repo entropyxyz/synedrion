@@ -52,6 +52,10 @@ impl Scalar {
         Self(BackendScalar::random(rng))
     }
 
+    pub fn mul_by_generator(&self) -> Point {
+        &Point::GENERATOR * self
+    }
+
     pub fn pow(&self, exp: usize) -> Self {
         let mut result = Self::ONE;
         for _ in 0..exp {
@@ -149,6 +153,10 @@ impl NonZeroScalar {
     /// Generates a random non-zero scalar (in nearly constant-time).
     pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
         Self(BackendNonZeroScalar::random(rng))
+    }
+
+    pub fn mul_by_generator(&self) -> Point {
+        &Point::GENERATOR * self
     }
 
     // TODO: as_scalar() may be more useful
