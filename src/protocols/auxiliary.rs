@@ -173,12 +173,12 @@ impl<P: SchemeParams> Round for Round1<P> {
         Ok(msg.hash)
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
-        Round2 {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+        Ok(Round2 {
             data: self.data,
             secret_data: self.secret_data,
             hashes: payloads,
-        }
+        })
     }
 }
 
@@ -241,7 +241,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         Ok(msg.data)
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rho = self.data.rho_bits.clone();
@@ -251,12 +251,12 @@ impl<P: SchemeParams> Round for Round2<P> {
             }
         }
 
-        Round3 {
+        Ok(Round3 {
             rho,
             data: self.data,
             secret_data: self.secret_data,
             datas: payloads,
-        }
+        })
     }
 }
 
@@ -393,7 +393,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         Ok(x_secret)
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         let secrets = payloads.into_vec(self.secret_data.xs_secret[self.data.party_idx.as_usize()]);
         let share_change = secrets.iter().sum();
 
@@ -425,7 +425,7 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         let aux_data = AuxData { secret, public };
 
-        (key_share_change, aux_data)
+        Ok((key_share_change, aux_data))
     }
 }
 

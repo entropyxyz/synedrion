@@ -121,18 +121,18 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
         Ok(msg)
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         let (k_ciphertexts, g_ciphertexts) = payloads
             .map(|data| (data.k_ciphertext, data.g_ciphertext))
             .unzip();
         let k_ciphertexts = k_ciphertexts.into_vec(self.k_ciphertext);
         let g_ciphertexts = g_ciphertexts.into_vec(self.g_ciphertext);
-        Round1Part2 {
+        Ok(Round1Part2 {
             context: self.context,
             secret_data: self.secret_data,
             k_ciphertexts,
             g_ciphertexts,
-        }
+        })
     }
 }
 
@@ -194,14 +194,14 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         }
     }
 
-    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         // TODO: seems like we will have to pass the RNG to finalize() methods as well.
         // In fact, if we pass an RNG here, we might not need one in to_send() -
         // the messages can be created right in the constructor
         // (but then we will need to return them separately as a tuple with the new round,
         // so we don't have to store them)
         use rand_core::OsRng;
-        Round2::new(&mut OsRng, self)
+        Ok(Round2::new(&mut OsRng, self))
     }
 }
 
@@ -422,7 +422,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         })
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
         let gamma = gamma + self.secret_data.gamma.mul_by_generator();
 
@@ -437,7 +437,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         let delta = &self.secret_data.gamma * &self.secret_data.k + alpha_sum + beta_sum;
         let chi = &self.secret_data.key_share * &self.secret_data.k + alpha_hat_sum + beta_hat_sum;
 
-        Round3 {
+        Ok(Round3 {
             context: self.context,
             secret_data: self.secret_data,
             delta,
@@ -445,7 +445,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             big_delta,
             big_gamma: gamma,
             k_ciphertexts: self.k_ciphertexts,
-        }
+        })
     }
 }
 
@@ -530,7 +530,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         })
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         let (deltas, big_deltas) = payloads
             .map(|payload| (payload.delta, payload.big_delta))
             .unzip();
@@ -551,11 +551,11 @@ impl<P: SchemeParams> Round for Round3<P> {
         // TODO: seems like we only need the x-coordinate of this (as a Scalar)
         let big_r = &self.big_gamma * &delta.invert().unwrap();
 
-        PresigningData {
+        Ok(PresigningData {
             big_r,
             k: self.secret_data.k,
             chi: self.chi,
-        }
+        })
     }
 }
 

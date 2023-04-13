@@ -53,7 +53,7 @@ impl Round for Round1 {
         Ok(msg.s_part)
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         let s: Scalar = payloads.iter().sum();
         let s = s + self.s_part;
 
@@ -65,7 +65,7 @@ impl Round for Round1 {
             panic!("Invalid signature created");
         }
 
-        sig
+        Ok(sig)
     }
 }
 

@@ -112,13 +112,13 @@ impl<P: SchemeParams> Round for Round1<P> {
     ) -> Result<Self::Payload, Self::Error> {
         Ok(msg.hash)
     }
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
-        Round2 {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+        Ok(Round2 {
             hashes: payloads,
             data: self.data,
             secret_data: self.secret_data,
             phantom: PhantomData,
-        }
+        })
     }
 }
 
@@ -161,7 +161,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         Ok(msg.data)
     }
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rid = self.data.rid.clone();
@@ -171,13 +171,13 @@ impl<P: SchemeParams> Round for Round2<P> {
             }
         }
 
-        Round3 {
+        Ok(Round3 {
             datas: payloads,
             data: self.data,
             rid,
             secret_data: self.secret_data,
             phantom: PhantomData,
-        }
+        })
     }
 }
 
@@ -230,13 +230,13 @@ impl<P: SchemeParams> Round for Round3<P> {
         }
         Ok(true)
     }
-    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Self::NextRound {
+    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
         let datas = self.datas.into_vec(self.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
-        KeyShare {
+        Ok(KeyShare {
             public: public_keys,
             secret: self.secret_data.key_share,
-        }
+        })
     }
 }
 

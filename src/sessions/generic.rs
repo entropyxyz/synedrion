@@ -127,7 +127,7 @@ where
 
         if accum.can_finalize() {
             match accum.finalize() {
-                Ok(finalized) => self.round.finalize(finalized),
+                Ok(finalized) => self.round.finalize(finalized).ok().unwrap(),
                 Err(_) => panic!("Could not finalize"),
             }
         } else {
