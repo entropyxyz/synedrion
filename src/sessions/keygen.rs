@@ -69,12 +69,12 @@ impl<P: SchemeParams> SessionState for KeygenState<P> {
         }
     }
 
-    fn finalize_stage(self) -> Self {
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Self {
         Self(match self.0 {
-            KeygenStage::Round1(r) => KeygenStage::Round1Consensus(Stage::new(r.finalize())),
-            KeygenStage::Round1Consensus(r) => KeygenStage::Round2(Stage::new(r.finalize())),
-            KeygenStage::Round2(r) => KeygenStage::Round3(Stage::new(r.finalize())),
-            KeygenStage::Round3(r) => KeygenStage::Result(r.finalize()),
+            KeygenStage::Round1(r) => KeygenStage::Round1Consensus(Stage::new(r.finalize(rng))),
+            KeygenStage::Round1Consensus(r) => KeygenStage::Round2(Stage::new(r.finalize(rng))),
+            KeygenStage::Round2(r) => KeygenStage::Round3(Stage::new(r.finalize(rng))),
+            KeygenStage::Round3(r) => KeygenStage::Result(r.finalize(rng)),
             _ => panic!(),
         })
     }

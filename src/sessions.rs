@@ -81,7 +81,7 @@ mod tests {
             }
 
             println!("{my_id:?}: finalizing the stage");
-            session.finalize_stage();
+            session.finalize_stage(&mut OsRng);
         }
 
         session.result()

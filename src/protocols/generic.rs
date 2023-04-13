@@ -24,7 +24,11 @@ pub(crate) trait Round: Sized {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error>;
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error>;
+    fn finalize(
+        self,
+        rng: &mut (impl RngCore + CryptoRng),
+        payloads: HoleVec<Self::Payload>,
+    ) -> Result<Self::NextRound, Self::Error>;
 }
 
 // TODO: find a way to move `get_messages()` in this trait.
@@ -61,9 +65,13 @@ where
             .verify_received(from, msg.clone())
             .map(|payload| (payload, msg))
     }
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+    fn finalize(
+        self,
+        rng: &mut (impl RngCore + CryptoRng),
+        payloads: HoleVec<Self::Payload>,
+    ) -> Result<Self::NextRound, Self::Error> {
         let (payloads, messages) = payloads.unzip();
-        let next_round = self.0.finalize(payloads)?;
+        let next_round = self.0.finalize(rng, payloads)?;
         Ok(ConsensusSubround {
             next_round,
             broadcasts: messages,
@@ -115,7 +123,11 @@ where
         }
         Ok(())
     }
-    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+    fn finalize(
+        self,
+        _rng: &mut (impl RngCore + CryptoRng),
+        _payloads: HoleVec<Self::Payload>,
+    ) -> Result<Self::NextRound, Self::Error> {
         Ok(self.next_round)
     }
 }
@@ -192,7 +204,9 @@ pub(crate) mod tests {
 
         for (round, accum) in init.into_iter().zip(accums.into_iter()) {
             let accum_final = accum.finalize().map_err(|_| StepError::AccumFinalize)?;
-            let next_state = round.finalize(accum_final).map_err(StepError::Finalize)?;
+            let next_state = round
+                .finalize(rng, accum_final)
+                .map_err(StepError::Finalize)?;
             result.push(next_state);
         }
 

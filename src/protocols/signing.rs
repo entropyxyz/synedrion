@@ -53,7 +53,11 @@ impl Round for Round1 {
         Ok(msg.s_part)
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+    fn finalize(
+        self,
+        _rng: &mut (impl RngCore + CryptoRng),
+        payloads: HoleVec<Self::Payload>,
+    ) -> Result<Self::NextRound, Self::Error> {
         let s: Scalar = payloads.iter().sum();
         let s = s + self.s_part;
 

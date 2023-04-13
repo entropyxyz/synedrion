@@ -121,7 +121,11 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
         Ok(msg)
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+    fn finalize(
+        self,
+        _rng: &mut (impl RngCore + CryptoRng),
+        payloads: HoleVec<Self::Payload>,
+    ) -> Result<Self::NextRound, Self::Error> {
         let (k_ciphertexts, g_ciphertexts) = payloads
             .map(|data| (data.k_ciphertext, data.g_ciphertext))
             .unzip();
@@ -194,14 +198,17 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         }
     }
 
-    fn finalize(self, _payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+    fn finalize(
+        self,
+        rng: &mut (impl RngCore + CryptoRng),
+        _payloads: HoleVec<Self::Payload>,
+    ) -> Result<Self::NextRound, Self::Error> {
         // TODO: seems like we will have to pass the RNG to finalize() methods as well.
         // In fact, if we pass an RNG here, we might not need one in to_send() -
         // the messages can be created right in the constructor
         // (but then we will need to return them separately as a tuple with the new round,
         // so we don't have to store them)
-        use rand_core::OsRng;
-        Ok(Round2::new(&mut OsRng, self))
+        Ok(Round2::new(rng, self))
     }
 }
 
@@ -422,7 +429,11 @@ impl<P: SchemeParams> Round for Round2<P> {
         })
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+    fn finalize(
+        self,
+        _rng: &mut (impl RngCore + CryptoRng),
+        payloads: HoleVec<Self::Payload>,
+    ) -> Result<Self::NextRound, Self::Error> {
         let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
         let gamma = gamma + self.secret_data.gamma.mul_by_generator();
 
@@ -530,7 +541,11 @@ impl<P: SchemeParams> Round for Round3<P> {
         })
     }
 
-    fn finalize(self, payloads: HoleVec<Self::Payload>) -> Result<Self::NextRound, Self::Error> {
+    fn finalize(
+        self,
+        _rng: &mut (impl RngCore + CryptoRng),
+        payloads: HoleVec<Self::Payload>,
+    ) -> Result<Self::NextRound, Self::Error> {
         let (deltas, big_deltas) = payloads
             .map(|payload| (payload.delta, payload.big_delta))
             .unzip();

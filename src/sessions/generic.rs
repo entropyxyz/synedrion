@@ -119,7 +119,7 @@ where
         }
     }
 
-    pub(crate) fn finalize(self) -> R::NextRound {
+    pub(crate) fn finalize(self, rng: &mut (impl RngCore + CryptoRng)) -> R::NextRound {
         let accum = match self.accum {
             Some(accum) => accum,
             None => panic!(),
@@ -127,7 +127,7 @@ where
 
         if accum.can_finalize() {
             match accum.finalize() {
-                Ok(finalized) => self.round.finalize(finalized).ok().unwrap(),
+                Ok(finalized) => self.round.finalize(rng, finalized).ok().unwrap(),
                 Err(_) => panic!("Could not finalize"),
             }
         } else {
@@ -153,7 +153,7 @@ pub trait SessionState: Clone {
     ) -> ToSendSerialized;
     fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]);
     fn is_finished_receiving(&self) -> bool;
-    fn finalize_stage(self) -> Self;
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Self;
     fn is_final_stage(&self) -> bool;
     fn current_stage_num(&self) -> u8;
     fn stages_num(&self) -> u8;
@@ -251,9 +251,9 @@ impl<S: SessionState, I: PartyId> Session<S, I> {
         self.state.is_finished_receiving()
     }
 
-    pub fn finalize_stage(&mut self) {
+    pub fn finalize_stage(&mut self, rng: &mut (impl RngCore + CryptoRng)) {
         // TODO: check that there are no cached messages left
-        self.state = self.state.clone().finalize_stage();
+        self.state = self.state.clone().finalize_stage(rng);
     }
 
     pub fn result(&self) -> S::Result {
