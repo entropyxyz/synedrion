@@ -127,33 +127,21 @@ mod tests {
 
         let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
 
-        let channels = parties
-            .iter()
-            .map(|_id| mpsc::channel::<MessageIn>(100))
-            .collect::<Vec<_>>();
+        let channels = parties.iter().map(|_id| mpsc::channel::<MessageIn>(100));
         let (txs, rxs): (Vec<mpsc::Sender<MessageIn>>, Vec<mpsc::Receiver<MessageIn>>) =
-            channels.into_iter().unzip();
-        let tx_map = parties
-            .iter()
-            .cloned()
-            .zip(txs.into_iter())
-            .collect::<BTreeMap<_, _>>();
-        let rx_map = parties
-            .iter()
-            .cloned()
-            .zip(rxs.into_iter())
-            .collect::<BTreeMap<_, _>>();
+            channels.unzip();
+        let tx_map = parties.iter().cloned().zip(txs.into_iter()).collect();
+        let rx_map = parties.iter().cloned().zip(rxs.into_iter());
 
         let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
         let dispatcher = tokio::spawn(dispatcher_task);
 
         let handles: Vec<tokio::task::JoinHandle<KeyShare>> = rx_map
-            .into_iter()
             .map(|(id, rx)| {
                 let node_task = node_session(dispatcher_tx.clone(), rx, parties.clone(), id);
                 tokio::spawn(node_task)
             })
-            .collect::<Vec<_>>();
+            .collect();
 
         // Drop the last copy of the dispatcher's incoming channel so that it could finish.
         drop(dispatcher_tx);

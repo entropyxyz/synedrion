@@ -29,7 +29,7 @@ impl<P: PaillierParams> PrmSecret<P> {
     ) -> Self {
         let secret = (0..security_parameter)
             .map(|_| sk.random_field_elem(rng))
-            .collect::<Vec<_>>();
+            .collect();
         Self {
             public_key: sk.public_key(),
             secret,

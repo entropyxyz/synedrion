@@ -80,7 +80,7 @@ impl<T: Clone> HoleVecAccum<T> {
                 .elems
                 .into_iter()
                 .map(|value| value.unwrap()) // TODO: return Self if there is an error
-                .collect::<Vec<_>>();
+                .collect();
             Ok(HoleVec {
                 hole_at: self.hole_at,
                 elems,

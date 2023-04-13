@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
