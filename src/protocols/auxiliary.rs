@@ -6,10 +6,8 @@ use crypto_bigint::Pow;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{
-    AuxData, AuxDataPublic, AuxDataSecret, KeyShareChange, SchemeParams, SessionId,
-};
-use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
+use super::common::{KeyShareChange, KeyShareChangePublic, SchemeParams, SessionId};
+use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
@@ -25,6 +23,7 @@ use crate::tools::group::{zero_sum_scalars, NonZeroScalar, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
 
+#[derive(Clone)]
 pub struct Round1<P: SchemeParams> {
     data: FullData<P>,
     secret_data: SecretData<P>,
@@ -46,6 +45,7 @@ pub struct FullData<P: SchemeParams> {
     u_bits: Box<[u8]>,                                         // $u_i$
 }
 
+#[derive(Clone)]
 struct SecretData<P: SchemeParams> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
     y_secret: NonZeroScalar,
@@ -148,7 +148,7 @@ impl<P: SchemeParams> Round1<P> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Round1Bcast {
     hash: Box<[u8]>, // `V_j`
 }
@@ -190,6 +190,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {}
 
 impl<P: SchemeParams> NeedsConsensus for Round1<P> {}
 
+#[derive(Clone)]
 pub struct Round2<P: SchemeParams> {
     data: FullData<P>,
     secret_data: SecretData<P>,
@@ -270,6 +271,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
 impl<P: SchemeParams> BroadcastRound for Round2<P> {}
 
+#[derive(Clone)]
 pub struct Round3<P: SchemeParams> {
     rho: Box<[u8]>,
     data: FullData<P>,
@@ -302,7 +304,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Error = String;
     type Payload = Scalar;
     type Message = Round3Direct<P>;
-    type NextRound = (KeyShareChange, AuxData<P::Paillier>);
+    type NextRound = KeyShareChange<P::Paillier>;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);
@@ -411,18 +413,15 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         let datas = self.datas.into_vec(self.data);
 
-        let public_share_changes = (0..datas.len())
+        let public_share_changes: Vec<_> = (0..datas.len())
             .map(|idx| datas.iter().map(|data| data.xs_public[idx]).sum())
             .collect();
 
-        let key_share_change = KeyShareChange {
-            secret: share_change,
-            public: public_share_changes,
-        };
-
         let public = datas
             .into_iter()
-            .map(|data| AuxDataPublic {
+            .enumerate()
+            .map(|(idx, data)| KeyShareChangePublic {
+                x: public_share_changes[idx],
                 y: data.y_public,
                 paillier_pk: data.paillier_pk,
                 rp_generator: data.rp_generator,
@@ -430,16 +429,18 @@ impl<P: SchemeParams> Round for Round3<P> {
             })
             .collect();
 
-        let secret = AuxDataSecret {
+        let key_share_change = KeyShareChange {
+            secret: share_change,
+            sk: self.secret_data.paillier_sk,
             y: self.secret_data.y_secret.clone(),
-            paillier_sk: self.secret_data.paillier_sk,
+            public,
         };
 
-        let aux_data = AuxData { secret, public };
-
-        Ok((key_share_change, aux_data))
+        Ok(key_share_change)
     }
 }
+
+impl<P: SchemeParams> DirectRound for Round3<P> {}
 
 #[cfg(test)]
 mod tests {
@@ -467,16 +468,16 @@ mod tests {
         let results = step(&mut OsRng, r3).unwrap();
 
         // Check that public points correspond to secret scalars
-        for (idx, (change, aux)) in results.iter().enumerate() {
-            for (other_change, other_aux) in results.iter() {
-                assert_eq!(change.secret.mul_by_generator(), other_change.public[idx]);
-                assert_eq!(aux.secret.y.mul_by_generator(), other_aux.public[idx].y);
+        for (idx, change) in results.iter().enumerate() {
+            for other_change in results.iter() {
+                assert_eq!(change.secret.mul_by_generator(), other_change.public[idx].x);
+                assert_eq!(change.y.mul_by_generator(), other_change.public[idx].y);
             }
         }
 
         // The resulting sum of masks should be zero, since the combined secret key
         // should not change after applying the masks at each node.
-        let mask_sum: Scalar = results.iter().map(|(change, _)| change.secret).sum();
+        let mask_sum: Scalar = results.iter().map(|change| change.secret).sum();
         assert_eq!(mask_sum, Scalar::ZERO);
     }
 }

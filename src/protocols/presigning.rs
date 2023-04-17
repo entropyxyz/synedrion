@@ -1,18 +1,12 @@
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{AuxDataPublic, PresigningData, SchemeParams, SessionId};
+use super::common::{KeyShare, PresigningData, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
-use crate::paillier::{
-    encryption::Ciphertext,
-    keys::{PublicKeyPaillier, SecretKeyPaillier},
-    params::PaillierParams,
-    uint::Retrieve,
-};
+use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
 use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;
@@ -24,13 +18,11 @@ pub struct PublicContext<P: PaillierParams> {
     session_id: SessionId,
     num_parties: usize,
     party_idx: PartyIdx,
-    aux_data: Box<[AuxDataPublic<P>]>,
-    paillier_pk: PublicKeyPaillier<P>,
+    key_share: KeyShare<P>,
 }
 
+#[derive(Clone)]
 struct SecretData<P: PaillierParams> {
-    key_share: Scalar, // `x_i`
-    paillier_sk: SecretKeyPaillier<P>,
     k: Scalar,
     gamma: Scalar,
     rho: P::DoubleUint,
@@ -44,6 +36,7 @@ struct SecretData<P: PaillierParams> {
 // We could support sending both types of messages generically, but that would mean that most
 // rounds would have empty implementations and unused types, since that behavior only happens
 // in a few cases.
+#[derive(Clone)]
 pub struct Round1Part1<P: SchemeParams> {
     context: PublicContext<P::Paillier>,
     secret_data: SecretData<P::Paillier>,
@@ -57,43 +50,33 @@ impl<P: SchemeParams> Round1Part1<P> {
         session_id: &SessionId,
         party_idx: PartyIdx,
         num_parties: usize,
-        key_share: &Scalar,
-        paillier_sk: &SecretKeyPaillier<P::Paillier>,
-        aux_data: &[AuxDataPublic<P::Paillier>],
+        key_share: &KeyShare<P::Paillier>,
     ) -> Self {
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
 
-        let pk = &aux_data[party_idx.as_usize()].paillier_pk;
+        let pk = key_share.sk.public_key();
         let rho = pk.random_invertible_group_elem(rng).retrieve();
         let nu = pk.random_invertible_group_elem(rng).retrieve();
 
-        let g_ciphertext = Ciphertext::new_with_randomizer(pk, &gamma, &nu);
-        let k_ciphertext = Ciphertext::new_with_randomizer(pk, &k, &rho);
+        let g_ciphertext = Ciphertext::new_with_randomizer(&pk, &gamma, &nu);
+        let k_ciphertext = Ciphertext::new_with_randomizer(&pk, &k, &rho);
 
         Self {
             context: PublicContext {
                 session_id: session_id.clone(),
                 num_parties,
                 party_idx,
-                paillier_pk: pk.clone(),
-                aux_data: aux_data.to_vec().into_boxed_slice(),
+                key_share: key_share.clone(),
             },
-            secret_data: SecretData {
-                key_share: *key_share,
-                paillier_sk: paillier_sk.clone(),
-                k,
-                gamma,
-                rho,
-                nu,
-            },
+            secret_data: SecretData { k, gamma, rho, nu },
             k_ciphertext,
             g_ciphertext,
         }
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(bound = "Ciphertext<P>: Serialize")]
 pub struct Round1Bcast<P: PaillierParams> {
     k_ciphertext: Ciphertext<P>,
@@ -144,6 +127,7 @@ impl<P: SchemeParams> BroadcastRound for Round1Part1<P> {}
 
 impl<P: SchemeParams> NeedsConsensus for Round1Part1<P> {}
 
+#[derive(Clone)]
 pub struct Round1Part2<P: SchemeParams> {
     context: PublicContext<P::Paillier>,
     secret_data: SecretData<P::Paillier>,
@@ -165,13 +149,14 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
         let aux = (&self.context.session_id, &self.context.party_idx);
         let k_ciphertext = &self.k_ciphertexts[self.context.party_idx.as_usize()];
+        let pk = self.context.key_share.sk.public_key();
         let messages = range
             .map(|idx| {
                 let proof = EncProof::random(
                     rng,
                     &self.secret_data.k,
                     &self.secret_data.rho,
-                    &self.context.paillier_pk,
+                    &pk,
                     k_ciphertext,
                     &aux,
                 );
@@ -188,7 +173,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     ) -> Result<Self::Payload, Self::Error> {
         let aux = (&self.context.session_id, &self.context.party_idx);
         if msg.0.verify(
-            &self.context.aux_data[from.as_usize()].paillier_pk,
+            &self.context.key_share.public[from.as_usize()].paillier_pk,
             &self.k_ciphertexts[from.as_usize()],
             &aux,
         ) {
@@ -227,6 +212,7 @@ pub struct Round2Direct<P: PaillierParams> {
     psi_hat_prime: LogStarProof<P>,
 }
 
+#[derive(Clone)]
 pub struct Round2<P: SchemeParams> {
     context: PublicContext<P::Paillier>,
     secret_data: SecretData<P::Paillier>,
@@ -284,12 +270,12 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let gamma = self.secret_data.gamma.mul_by_generator();
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.secret_data.key_share.mul_by_generator();
-        let pk = &self.context.paillier_pk;
+        let big_x = self.context.key_share.secret.mul_by_generator();
+        let pk = &self.context.key_share.sk.public_key();
 
         let messages = range
             .map(|idx| {
-                let target_pk = &self.context.aux_data[idx.as_usize()].paillier_pk;
+                let target_pk = &self.context.key_share.public[idx.as_usize()].paillier_pk;
 
                 let r = target_pk.random_group_elem_raw(rng);
                 let s = target_pk.random_group_elem_raw(rng);
@@ -308,7 +294,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                 let f = Ciphertext::new_with_randomizer(pk, beta, &r);
 
                 let d_hat = self.k_ciphertexts[idx.as_usize()]
-                    .homomorphic_mul(target_pk, &self.secret_data.key_share)
+                    .homomorphic_mul(target_pk, &self.context.key_share.secret)
                     .homomorphic_add(
                         target_pk,
                         &Ciphertext::new_with_randomizer(target_pk, &-beta_hat, &s_hat),
@@ -332,7 +318,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
                 let psi_hat = AffGProof::random(
                     rng,
-                    &self.secret_data.key_share,
+                    &self.context.key_share.secret,
                     &beta_hat,
                     &s_hat,
                     &r_hat,
@@ -379,11 +365,11 @@ impl<P: SchemeParams> Round for Round2<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         let aux = (&self.context.session_id, &self.context.party_idx);
-        let pk = &self.context.paillier_pk;
-        let from_pk = &self.context.aux_data[from.as_usize()].paillier_pk;
+        let pk = &self.context.key_share.sk.public_key();
+        let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
 
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.secret_data.key_share.mul_by_generator();
+        let big_x = self.context.key_share.secret.mul_by_generator();
 
         if !msg.psi.verify(
             &pk,
@@ -419,8 +405,8 @@ impl<P: SchemeParams> Round for Round2<P> {
             return Err("Failed to verify EncProof".to_string());
         }
 
-        let alpha = msg.d.decrypt(&self.secret_data.paillier_sk);
-        let alpha_hat = msg.d_hat.decrypt(&self.secret_data.paillier_sk);
+        let alpha = msg.d.decrypt(&self.context.key_share.sk);
+        let alpha_hat = msg.d_hat.decrypt(&self.context.key_share.sk);
 
         Ok(Round2Payload {
             gamma: msg.gamma,
@@ -446,7 +432,8 @@ impl<P: SchemeParams> Round for Round2<P> {
         let beta_hat_sum: Scalar = self.betas_hat.iter().sum();
 
         let delta = &self.secret_data.gamma * &self.secret_data.k + alpha_sum + beta_sum;
-        let chi = &self.secret_data.key_share * &self.secret_data.k + alpha_hat_sum + beta_hat_sum;
+        let chi =
+            &self.context.key_share.secret * &self.secret_data.k + alpha_hat_sum + beta_hat_sum;
 
         Ok(Round3 {
             context: self.context,
@@ -468,6 +455,7 @@ pub struct Round3Bcast<P: PaillierParams> {
     psi_hat_pprime: LogStarProof<P>,
 }
 
+#[derive(Clone)]
 pub struct Round3<P: SchemeParams> {
     context: PublicContext<P::Paillier>,
     secret_data: SecretData<P::Paillier>,
@@ -493,7 +481,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
         let aux = (&self.context.session_id, &self.context.party_idx);
-        let pk = &self.context.paillier_pk;
+        let pk = &self.context.key_share.sk.public_key();
 
         let messages = range
             .map(|idx| {
@@ -525,7 +513,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         let aux = (&self.context.session_id, &self.context.party_idx);
-        let from_pk = &self.context.aux_data[from.as_usize()].paillier_pk;
+        let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
         if !msg.psi_hat_pprime.verify(
             &from_pk,
             &self.k_ciphertexts[from.as_usize()],
@@ -578,21 +566,40 @@ impl<P: SchemeParams> Round for Round3<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::{AuxDataPublic, Round1Part1};
+    use super::Round1Part1;
     use crate::paillier::uint::Zero;
     use crate::paillier::{PaillierParams, SecretKeyPaillier};
-    use crate::protocols::common::{SchemeParams, SessionId, TestSchemeParams};
+    use crate::protocols::common::{
+        KeyShare, KeySharePublic, SchemeParams, SessionId, TestSchemeParams,
+    };
     use crate::protocols::generic::tests::step;
     use crate::tools::collections::PartyIdx;
-    use crate::tools::group::{Point, Scalar};
+    use crate::tools::group::{NonZeroScalar, Point, Scalar};
 
-    fn make_aux_data<P: PaillierParams>(sks: &[&SecretKeyPaillier<P>]) -> Box<[AuxDataPublic<P>]> {
-        sks.into_iter()
-            .map(|sk| AuxDataPublic {
-                y: Point::GENERATOR,
-                rp_generator: P::DoubleUint::ZERO,
-                rp_power: P::DoubleUint::ZERO,
+    fn make_key_shares<P: PaillierParams>(
+        secrets: &[Scalar],
+        sks: &[&SecretKeyPaillier<P>],
+    ) -> Box<[KeyShare<P>]> {
+        let public: Box<[KeySharePublic<P>]> = secrets
+            .iter()
+            .zip(sks.iter())
+            .map(|(secret, sk)| KeySharePublic {
+                x: secret.mul_by_generator(),
+                y: Point::GENERATOR, // TODO: currently unused in the protocol
+                rp_generator: P::DoubleUint::ZERO, // TODO: currently unused in the protocol
+                rp_power: P::DoubleUint::ZERO, // TODO: currently unused in the protocol
                 paillier_pk: sk.public_key(),
+            })
+            .collect();
+
+        secrets
+            .iter()
+            .zip(sks.iter())
+            .map(|(secret, sk)| KeyShare {
+                secret: *secret,
+                sk: (*sk).clone(),
+                y: NonZeroScalar::random(&mut OsRng), // TODO: currently unused in the protocol
+                public: public.clone(),
             })
             .collect()
     }
@@ -612,7 +619,7 @@ mod tests {
         let x2 = Scalar::random(&mut OsRng);
         let x3 = Scalar::random(&mut OsRng);
 
-        let aux = make_aux_data(&[&sk1, &sk2, &sk3]);
+        let key_shares = make_key_shares(&[x1, x2, x3], &[&sk1, &sk2, &sk3]);
 
         let r1 = vec![
             Round1Part1::<TestSchemeParams>::new(
@@ -620,27 +627,21 @@ mod tests {
                 &session_id,
                 PartyIdx::from_usize(0),
                 3,
-                &x1,
-                &sk1,
-                &aux,
+                &key_shares[0],
             ),
             Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &session_id,
                 PartyIdx::from_usize(1),
                 3,
-                &x2,
-                &sk2,
-                &aux,
+                &key_shares[1],
             ),
             Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &session_id,
                 PartyIdx::from_usize(2),
                 3,
-                &x3,
-                &sk3,
-                &aux,
+                &key_shares[2],
             ),
         ];
 

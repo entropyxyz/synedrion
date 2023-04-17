@@ -8,5 +8,5 @@ mod sessions;
 mod sigma;
 mod tools;
 
-pub use protocols::common::KeyShare;
+pub use protocols::common::KeyShareSeed;
 pub use sessions::{KeygenState, Session};

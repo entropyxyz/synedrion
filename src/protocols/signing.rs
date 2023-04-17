@@ -82,19 +82,38 @@ mod tests {
     use super::Round1;
     use crate::paillier::uint::Zero;
     use crate::paillier::{PaillierParams, SecretKeyPaillier};
-    use crate::protocols::common::{AuxDataPublic, SchemeParams, SessionId, TestSchemeParams};
+    use crate::protocols::common::{
+        KeyShare, KeySharePublic, SchemeParams, SessionId, TestSchemeParams,
+    };
     use crate::protocols::generic::tests::step;
     use crate::protocols::presigning;
     use crate::tools::collections::PartyIdx;
-    use crate::tools::group::{Point, Scalar};
+    use crate::tools::group::{NonZeroScalar, Point, Scalar};
 
-    fn make_aux_data<P: PaillierParams>(sks: &[&SecretKeyPaillier<P>]) -> Box<[AuxDataPublic<P>]> {
-        sks.into_iter()
-            .map(|sk| AuxDataPublic {
-                y: Point::GENERATOR,
-                rp_generator: P::DoubleUint::ZERO,
-                rp_power: P::DoubleUint::ZERO,
+    fn make_key_shares<P: PaillierParams>(
+        secrets: &[Scalar],
+        sks: &[&SecretKeyPaillier<P>],
+    ) -> Box<[KeyShare<P>]> {
+        let public: Box<[KeySharePublic<P>]> = secrets
+            .iter()
+            .zip(sks.iter())
+            .map(|(secret, sk)| KeySharePublic {
+                x: secret.mul_by_generator(),
+                y: Point::GENERATOR, // TODO: currently unused in the protocol
+                rp_generator: P::DoubleUint::ZERO, // TODO: currently unused in the protocol
+                rp_power: P::DoubleUint::ZERO, // TODO: currently unused in the protocol
                 paillier_pk: sk.public_key(),
+            })
+            .collect();
+
+        secrets
+            .iter()
+            .zip(sks.iter())
+            .map(|(secret, sk)| KeyShare {
+                secret: *secret,
+                sk: (*sk).clone(),
+                y: NonZeroScalar::random(&mut OsRng), // TODO: currently unused in the protocol
+                public: public.clone(),
             })
             .collect()
     }
@@ -114,7 +133,7 @@ mod tests {
         let x2 = Scalar::random(&mut OsRng);
         let x3 = Scalar::random(&mut OsRng);
 
-        let aux = make_aux_data(&[&sk1, &sk2, &sk3]);
+        let key_shares = make_key_shares(&[x1, x2, x3], &[&sk1, &sk2, &sk3]);
 
         // TODO: need to run the presigning protocol to get the consistent presigning data.
         // Repeats the code in the presigning test. Merge them somehow.
@@ -125,27 +144,21 @@ mod tests {
                 &session_id,
                 PartyIdx::from_usize(0),
                 3,
-                &x1,
-                &sk1,
-                &aux,
+                &key_shares[0],
             ),
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &session_id,
                 PartyIdx::from_usize(1),
                 3,
-                &x2,
-                &sk2,
-                &aux,
+                &key_shares[1],
             ),
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &session_id,
                 PartyIdx::from_usize(2),
                 3,
-                &x3,
-                &sk3,
-                &aux,
+                &key_shares[2],
             ),
         ];
 

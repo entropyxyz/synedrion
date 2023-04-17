@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, SchemeParams, SessionId};
+use super::common::{KeyShareSeed, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::{HoleVec, PartyIdx};
@@ -209,7 +209,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Error = String;
     type Payload = bool;
     type Message = Round3Bcast;
-    type NextRound = KeyShare;
+    type NextRound = KeyShareSeed;
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.data.party_idx, &self.rid);
@@ -245,7 +245,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     ) -> Result<Self::NextRound, Self::Error> {
         let datas = self.datas.into_vec(self.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
-        Ok(KeyShare {
+        Ok(KeyShareSeed {
             public: public_keys,
             secret: self.secret_data.key_share,
         })

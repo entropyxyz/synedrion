@@ -1,5 +1,8 @@
+mod auxiliary;
 mod generic;
 mod keygen;
+mod presigning;
+mod signing;
 
 pub use generic::{Session, ToSend};
 pub use keygen::KeygenState;
@@ -17,7 +20,7 @@ mod tests {
     use super::{KeygenState, Session, ToSend};
     use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::sessions::generic::PartyId;
-    use crate::KeyShare;
+    use crate::KeyShareSeed;
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
     struct Id(u32);
@@ -32,7 +35,7 @@ mod tests {
         rx: mpsc::Receiver<MessageIn>,
         all_parties: Vec<Id>,
         my_id: Id,
-    ) -> KeyShare {
+    ) -> KeyShareSeed {
         let mut rx = rx;
 
         let session_id = SessionId::random();
@@ -136,7 +139,7 @@ mod tests {
         let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
         let dispatcher = tokio::spawn(dispatcher_task);
 
-        let handles: Vec<tokio::task::JoinHandle<KeyShare>> = rx_map
+        let handles: Vec<tokio::task::JoinHandle<KeyShareSeed>> = rx_map
             .map(|(id, rx)| {
                 let node_task = node_session(dispatcher_tx.clone(), rx, parties.clone(), id);
                 tokio::spawn(node_task)

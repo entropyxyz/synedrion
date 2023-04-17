@@ -1,7 +1,7 @@
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
-use crate::protocols::common::{KeyShare, SchemeParams, SessionId};
+use crate::protocols::common::{KeyShareSeed, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::protocols::keygen::{Round1, Round2, Round3};
 use crate::tools::collections::PartyIdx;
@@ -12,14 +12,14 @@ enum KeygenStage<P: SchemeParams> {
     Round1Consensus(Stage<ConsensusSubround<Round1<P>>>),
     Round2(Stage<Round2<P>>),
     Round3(Stage<Round3<P>>),
-    Result(KeyShare),
+    Result(KeyShareSeed),
 }
 
 #[derive(Clone)]
 pub struct KeygenState<P: SchemeParams>(KeygenStage<P>);
 
 impl<P: SchemeParams> SessionState for KeygenState<P> {
-    type Result = KeyShare;
+    type Result = KeyShareSeed;
     type Context = ();
 
     fn new(
@@ -79,7 +79,7 @@ impl<P: SchemeParams> SessionState for KeygenState<P> {
         })
     }
 
-    fn result(&self) -> KeyShare {
+    fn result(&self) -> KeyShareSeed {
         match &self.0 {
             KeygenStage::Result(r) => r.clone(),
             _ => panic!(),
