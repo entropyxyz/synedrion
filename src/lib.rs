@@ -2,11 +2,13 @@
 
 extern crate alloc;
 
+mod centralized_keygen;
 mod paillier;
 mod protocols;
 mod sessions;
 mod sigma;
 mod tools;
 
+pub use centralized_keygen::make_key_shares;
 pub use protocols::common::KeyShareSeed;
 pub use sessions::{KeygenState, Session};

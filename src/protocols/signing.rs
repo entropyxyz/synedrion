@@ -80,60 +80,18 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Round1;
-    use crate::paillier::uint::Zero;
-    use crate::paillier::{PaillierParams, SecretKeyPaillier};
-    use crate::protocols::common::{
-        KeyShare, KeySharePublic, SchemeParams, SessionId, TestSchemeParams,
-    };
+    use crate::centralized_keygen::make_key_shares;
+    use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::protocols::presigning;
     use crate::tools::collections::PartyIdx;
-    use crate::tools::group::{NonZeroScalar, Point, Scalar};
-
-    fn make_key_shares<P: PaillierParams>(
-        secrets: &[Scalar],
-        sks: &[&SecretKeyPaillier<P>],
-    ) -> Box<[KeyShare<P>]> {
-        let public: Box<[KeySharePublic<P>]> = secrets
-            .iter()
-            .zip(sks.iter())
-            .map(|(secret, sk)| KeySharePublic {
-                x: secret.mul_by_generator(),
-                y: Point::GENERATOR, // TODO: currently unused in the protocol
-                rp_generator: P::DoubleUint::ZERO, // TODO: currently unused in the protocol
-                rp_power: P::DoubleUint::ZERO, // TODO: currently unused in the protocol
-                paillier_pk: sk.public_key(),
-            })
-            .collect();
-
-        secrets
-            .iter()
-            .zip(sks.iter())
-            .map(|(secret, sk)| KeyShare {
-                secret: *secret,
-                sk: (*sk).clone(),
-                y: NonZeroScalar::random(&mut OsRng), // TODO: currently unused in the protocol
-                public: public.clone(),
-            })
-            .collect()
-    }
+    use crate::tools::group::Scalar;
 
     #[test]
     fn execute_signing() {
         let session_id = SessionId::random();
 
-        let sk1 =
-            SecretKeyPaillier::<<TestSchemeParams as SchemeParams>::Paillier>::random(&mut OsRng);
-        let sk2 =
-            SecretKeyPaillier::<<TestSchemeParams as SchemeParams>::Paillier>::random(&mut OsRng);
-        let sk3 =
-            SecretKeyPaillier::<<TestSchemeParams as SchemeParams>::Paillier>::random(&mut OsRng);
-
-        let x1 = Scalar::random(&mut OsRng);
-        let x2 = Scalar::random(&mut OsRng);
-        let x3 = Scalar::random(&mut OsRng);
-
-        let key_shares = make_key_shares(&[x1, x2, x3], &[&sk1, &sk2, &sk3]);
+        let key_shares = make_key_shares(&mut OsRng, 3);
 
         // TODO: need to run the presigning protocol to get the consistent presigning data.
         // Repeats the code in the presigning test. Merge them somehow.
@@ -168,7 +126,7 @@ mod tests {
         let presigning_datas = step(&mut OsRng, r3).unwrap();
 
         let message = Scalar::random(&mut OsRng);
-        let verifying_key = (x1 + x2 + x3).mul_by_generator();
+        let verifying_key = key_shares[0].verifying_key_as_point();
 
         let r1 = vec![
             Round1::new(&presigning_datas[0], &message, &verifying_key),

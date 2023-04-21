@@ -56,6 +56,12 @@ pub struct KeyShare<P: PaillierParams> {
     pub public: Box<[KeySharePublic<P>]>,
 }
 
+impl<P: PaillierParams> KeyShare<P> {
+    pub(crate) fn verifying_key_as_point(&self) -> Point {
+        self.public.iter().map(|p| p.x).sum()
+    }
+}
+
 #[derive(Clone)]
 pub struct KeySharePublic<P: PaillierParams> {
     pub(crate) x: Point,
