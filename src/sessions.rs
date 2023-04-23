@@ -4,8 +4,11 @@ mod keygen;
 mod presigning;
 mod signing;
 
+pub use auxiliary::AuxiliaryState;
 pub use generic::{Session, ToSend};
 pub use keygen::KeygenState;
+pub use presigning::PresigningState;
+pub use signing::SigningState;
 
 #[cfg(test)]
 mod tests {

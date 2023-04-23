@@ -8,6 +8,7 @@ use crate::protocols::common::PresigningData;
 use crate::tools::collections::{HoleVec, PartyIdx};
 use crate::tools::group::{Point, Scalar, Signature};
 
+#[derive(Clone)]
 pub struct Round1 {
     verifying_key: Point,
     message: Scalar,
