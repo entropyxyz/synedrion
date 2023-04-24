@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 
+use rand_core::{CryptoRng, RngCore};
 use k256::ecdsa::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
@@ -26,10 +27,9 @@ impl SchemeParams for TestSchemeParams {
 pub struct SessionId([u8; 32]);
 
 impl SessionId {
-    pub fn random() -> Self {
-        use rand_core::{OsRng, RngCore};
+    pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
         let mut bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut bytes);
+        rng.fill_bytes(&mut bytes);
         Self(bytes)
     }
 }

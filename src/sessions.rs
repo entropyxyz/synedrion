@@ -29,7 +29,7 @@ pub fn make_interactive_signing_session<P: SchemeParams, Id: PartyId>(
 ) -> Result<Session<InteractiveSigningState<P>, Id>, String> {
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
 
-    let session_id = SessionId::random();
+    let session_id = SessionId::random(rng);
     let context = (all_parties.len(), key_share.clone(), scalar_message);
 
     Ok(Session::<InteractiveSigningState<P>, Id>::new(

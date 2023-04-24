@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn execute_keygen() {
-        let session_id = SessionId::random();
+        let session_id = SessionId::random(&mut OsRng);
 
         let r1 = vec![
             Round1::<TestSchemeParams>::new(&mut OsRng, &session_id, PartyIdx::from_usize(0)),

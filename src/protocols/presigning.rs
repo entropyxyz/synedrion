@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn execute_presigning() {
-        let session_id = SessionId::random();
+        let session_id = SessionId::random(&mut OsRng);
 
         let key_shares = make_key_shares(&mut OsRng, 3);
 
