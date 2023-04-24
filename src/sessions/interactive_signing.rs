@@ -39,7 +39,7 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
         let (num_parties, key_share, message) = context;
         let verifying_key = key_share.verifying_key_as_point();
         let round1 =
-            presigning::Round1Part1::<P>::new(rng, session_id, index, *num_parties, &key_share);
+            presigning::Round1Part1::<P>::new(rng, session_id, index, *num_parties, key_share);
         let stage = InteractiveSigningStage::Round1Part1(Stage::new(PreConsensusSubround(round1)));
         Self {
             stage,

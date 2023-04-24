@@ -30,7 +30,7 @@ impl<P: SchemeParams> SessionState for PresigningState<P> {
         index: PartyIdx,
     ) -> Self {
         let (num_parties, key_share) = context;
-        let round1 = Round1Part1::<P>::new(rng, session_id, index, *num_parties, &key_share);
+        let round1 = Round1Part1::<P>::new(rng, session_id, index, *num_parties, key_share);
         Self(PresigningStage::Round1Part1(Stage::new(
             PreConsensusSubround(round1),
         )))

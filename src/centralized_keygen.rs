@@ -6,7 +6,7 @@ use rand_core::{CryptoRng, RngCore};
 use crate::paillier::uint::Zero;
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
 use crate::protocols::common::{KeyShare, KeySharePublic};
-use crate::tools::group::{NonZeroScalar, Point, Scalar};
+use crate::tools::group::{Point, Scalar};
 
 /// Returns `num_parties` of random self-consistent key shares
 /// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
@@ -39,7 +39,7 @@ pub fn make_key_shares<P: PaillierParams>(
         .map(|(secret, sk)| KeyShare {
             secret: *secret,
             sk: (*sk).clone(),
-            y: NonZeroScalar::random(rng), // TODO: currently unused in the protocol
+            y: Scalar::random(rng), // TODO: currently unused in the protocol
             public: public.clone(),
         })
         .collect()

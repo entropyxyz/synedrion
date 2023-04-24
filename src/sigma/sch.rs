@@ -6,19 +6,19 @@
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use crate::tools::group::{NonZeroScalar, Point, Scalar};
+use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Clone)]
 pub(crate) struct SchSecret(
     /// `\alpha`
-    NonZeroScalar,
+    Scalar,
 );
 
 impl SchSecret {
     pub(crate) fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        Self(NonZeroScalar::random(rng))
+        Self(Scalar::random(rng))
     }
 }
 
@@ -70,7 +70,7 @@ impl SchProof {
         aux: &impl Hashable,
     ) -> Self {
         let challenge = SchChallenge::new(aux, public, commitment);
-        let proof = &proof_secret.0 + &(&challenge.0 * secret);
+        let proof = proof_secret.0 + &challenge.0 * secret;
         Self { challenge, proof }
     }
 
@@ -92,23 +92,17 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{SchCommitment, SchProof, SchSecret};
-    use crate::tools::group::NonZeroScalar;
+    use crate::tools::group::Scalar;
 
     #[test]
     fn protocol() {
-        let secret = NonZeroScalar::random(&mut OsRng);
+        let secret = Scalar::random(&mut OsRng);
         let public = secret.mul_by_generator();
         let aux: &[u8] = b"abcde";
 
         let proof_secret = SchSecret::random(&mut OsRng);
         let commitment = SchCommitment::new(&proof_secret);
-        let proof = SchProof::new(
-            &proof_secret,
-            &secret.into_scalar(),
-            &commitment,
-            &public,
-            &aux,
-        );
+        let proof = SchProof::new(&proof_secret, &secret, &commitment, &public, &aux);
         assert!(proof.verify(&commitment, &public, &aux));
     }
 }

@@ -304,7 +304,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                 let psi = AffGProof::random(
                     rng,
                     &self.secret_data.gamma,
-                    &beta,
+                    beta,
                     &s,
                     &r,
                     target_pk,
@@ -319,7 +319,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                 let psi_hat = AffGProof::random(
                     rng,
                     &self.context.key_share.secret,
-                    &beta_hat,
+                    beta_hat,
                     &s_hat,
                     &r_hat,
                     target_pk,
@@ -372,8 +372,8 @@ impl<P: SchemeParams> Round for Round2<P> {
         let big_x = self.context.key_share.secret.mul_by_generator();
 
         if !msg.psi.verify(
-            &pk,
-            &from_pk,
+            pk,
+            from_pk,
             &self.k_ciphertexts[self.context.party_idx.as_usize()],
             &msg.d,
             &msg.f,
@@ -384,8 +384,8 @@ impl<P: SchemeParams> Round for Round2<P> {
         }
 
         if !msg.psi_hat.verify(
-            &pk,
-            &from_pk,
+            pk,
+            from_pk,
             &self.k_ciphertexts[self.context.party_idx.as_usize()],
             &msg.d_hat,
             &msg.f_hat,
@@ -396,7 +396,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         }
 
         if !msg.psi_hat_prime.verify(
-            &from_pk,
+            from_pk,
             &self.g_ciphertexts[from.as_usize()],
             &Point::GENERATOR,
             &msg.gamma,
@@ -515,7 +515,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         let aux = (&self.context.session_id, &self.context.party_idx);
         let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
         if !msg.psi_hat_pprime.verify(
-            &from_pk,
+            from_pk,
             &self.k_ciphertexts[from.as_usize()],
             &self.big_gamma,
             &msg.big_delta,

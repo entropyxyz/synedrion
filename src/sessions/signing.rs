@@ -26,7 +26,7 @@ impl SessionState for SigningState {
         _index: PartyIdx,
     ) -> Self {
         let (presigning_data, message, verifying_key) = context;
-        let round1 = Round1::new(&presigning_data, &message, &verifying_key);
+        let round1 = Round1::new(presigning_data, message, verifying_key);
         Self(SigningStage::Round1(Stage::new(round1)))
     }
 

@@ -18,11 +18,11 @@ use k256::elliptic_curve::{
     point::AffineCoordinates,
     scalar::IsHigh,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    subtle::{ConstantTimeEq, CtOption},
+    subtle::CtOption,
     Field,
     FieldBytesSize,
 };
-use k256::{ecdsa::hazmat::VerifyPrimitive, FieldBytes, Secp256k1};
+use k256::{ecdsa::hazmat::VerifyPrimitive, Secp256k1};
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{digest::Digest, Sha256};
@@ -31,7 +31,6 @@ use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::serde::{deserialize, serialize, TryFromBytes};
 
 pub(crate) type BackendScalar = k256::Scalar;
-pub(crate) type BackendNonZeroScalar = k256::NonZeroScalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub(crate) type CompressedPointSize =
     <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
@@ -144,56 +143,6 @@ pub(crate) fn zero_sum_scalars(rng: &mut (impl CryptoRng + RngCore), size: usize
         .unwrap_or(Scalar::ZERO);
     scalars.push(-sum);
     scalars
-}
-
-#[derive(Clone)]
-pub struct NonZeroScalar(BackendNonZeroScalar);
-
-impl NonZeroScalar {
-    /// Generates a random non-zero scalar (in nearly constant-time).
-    pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
-        Self(BackendNonZeroScalar::random(rng))
-    }
-
-    pub fn mul_by_generator(&self) -> Point {
-        &Point::GENERATOR * self
-    }
-
-    // TODO: as_scalar() may be more useful
-    pub fn into_scalar(self) -> Scalar {
-        Scalar(*self.0)
-    }
-
-    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
-        // There's currently no way to make the required digest output size
-        // depend on the target scalar size, so we are hardcoding it to 256 bit
-        // (that is, equal to the scalar size).
-        Self(<BackendNonZeroScalar as Reduce<U256>>::reduce_bytes(
-            &d.finalize(),
-        ))
-    }
-
-    pub fn to_bytes(&self) -> FieldBytes {
-        self.0.as_ref().to_bytes()
-    }
-}
-
-impl From<NonZeroScalar> for Scalar {
-    fn from(source: NonZeroScalar) -> Self {
-        Scalar(*source.0)
-    }
-}
-
-impl From<&NonZeroScalar> for Scalar {
-    fn from(source: &NonZeroScalar) -> Self {
-        Scalar(*source.0)
-    }
-}
-
-impl PartialEq<NonZeroScalar> for NonZeroScalar {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.ct_eq(&other.0).into()
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -334,30 +283,6 @@ impl Add<&Scalar> for &Scalar {
     }
 }
 
-impl Add<&NonZeroScalar> for &Scalar {
-    type Output = Scalar;
-
-    fn add(self, other: &NonZeroScalar) -> Scalar {
-        Scalar(self.0.add(&(*other.0)))
-    }
-}
-
-impl Add<&Scalar> for &NonZeroScalar {
-    type Output = Scalar;
-
-    fn add(self, other: &Scalar) -> Scalar {
-        Scalar(self.0.add(&other.0))
-    }
-}
-
-impl Add<&NonZeroScalar> for &NonZeroScalar {
-    type Output = Scalar;
-
-    fn add(self, other: &NonZeroScalar) -> Scalar {
-        Scalar(self.0.add(&(*other.0)))
-    }
-}
-
 impl Add<Point> for Point {
     type Output = Point;
 
@@ -382,14 +307,6 @@ impl Sub<&Scalar> for &Scalar {
     }
 }
 
-impl Sub<&NonZeroScalar> for &NonZeroScalar {
-    type Output = Scalar;
-
-    fn sub(self, other: &NonZeroScalar) -> Scalar {
-        Scalar(self.0.sub(&(*other.0)))
-    }
-}
-
 impl Mul<&Scalar> for &Point {
     type Output = Point;
 
@@ -398,35 +315,11 @@ impl Mul<&Scalar> for &Point {
     }
 }
 
-impl Mul<&NonZeroScalar> for &Point {
-    type Output = Point;
-
-    fn mul(self, other: &NonZeroScalar) -> Point {
-        Point(self.0.mul(&(*other.0)))
-    }
-}
-
 impl Mul<&Scalar> for &Scalar {
     type Output = Scalar;
 
     fn mul(self, other: &Scalar) -> Scalar {
         Scalar(self.0.mul(&(other.0)))
-    }
-}
-
-impl Mul<&NonZeroScalar> for &Scalar {
-    type Output = Scalar;
-
-    fn mul(self, other: &NonZeroScalar) -> Scalar {
-        Scalar(self.0.mul(&(*other.0)))
-    }
-}
-
-impl Mul<&NonZeroScalar> for &NonZeroScalar {
-    type Output = NonZeroScalar;
-
-    fn mul(self, other: &NonZeroScalar) -> NonZeroScalar {
-        NonZeroScalar(self.0.mul(other.0))
     }
 }
 

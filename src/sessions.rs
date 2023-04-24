@@ -162,7 +162,7 @@ mod tests {
                     parties.clone(),
                     id,
                     key_shares.get(&id).unwrap().clone(),
-                    message.clone(),
+                    message,
                 );
                 tokio::spawn(node_task)
             })
@@ -172,7 +172,7 @@ mod tests {
         drop(dispatcher_tx);
 
         for handle in handles {
-            let _result = handle.await.unwrap();
+            let signature = handle.await.unwrap();
             println!("Got result");
         }
 

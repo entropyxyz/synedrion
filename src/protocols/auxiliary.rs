@@ -19,7 +19,7 @@ use crate::sigma::mod_::ModProof;
 use crate::sigma::prm::PrmProof;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::{HoleVec, PartyIdx};
-use crate::tools::group::{zero_sum_scalars, NonZeroScalar, Point, Scalar};
+use crate::tools::group::{zero_sum_scalars, Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
 
@@ -48,7 +48,7 @@ pub struct FullData<P: SchemeParams> {
 #[derive(Clone)]
 struct SecretData<P: SchemeParams> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
-    y_secret: NonZeroScalar,
+    y_secret: Scalar,
     xs_secret: Vec<Scalar>,
     sch_secret_y: SchSecret,
     sch_secrets_x: Vec<SchSecret>,
@@ -82,7 +82,7 @@ impl<P: SchemeParams> Round1<P> {
     ) -> Self {
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
         let paillier_pk = paillier_sk.public_key();
-        let y_secret = NonZeroScalar::random(rng);
+        let y_secret = Scalar::random(rng);
         let y_public = y_secret.mul_by_generator();
 
         let sch_secret_y = SchSecret::random(rng); // $\tau$
@@ -317,7 +317,7 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         let sch_proof_y = SchProof::new(
             &self.secret_data.sch_secret_y,
-            &self.secret_data.y_secret.clone().into_scalar(),
+            &self.secret_data.y_secret,
             &self.data.sch_commitment_y,
             &self.data.y_public,
             &aux,
@@ -432,7 +432,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         let key_share_change = KeyShareChange {
             secret: share_change,
             sk: self.secret_data.paillier_sk,
-            y: self.secret_data.y_secret.clone(),
+            y: self.secret_data.y_secret,
             public,
         };
 

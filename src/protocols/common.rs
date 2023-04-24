@@ -3,7 +3,7 @@ use alloc::boxed::Box;
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
-use crate::tools::group::{NonZeroScalar, Point, Scalar};
+use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hashable};
 
 // TODO: this trait can include curve scalar/point types as well,
@@ -48,11 +48,14 @@ pub struct KeyShareSeed {
     pub public: Box<[Point]>, // `X`
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "SecretKeyPaillier<P>: Serialize, KeySharePublic<P>: Serialize"))]
+#[serde(bound(deserialize = "for <'x> SecretKeyPaillier<P>: Deserialize<'x>,
+        for <'x> KeySharePublic<P>: Deserialize<'x>"))]
 pub struct KeyShare<P: PaillierParams> {
     pub secret: Scalar,
     pub sk: SecretKeyPaillier<P>,
-    pub(crate) y: NonZeroScalar, // TODO: a more descriptive name? Where is it even used?
+    pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
     pub public: Box<[KeySharePublic<P>]>,
 }
 
@@ -62,7 +65,7 @@ impl<P: PaillierParams> KeyShare<P> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct KeySharePublic<P: PaillierParams> {
     pub(crate) x: Point,
     pub(crate) y: Point, // TODO: a more descriptive name? Where is it even used?
@@ -80,7 +83,7 @@ pub struct KeyShareChange<P: PaillierParams> {
     /// The value to be added to the secret share.
     pub(crate) secret: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
     pub sk: SecretKeyPaillier<P>,
-    pub(crate) y: NonZeroScalar, // TODO: a more descriptive name? Where is it even used?
+    pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
     pub(crate) public: Box<[KeyShareChangePublic<P>]>,
 }
 
