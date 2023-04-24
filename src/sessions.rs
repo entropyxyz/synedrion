@@ -1,11 +1,13 @@
 mod auxiliary;
 mod generic;
+mod interactive_signing;
 mod keygen;
 mod presigning;
 mod signing;
 
 pub use auxiliary::AuxiliaryState;
-pub use generic::{Session, ToSend};
+pub use generic::{PartyId, Session, ToSend};
+pub use interactive_signing::InteractiveSigningState;
 pub use keygen::KeygenState;
 pub use presigning::PresigningState;
 pub use signing::SigningState;
@@ -20,10 +22,11 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio::time::{sleep, Duration};
 
-    use super::{KeygenState, Session, ToSend};
-    use crate::protocols::common::{SessionId, TestSchemeParams};
-    use crate::sessions::generic::PartyId;
-    use crate::KeyShareSeed;
+    use crate::paillier::PaillierTest;
+    use crate::protocols::common::SessionId;
+    use crate::sessions::{InteractiveSigningState, PartyId, Session, ToSend};
+    use crate::tools::group::Scalar;
+    use crate::{make_key_shares, KeyShare, Signature, TestSchemeParams};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
     struct Id(u32);
@@ -38,17 +41,20 @@ mod tests {
         rx: mpsc::Receiver<MessageIn>,
         all_parties: Vec<Id>,
         my_id: Id,
-    ) -> KeyShareSeed {
+        key_share: KeyShare<PaillierTest>,
+        message: Scalar,
+    ) -> Signature {
         let mut rx = rx;
 
         let session_id = SessionId::random();
+        let context = (all_parties.len(), key_share.clone(), message);
 
-        let mut session = Session::<KeygenState<TestSchemeParams>, Id>::new(
+        let mut session = Session::<InteractiveSigningState<TestSchemeParams>, Id>::new(
             &mut OsRng,
             &session_id,
             &all_parties,
             &my_id,
-            &(),
+            &context,
         );
 
         while !session.is_final_stage() {
@@ -130,6 +136,12 @@ mod tests {
     #[tokio::test]
     async fn keygen() {
         let parties = vec![Id(111), Id(222), Id(333)];
+        let shares = make_key_shares::<PaillierTest>(&mut OsRng, 3);
+        let key_shares = parties
+            .iter()
+            .zip(shares.into_vec().into_iter())
+            .collect::<BTreeMap<_, KeyShare<PaillierTest>>>();
+        let message = Scalar::random(&mut OsRng);
 
         let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
 
@@ -142,9 +154,16 @@ mod tests {
         let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
         let dispatcher = tokio::spawn(dispatcher_task);
 
-        let handles: Vec<tokio::task::JoinHandle<KeyShareSeed>> = rx_map
+        let handles: Vec<tokio::task::JoinHandle<Signature>> = rx_map
             .map(|(id, rx)| {
-                let node_task = node_session(dispatcher_tx.clone(), rx, parties.clone(), id);
+                let node_task = node_session(
+                    dispatcher_tx.clone(),
+                    rx,
+                    parties.clone(),
+                    id,
+                    key_shares.get(&id).unwrap().clone(),
+                    message.clone(),
+                );
                 tokio::spawn(node_task)
             })
             .collect();
