@@ -304,7 +304,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Error = String;
     type Payload = Scalar;
     type Message = Round3Direct<P>;
-    type NextRound = KeyShareChange<P::Paillier>;
+    type NextRound = KeyShareChange<P>;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);

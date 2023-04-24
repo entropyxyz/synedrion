@@ -12,14 +12,14 @@ enum AuxiliaryStage<P: SchemeParams> {
     Round1Consensus(Stage<ConsensusSubround<Round1<P>>>),
     Round2(Stage<Round2<P>>),
     Round3(Stage<Round3<P>>),
-    Result(KeyShareChange<P::Paillier>),
+    Result(KeyShareChange<P>),
 }
 
 #[derive(Clone)]
 pub struct AuxiliaryState<P: SchemeParams>(AuxiliaryStage<P>);
 
 impl<P: SchemeParams> SessionState for AuxiliaryState<P> {
-    type Result = KeyShareChange<P::Paillier>;
+    type Result = KeyShareChange<P>;
     type Context = usize;
 
     fn new(

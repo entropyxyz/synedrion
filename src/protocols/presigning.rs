@@ -14,7 +14,7 @@ use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum, PartyIdx};
 use crate::tools::group::{Point, Scalar};
 
 #[derive(Clone)]
-pub struct PublicContext<P: PaillierParams> {
+pub struct PublicContext<P: SchemeParams> {
     session_id: SessionId,
     num_parties: usize,
     party_idx: PartyIdx,
@@ -38,7 +38,7 @@ struct SecretData<P: PaillierParams> {
 // in a few cases.
 #[derive(Clone)]
 pub struct Round1Part1<P: SchemeParams> {
-    context: PublicContext<P::Paillier>,
+    context: PublicContext<P>,
     secret_data: SecretData<P::Paillier>,
     k_ciphertext: Ciphertext<P::Paillier>,
     g_ciphertext: Ciphertext<P::Paillier>,
@@ -50,7 +50,7 @@ impl<P: SchemeParams> Round1Part1<P> {
         session_id: &SessionId,
         party_idx: PartyIdx,
         num_parties: usize,
-        key_share: &KeyShare<P::Paillier>,
+        key_share: &KeyShare<P>,
     ) -> Self {
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
@@ -129,7 +129,7 @@ impl<P: SchemeParams> NeedsConsensus for Round1Part1<P> {}
 
 #[derive(Clone)]
 pub struct Round1Part2<P: SchemeParams> {
-    context: PublicContext<P::Paillier>,
+    context: PublicContext<P>,
     secret_data: SecretData<P::Paillier>,
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
@@ -214,7 +214,7 @@ pub struct Round2Direct<P: PaillierParams> {
 
 #[derive(Clone)]
 pub struct Round2<P: SchemeParams> {
-    context: PublicContext<P::Paillier>,
+    context: PublicContext<P>,
     secret_data: SecretData<P::Paillier>,
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
@@ -457,7 +457,7 @@ pub struct Round3Bcast<P: PaillierParams> {
 
 #[derive(Clone)]
 pub struct Round3<P: SchemeParams> {
-    context: PublicContext<P::Paillier>,
+    context: PublicContext<P>,
     secret_data: SecretData<P::Paillier>,
     delta: Scalar,
     chi: Scalar,

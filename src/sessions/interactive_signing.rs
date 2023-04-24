@@ -28,7 +28,7 @@ pub struct InteractiveSigningState<P: SchemeParams> {
 
 impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
     type Result = Signature;
-    type Context = (usize, KeyShare<P::Paillier>, Scalar);
+    type Context = (usize, KeyShare<P>, Scalar);
 
     fn new(
         rng: &mut (impl RngCore + CryptoRng),

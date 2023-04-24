@@ -82,6 +82,13 @@ impl Scalar {
         Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&d.finalize()))
     }
 
+    pub fn try_from_reduced_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let arr =
+            GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
+                .ok_or("Invalid length of a curve scalar")?;
+        Ok(Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr)))
+    }
+
     pub fn to_be_bytes(self) -> k256::FieldBytes {
         // TODO: add a test that it really is a big endian representation - docs don't guarantee it.
         self.0.to_bytes()

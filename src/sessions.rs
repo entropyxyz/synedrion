@@ -12,6 +12,35 @@ pub use keygen::KeygenState;
 pub use presigning::PresigningState;
 pub use signing::SigningState;
 
+use alloc::string::String;
+
+use rand_core::{CryptoRng, RngCore};
+
+use crate::protocols::common::SessionId;
+use crate::tools::group::Scalar;
+use crate::{KeyShare, SchemeParams};
+
+pub fn make_interactive_signing_session<P: SchemeParams, Id: PartyId>(
+    rng: &mut (impl CryptoRng + RngCore),
+    all_parties: &[Id],
+    my_id: &Id,
+    key_share: &KeyShare<P>,
+    prehashed_message: &[u8],
+) -> Result<Session<InteractiveSigningState<P>, Id>, String> {
+    let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
+
+    let session_id = SessionId::random();
+    let context = (all_parties.len(), key_share.clone(), scalar_message);
+
+    Ok(Session::<InteractiveSigningState<P>, Id>::new(
+        rng,
+        &session_id,
+        &all_parties,
+        &my_id,
+        &context,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeMap;
@@ -22,10 +51,7 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio::time::{sleep, Duration};
 
-    use crate::paillier::PaillierTest;
-    use crate::protocols::common::SessionId;
-    use crate::sessions::{InteractiveSigningState, PartyId, Session, ToSend};
-    use crate::tools::group::Scalar;
+    use crate::sessions::{make_interactive_signing_session, PartyId, ToSend};
     use crate::{make_key_shares, KeyShare, Signature, TestSchemeParams};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -41,21 +67,19 @@ mod tests {
         rx: mpsc::Receiver<MessageIn>,
         all_parties: Vec<Id>,
         my_id: Id,
-        key_share: KeyShare<PaillierTest>,
-        message: Scalar,
+        key_share: KeyShare<TestSchemeParams>,
+        message: &[u8],
     ) -> Signature {
         let mut rx = rx;
 
-        let session_id = SessionId::random();
-        let context = (all_parties.len(), key_share.clone(), message);
-
-        let mut session = Session::<InteractiveSigningState<TestSchemeParams>, Id>::new(
+        let mut session = make_interactive_signing_session(
             &mut OsRng,
-            &session_id,
             &all_parties,
             &my_id,
-            &context,
-        );
+            &key_share,
+            &message,
+        )
+        .unwrap();
 
         while !session.is_final_stage() {
             println!(
@@ -136,12 +160,12 @@ mod tests {
     #[tokio::test]
     async fn keygen() {
         let parties = vec![Id(111), Id(222), Id(333)];
-        let shares = make_key_shares::<PaillierTest>(&mut OsRng, 3);
+        let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, 3);
         let key_shares = parties
             .iter()
             .zip(shares.into_vec().into_iter())
-            .collect::<BTreeMap<_, KeyShare<PaillierTest>>>();
-        let message = Scalar::random(&mut OsRng);
+            .collect::<BTreeMap<_, KeyShare<TestSchemeParams>>>();
+        let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
         let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
 

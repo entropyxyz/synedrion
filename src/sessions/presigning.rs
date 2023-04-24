@@ -21,7 +21,7 @@ pub struct PresigningState<P: SchemeParams>(PresigningStage<P>);
 
 impl<P: SchemeParams> SessionState for PresigningState<P> {
     type Result = PresigningData;
-    type Context = (usize, KeyShare<P::Paillier>);
+    type Context = (usize, KeyShare<P>);
 
     fn new(
         rng: &mut (impl RngCore + CryptoRng),
