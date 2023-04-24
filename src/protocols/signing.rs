@@ -64,11 +64,7 @@ impl Round for Round1 {
 
         // CHECK: should `s` be normalized here?
 
-        let sig = Signature::from_scalars(&self.r, &s).unwrap();
-
-        if !sig.verify(&self.verifying_key, &self.message) {
-            panic!("Invalid signature created");
-        }
+        let sig = Signature::from_scalars(&self.r, &s, &self.verifying_key, &self.message).unwrap();
 
         Ok(sig)
     }
@@ -78,6 +74,7 @@ impl BroadcastRound for Round1 {}
 
 #[cfg(test)]
 mod tests {
+    use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::OsRng;
 
     use super::Round1;
@@ -136,8 +133,18 @@ mod tests {
         ];
         let signatures = step(&mut OsRng, r1).unwrap();
 
-        assert!(signatures
-            .iter()
-            .all(|sig| sig.verify(&verifying_key, &message)));
+        for signature in signatures {
+            let (sig, rec_id) = signature.to_backend();
+
+            let vkey = key_shares[0].verifying_key().unwrap();
+
+            // Check that the signature can be verified
+            vkey.verify_prehash(&message.to_be_bytes(), &sig).unwrap();
+
+            // Check that the key can be recovered
+            let recovered_key =
+                VerifyingKey::recover_from_prehash(&message.to_be_bytes(), &sig, rec_id).unwrap();
+            assert_eq!(recovered_key, vkey);
+        }
     }
 }

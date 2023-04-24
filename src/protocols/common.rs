@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 
+use k256::ecdsa::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
@@ -66,6 +67,11 @@ pub struct KeyShare<P: SchemeParams> {
 impl<P: SchemeParams> KeyShare<P> {
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         self.public.iter().map(|p| p.x).sum()
+    }
+
+    pub fn verifying_key(&self) -> Option<VerifyingKey> {
+        // TODO: can we unwrap here and get rid of Option?
+        self.verifying_key_as_point().to_verifying_key()
     }
 }
 

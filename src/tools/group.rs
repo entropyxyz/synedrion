@@ -22,7 +22,10 @@ use k256::elliptic_curve::{
     Field,
     FieldBytesSize,
 };
-use k256::{ecdsa::hazmat::VerifyPrimitive, Secp256k1};
+use k256::{
+    ecdsa::{RecoveryId, VerifyingKey},
+    Secp256k1,
+};
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{digest::Digest, Sha256};
@@ -153,22 +156,37 @@ pub(crate) fn zero_sum_scalars(rng: &mut (impl CryptoRng + RngCore), size: usize
 }
 
 #[derive(Clone, Debug)]
-pub struct Signature(k256::ecdsa::Signature);
+pub struct Signature {
+    signature: k256::ecdsa::Signature,
+    recovery_id: RecoveryId,
+}
 
 impl Signature {
-    pub fn from_scalars(r: &Scalar, s: &Scalar) -> Option<Self> {
+    pub(crate) fn from_scalars(
+        r: &Scalar,
+        s: &Scalar,
+        vkey: &Point,
+        message: &Scalar,
+    ) -> Option<Self> {
         // TODO: call `normalize_s()` on the result?
         // TODO: pass a message too and derive the recovery byte?
-        k256::ecdsa::Signature::from_scalars(r.0, s.0)
-            .map(Self)
-            .ok()
+        let signature = k256::ecdsa::Signature::from_scalars(r.0, s.0).ok()?;
+        let message_bytes = message.to_be_bytes();
+        let recovery_id = RecoveryId::trial_recovery_from_prehash(
+            &VerifyingKey::from_affine(vkey.0.to_affine()).ok()?,
+            &message_bytes,
+            &signature,
+        )
+        .ok()?;
+
+        Some(Self {
+            signature,
+            recovery_id,
+        })
     }
 
-    pub fn verify(&self, vkey: &Point, message: &Scalar) -> bool {
-        let verifier = vkey.0.to_affine();
-        verifier
-            .verify_prehashed(&message.0.to_bytes(), &self.0)
-            .is_ok()
+    pub fn to_backend(self) -> (k256::ecdsa::Signature, RecoveryId) {
+        (self.signature, self.recovery_id)
     }
 }
 
@@ -194,6 +212,10 @@ impl Point {
         Some(Self(
             k256::Secp256k1::hash_from_bytes::<ExpandMsgXmd<Sha256>>(data, &[dst]).ok()?,
         ))
+    }
+
+    pub fn to_verifying_key(&self) -> Option<VerifyingKey> {
+        VerifyingKey::from_affine(self.0.to_affine()).ok()
     }
 
     pub(crate) fn try_from_compressed_bytes(bytes: &[u8]) -> Result<Self, String> {

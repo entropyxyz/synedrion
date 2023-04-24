@@ -46,6 +46,7 @@ mod tests {
     use alloc::collections::BTreeMap;
     use alloc::vec;
 
+    use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand::seq::SliceRandom;
     use rand_core::OsRng;
     use tokio::sync::mpsc;
@@ -158,7 +159,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn keygen() {
+    async fn signing() {
         let parties = vec![Id(111), Id(222), Id(333)];
         let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, 3);
         let key_shares = parties
@@ -197,7 +198,15 @@ mod tests {
 
         for handle in handles {
             let signature = handle.await.unwrap();
-            println!("Got result");
+            let (sig, rec_id) = signature.to_backend();
+            let vkey = key_shares[&parties[0]].verifying_key().unwrap();
+
+            // Check that the signature can be verified
+            vkey.verify_prehash(message, &sig).unwrap();
+
+            // Check that the key can be recovered
+            let recovered_key = VerifyingKey::recover_from_prehash(message, &sig, rec_id).unwrap();
+            assert_eq!(recovered_key, vkey);
         }
 
         dispatcher.await.unwrap();
