@@ -1,5 +1,6 @@
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt::Display;
 
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ pub(crate) enum ToSendTyped<Message> {
 }
 
 pub(crate) trait Round: Sized {
-    type Error: Sized;
+    type Error: Sized + Display;
     type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
     type Payload: Sized + Clone;
     type NextRound: Sized;

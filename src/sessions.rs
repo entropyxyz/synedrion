@@ -35,8 +35,8 @@ pub fn make_interactive_signing_session<P: SchemeParams, Id: PartyId>(
     Ok(Session::<InteractiveSigningState<P>, Id>::new(
         rng,
         &session_id,
-        &all_parties,
-        &my_id,
+        all_parties,
+        my_id,
         &context,
     ))
 }
@@ -73,14 +73,9 @@ mod tests {
     ) -> Signature {
         let mut rx = rx;
 
-        let mut session = make_interactive_signing_session(
-            &mut OsRng,
-            &all_parties,
-            &my_id,
-            &key_share,
-            &message,
-        )
-        .unwrap();
+        let mut session =
+            make_interactive_signing_session(&mut OsRng, &all_parties, &my_id, &key_share, message)
+                .unwrap();
 
         while !session.is_final_stage() {
             println!(
@@ -89,7 +84,7 @@ mod tests {
                 session.current_stage_num()
             );
 
-            let to_send = session.get_messages(&mut OsRng);
+            let to_send = session.get_messages(&mut OsRng).unwrap();
 
             match to_send {
                 ToSend::Broadcast { message, ids, .. } => {
@@ -107,21 +102,21 @@ mod tests {
             println!("{my_id:?}: applying cached messages");
 
             while session.has_cached_messages() {
-                session.receive_cached_message();
+                session.receive_cached_message().unwrap();
             }
 
-            while !session.is_finished_receiving() {
+            while !session.is_finished_receiving().unwrap() {
                 println!("{my_id:?}: waiting for a message");
                 let (id_from, message_bytes) = rx.recv().await.unwrap();
                 println!("{my_id:?}: applying the message");
-                session.receive(&id_from, &message_bytes);
+                session.receive(&id_from, &message_bytes).unwrap();
             }
 
             println!("{my_id:?}: finalizing the stage");
-            session.finalize_stage(&mut OsRng);
+            session.finalize_stage(&mut OsRng).unwrap();
         }
 
-        session.result()
+        session.result().unwrap()
     }
 
     async fn message_dispatcher(

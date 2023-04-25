@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
@@ -35,38 +37,42 @@ impl SessionState for SigningState {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> ToSendSerialized {
-        match &mut self.0 {
-            SigningStage::Round1(r) => r.get_messages(rng, num_parties, index),
-            _ => panic!(),
-        }
-    }
-
-    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) {
-        match &mut self.0 {
-            SigningStage::Round1(r) => r.receive(from, message_bytes),
-            _ => panic!(),
-        }
-    }
-
-    fn is_finished_receiving(&self) -> bool {
-        match &self.0 {
-            SigningStage::Round1(r) => r.is_finished_receiving(),
-            _ => panic!(),
-        }
-    }
-
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        Self(match self.0 {
-            SigningStage::Round1(r) => SigningStage::Result(r.finalize(rng)),
-            _ => panic!(),
+    ) -> Result<ToSendSerialized, String> {
+        Ok(match &mut self.0 {
+            SigningStage::Round1(r) => r.get_messages(rng, num_parties, index)?,
+            _ => return Err("Not in a sending state".into()),
         })
     }
 
-    fn result(&self) -> Self::Result {
+    fn receive_current_stage(
+        &mut self,
+        from: PartyIdx,
+        message_bytes: &[u8],
+    ) -> Result<(), String> {
+        match &mut self.0 {
+            SigningStage::Round1(r) => r.receive(from, message_bytes),
+            _ => Err("Not in a receiving stage".into()),
+        }
+    }
+
+    fn is_finished_receiving(&self) -> Result<bool, String> {
         match &self.0 {
-            SigningStage::Result(r) => r.clone(),
-            _ => panic!(),
+            SigningStage::Round1(r) => r.is_finished_receiving(),
+            _ => Err("Not in a receiving stage".into()),
+        }
+    }
+
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String> {
+        Ok(Self(match self.0 {
+            SigningStage::Round1(r) => SigningStage::Result(r.finalize(rng)?),
+            _ => return Err("Not in a receiving stage".into()),
+        }))
+    }
+
+    fn result(&self) -> Result<Self::Result, String> {
+        match &self.0 {
+            SigningStage::Result(r) => Ok(r.clone()),
+            _ => Err("Not in the result stage".into()),
         }
     }
 

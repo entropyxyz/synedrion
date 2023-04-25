@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
@@ -53,21 +55,25 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> ToSendSerialized {
-        match &mut self.stage {
-            InteractiveSigningStage::Round1Part1(r) => r.get_messages(rng, num_parties, index),
+    ) -> Result<ToSendSerialized, String> {
+        Ok(match &mut self.stage {
+            InteractiveSigningStage::Round1Part1(r) => r.get_messages(rng, num_parties, index)?,
             InteractiveSigningStage::Round1Part1Consensus(r) => {
-                r.get_messages(rng, num_parties, index)
+                r.get_messages(rng, num_parties, index)?
             }
-            InteractiveSigningStage::Round1Part2(r) => r.get_messages(rng, num_parties, index),
-            InteractiveSigningStage::Round2(r) => r.get_messages(rng, num_parties, index),
-            InteractiveSigningStage::Round3(r) => r.get_messages(rng, num_parties, index),
-            InteractiveSigningStage::SigningRound(r) => r.get_messages(rng, num_parties, index),
-            _ => panic!(),
-        }
+            InteractiveSigningStage::Round1Part2(r) => r.get_messages(rng, num_parties, index)?,
+            InteractiveSigningStage::Round2(r) => r.get_messages(rng, num_parties, index)?,
+            InteractiveSigningStage::Round3(r) => r.get_messages(rng, num_parties, index)?,
+            InteractiveSigningStage::SigningRound(r) => r.get_messages(rng, num_parties, index)?,
+            _ => return Err("Not in a sending state".into()),
+        })
     }
 
-    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) {
+    fn receive_current_stage(
+        &mut self,
+        from: PartyIdx,
+        message_bytes: &[u8],
+    ) -> Result<(), String> {
         match &mut self.stage {
             InteractiveSigningStage::Round1Part1(r) => r.receive(from, message_bytes),
             InteractiveSigningStage::Round1Part1Consensus(r) => r.receive(from, message_bytes),
@@ -75,11 +81,11 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
             InteractiveSigningStage::Round2(r) => r.receive(from, message_bytes),
             InteractiveSigningStage::Round3(r) => r.receive(from, message_bytes),
             InteractiveSigningStage::SigningRound(r) => r.receive(from, message_bytes),
-            _ => panic!(),
+            _ => Err("Not in a receiving stage".into()),
         }
     }
 
-    fn is_finished_receiving(&self) -> bool {
+    fn is_finished_receiving(&self) -> Result<bool, String> {
         match &self.stage {
             InteractiveSigningStage::Round1Part1(r) => r.is_finished_receiving(),
             InteractiveSigningStage::Round1Part1Consensus(r) => r.is_finished_receiving(),
@@ -87,46 +93,46 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
             InteractiveSigningStage::Round2(r) => r.is_finished_receiving(),
             InteractiveSigningStage::Round3(r) => r.is_finished_receiving(),
             InteractiveSigningStage::SigningRound(r) => r.is_finished_receiving(),
-            _ => panic!(),
+            _ => Err("Not in a receiving stage".into()),
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Self {
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String> {
         let stage = match self.stage {
             InteractiveSigningStage::Round1Part1(r) => {
-                InteractiveSigningStage::Round1Part1Consensus(Stage::new(r.finalize(rng)))
+                InteractiveSigningStage::Round1Part1Consensus(Stage::new(r.finalize(rng)?))
             }
             InteractiveSigningStage::Round1Part1Consensus(r) => {
-                InteractiveSigningStage::Round1Part2(Stage::new(r.finalize(rng)))
+                InteractiveSigningStage::Round1Part2(Stage::new(r.finalize(rng)?))
             }
             InteractiveSigningStage::Round1Part2(r) => {
-                InteractiveSigningStage::Round2(Stage::new(r.finalize(rng)))
+                InteractiveSigningStage::Round2(Stage::new(r.finalize(rng)?))
             }
             InteractiveSigningStage::Round2(r) => {
-                InteractiveSigningStage::Round3(Stage::new(r.finalize(rng)))
+                InteractiveSigningStage::Round3(Stage::new(r.finalize(rng)?))
             }
             InteractiveSigningStage::Round3(r) => {
-                let presigning_data = r.finalize(rng);
+                let presigning_data = r.finalize(rng)?;
                 let signing_round =
                     signing::Round1::new(&presigning_data, &self.message, &self.verifying_key);
                 InteractiveSigningStage::SigningRound(Stage::new(signing_round))
             }
             InteractiveSigningStage::SigningRound(r) => {
-                InteractiveSigningStage::Result(r.finalize(rng))
+                InteractiveSigningStage::Result(r.finalize(rng)?)
             }
-            _ => panic!(),
+            _ => return Err("Not in a receiving stage".into()),
         };
-        Self {
+        Ok(Self {
             stage,
             message: self.message,
             verifying_key: self.verifying_key,
-        }
+        })
     }
 
-    fn result(&self) -> Self::Result {
+    fn result(&self) -> Result<Self::Result, String> {
         match &self.stage {
-            InteractiveSigningStage::Result(r) => r.clone(),
-            _ => panic!(),
+            InteractiveSigningStage::Result(r) => Ok(r.clone()),
+            _ => Err("Not in the result stage".into()),
         }
     }
 

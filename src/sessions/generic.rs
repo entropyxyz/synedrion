@@ -1,4 +1,6 @@
 use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use rand_core::{CryptoRng, RngCore};
@@ -28,8 +30,10 @@ fn serialize_message(message: &impl Serialize) -> Box<[u8]> {
         .into_boxed_slice()
 }
 
-fn deserialize_message<M: for<'de> Deserialize<'de>>(message_bytes: &[u8]) -> M {
-    rmp_serde::decode::from_slice(message_bytes).unwrap()
+fn deserialize_message<M: for<'de> Deserialize<'de>>(
+    message_bytes: &[u8],
+) -> Result<M, rmp_serde::decode::Error> {
+    rmp_serde::decode::from_slice(message_bytes)
 }
 
 fn serialize_with_round(round: u8, message: &[u8]) -> Box<[u8]> {
@@ -38,8 +42,10 @@ fn serialize_with_round(round: u8, message: &[u8]) -> Box<[u8]> {
         .into_boxed_slice()
 }
 
-fn deserialize_with_round(message_bytes: &[u8]) -> (u8, Box<[u8]>) {
-    rmp_serde::decode::from_slice(message_bytes).unwrap()
+fn deserialize_with_round(
+    message_bytes: &[u8],
+) -> Result<(u8, Box<[u8]>), rmp_serde::decode::Error> {
+    rmp_serde::decode::from_slice(message_bytes)
 }
 
 #[derive(Clone)]
@@ -64,9 +70,9 @@ where
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> ToSendSerialized {
+    ) -> Result<ToSendSerialized, String> {
         if self.accum.is_some() {
-            panic!();
+            return Err("The session is not in a sending state".into());
         }
 
         let to_send = match self.round.to_send(rng) {
@@ -84,54 +90,63 @@ where
 
         let accum = HoleVecAccum::<R::Payload>::new(num_parties, index);
         self.accum = Some(accum);
-        to_send
+        Ok(to_send)
     }
 
-    pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) {
+    pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), String> {
         let accum = match self.accum.as_mut() {
             Some(accum) => accum,
-            None => panic!(),
+            None => return Err("The session is in a sending stage, cannot receive messages".into()),
         };
 
-        let message: R::Message = deserialize_message(message_bytes);
+        let message: R::Message = deserialize_message(message_bytes)
+            .map_err(|err| format!("Error deserializing: {}", err))?;
 
         let slot = match accum.get_mut(from) {
             Some(slot) => slot,
-            None => panic!("Invalid ID"),
+            None => return Err("Invalid `from` ID".into()),
         };
 
         if slot.is_some() {
-            panic!("Already received from this ID");
+            return Err("Already received from this ID".into());
         }
 
         let payload = match self.round.verify_received(from, message) {
             Ok(res) => res,
-            Err(_) => panic!("Error validating message"),
+            Err(_) => return Err("Error validating message".into()),
         };
 
         *slot = Some(payload);
+
+        Ok(())
     }
 
-    pub(crate) fn is_finished_receiving(&self) -> bool {
-        match &self.accum {
+    pub(crate) fn is_finished_receiving(&self) -> Result<bool, String> {
+        Ok(match &self.accum {
             Some(accum) => accum.can_finalize(),
-            None => panic!(),
-        }
+            None => return Err("Not in a receiving state".into()),
+        })
     }
 
-    pub(crate) fn finalize(self, rng: &mut (impl RngCore + CryptoRng)) -> R::NextRound {
+    pub(crate) fn finalize(
+        self,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<R::NextRound, String> {
         let accum = match self.accum {
             Some(accum) => accum,
-            None => panic!(),
+            None => return Err("The session is in a sending stage, cannot receive messages".into()),
         };
 
         if accum.can_finalize() {
             match accum.finalize() {
-                Ok(finalized) => self.round.finalize(rng, finalized).ok().unwrap(),
-                Err(_) => panic!("Could not finalize"),
+                Ok(finalized) => self
+                    .round
+                    .finalize(rng, finalized)
+                    .map_err(|err| format!("Could not finalize: {err}")),
+                Err(_) => Err("Messages from some of the parties are missing".into()),
             }
         } else {
-            panic!();
+            Err("Messages from some of the parties are missing".into())
         }
     }
 }
@@ -150,14 +165,15 @@ pub trait SessionState: Clone {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> ToSendSerialized;
-    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]);
-    fn is_finished_receiving(&self) -> bool;
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Self;
+    ) -> Result<ToSendSerialized, String>;
+    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8])
+        -> Result<(), String>;
+    fn is_finished_receiving(&self) -> Result<bool, String>;
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String>;
     fn is_final_stage(&self) -> bool;
     fn current_stage_num(&self) -> u8;
     fn stages_num(&self) -> u8;
-    fn result(&self) -> Self::Result;
+    fn result(&self) -> Result<Self::Result, String>;
     type Result;
 }
 
@@ -197,12 +213,15 @@ impl<S: SessionState, I: PartyId> Session<S, I> {
         }
     }
 
-    pub fn get_messages(&mut self, rng: &mut (impl RngCore + CryptoRng)) -> ToSend<I> {
+    pub fn get_messages(
+        &mut self,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<ToSend<I>, String> {
         let to_send = self
             .state
-            .get_messages(rng, self.all_parties.len(), self.index);
+            .get_messages(rng, self.all_parties.len(), self.index)?;
         let stage_num = self.state.current_stage_num();
-        match to_send {
+        Ok(match to_send {
             ToSendSerialized::Broadcast(message) => {
                 let ids = self
                     .all_parties
@@ -223,40 +242,49 @@ impl<S: SessionState, I: PartyId> Session<S, I> {
                     })
                     .collect(),
             ),
-        }
+        })
     }
 
-    pub fn receive(&mut self, from: &I, message_bytes: &[u8]) {
+    pub fn receive(&mut self, from: &I, message_bytes: &[u8]) -> Result<(), String> {
         let stage_num = self.state.current_stage_num();
         let max_stages = self.state.stages_num();
-        let (stage, message_bytes) = deserialize_with_round(message_bytes);
+        let (stage, message_bytes) = deserialize_with_round(message_bytes)
+            .map_err(|err| format!("Error deserializing message: {}", err))?;
         let index = self.all_parties.iter().position(|id| id == from).unwrap();
         let index = PartyIdx::from_usize(index);
 
         if stage == stage_num + 1 && stage <= max_stages {
             self.next_stage_messages.push((index, message_bytes));
         } else if stage == stage_num {
-            self.state.receive_current_stage(index, &message_bytes);
+            self.state.receive_current_stage(index, &message_bytes)?;
         } else {
-            panic!("Unexpected message from round {stage} (current stage: {stage_num})");
+            return Err(format!(
+                "Unexpected message from round {stage} (current stage: {stage_num})"
+            ));
         }
+
+        Ok(())
     }
 
-    pub fn receive_cached_message(&mut self) {
-        let (from, message_bytes) = self.next_stage_messages.pop().unwrap();
-        self.state.receive_current_stage(from, &message_bytes);
+    pub fn receive_cached_message(&mut self) -> Result<(), String> {
+        let (from, message_bytes) = self
+            .next_stage_messages
+            .pop()
+            .ok_or("No more cached messages left")?;
+        self.state.receive_current_stage(from, &message_bytes)
     }
 
-    pub fn is_finished_receiving(&self) -> bool {
+    pub fn is_finished_receiving(&self) -> Result<bool, String> {
         self.state.is_finished_receiving()
     }
 
-    pub fn finalize_stage(&mut self, rng: &mut (impl RngCore + CryptoRng)) {
+    pub fn finalize_stage(&mut self, rng: &mut (impl RngCore + CryptoRng)) -> Result<(), String> {
         // TODO: check that there are no cached messages left
-        self.state = self.state.clone().finalize_stage(rng);
+        self.state = self.state.clone().finalize_stage(rng)?;
+        Ok(())
     }
 
-    pub fn result(&self) -> S::Result {
+    pub fn result(&self) -> Result<S::Result, String> {
         self.state.result()
     }
 

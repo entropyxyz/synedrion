@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
@@ -39,50 +41,54 @@ impl<P: SchemeParams> SessionState for KeygenState<P> {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> ToSendSerialized {
-        match &mut self.0 {
-            KeygenStage::Round1(r) => r.get_messages(rng, num_parties, index),
-            KeygenStage::Round1Consensus(r) => r.get_messages(rng, num_parties, index),
-            KeygenStage::Round2(r) => r.get_messages(rng, num_parties, index),
-            KeygenStage::Round3(r) => r.get_messages(rng, num_parties, index),
-            _ => panic!(),
-        }
+    ) -> Result<ToSendSerialized, String> {
+        Ok(match &mut self.0 {
+            KeygenStage::Round1(r) => r.get_messages(rng, num_parties, index)?,
+            KeygenStage::Round1Consensus(r) => r.get_messages(rng, num_parties, index)?,
+            KeygenStage::Round2(r) => r.get_messages(rng, num_parties, index)?,
+            KeygenStage::Round3(r) => r.get_messages(rng, num_parties, index)?,
+            _ => return Err("Not in a sending state".into()),
+        })
     }
 
-    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) {
+    fn receive_current_stage(
+        &mut self,
+        from: PartyIdx,
+        message_bytes: &[u8],
+    ) -> Result<(), String> {
         match &mut self.0 {
             KeygenStage::Round1(r) => r.receive(from, message_bytes),
             KeygenStage::Round1Consensus(r) => r.receive(from, message_bytes),
             KeygenStage::Round2(r) => r.receive(from, message_bytes),
             KeygenStage::Round3(r) => r.receive(from, message_bytes),
-            _ => panic!(),
+            _ => Err("Not in a receiving stage".into()),
         }
     }
 
-    fn is_finished_receiving(&self) -> bool {
+    fn is_finished_receiving(&self) -> Result<bool, String> {
         match &self.0 {
             KeygenStage::Round1(r) => r.is_finished_receiving(),
             KeygenStage::Round1Consensus(r) => r.is_finished_receiving(),
             KeygenStage::Round2(r) => r.is_finished_receiving(),
             KeygenStage::Round3(r) => r.is_finished_receiving(),
-            _ => panic!(),
+            _ => Err("Not in a receiving stage".into()),
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        Self(match self.0 {
-            KeygenStage::Round1(r) => KeygenStage::Round1Consensus(Stage::new(r.finalize(rng))),
-            KeygenStage::Round1Consensus(r) => KeygenStage::Round2(Stage::new(r.finalize(rng))),
-            KeygenStage::Round2(r) => KeygenStage::Round3(Stage::new(r.finalize(rng))),
-            KeygenStage::Round3(r) => KeygenStage::Result(r.finalize(rng)),
-            _ => panic!(),
-        })
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String> {
+        Ok(Self(match self.0 {
+            KeygenStage::Round1(r) => KeygenStage::Round1Consensus(Stage::new(r.finalize(rng)?)),
+            KeygenStage::Round1Consensus(r) => KeygenStage::Round2(Stage::new(r.finalize(rng)?)),
+            KeygenStage::Round2(r) => KeygenStage::Round3(Stage::new(r.finalize(rng)?)),
+            KeygenStage::Round3(r) => KeygenStage::Result(r.finalize(rng)?),
+            _ => return Err("Not in a receiving stage".into()),
+        }))
     }
 
-    fn result(&self) -> KeyShareSeed {
+    fn result(&self) -> Result<Self::Result, String> {
         match &self.0 {
-            KeygenStage::Result(r) => r.clone(),
-            _ => panic!(),
+            KeygenStage::Result(r) => Ok(r.clone()),
+            _ => Err("Not in the result stage".into()),
         }
     }
 

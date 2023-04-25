@@ -544,10 +544,8 @@ impl<P: SchemeParams> Round for Round3<P> {
         let big_delta: Point = big_deltas.iter().sum();
         let big_delta = big_delta + self.big_delta;
 
-        // TODO: seems like we need to allow `finalize()` to result in an error.
-        // For now we just panic.
         if delta.mul_by_generator() != big_delta {
-            panic!("Deltas do not coincide");
+            return Err("Deltas do not coincide".into());
             // TODO: calculate the required proofs here according to the paper.
         }
 

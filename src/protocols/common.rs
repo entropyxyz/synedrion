@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
-use rand_core::{CryptoRng, RngCore};
 use k256::ecdsa::VerifyingKey;
+use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};

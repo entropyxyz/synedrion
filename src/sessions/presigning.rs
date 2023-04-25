@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
@@ -41,58 +43,64 @@ impl<P: SchemeParams> SessionState for PresigningState<P> {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> ToSendSerialized {
-        match &mut self.0 {
-            PresigningStage::Round1Part1(r) => r.get_messages(rng, num_parties, index),
-            PresigningStage::Round1Part1Consensus(r) => r.get_messages(rng, num_parties, index),
-            PresigningStage::Round1Part2(r) => r.get_messages(rng, num_parties, index),
-            PresigningStage::Round2(r) => r.get_messages(rng, num_parties, index),
-            PresigningStage::Round3(r) => r.get_messages(rng, num_parties, index),
-            _ => panic!(),
-        }
+    ) -> Result<ToSendSerialized, String> {
+        Ok(match &mut self.0 {
+            PresigningStage::Round1Part1(r) => r.get_messages(rng, num_parties, index)?,
+            PresigningStage::Round1Part1Consensus(r) => r.get_messages(rng, num_parties, index)?,
+            PresigningStage::Round1Part2(r) => r.get_messages(rng, num_parties, index)?,
+            PresigningStage::Round2(r) => r.get_messages(rng, num_parties, index)?,
+            PresigningStage::Round3(r) => r.get_messages(rng, num_parties, index)?,
+            _ => return Err("Not in a sending state".into()),
+        })
     }
 
-    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) {
+    fn receive_current_stage(
+        &mut self,
+        from: PartyIdx,
+        message_bytes: &[u8],
+    ) -> Result<(), String> {
         match &mut self.0 {
             PresigningStage::Round1Part1(r) => r.receive(from, message_bytes),
             PresigningStage::Round1Part1Consensus(r) => r.receive(from, message_bytes),
             PresigningStage::Round1Part2(r) => r.receive(from, message_bytes),
             PresigningStage::Round2(r) => r.receive(from, message_bytes),
             PresigningStage::Round3(r) => r.receive(from, message_bytes),
-            _ => panic!(),
+            _ => Err("Not in a receiving stage".into()),
         }
     }
 
-    fn is_finished_receiving(&self) -> bool {
+    fn is_finished_receiving(&self) -> Result<bool, String> {
         match &self.0 {
             PresigningStage::Round1Part1(r) => r.is_finished_receiving(),
             PresigningStage::Round1Part1Consensus(r) => r.is_finished_receiving(),
             PresigningStage::Round1Part2(r) => r.is_finished_receiving(),
             PresigningStage::Round2(r) => r.is_finished_receiving(),
             PresigningStage::Round3(r) => r.is_finished_receiving(),
-            _ => panic!(),
+            _ => Err("Not in a receiving stage".into()),
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        Self(match self.0 {
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String> {
+        Ok(Self(match self.0 {
             PresigningStage::Round1Part1(r) => {
-                PresigningStage::Round1Part1Consensus(Stage::new(r.finalize(rng)))
+                PresigningStage::Round1Part1Consensus(Stage::new(r.finalize(rng)?))
             }
             PresigningStage::Round1Part1Consensus(r) => {
-                PresigningStage::Round1Part2(Stage::new(r.finalize(rng)))
+                PresigningStage::Round1Part2(Stage::new(r.finalize(rng)?))
             }
-            PresigningStage::Round1Part2(r) => PresigningStage::Round2(Stage::new(r.finalize(rng))),
-            PresigningStage::Round2(r) => PresigningStage::Round3(Stage::new(r.finalize(rng))),
-            PresigningStage::Round3(r) => PresigningStage::Result(r.finalize(rng)),
-            _ => panic!(),
-        })
+            PresigningStage::Round1Part2(r) => {
+                PresigningStage::Round2(Stage::new(r.finalize(rng)?))
+            }
+            PresigningStage::Round2(r) => PresigningStage::Round3(Stage::new(r.finalize(rng)?)),
+            PresigningStage::Round3(r) => PresigningStage::Result(r.finalize(rng)?),
+            _ => return Err("Not in a receiving stage".into()),
+        }))
     }
 
-    fn result(&self) -> Self::Result {
+    fn result(&self) -> Result<Self::Result, String> {
         match &self.0 {
-            PresigningStage::Result(r) => r.clone(),
-            _ => panic!(),
+            PresigningStage::Result(r) => Ok(r.clone()),
+            _ => Err("Not in the result stage".into()),
         }
     }
 
