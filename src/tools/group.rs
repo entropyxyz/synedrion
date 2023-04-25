@@ -214,7 +214,7 @@ impl Point {
         ))
     }
 
-    pub fn to_verifying_key(&self) -> Option<VerifyingKey> {
+    pub fn to_verifying_key(self) -> Option<VerifyingKey> {
         VerifyingKey::from_affine(self.0.to_affine()).ok()
     }
 
