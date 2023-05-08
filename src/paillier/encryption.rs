@@ -114,6 +114,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Derive the randomizer used to create this ciphertext.
+    #[allow(dead_code)] // TODO: to be used to create an error report on bad decryption
     pub fn derive_randomizer(&self, sk: &SecretKeyPaillier<P>) -> P::DoubleUint {
         let pk = sk.public_key();
         let modulus_quad = NonZero::new(pk.modulus().as_ref().into_wide()).unwrap();

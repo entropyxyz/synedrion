@@ -14,3 +14,5 @@ pub use protocols::common::{
     KeyShare, KeyShareSeed, PresigningData, SchemeParams, TestSchemeParams,
 };
 pub use tools::group::Signature;
+
+pub use k256;

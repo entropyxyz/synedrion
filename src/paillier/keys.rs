@@ -8,7 +8,7 @@ use super::uint::{
 };
 use crate::tools::hashing::{Chain, Hashable};
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SecretKeyPaillier<P: PaillierParams> {
     p: P::SingleUint,
     q: P::SingleUint,
@@ -16,8 +16,8 @@ pub struct SecretKeyPaillier<P: PaillierParams> {
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
     pub fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
-        let p = P::SingleUint::safe_prime_with_rng(rng, P::PRIME_BITS);
-        let q = P::SingleUint::safe_prime_with_rng(rng, P::PRIME_BITS);
+        let p = P::SingleUint::generate_safe_prime_with_rng(rng, Some(P::PRIME_BITS));
+        let q = P::SingleUint::generate_safe_prime_with_rng(rng, Some(P::PRIME_BITS));
 
         Self { p, q }
     }

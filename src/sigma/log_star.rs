@@ -11,6 +11,7 @@ use crate::tools::hashing::Hashable;
 pub(crate) struct LogStarProof<P: PaillierParams>(PublicKeyPaillier<P>);
 
 impl<P: PaillierParams> LogStarProof<P> {
+    #[allow(clippy::too_many_arguments)]
     pub fn random(
         _rng: &mut (impl RngCore + CryptoRng),
         _secret: &Scalar,            // `x`

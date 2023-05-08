@@ -10,6 +10,7 @@ use crate::protocols::signing;
 use crate::tools::collections::PartyIdx;
 use crate::tools::group::{Point, Scalar, Signature};
 
+#[allow(clippy::large_enum_variant)] // TODO: should we box them?
 #[derive(Clone)]
 enum InteractiveSigningStage<P: SchemeParams> {
     Round1Part1(Stage<PreConsensusSubround<presigning::Round1Part1<P>>>),

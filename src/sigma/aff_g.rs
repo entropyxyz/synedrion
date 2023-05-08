@@ -14,6 +14,7 @@ pub(crate) struct AffGProof<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> AffGProof<P> {
+    #[allow(clippy::too_many_arguments)]
     pub fn random(
         _rng: &mut (impl RngCore + CryptoRng),
         _x: &Scalar,
@@ -26,11 +27,11 @@ impl<P: PaillierParams> AffGProof<P> {
         _rho_y: &P::DoubleUint, // in range of the modulus from `pk1`
         pk0: &PublicKeyPaillier<P>,
         pk1: &PublicKeyPaillier<P>,
-        _C: &Ciphertext<P>,   // a ciphertext encrypted with `pk0`
-        _D: &Ciphertext<P>, // where `D = C [*] x [+] enc_pk0(y, rho)` ([*] and [+]) are homomorphic operations
-        _Y: &Ciphertext<P>, // where `Y = enc_pk1(y, rho_y)`
-        _X: &Point,         // where `X = g * x`, where `g` is the curve generator
-        _aux: &impl Hashable, // CHECK: used to derive `\hat{N}, s, t`
+        _capital_c: &Ciphertext<P>, // a ciphertext encrypted with `pk0`
+        _capital_d: &Ciphertext<P>, // where `D = C [*] x [+] enc_pk0(y, rho)` ([*] and [+]) are homomorphic operations
+        _capital_y: &Ciphertext<P>, // where `Y = enc_pk1(y, rho_y)`
+        _capital_x: &Point,         // where `X = g * x`, where `g` is the curve generator
+        _aux: &impl Hashable,       // CHECK: used to derive `\hat{N}, s, t`
     ) -> Self {
         Self {
             pk0: pk0.clone(),
@@ -38,14 +39,15 @@ impl<P: PaillierParams> AffGProof<P> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
         pk0: &PublicKeyPaillier<P>,
         pk1: &PublicKeyPaillier<P>,
-        _C: &Ciphertext<P>,
-        _D: &Ciphertext<P>,
-        _Y: &Ciphertext<P>,
-        _X: &Point,
+        _capital_c: &Ciphertext<P>,
+        _capital_d: &Ciphertext<P>,
+        _capital_y: &Ciphertext<P>,
+        _capital_x: &Point,
         _aux: &impl Hashable, // CHECK: used to derive `\hat{N}, s, t`
     ) -> bool {
         &self.pk0 == pk0 && &self.pk1 == pk1

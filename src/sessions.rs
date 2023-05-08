@@ -20,12 +20,16 @@ use crate::protocols::common::SessionId;
 use crate::tools::group::Scalar;
 use crate::{KeyShare, SchemeParams};
 
+pub type PrehashedMessage = [u8; 32];
+
+pub type Error = String;
+
 pub fn make_interactive_signing_session<P: SchemeParams, Id: PartyId>(
     rng: &mut (impl CryptoRng + RngCore),
     all_parties: &[Id],
     my_id: &Id,
     key_share: &KeyShare<P>,
-    prehashed_message: &[u8],
+    prehashed_message: &PrehashedMessage,
 ) -> Result<Session<InteractiveSigningState<P>, Id>, String> {
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
 
@@ -69,7 +73,7 @@ mod tests {
         all_parties: Vec<Id>,
         my_id: Id,
         key_share: KeyShare<TestSchemeParams>,
-        message: &[u8],
+        message: &[u8; 32],
     ) -> Signature {
         let mut rx = rx;
 
@@ -194,7 +198,7 @@ mod tests {
         for handle in handles {
             let signature = handle.await.unwrap();
             let (sig, rec_id) = signature.to_backend();
-            let vkey = key_shares[&parties[0]].verifying_key().unwrap();
+            let vkey = key_shares[&parties[0]].verifying_key();
 
             // Check that the signature can be verified
             vkey.verify_prehash(message, &sig).unwrap();

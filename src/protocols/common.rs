@@ -69,9 +69,20 @@ impl<P: SchemeParams> KeyShare<P> {
         self.public.iter().map(|p| p.x).sum()
     }
 
-    pub fn verifying_key(&self) -> Option<VerifyingKey> {
-        // TODO: can we unwrap here and get rid of Option?
-        self.verifying_key_as_point().to_verifying_key()
+    pub fn verifying_key(&self) -> VerifyingKey {
+        // TODO: need to ensure on creation of the share that the verifying key actually exists
+        // (that is, the sum of public keys does not evaluate to the infinity point)
+        self.verifying_key_as_point().to_verifying_key().unwrap()
+    }
+}
+
+impl<P: SchemeParams> core::fmt::Debug for KeyShare<P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        write!(
+            f,
+            "KeyShare(vkey={})",
+            hex::encode(self.verifying_key_as_point().to_compressed_array())
+        )
     }
 }
 
@@ -91,22 +102,30 @@ pub struct KeySharePublic<P: SchemeParams> {
 #[derive(Clone)]
 pub struct KeyShareChange<P: SchemeParams> {
     /// The value to be added to the secret share.
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) secret: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
     pub sk: SecretKeyPaillier<P::Paillier>,
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) public: Box<[KeyShareChangePublic<P>]>,
 }
 
 #[derive(Clone)]
 pub struct KeyShareChangePublic<P: SchemeParams> {
     /// The value to be added to the public share of a remote node.
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) x: Point, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) y: Point, // TODO: a more descriptive name? Where is it even used?
     /// The Paillier public key.
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     /// The ring-Pedersen generator.
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) rp_generator: <P::Paillier as PaillierParams>::DoubleUint, // `t_i`
     /// The ring-Pedersen power (a number belonging to the group produced by the generator).
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) rp_power: <P::Paillier as PaillierParams>::DoubleUint, // `s_i`
 }
 

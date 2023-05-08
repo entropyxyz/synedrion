@@ -85,10 +85,13 @@ impl Scalar {
         Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&d.finalize()))
     }
 
-    pub fn try_from_reduced_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let arr =
-            GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
-                .ok_or("Invalid length of a curve scalar")?;
+    /// Convert a 32-byte hash digest into a scalar as per SEC1:
+    /// <https://www.secg.org/sec1-v2.pdf< Section 4.1.3 steps 5-6 page 45
+    ///
+    /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
+    /// is larger than the modulus.
+    pub fn try_from_reduced_bytes(bytes: &[u8; 32]) -> Result<Self, String> {
+        let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from(*bytes);
         Ok(Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr)))
     }
 
