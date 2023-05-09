@@ -243,6 +243,7 @@ impl FromScalar for U640 {
         let mut r = self.rem(&p);
 
         // Treating the values over Self::MAX / 2 as negative ones.
+        // TODO: is this necessary?
         if self.bit(Self::BITS - 1).into() {
             // TODO: can be precomputed
             let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);

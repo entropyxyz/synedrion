@@ -27,11 +27,10 @@ use k256::{
     Secp256k1,
 };
 use rand_core::{CryptoRng, RngCore};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{digest::Digest, Sha256};
 
 use crate::tools::hashing::{Chain, Hashable};
-use crate::tools::serde::{deserialize, serialize, TryFromBytes};
 
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
@@ -104,6 +103,15 @@ impl Scalar {
         <FieldBytesSize<Secp256k1> as Unsigned>::to_usize()
     }
 
+    pub(crate) fn try_from_be_array(arr: &[u8; 32]) -> Result<Self, String> {
+        let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from(*arr);
+
+        BackendScalar::from_repr_vartime(arr)
+            .map(Self)
+            .ok_or_else(|| "Invalid curve scalar representation".into())
+    }
+
+    // TODO: replace with try_from_be_array()
     pub(crate) fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
         let arr =
             GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
@@ -120,7 +128,7 @@ impl Serialize for Scalar {
     where
         S: Serializer,
     {
-        serialize(&self.0.to_bytes(), serializer)
+        serdect::array::serialize_hex_lower_or_bin(&self.to_be_bytes(), serializer)
     }
 }
 
@@ -129,15 +137,9 @@ impl<'de> Deserialize<'de> for Scalar {
     where
         D: Deserializer<'de>,
     {
-        deserialize(deserializer)
-    }
-}
-
-impl TryFromBytes for Scalar {
-    type Error = String;
-
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_be_bytes(bytes)
+        let mut buffer = [0; 32];
+        serdect::array::deserialize_hex_or_bin(&mut buffer, deserializer)?;
+        Self::try_from_be_array(&buffer).map_err(D::Error::custom)
     }
 }
 
@@ -243,7 +245,7 @@ impl Serialize for Point {
     where
         S: Serializer,
     {
-        serialize(&self.to_compressed_array(), serializer)
+        serdect::array::serialize_hex_lower_or_bin(&self.to_compressed_array(), serializer)
     }
 }
 
@@ -252,15 +254,9 @@ impl<'de> Deserialize<'de> for Point {
     where
         D: Deserializer<'de>,
     {
-        deserialize(deserializer)
-    }
-}
-
-impl TryFromBytes for Point {
-    type Error = String;
-
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_compressed_bytes(bytes)
+        let mut buffer = [0; 33];
+        serdect::array::deserialize_hex_or_bin(&mut buffer, deserializer)?;
+        Self::try_from_compressed_bytes(&buffer).map_err(D::Error::custom)
     }
 }
 

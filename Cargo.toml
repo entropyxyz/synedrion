@@ -10,6 +10,7 @@ sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 digest = { version = "0.10", default-features = false, features = ["alloc"]}
 hex = { version = "0.4", features = ["alloc"] }
+serdect = "0.2"
 
 crypto-bigint = { version = "0.5", features = ["serde"] }
 crypto-primes = "0.3"
