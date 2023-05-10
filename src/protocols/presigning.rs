@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, PresigningData, SchemeParams, SessionId};
+use super::common::{KeyShareVectorized, PresigningData, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
 use crate::sigma::aff_g::AffGProof;
@@ -18,7 +18,7 @@ pub struct PublicContext<P: SchemeParams> {
     session_id: SessionId,
     num_parties: usize,
     party_idx: PartyIdx,
-    key_share: KeyShare<P>,
+    key_share: KeyShareVectorized<P>,
 }
 
 #[derive(Clone)]
@@ -50,12 +50,12 @@ impl<P: SchemeParams> Round1Part1<P> {
         session_id: &SessionId,
         party_idx: PartyIdx,
         num_parties: usize,
-        key_share: &KeyShare<P>,
+        key_share: &KeyShareVectorized<P>,
     ) -> Self {
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
 
-        let pk = key_share.sk.public_key();
+        let pk = key_share.secret.sk.public_key();
         let rho = pk.random_invertible_group_elem(rng).retrieve();
         let nu = pk.random_invertible_group_elem(rng).retrieve();
 
@@ -149,7 +149,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
         let aux = (&self.context.session_id, &self.context.party_idx);
         let k_ciphertext = &self.k_ciphertexts[self.context.party_idx.as_usize()];
-        let pk = self.context.key_share.sk.public_key();
+        let pk = self.context.key_share.secret.sk.public_key();
         let messages = range
             .map(|idx| {
                 let proof = EncProof::random(
@@ -270,8 +270,8 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let gamma = self.secret_data.gamma.mul_by_generator();
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.context.key_share.secret.mul_by_generator();
-        let pk = &self.context.key_share.sk.public_key();
+        let big_x = self.context.key_share.secret.secret.mul_by_generator();
+        let pk = &self.context.key_share.secret.sk.public_key();
 
         let messages = range
             .map(|idx| {
@@ -294,7 +294,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                 let f = Ciphertext::new_with_randomizer(pk, beta, &r);
 
                 let d_hat = self.k_ciphertexts[idx.as_usize()]
-                    .homomorphic_mul(target_pk, &self.context.key_share.secret)
+                    .homomorphic_mul(target_pk, &self.context.key_share.secret.secret)
                     .homomorphic_add(
                         target_pk,
                         &Ciphertext::new_with_randomizer(target_pk, &-beta_hat, &s_hat),
@@ -318,7 +318,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
                 let psi_hat = AffGProof::random(
                     rng,
-                    &self.context.key_share.secret,
+                    &self.context.key_share.secret.secret,
                     beta_hat,
                     &s_hat,
                     &r_hat,
@@ -365,11 +365,11 @@ impl<P: SchemeParams> Round for Round2<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
         let aux = (&self.context.session_id, &self.context.party_idx);
-        let pk = &self.context.key_share.sk.public_key();
+        let pk = &self.context.key_share.secret.sk.public_key();
         let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
 
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.context.key_share.secret.mul_by_generator();
+        let big_x = self.context.key_share.secret.secret.mul_by_generator();
 
         if !msg.psi.verify(
             pk,
@@ -405,8 +405,8 @@ impl<P: SchemeParams> Round for Round2<P> {
             return Err("Failed to verify EncProof".to_string());
         }
 
-        let alpha = msg.d.decrypt(&self.context.key_share.sk);
-        let alpha_hat = msg.d_hat.decrypt(&self.context.key_share.sk);
+        let alpha = msg.d.decrypt(&self.context.key_share.secret.sk);
+        let alpha_hat = msg.d_hat.decrypt(&self.context.key_share.secret.sk);
 
         Ok(Round2Payload {
             gamma: msg.gamma,
@@ -432,8 +432,9 @@ impl<P: SchemeParams> Round for Round2<P> {
         let beta_hat_sum: Scalar = self.betas_hat.iter().sum();
 
         let delta = &self.secret_data.gamma * &self.secret_data.k + alpha_sum + beta_sum;
-        let chi =
-            &self.context.key_share.secret * &self.secret_data.k + alpha_hat_sum + beta_hat_sum;
+        let chi = &self.context.key_share.secret.secret * &self.secret_data.k
+            + alpha_hat_sum
+            + beta_hat_sum;
 
         Ok(Round3 {
             context: self.context,
@@ -481,7 +482,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
         let aux = (&self.context.session_id, &self.context.party_idx);
-        let pk = &self.context.key_share.sk.public_key();
+        let pk = &self.context.key_share.secret.sk.public_key();
 
         let messages = range
             .map(|idx| {
@@ -565,7 +566,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Round1Part1;
-    use crate::centralized_keygen::make_key_shares;
+    use crate::centralized_keygen::make_key_shares_vectorized;
     use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::tools::collections::PartyIdx;
@@ -574,7 +575,7 @@ mod tests {
     fn execute_presigning() {
         let session_id = SessionId::random(&mut OsRng);
 
-        let key_shares = make_key_shares(&mut OsRng, 3);
+        let key_shares = make_key_shares_vectorized(&mut OsRng, 3);
 
         let r1 = vec![
             Round1Part1::<TestSchemeParams>::new(

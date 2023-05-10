@@ -3,7 +3,7 @@ use alloc::string::String;
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
-use crate::protocols::common::{KeyShare, SchemeParams, SessionId};
+use crate::protocols::common::{KeyShareVectorized, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::protocols::presigning;
 use crate::protocols::signing;
@@ -31,7 +31,7 @@ pub struct InteractiveSigningState<P: SchemeParams> {
 
 impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
     type Result = Signature;
-    type Context = (usize, KeyShare<P>, Scalar);
+    type Context = (usize, KeyShareVectorized<P>, Scalar);
 
     fn new(
         rng: &mut (impl RngCore + CryptoRng),

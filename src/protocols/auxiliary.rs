@@ -6,7 +6,9 @@ use crypto_bigint::Pow;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShareChange, KeyShareChangePublic, SchemeParams, SessionId};
+use super::common::{
+    KeyShareChangePublic, KeyShareChangeSecret, KeyShareChangeVectorized, SchemeParams, SessionId,
+};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{
     encryption::Ciphertext,
@@ -304,7 +306,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Error = String;
     type Payload = Scalar;
     type Message = Round3Direct<P>;
-    type NextRound = KeyShareChange<P>;
+    type NextRound = KeyShareChangeVectorized<P>;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);
@@ -429,12 +431,13 @@ impl<P: SchemeParams> Round for Round3<P> {
             })
             .collect();
 
-        let key_share_change = KeyShareChange {
+        let secret = KeyShareChangeSecret {
             secret: share_change,
             sk: self.secret_data.paillier_sk,
             y: self.secret_data.y_secret,
-            public,
         };
+
+        let key_share_change = KeyShareChangeVectorized { secret, public };
 
         Ok(key_share_change)
     }
@@ -470,14 +473,20 @@ mod tests {
         // Check that public points correspond to secret scalars
         for (idx, change) in results.iter().enumerate() {
             for other_change in results.iter() {
-                assert_eq!(change.secret.mul_by_generator(), other_change.public[idx].x);
-                assert_eq!(change.y.mul_by_generator(), other_change.public[idx].y);
+                assert_eq!(
+                    change.secret.secret.mul_by_generator(),
+                    other_change.public[idx].x
+                );
+                assert_eq!(
+                    change.secret.y.mul_by_generator(),
+                    other_change.public[idx].y
+                );
             }
         }
 
         // The resulting sum of masks should be zero, since the combined secret key
         // should not change after applying the masks at each node.
-        let mask_sum: Scalar = results.iter().map(|change| change.secret).sum();
+        let mask_sum: Scalar = results.iter().map(|change| change.secret.secret).sum();
         assert_eq!(mask_sum, Scalar::ZERO);
     }
 }

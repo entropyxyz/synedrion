@@ -78,7 +78,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Round1;
-    use crate::centralized_keygen::make_key_shares;
+    use crate::centralized_keygen::make_key_shares_vectorized;
     use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::protocols::presigning;
@@ -89,7 +89,7 @@ mod tests {
     fn execute_signing() {
         let session_id = SessionId::random(&mut OsRng);
 
-        let key_shares = make_key_shares(&mut OsRng, 3);
+        let key_shares = make_key_shares_vectorized(&mut OsRng, 3);
 
         // TODO: need to run the presigning protocol to get the consistent presigning data.
         // Repeats the code in the presigning test. Merge them somehow.

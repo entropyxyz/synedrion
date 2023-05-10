@@ -6,7 +6,7 @@ mod presigning;
 mod signing;
 
 pub use auxiliary::AuxiliaryState;
-pub use generic::{PartyId, Session, ToSend};
+pub use generic::{KeyShare, PartyId, Session, ToSend, ToTypedId};
 pub use interactive_signing::InteractiveSigningState;
 pub use keygen::KeygenState;
 pub use presigning::PresigningState;
@@ -16,9 +16,9 @@ use alloc::string::String;
 
 use rand_core::{CryptoRng, RngCore};
 
-use crate::protocols::common::SessionId;
+use crate::protocols::common::{KeyShareVectorized, SessionId};
 use crate::tools::group::Scalar;
-use crate::{KeyShare, SchemeParams};
+use crate::SchemeParams;
 
 pub type PrehashedMessage = [u8; 32];
 
@@ -26,21 +26,30 @@ pub type Error = String;
 
 pub fn make_interactive_signing_session<P: SchemeParams, Id: PartyId>(
     rng: &mut (impl CryptoRng + RngCore),
-    all_parties: &[Id],
-    my_id: &Id,
-    key_share: &KeyShare<P>,
+    key_share: &KeyShare<Id, P>,
     prehashed_message: &PrehashedMessage,
 ) -> Result<Session<InteractiveSigningState<P>, Id>, String> {
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
 
+    let all_parties = key_share.parties();
+    let my_id = key_share.party();
+
+    let key_share_vectorized = KeyShareVectorized {
+        secret: key_share.secret.clone(),
+        public: all_parties
+            .iter()
+            .map(|id| key_share.public[id].clone())
+            .collect(),
+    };
+
     let session_id = SessionId::random(rng);
-    let context = (all_parties.len(), key_share.clone(), scalar_message);
+    let context = (all_parties.len(), key_share_vectorized, scalar_message);
 
     Ok(Session::<InteractiveSigningState<P>, Id>::new(
         rng,
         &session_id,
-        all_parties,
-        my_id,
+        &all_parties,
+        &my_id,
         &context,
     ))
 }
@@ -53,13 +62,14 @@ mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand::seq::SliceRandom;
     use rand_core::OsRng;
+    use serde::{Deserialize, Serialize};
     use tokio::sync::mpsc;
     use tokio::time::{sleep, Duration};
 
     use crate::sessions::{make_interactive_signing_session, PartyId, ToSend};
     use crate::{make_key_shares, KeyShare, Signature, TestSchemeParams};
 
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
     struct Id(u32);
 
     impl PartyId for Id {}
@@ -70,16 +80,15 @@ mod tests {
     async fn node_session(
         tx: mpsc::Sender<MessageOut>,
         rx: mpsc::Receiver<MessageIn>,
-        all_parties: Vec<Id>,
-        my_id: Id,
-        key_share: KeyShare<TestSchemeParams>,
+        key_share: KeyShare<Id, TestSchemeParams>,
         message: &[u8; 32],
     ) -> Signature {
         let mut rx = rx;
 
+        let my_id = key_share.party();
+
         let mut session =
-            make_interactive_signing_session(&mut OsRng, &all_parties, &my_id, &key_share, message)
-                .unwrap();
+            make_interactive_signing_session(&mut OsRng, &key_share, message).unwrap();
 
         while !session.is_final_stage() {
             println!(
@@ -160,11 +169,11 @@ mod tests {
     #[tokio::test]
     async fn signing() {
         let parties = vec![Id(111), Id(222), Id(333)];
-        let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, 3);
+        let shares = make_key_shares::<Id, TestSchemeParams>(&mut OsRng, &parties);
         let key_shares = parties
             .iter()
             .zip(shares.into_vec().into_iter())
-            .collect::<BTreeMap<_, KeyShare<TestSchemeParams>>>();
+            .collect::<BTreeMap<_, KeyShare<Id, TestSchemeParams>>>();
         let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
         let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
@@ -183,8 +192,6 @@ mod tests {
                 let node_task = node_session(
                     dispatcher_tx.clone(),
                     rx,
-                    parties.clone(),
-                    id,
                     key_shares.get(&id).unwrap().clone(),
                     message,
                 );

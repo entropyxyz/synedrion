@@ -177,7 +177,15 @@ pub trait SessionState: Clone {
     type Result;
 }
 
-pub trait PartyId: Clone + PartialEq {}
+pub trait PartyId:
+    Clone + PartialEq + Eq + PartialOrd + Ord + Serialize + for<'de> Deserialize<'de>
+{
+}
+
+pub trait ToTypedId<I: PartyId> {
+    type Output;
+    fn to_typed_id(self, ids: &[I], my_id: &I) -> Self::Output;
+}
 
 pub struct Session<S: SessionState, I: PartyId> {
     index: PartyIdx,
@@ -187,7 +195,10 @@ pub struct Session<S: SessionState, I: PartyId> {
     state: S,
 }
 
-impl<S: SessionState, I: PartyId> Session<S, I> {
+impl<S: SessionState, I: PartyId> Session<S, I>
+where
+    S::Result: ToTypedId<I>,
+{
     pub fn new(
         rng: &mut (impl RngCore + CryptoRng),
         session_id: &SessionId,
@@ -284,8 +295,10 @@ impl<S: SessionState, I: PartyId> Session<S, I> {
         Ok(())
     }
 
-    pub fn result(&self) -> Result<S::Result, String> {
-        self.state.result()
+    pub fn result(&self) -> Result<<S::Result as ToTypedId<I>>::Output, String> {
+        self.state
+            .result()
+            .map(|result| result.to_typed_id(&self.all_parties, &self.my_id))
     }
 
     pub fn is_final_stage(&self) -> bool {
@@ -302,5 +315,110 @@ impl<S: SessionState, I: PartyId> Session<S, I> {
 
     pub fn has_cached_messages(&self) -> bool {
         !self.next_stage_messages.is_empty()
+    }
+}
+
+use alloc::collections::BTreeMap;
+
+use k256::ecdsa::VerifyingKey;
+
+use crate::protocols::common::{
+    KeyShareChangePublic, KeyShareChangeSecret, KeyShareChangeVectorized, KeySharePublic,
+    KeyShareSecret, KeyShareVectorized, PresigningData,
+};
+use crate::tools::group::{Point, Signature};
+use crate::SchemeParams;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "KeyShareSecret<P>: Serialize, KeySharePublic<P>: Serialize"))]
+#[serde(bound(deserialize = "for <'x> KeyShareSecret<P>: Deserialize<'x>,
+    for <'x> KeySharePublic<P>: Deserialize<'x>"))]
+pub struct KeyShare<I: PartyId, P: SchemeParams> {
+    pub id: I,
+    pub secret: KeyShareSecret<P>,
+    pub public: BTreeMap<I, KeySharePublic<P>>,
+}
+
+impl<I: PartyId, P: SchemeParams> core::fmt::Debug for KeyShare<I, P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        write!(
+            f,
+            "KeyShare(vkey={})",
+            hex::encode(self.verifying_key_as_point().to_compressed_array())
+        )
+    }
+}
+
+impl<I: PartyId, P: SchemeParams> KeyShare<I, P> {
+    pub(crate) fn verifying_key_as_point(&self) -> Point {
+        self.public.values().map(|p| p.x).sum()
+    }
+
+    pub fn verifying_key(&self) -> VerifyingKey {
+        // TODO: need to ensure on creation of the share that the verifying key actually exists
+        // (that is, the sum of public keys does not evaluate to the infinity point)
+        self.verifying_key_as_point().to_verifying_key().unwrap()
+    }
+
+    pub fn parties(&self) -> Box<[I]> {
+        self.public.keys().cloned().collect()
+    }
+
+    pub fn party(&self) -> I {
+        self.id.clone()
+    }
+}
+
+/// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
+#[derive(Clone)]
+pub struct KeyShareChange<I: PartyId, P: SchemeParams> {
+    pub id: I,
+    #[allow(dead_code)]
+    pub(crate) secret: KeyShareChangeSecret<P>,
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
+    pub(crate) public: BTreeMap<I, KeyShareChangePublic<P>>,
+}
+
+impl<I: PartyId> ToTypedId<I> for PresigningData {
+    type Output = Self;
+    fn to_typed_id(self, _ids: &[I], _my_id: &I) -> Self::Output {
+        self
+    }
+}
+
+impl<I: PartyId> ToTypedId<I> for Signature {
+    type Output = Self;
+    fn to_typed_id(self, _ids: &[I], _my_id: &I) -> Self::Output {
+        self
+    }
+}
+
+impl<I: PartyId, P: SchemeParams> ToTypedId<I> for KeyShareChangeVectorized<P> {
+    type Output = KeyShareChange<I, P>;
+    fn to_typed_id(self, ids: &[I], my_id: &I) -> Self::Output {
+        KeyShareChange {
+            id: my_id.clone(),
+            secret: self.secret,
+            public: ids
+                .iter()
+                .cloned()
+                .zip(self.public.iter().cloned())
+                .collect(),
+        }
+    }
+}
+
+impl<I: PartyId, P: SchemeParams> ToTypedId<I> for KeyShareVectorized<P> {
+    type Output = KeyShare<I, P>;
+    fn to_typed_id(self, ids: &[I], my_id: &I) -> Self::Output {
+        KeyShare {
+            id: my_id.clone(),
+            secret: self.secret,
+            public: ids
+                .iter()
+                .cloned()
+                .zip(self.public.iter().cloned())
+                .collect(),
+        }
     }
 }

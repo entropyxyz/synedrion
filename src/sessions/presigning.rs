@@ -3,7 +3,7 @@ use alloc::string::String;
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
-use crate::protocols::common::{KeyShare, PresigningData, SchemeParams, SessionId};
+use crate::protocols::common::{KeyShareVectorized, PresigningData, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::protocols::presigning::{Round1Part1, Round1Part2, Round2, Round3};
 use crate::tools::collections::PartyIdx;
@@ -24,7 +24,7 @@ pub struct PresigningState<P: SchemeParams>(PresigningStage<P>);
 
 impl<P: SchemeParams> SessionState for PresigningState<P> {
     type Result = PresigningData;
-    type Context = (usize, KeyShare<P>);
+    type Context = (usize, KeyShareVectorized<P>);
 
     fn new(
         rng: &mut (impl RngCore + CryptoRng),

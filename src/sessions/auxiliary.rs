@@ -4,7 +4,7 @@ use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
 use crate::protocols::auxiliary::{Round1, Round2, Round3};
-use crate::protocols::common::{KeyShareChange, SchemeParams, SessionId};
+use crate::protocols::common::{KeyShareChangeVectorized, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::tools::collections::PartyIdx;
 
@@ -14,14 +14,14 @@ enum AuxiliaryStage<P: SchemeParams> {
     Round1Consensus(Stage<ConsensusSubround<Round1<P>>>),
     Round2(Stage<Round2<P>>),
     Round3(Stage<Round3<P>>),
-    Result(KeyShareChange<P>),
+    Result(KeyShareChangeVectorized<P>),
 }
 
 #[derive(Clone)]
 pub struct AuxiliaryState<P: SchemeParams>(AuxiliaryStage<P>);
 
 impl<P: SchemeParams> SessionState for AuxiliaryState<P> {
-    type Result = KeyShareChange<P>;
+    type Result = KeyShareChangeVectorized<P>;
     type Context = usize;
 
     fn new(

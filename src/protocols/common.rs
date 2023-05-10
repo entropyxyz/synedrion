@@ -50,21 +50,24 @@ pub struct KeyShareSeed {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "SecretKeyPaillier<P::Paillier>: Serialize, KeySharePublic<P>: Serialize"
-))]
-#[serde(bound(
-    deserialize = "for <'x> SecretKeyPaillier<P::Paillier>: Deserialize<'x>,
-        for <'x> KeySharePublic<P>: Deserialize<'x>"
-))]
-pub struct KeyShare<P: SchemeParams> {
-    pub secret: Scalar,
+#[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
+#[serde(bound(deserialize = "for <'x> SecretKeyPaillier<P::Paillier>: Deserialize<'x>"))]
+pub struct KeyShareSecret<P: SchemeParams> {
+    pub(crate) secret: Scalar,
     pub sk: SecretKeyPaillier<P::Paillier>,
     pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "KeyShareSecret<P>: Serialize, KeySharePublic<P>: Serialize"))]
+#[serde(bound(deserialize = "for <'x> KeyShareSecret<P>: Deserialize<'x>,
+        for <'x> KeySharePublic<P>: Deserialize<'x>"))]
+pub struct KeyShareVectorized<P: SchemeParams> {
+    pub secret: KeyShareSecret<P>,
     pub public: Box<[KeySharePublic<P>]>,
 }
 
-impl<P: SchemeParams> KeyShare<P> {
+impl<P: SchemeParams> KeyShareVectorized<P> {
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         self.public.iter().map(|p| p.x).sum()
     }
@@ -76,11 +79,11 @@ impl<P: SchemeParams> KeyShare<P> {
     }
 }
 
-impl<P: SchemeParams> core::fmt::Debug for KeyShare<P> {
+impl<P: SchemeParams> core::fmt::Debug for KeyShareVectorized<P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         write!(
             f,
-            "KeyShare(vkey={})",
+            "KeyShareVectorized(vkey={})",
             hex::encode(self.verifying_key_as_point().to_compressed_array())
         )
     }
@@ -98,17 +101,16 @@ pub struct KeySharePublic<P: SchemeParams> {
     pub(crate) rp_power: <P::Paillier as PaillierParams>::DoubleUint, // `s_i`
 }
 
-/// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
-#[derive(Clone)]
-pub struct KeyShareChange<P: SchemeParams> {
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
+#[serde(bound(deserialize = "for <'x> SecretKeyPaillier<P::Paillier>: Deserialize<'x>"))]
+pub struct KeyShareChangeSecret<P: SchemeParams> {
     /// The value to be added to the secret share.
     #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) secret: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
     pub sk: SecretKeyPaillier<P::Paillier>,
     #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
-    pub(crate) public: Box<[KeyShareChangePublic<P>]>,
 }
 
 #[derive(Clone)]
@@ -127,6 +129,14 @@ pub struct KeyShareChangePublic<P: SchemeParams> {
     /// The ring-Pedersen power (a number belonging to the group produced by the generator).
     #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) rp_power: <P::Paillier as PaillierParams>::DoubleUint, // `s_i`
+}
+
+/// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
+#[derive(Clone)]
+pub struct KeyShareChangeVectorized<P: SchemeParams> {
+    pub(crate) secret: KeyShareChangeSecret<P>,
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
+    pub(crate) public: Box<[KeyShareChangePublic<P>]>,
 }
 
 /// The result of the Presigning protocol.
