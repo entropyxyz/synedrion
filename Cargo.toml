@@ -2,6 +2,11 @@
 name = "cggmp21"
 version = "0.0.1"
 edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Threshold signing library based on Canetti-Gennaro-Goldfeder-Makriyannis-Peled '21 scheme"
+repository = "https://github.com/entropyxyz/cggmp21"
+readme = "README.md"
+categories = ["cryptography", "no-std"]
 
 [dependencies]
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "hash2curve"] }
