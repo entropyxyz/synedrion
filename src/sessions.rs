@@ -38,7 +38,7 @@ pub fn make_interactive_signing_session<P: SchemeParams>(
         rng,
         &session_id,
         key_share.num_parties(),
-        key_share.index(),
+        key_share.party_index(),
         &context,
     ))
 }
@@ -67,7 +67,7 @@ mod tests {
     ) -> Signature {
         let mut rx = rx;
 
-        let party_idx = key_share.index();
+        let party_idx = key_share.party_index();
 
         let other_ids = (0..key_share.num_parties())
             .map(PartyIdx::from_usize)

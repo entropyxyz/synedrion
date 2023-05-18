@@ -55,7 +55,7 @@ pub struct KeyShareSeed {
 #[serde(bound(deserialize = "for <'x> SecretKeyPaillier<P::Paillier>: Deserialize<'x>"))]
 pub struct KeyShareSecret<P: SchemeParams> {
     pub(crate) secret: Scalar,
-    pub sk: SecretKeyPaillier<P::Paillier>,
+    pub(crate) sk: SecretKeyPaillier<P::Paillier>,
     pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
 }
 
@@ -64,9 +64,9 @@ pub struct KeyShareSecret<P: SchemeParams> {
 #[serde(bound(deserialize = "for <'x> KeyShareSecret<P>: Deserialize<'x>,
         for <'x> KeySharePublic<P>: Deserialize<'x>"))]
 pub struct KeyShare<P: SchemeParams> {
-    pub index: PartyIdx,
-    pub secret: KeyShareSecret<P>,
-    pub public: Box<[KeySharePublic<P>]>,
+    pub(crate) index: PartyIdx,
+    pub(crate) secret: KeyShareSecret<P>,
+    pub(crate) public: Box<[KeySharePublic<P>]>,
 }
 
 impl<P: SchemeParams> KeyShare<P> {
@@ -86,7 +86,7 @@ impl<P: SchemeParams> KeyShare<P> {
         self.public.len()
     }
 
-    pub fn index(&self) -> PartyIdx {
+    pub fn party_index(&self) -> PartyIdx {
         // TODO: technically it is the share index, but for now we are equating the two,
         // since we assume that one party has one share.
         self.index
