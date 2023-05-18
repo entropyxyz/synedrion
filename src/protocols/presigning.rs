@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShareVectorized, PresigningData, SchemeParams, SessionId};
+use super::common::{KeyShare, PresigningData, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
 use crate::sigma::aff_g::AffGProof;
@@ -18,7 +18,7 @@ pub struct PublicContext<P: SchemeParams> {
     session_id: SessionId,
     num_parties: usize,
     party_idx: PartyIdx,
-    key_share: KeyShareVectorized<P>,
+    key_share: KeyShare<P>,
 }
 
 #[derive(Clone)]
@@ -50,7 +50,7 @@ impl<P: SchemeParams> Round1Part1<P> {
         session_id: &SessionId,
         party_idx: PartyIdx,
         num_parties: usize,
-        key_share: &KeyShareVectorized<P>,
+        key_share: &KeyShare<P>,
     ) -> Self {
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
@@ -566,7 +566,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Round1Part1;
-    use crate::centralized_keygen::make_key_shares_vectorized;
+    use crate::centralized_keygen::make_key_shares;
     use crate::protocols::common::{SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::tools::collections::PartyIdx;
@@ -575,7 +575,7 @@ mod tests {
     fn execute_presigning() {
         let session_id = SessionId::random(&mut OsRng);
 
-        let key_shares = make_key_shares_vectorized(&mut OsRng, 3);
+        let key_shares = make_key_shares(&mut OsRng, 3);
 
         let r1 = vec![
             Round1Part1::<TestSchemeParams>::new(

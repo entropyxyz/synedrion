@@ -3,7 +3,7 @@ use alloc::string::String;
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
-use crate::protocols::common::{KeyShareVectorized, SchemeParams, SessionId};
+use crate::protocols::common::{KeyShare, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::protocols::presigning;
 use crate::protocols::signing;
@@ -31,7 +31,7 @@ pub struct InteractiveSigningState<P: SchemeParams> {
 
 impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
     type Result = Signature;
-    type Context = (usize, KeyShareVectorized<P>, Scalar);
+    type Context = (KeyShare<P>, Scalar);
 
     fn new(
         rng: &mut (impl RngCore + CryptoRng),
@@ -39,10 +39,11 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
         context: &Self::Context,
         index: PartyIdx,
     ) -> Self {
-        let (num_parties, key_share, message) = context;
+        let (key_share, message) = context;
+        let num_parties = key_share.num_parties();
         let verifying_key = key_share.verifying_key_as_point();
         let round1 =
-            presigning::Round1Part1::<P>::new(rng, session_id, index, *num_parties, key_share);
+            presigning::Round1Part1::<P>::new(rng, session_id, index, num_parties, key_share);
         let stage = InteractiveSigningStage::Round1Part1(Stage::new(PreConsensusSubround(round1)));
         Self {
             stage,

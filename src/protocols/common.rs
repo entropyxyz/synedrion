@@ -5,6 +5,7 @@ use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
+use crate::tools::collections::PartyIdx;
 use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hashable};
 
@@ -62,12 +63,13 @@ pub struct KeyShareSecret<P: SchemeParams> {
 #[serde(bound(serialize = "KeyShareSecret<P>: Serialize, KeySharePublic<P>: Serialize"))]
 #[serde(bound(deserialize = "for <'x> KeyShareSecret<P>: Deserialize<'x>,
         for <'x> KeySharePublic<P>: Deserialize<'x>"))]
-pub struct KeyShareVectorized<P: SchemeParams> {
+pub struct KeyShare<P: SchemeParams> {
+    pub index: PartyIdx,
     pub secret: KeyShareSecret<P>,
     pub public: Box<[KeySharePublic<P>]>,
 }
 
-impl<P: SchemeParams> KeyShareVectorized<P> {
+impl<P: SchemeParams> KeyShare<P> {
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         self.public.iter().map(|p| p.x).sum()
     }
@@ -77,13 +79,25 @@ impl<P: SchemeParams> KeyShareVectorized<P> {
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
+
+    pub fn num_parties(&self) -> usize {
+        // TODO: technically it is `num_shares`, but for now we are equating the two,
+        // since we assume that one party has one share.
+        self.public.len()
+    }
+
+    pub fn index(&self) -> PartyIdx {
+        // TODO: technically it is the share index, but for now we are equating the two,
+        // since we assume that one party has one share.
+        self.index
+    }
 }
 
-impl<P: SchemeParams> core::fmt::Debug for KeyShareVectorized<P> {
+impl<P: SchemeParams> core::fmt::Debug for KeyShare<P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         write!(
             f,
-            "KeyShareVectorized(vkey={})",
+            "KeyShare(vkey={})",
             hex::encode(self.verifying_key_as_point().to_compressed_array())
         )
     }
@@ -133,7 +147,8 @@ pub struct KeyShareChangePublic<P: SchemeParams> {
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
 #[derive(Clone)]
-pub struct KeyShareChangeVectorized<P: SchemeParams> {
+pub struct KeyShareChange<P: SchemeParams> {
+    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) secret: KeyShareChangeSecret<P>,
     #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) public: Box<[KeyShareChangePublic<P>]>,

@@ -10,8 +10,8 @@ mod sigma;
 mod tools;
 
 pub use centralized_keygen::make_key_shares;
-pub use protocols::common::{SchemeParams, TestSchemeParams};
-pub use sessions::KeyShare;
+pub use protocols::common::{KeyShare, SchemeParams, TestSchemeParams};
+pub use tools::collections::PartyIdx;
 pub use tools::group::Signature;
 
 pub use k256;

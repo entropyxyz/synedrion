@@ -6,7 +6,7 @@ mod presigning;
 mod signing;
 
 pub use auxiliary::AuxiliaryState;
-pub use generic::{KeyShare, PartyId, Session, ToSend, ToTypedId};
+pub use generic::{Session, ToSend};
 pub use interactive_signing::InteractiveSigningState;
 pub use keygen::KeygenState;
 pub use presigning::PresigningState;
@@ -16,7 +16,7 @@ use alloc::string::String;
 
 use rand_core::{CryptoRng, RngCore};
 
-use crate::protocols::common::{KeyShareVectorized, SessionId};
+use crate::protocols::common::{KeyShare, SessionId};
 use crate::tools::group::Scalar;
 use crate::SchemeParams;
 
@@ -24,32 +24,21 @@ pub type PrehashedMessage = [u8; 32];
 
 pub type Error = String;
 
-pub fn make_interactive_signing_session<P: SchemeParams, Id: PartyId>(
+pub fn make_interactive_signing_session<P: SchemeParams>(
     rng: &mut (impl CryptoRng + RngCore),
-    key_share: &KeyShare<Id, P>,
+    key_share: &KeyShare<P>,
     prehashed_message: &PrehashedMessage,
-) -> Result<Session<InteractiveSigningState<P>, Id>, String> {
+) -> Result<Session<InteractiveSigningState<P>>, String> {
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
 
-    let all_parties = key_share.parties();
-    let my_id = key_share.party();
-
-    let key_share_vectorized = KeyShareVectorized {
-        secret: key_share.secret.clone(),
-        public: all_parties
-            .iter()
-            .map(|id| key_share.public[id].clone())
-            .collect(),
-    };
-
     let session_id = SessionId::random(rng);
-    let context = (all_parties.len(), key_share_vectorized, scalar_message);
+    let context = (key_share.clone(), scalar_message);
 
-    Ok(Session::<InteractiveSigningState<P>, Id>::new(
+    Ok(Session::<InteractiveSigningState<P>>::new(
         rng,
         &session_id,
-        &all_parties,
-        &my_id,
+        key_share.num_parties(),
+        key_share.index(),
         &context,
     ))
 }
@@ -57,35 +46,33 @@ pub fn make_interactive_signing_session<P: SchemeParams, Id: PartyId>(
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeMap;
-    use alloc::vec;
 
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand::seq::SliceRandom;
     use rand_core::OsRng;
-    use serde::{Deserialize, Serialize};
     use tokio::sync::mpsc;
     use tokio::time::{sleep, Duration};
 
-    use crate::sessions::{make_interactive_signing_session, PartyId, ToSend};
-    use crate::{make_key_shares, KeyShare, Signature, TestSchemeParams};
+    use crate::sessions::{make_interactive_signing_session, ToSend};
+    use crate::{make_key_shares, KeyShare, PartyIdx, Signature, TestSchemeParams};
 
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-    struct Id(u32);
-
-    impl PartyId for Id {}
-
-    type MessageOut = (Id, Id, Box<[u8]>);
-    type MessageIn = (Id, Box<[u8]>);
+    type MessageOut = (PartyIdx, PartyIdx, Box<[u8]>);
+    type MessageIn = (PartyIdx, Box<[u8]>);
 
     async fn node_session(
         tx: mpsc::Sender<MessageOut>,
         rx: mpsc::Receiver<MessageIn>,
-        key_share: KeyShare<Id, TestSchemeParams>,
+        key_share: KeyShare<TestSchemeParams>,
         message: &[u8; 32],
     ) -> Signature {
         let mut rx = rx;
 
-        let my_id = key_share.party();
+        let party_idx = key_share.index();
+
+        let other_ids = (0..key_share.num_parties())
+            .map(PartyIdx::from_usize)
+            .filter(|idx| idx != &party_idx)
+            .collect::<Vec<_>>();
 
         let mut session =
             make_interactive_signing_session(&mut OsRng, &key_share, message).unwrap();
@@ -93,39 +80,39 @@ mod tests {
         while !session.is_final_stage() {
             println!(
                 "*** {:?}: starting stage {}",
-                my_id,
+                party_idx,
                 session.current_stage_num()
             );
 
             let to_send = session.get_messages(&mut OsRng).unwrap();
 
             match to_send {
-                ToSend::Broadcast { message, ids, .. } => {
-                    for id_to in ids {
-                        tx.send((my_id, id_to, message.clone())).await.unwrap();
+                ToSend::Broadcast(message) => {
+                    for id_to in other_ids.iter() {
+                        tx.send((party_idx, *id_to, message.clone())).await.unwrap();
                     }
                 }
                 ToSend::Direct(msgs) => {
                     for (id_to, message) in msgs.into_iter() {
-                        tx.send((my_id, id_to, message)).await.unwrap();
+                        tx.send((party_idx, id_to, message)).await.unwrap();
                     }
                 }
             };
 
-            println!("{my_id:?}: applying cached messages");
+            println!("{party_idx:?}: applying cached messages");
 
             while session.has_cached_messages() {
                 session.receive_cached_message().unwrap();
             }
 
             while !session.is_finished_receiving().unwrap() {
-                println!("{my_id:?}: waiting for a message");
+                println!("{party_idx:?}: waiting for a message");
                 let (id_from, message_bytes) = rx.recv().await.unwrap();
-                println!("{my_id:?}: applying the message");
-                session.receive(&id_from, &message_bytes).unwrap();
+                println!("{party_idx:?}: applying the message from {id_from:?}");
+                session.receive(id_from, &message_bytes).unwrap();
             }
 
-            println!("{my_id:?}: finalizing the stage");
+            println!("{party_idx:?}: finalizing the stage");
             session.finalize_stage(&mut OsRng).unwrap();
         }
 
@@ -133,7 +120,7 @@ mod tests {
     }
 
     async fn message_dispatcher(
-        txs: BTreeMap<Id, mpsc::Sender<MessageIn>>,
+        txs: BTreeMap<PartyIdx, mpsc::Sender<MessageIn>>,
         rx: mpsc::Receiver<MessageOut>,
     ) {
         let mut rx = rx;
@@ -168,17 +155,20 @@ mod tests {
 
     #[tokio::test]
     async fn signing() {
-        let parties = vec![Id(111), Id(222), Id(333)];
-        let shares = make_key_shares::<Id, TestSchemeParams>(&mut OsRng, &parties);
+        let num_parties = 3;
+        let parties = (0..num_parties)
+            .map(PartyIdx::from_usize)
+            .collect::<Vec<_>>();
+        let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties);
         let key_shares = parties
             .iter()
             .zip(shares.into_vec().into_iter())
-            .collect::<BTreeMap<_, KeyShare<Id, TestSchemeParams>>>();
+            .collect::<BTreeMap<_, _>>();
         let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
         let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
 
-        let channels = parties.iter().map(|_id| mpsc::channel::<MessageIn>(100));
+        let channels = (0..num_parties).map(|_| mpsc::channel::<MessageIn>(100));
         let (txs, rxs): (Vec<mpsc::Sender<MessageIn>>, Vec<mpsc::Receiver<MessageIn>>) =
             channels.unzip();
         let tx_map = parties.iter().cloned().zip(txs.into_iter()).collect();
@@ -188,11 +178,11 @@ mod tests {
         let dispatcher = tokio::spawn(dispatcher_task);
 
         let handles: Vec<tokio::task::JoinHandle<Signature>> = rx_map
-            .map(|(id, rx)| {
+            .map(|(party_idx, rx)| {
                 let node_task = node_session(
                     dispatcher_tx.clone(),
                     rx,
-                    key_shares.get(&id).unwrap().clone(),
+                    key_shares.get(&party_idx).unwrap().clone(),
                     message,
                 );
                 tokio::spawn(node_task)

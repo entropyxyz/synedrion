@@ -5,16 +5,16 @@ use rand_core::{CryptoRng, RngCore};
 
 use crate::paillier::uint::Zero;
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
-use crate::protocols::common::{KeySharePublic, KeyShareSecret, KeyShareVectorized, SchemeParams};
-use crate::sessions::{KeyShare, PartyId, ToTypedId};
+use crate::protocols::common::{KeyShare, KeySharePublic, KeyShareSecret, SchemeParams};
 use crate::tools::group::{Point, Scalar};
+use crate::PartyIdx;
 
 /// Returns `num_parties` of random self-consistent key shares
 /// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
-pub fn make_key_shares_vectorized<P: SchemeParams>(
+pub fn make_key_shares<P: SchemeParams>(
     rng: &mut (impl RngCore + CryptoRng),
     num_parties: usize,
-) -> Box<[KeyShareVectorized<P>]> {
+) -> Box<[KeyShare<P>]> {
     let secrets = (0..num_parties)
         .map(|_| Scalar::random(rng))
         .collect::<Vec<_>>();
@@ -34,10 +34,11 @@ pub fn make_key_shares_vectorized<P: SchemeParams>(
         })
         .collect();
 
-    secrets
-        .iter()
+    (0..num_parties)
+        .zip(secrets.iter())
         .zip(paillier_sks.iter())
-        .map(|(secret, sk)| KeyShareVectorized {
+        .map(|((idx, secret), sk)| KeyShare {
+            index: PartyIdx::from_usize(idx),
             secret: KeyShareSecret {
                 secret: *secret,
                 sk: (*sk).clone(),
@@ -45,18 +46,5 @@ pub fn make_key_shares_vectorized<P: SchemeParams>(
             },
             public: public.clone(),
         })
-        .collect()
-}
-
-pub fn make_key_shares<Id: PartyId, P: SchemeParams>(
-    rng: &mut (impl RngCore + CryptoRng),
-    parties: &[Id],
-) -> Box<[KeyShare<Id, P>]> {
-    let shares = make_key_shares_vectorized(rng, parties.len());
-    shares
-        .iter()
-        .cloned()
-        .zip(parties.iter())
-        .map(|(share, id)| share.to_typed_id(parties, id))
         .collect()
 }

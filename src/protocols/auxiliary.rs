@@ -7,7 +7,7 @@ use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    KeyShareChangePublic, KeyShareChangeSecret, KeyShareChangeVectorized, SchemeParams, SessionId,
+    KeyShareChange, KeyShareChangePublic, KeyShareChangeSecret, SchemeParams, SessionId,
 };
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{
@@ -306,7 +306,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Error = String;
     type Payload = Scalar;
     type Message = Round3Direct<P>;
-    type NextRound = KeyShareChangeVectorized<P>;
+    type NextRound = KeyShareChange<P>;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);
@@ -437,7 +437,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             y: self.secret_data.y_secret,
         };
 
-        let key_share_change = KeyShareChangeVectorized { secret, public };
+        let key_share_change = KeyShareChange { secret, public };
 
         Ok(key_share_change)
     }

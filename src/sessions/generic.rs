@@ -18,10 +18,10 @@ pub enum ToSendSerialized {
 }
 
 /// Serialized messages with the stage number specified.
-pub enum ToSend<Id> {
-    Broadcast { ids: Vec<Id>, message: Box<[u8]> },
+pub enum ToSend {
+    Broadcast(Box<[u8]>),
     // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(Id, Box<[u8]>)>),
+    Direct(Vec<(PartyIdx, Box<[u8]>)>),
 }
 
 fn serialize_message(message: &impl Serialize) -> Box<[u8]> {
@@ -177,38 +177,21 @@ pub trait SessionState: Clone {
     type Result;
 }
 
-pub trait PartyId:
-    Clone + PartialEq + Eq + PartialOrd + Ord + Serialize + for<'de> Deserialize<'de>
-{
-}
-
-pub trait ToTypedId<I: PartyId> {
-    type Output;
-    fn to_typed_id(self, ids: &[I], my_id: &I) -> Self::Output;
-}
-
-pub struct Session<S: SessionState, I: PartyId> {
+pub struct Session<S: SessionState> {
     index: PartyIdx,
-    my_id: I,
-    all_parties: Vec<I>,
+    num_parties: usize,
     next_stage_messages: Vec<(PartyIdx, Box<[u8]>)>,
     state: S,
 }
 
-impl<S: SessionState, I: PartyId> Session<S, I>
-where
-    S::Result: ToTypedId<I>,
-{
+impl<S: SessionState> Session<S> {
     pub fn new(
         rng: &mut (impl RngCore + CryptoRng),
         session_id: &SessionId,
-        all_parties: &[I],
-        party_id: &I,
+        num_parties: usize,
+        index: PartyIdx,
         context: &S::Context,
     ) -> Self {
-        let index = all_parties.iter().position(|id| id == party_id).unwrap();
-        let index = PartyIdx::from_usize(index);
-
         // CHECK: in the paper session id includes all the party ID's;
         // but since it's going to contain a random component too
         // (to distinguish sessions on the same node sets),
@@ -217,57 +200,42 @@ where
         let state = S::new(rng, session_id, context, index);
         Self {
             index,
-            my_id: party_id.clone(),
-            all_parties: all_parties.to_vec(),
+            num_parties,
             next_stage_messages: Vec::new(),
             state,
         }
     }
 
-    pub fn get_messages(
-        &mut self,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<ToSend<I>, String> {
-        let to_send = self
-            .state
-            .get_messages(rng, self.all_parties.len(), self.index)?;
+    pub fn get_messages(&mut self, rng: &mut (impl RngCore + CryptoRng)) -> Result<ToSend, String> {
+        let to_send = self.state.get_messages(rng, self.num_parties, self.index)?;
         let stage_num = self.state.current_stage_num();
         Ok(match to_send {
             ToSendSerialized::Broadcast(message) => {
-                let ids = self
-                    .all_parties
-                    .iter()
-                    .cloned()
-                    .filter(|id| id != &self.my_id)
-                    .collect();
                 let message = serialize_with_round(stage_num, &message);
-                ToSend::Broadcast { ids, message }
+                ToSend::Broadcast(message)
             }
             ToSendSerialized::Direct(messages) => ToSend::Direct(
                 messages
                     .into_iter()
                     .map(|(index, message)| {
-                        let id = self.all_parties[index.as_usize()].clone();
                         let message = serialize_with_round(stage_num, &message);
-                        (id, message)
+                        (index, message)
                     })
                     .collect(),
             ),
         })
     }
 
-    pub fn receive(&mut self, from: &I, message_bytes: &[u8]) -> Result<(), String> {
+    pub fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), String> {
         let stage_num = self.state.current_stage_num();
         let max_stages = self.state.stages_num();
         let (stage, message_bytes) = deserialize_with_round(message_bytes)
             .map_err(|err| format!("Error deserializing message: {}", err))?;
-        let index = self.all_parties.iter().position(|id| id == from).unwrap();
-        let index = PartyIdx::from_usize(index);
 
         if stage == stage_num + 1 && stage <= max_stages {
-            self.next_stage_messages.push((index, message_bytes));
+            self.next_stage_messages.push((from, message_bytes));
         } else if stage == stage_num {
-            self.state.receive_current_stage(index, &message_bytes)?;
+            self.state.receive_current_stage(from, &message_bytes)?;
         } else {
             return Err(format!(
                 "Unexpected message from round {stage} (current stage: {stage_num})"
@@ -295,10 +263,8 @@ where
         Ok(())
     }
 
-    pub fn result(&self) -> Result<<S::Result as ToTypedId<I>>::Output, String> {
-        self.state
-            .result()
-            .map(|result| result.to_typed_id(&self.all_parties, &self.my_id))
+    pub fn result(&self) -> Result<S::Result, String> {
+        self.state.result()
     }
 
     pub fn is_final_stage(&self) -> bool {
@@ -315,110 +281,5 @@ where
 
     pub fn has_cached_messages(&self) -> bool {
         !self.next_stage_messages.is_empty()
-    }
-}
-
-use alloc::collections::BTreeMap;
-
-use k256::ecdsa::VerifyingKey;
-
-use crate::protocols::common::{
-    KeyShareChangePublic, KeyShareChangeSecret, KeyShareChangeVectorized, KeySharePublic,
-    KeyShareSecret, KeyShareVectorized, PresigningData,
-};
-use crate::tools::group::{Point, Signature};
-use crate::SchemeParams;
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "KeyShareSecret<P>: Serialize, KeySharePublic<P>: Serialize"))]
-#[serde(bound(deserialize = "for <'x> KeyShareSecret<P>: Deserialize<'x>,
-    for <'x> KeySharePublic<P>: Deserialize<'x>"))]
-pub struct KeyShare<I: PartyId, P: SchemeParams> {
-    pub id: I,
-    pub secret: KeyShareSecret<P>,
-    pub public: BTreeMap<I, KeySharePublic<P>>,
-}
-
-impl<I: PartyId, P: SchemeParams> core::fmt::Debug for KeyShare<I, P> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(
-            f,
-            "KeyShare(vkey={})",
-            hex::encode(self.verifying_key_as_point().to_compressed_array())
-        )
-    }
-}
-
-impl<I: PartyId, P: SchemeParams> KeyShare<I, P> {
-    pub(crate) fn verifying_key_as_point(&self) -> Point {
-        self.public.values().map(|p| p.x).sum()
-    }
-
-    pub fn verifying_key(&self) -> VerifyingKey {
-        // TODO: need to ensure on creation of the share that the verifying key actually exists
-        // (that is, the sum of public keys does not evaluate to the infinity point)
-        self.verifying_key_as_point().to_verifying_key().unwrap()
-    }
-
-    pub fn parties(&self) -> Box<[I]> {
-        self.public.keys().cloned().collect()
-    }
-
-    pub fn party(&self) -> I {
-        self.id.clone()
-    }
-}
-
-/// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
-#[derive(Clone)]
-pub struct KeyShareChange<I: PartyId, P: SchemeParams> {
-    pub id: I,
-    #[allow(dead_code)]
-    pub(crate) secret: KeyShareChangeSecret<P>,
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
-    pub(crate) public: BTreeMap<I, KeyShareChangePublic<P>>,
-}
-
-impl<I: PartyId> ToTypedId<I> for PresigningData {
-    type Output = Self;
-    fn to_typed_id(self, _ids: &[I], _my_id: &I) -> Self::Output {
-        self
-    }
-}
-
-impl<I: PartyId> ToTypedId<I> for Signature {
-    type Output = Self;
-    fn to_typed_id(self, _ids: &[I], _my_id: &I) -> Self::Output {
-        self
-    }
-}
-
-impl<I: PartyId, P: SchemeParams> ToTypedId<I> for KeyShareChangeVectorized<P> {
-    type Output = KeyShareChange<I, P>;
-    fn to_typed_id(self, ids: &[I], my_id: &I) -> Self::Output {
-        KeyShareChange {
-            id: my_id.clone(),
-            secret: self.secret,
-            public: ids
-                .iter()
-                .cloned()
-                .zip(self.public.iter().cloned())
-                .collect(),
-        }
-    }
-}
-
-impl<I: PartyId, P: SchemeParams> ToTypedId<I> for KeyShareVectorized<P> {
-    type Output = KeyShare<I, P>;
-    fn to_typed_id(self, ids: &[I], my_id: &I) -> Self::Output {
-        KeyShare {
-            id: my_id.clone(),
-            secret: self.secret,
-            public: ids
-                .iter()
-                .cloned()
-                .zip(self.public.iter().cloned())
-                .collect(),
-        }
     }
 }
