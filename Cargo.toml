@@ -1,10 +1,10 @@
 [package]
-name = "cggmp21"
+name = "synedrion"
 version = "0.0.1"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Threshold signing library based on Canetti-Gennaro-Goldfeder-Makriyannis-Peled '21 scheme"
-repository = "https://github.com/entropyxyz/cggmp21"
+repository = "https://github.com/entropyxyz/synedrion"
 readme = "README.md"
 categories = ["cryptography", "no-std"]
 
