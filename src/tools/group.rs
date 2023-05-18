@@ -8,12 +8,12 @@ use alloc::vec::Vec;
 use core::default::Default;
 use core::ops::{Add, Mul, Sub};
 
+use digest::Digest;
 use k256::elliptic_curve::group::ff::PrimeField;
 use k256::elliptic_curve::{
     bigint::U256, // Note that this type is different from typenum::U256
     generic_array::typenum::marker_traits::Unsigned,
     generic_array::GenericArray,
-    hash2curve::{ExpandMsgXmd, GroupDigest},
     ops::Reduce,
     point::AffineCoordinates,
     scalar::IsHigh,
@@ -28,7 +28,6 @@ use k256::{
 };
 use rand_core::{CryptoRng, RngCore};
 use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize, Serializer};
-use sha2::{digest::Digest, Sha256};
 
 use crate::tools::hashing::{Chain, Hashable};
 
@@ -208,15 +207,6 @@ impl Point {
     pub fn x_coordinate(&self) -> Scalar {
         let bytes = self.0.to_affine().x();
         Scalar(<BackendScalar as Reduce<U256>>::reduce_bytes(&bytes))
-    }
-
-    /// Hashes arbitrary data with the given domain separation tag
-    /// into a valid EC point of the specified curve, using the algorithm described in the
-    /// [IETF hash-to-curve standard](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hash-to-curve/)
-    pub fn from_data(dst: &[u8], data: &[&[u8]]) -> Option<Self> {
-        Some(Self(
-            k256::Secp256k1::hash_from_bytes::<ExpandMsgXmd<Sha256>>(data, &[dst]).ok()?,
-        ))
     }
 
     pub fn to_verifying_key(self) -> Option<VerifyingKey> {
