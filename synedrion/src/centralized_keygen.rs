@@ -14,10 +14,20 @@ use crate::PartyIdx;
 pub fn make_key_shares<P: SchemeParams>(
     rng: &mut (impl RngCore + CryptoRng),
     num_parties: usize,
+    signing_key: Option<&k256::ecdsa::SigningKey>,
 ) -> Box<[KeyShare<P>]> {
-    let secrets = (0..num_parties)
+    let mut secrets = (0..num_parties)
         .map(|_| Scalar::random(rng))
         .collect::<Vec<_>>();
+
+    if let Some(sk) = signing_key {
+        // TODO: merge with `zero_sum_scalars()` into a function
+        // producing a vec of scalars with the given sum?
+        // TODO: does it panic for `num_parties = 1`?
+        let partial_sum: Scalar = secrets[1..].iter().sum();
+        secrets[0] = Scalar::from(sk.as_nonzero_scalar()) + (-partial_sum);
+    }
+
     let paillier_sks = (0..num_parties)
         .map(|_| SecretKeyPaillier::<P::Paillier>::random(rng))
         .collect::<Vec<_>>();
@@ -47,4 +57,20 @@ pub fn make_key_shares<P: SchemeParams>(
             public: public.clone(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use k256::ecdsa::SigningKey;
+    use rand_core::OsRng;
+
+    use super::make_key_shares;
+    use crate::TestSchemeParams;
+
+    #[test]
+    fn make_shares_for_siging_key() {
+        let sk = SigningKey::random(&mut OsRng);
+        let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, 3, Some(&sk));
+        assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
+    }
 }

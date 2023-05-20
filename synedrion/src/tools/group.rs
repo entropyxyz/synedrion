@@ -21,6 +21,7 @@ use k256::elliptic_curve::{
     subtle::CtOption,
     Field,
     FieldBytesSize,
+    NonZeroScalar,
 };
 use k256::{
     ecdsa::{RecoveryId, VerifyingKey},
@@ -119,6 +120,12 @@ impl Scalar {
         BackendScalar::from_repr_vartime(arr)
             .map(Self)
             .ok_or_else(|| "Invalid curve scalar representation".into())
+    }
+}
+
+impl From<&NonZeroScalar<k256::Secp256k1>> for Scalar {
+    fn from(val: &NonZeroScalar<k256::Secp256k1>) -> Self {
+        Self(*val.as_ref())
     }
 }
 

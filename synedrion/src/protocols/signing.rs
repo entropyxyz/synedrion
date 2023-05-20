@@ -89,7 +89,7 @@ mod tests {
     fn execute_signing() {
         let session_id = SessionId::random(&mut OsRng);
 
-        let key_shares = make_key_shares(&mut OsRng, 3);
+        let key_shares = make_key_shares(&mut OsRng, 3, None);
 
         // TODO: need to run the presigning protocol to get the consistent presigning data.
         // Repeats the code in the presigning test. Merge them somehow.

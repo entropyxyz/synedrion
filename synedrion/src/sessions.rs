@@ -159,7 +159,7 @@ mod tests {
         let parties = (0..num_parties)
             .map(PartyIdx::from_usize)
             .collect::<Vec<_>>();
-        let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties);
+        let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties, None);
         let key_shares = parties
             .iter()
             .zip(shares.into_vec().into_iter())

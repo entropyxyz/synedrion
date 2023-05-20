@@ -575,7 +575,7 @@ mod tests {
     fn execute_presigning() {
         let session_id = SessionId::random(&mut OsRng);
 
-        let key_shares = make_key_shares(&mut OsRng, 3);
+        let key_shares = make_key_shares(&mut OsRng, 3, None);
 
         let r1 = vec![
             Round1Part1::<TestSchemeParams>::new(
