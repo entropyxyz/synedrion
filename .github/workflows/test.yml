@@ -49,3 +49,30 @@ jobs:
           override: true
       - run: cargo install wasm-pack
       - run: cd synedrion-wasm && wasm-pack test --node
+
+  yarn-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+        target:
+          - wasm32-unknown-unknown
+
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
+          override: true
+      - run: cargo install wasm-pack
+      - run: make
+        working-directory: synedrion-wasm
+      - uses: borales/actions-yarn@v3.0.0
+        with:
+          cmd: --cwd synedrion-wasm/tests-js install
+      - uses: borales/actions-yarn@v3.0.0
+        with:
+          cmd: --cwd synedrion-wasm/tests-js test

@@ -1,0 +1,40 @@
+{
+  "name": "synedrion-tests",
+  "version": "0.0.0",
+  "description": "JS-side tests for synedrion-wasm",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "/dist"
+  ],
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watchAll",
+    "clean": "rm -rf dist build"
+  },
+  "collaborators": [
+    "Bogdan Opanchuk <bogdan@opanchuk.net>"
+  ],
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "synedrion": "file:../pkg"
+  },
+  "devDependencies": {
+    "@types/jest": "^27.0.3",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "^17.0.0",
+    "jest": "^27.4.5",
+    "ts-jest": "^27.1.1",
+    "typescript": "^4.5.4"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "transform": {
+      "node_modules/variables/.+\\.(j|t)sx?$": "ts-jest"
+    },
+    "transformIgnorePatterns": [
+      "node_modules/(?!variables/.*)"
+    ]
+  }
+}
