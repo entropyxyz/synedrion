@@ -21,7 +21,7 @@ use crate::sigma::mod_::ModProof;
 use crate::sigma::prm::PrmProof;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::{HoleVec, PartyIdx};
-use crate::tools::group::{zero_sum_scalars, Point, Scalar};
+use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
 
@@ -90,7 +90,7 @@ impl<P: SchemeParams> Round1<P> {
         let sch_secret_y = SchSecret::random(rng); // $\tau$
         let sch_commitment_y = SchCommitment::new(&sch_secret_y); // $B_i$
 
-        let xs_secret = zero_sum_scalars(rng, num_parties);
+        let xs_secret = Scalar::ZERO.split(rng, num_parties);
         let xs_public = xs_secret
             .iter()
             .cloned()

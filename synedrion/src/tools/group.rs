@@ -4,7 +4,7 @@
 
 use alloc::format;
 use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::default::Default;
 use core::ops::{Add, Mul, Sub};
 
@@ -46,6 +46,10 @@ impl Scalar {
 
     pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
         Self(BackendScalar::random(rng))
+    }
+
+    pub fn random_nonzero(rng: &mut (impl CryptoRng + RngCore)) -> Self {
+        Self(*NonZeroScalar::<k256::Secp256k1>::random(rng).as_ref())
     }
 
     pub fn random_in_range_j(rng: &mut (impl CryptoRng + RngCore)) -> Self {
@@ -121,6 +125,20 @@ impl Scalar {
             .map(Self)
             .ok_or_else(|| "Invalid curve scalar representation".into())
     }
+
+    pub(crate) fn split(&self, rng: &mut (impl CryptoRng + RngCore), num: usize) -> Vec<Scalar> {
+        // CHECK: do all the parts have to be non-zero?
+        if num == 1 {
+            return vec![*self];
+        }
+
+        let mut parts = (0..(num - 1))
+            .map(|_| Scalar::random(rng))
+            .collect::<Vec<_>>();
+        let partial_sum: Scalar = parts.iter().sum();
+        parts.push(self - &partial_sum);
+        parts
+    }
 }
 
 impl From<&NonZeroScalar<k256::Secp256k1>> for Scalar {
@@ -147,23 +165,6 @@ impl<'de> Deserialize<'de> for Scalar {
         serdect::array::deserialize_hex_or_bin(&mut buffer, deserializer)?;
         Self::try_from_be_array(&buffer).map_err(D::Error::custom)
     }
-}
-
-pub(crate) fn zero_sum_scalars(rng: &mut (impl CryptoRng + RngCore), size: usize) -> Vec<Scalar> {
-    // CHECK: do they all have to be non-zero?
-
-    debug_assert!(size > 1);
-
-    let mut scalars = (0..(size - 1))
-        .map(|_| Scalar::random(rng))
-        .collect::<Vec<_>>();
-    let sum: Scalar = scalars
-        .iter()
-        .cloned()
-        .reduce(|s1, s2| s1 + s2)
-        .unwrap_or(Scalar::ZERO);
-    scalars.push(-sum);
-    scalars
 }
 
 #[derive(Clone, Debug)]
@@ -324,6 +325,14 @@ impl Add<&Point> for &Point {
     }
 }
 
+impl Sub<Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn sub(self, other: Scalar) -> Scalar {
+        Scalar(self.0.sub(&(other.0)))
+    }
+}
+
 impl Sub<&Scalar> for &Scalar {
     type Output = Scalar;
 
@@ -337,6 +346,14 @@ impl Mul<&Scalar> for &Point {
 
     fn mul(self, other: &Scalar) -> Point {
         Point(self.0.mul(&(other.0)))
+    }
+}
+
+impl Mul<Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn mul(self, other: Scalar) -> Scalar {
+        Scalar(self.0.mul(&(other.0)))
     }
 }
 
@@ -357,6 +374,18 @@ impl core::iter::Sum for Scalar {
 impl<'a> core::iter::Sum<&'a Self> for Scalar {
     fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
         iter.cloned().sum()
+    }
+}
+
+impl core::iter::Product for Scalar {
+    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(core::ops::Mul::mul).unwrap_or(Self::ONE)
+    }
+}
+
+impl<'a> core::iter::Product<&'a Self> for Scalar {
+    fn product<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
+        iter.cloned().product()
     }
 }
 

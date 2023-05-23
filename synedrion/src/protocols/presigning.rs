@@ -431,8 +431,8 @@ impl<P: SchemeParams> Round for Round2<P> {
         let beta_sum: Scalar = self.betas.iter().sum();
         let beta_hat_sum: Scalar = self.betas_hat.iter().sum();
 
-        let delta = &self.secret_data.gamma * &self.secret_data.k + alpha_sum + beta_sum;
-        let chi = &self.context.key_share.secret.secret * &self.secret_data.k
+        let delta = self.secret_data.gamma * self.secret_data.k + alpha_sum + beta_sum;
+        let chi = self.context.key_share.secret.secret * self.secret_data.k
             + alpha_hat_sum
             + beta_hat_sum;
 

@@ -9,8 +9,11 @@ pub mod sessions;
 mod sigma;
 mod tools;
 
-pub use centralized_keygen::make_key_shares;
-pub use protocols::common::{KeyShare, SchemeParams, TestSchemeParams};
+pub use centralized_keygen::{make_key_shares, make_threshold_key_shares};
+pub use protocols::{
+    common::{KeyShare, SchemeParams, TestSchemeParams},
+    threshold::ThresholdKeyShare,
+};
 pub use tools::collections::PartyIdx;
 pub use tools::group::Signature;
 

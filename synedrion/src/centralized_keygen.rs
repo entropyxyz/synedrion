@@ -6,33 +6,22 @@ use rand_core::{CryptoRng, RngCore};
 use crate::paillier::uint::Zero;
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
 use crate::protocols::common::{KeyShare, KeySharePublic, KeyShareSecret, SchemeParams};
+use crate::protocols::threshold::ThresholdKeyShare;
 use crate::tools::group::{Point, Scalar};
+use crate::tools::sss::{shamir_evaluation_points, shamir_split};
 use crate::PartyIdx;
 
-/// Returns `num_parties` of random self-consistent key shares
-/// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
-pub fn make_key_shares<P: SchemeParams>(
+#[allow(clippy::type_complexity)]
+fn make_key_shares_from_secrets<P: SchemeParams>(
     rng: &mut (impl RngCore + CryptoRng),
-    num_parties: usize,
-    signing_key: Option<&k256::ecdsa::SigningKey>,
-) -> Box<[KeyShare<P>]> {
-    let mut secrets = (0..num_parties)
-        .map(|_| Scalar::random(rng))
-        .collect::<Vec<_>>();
-
-    if let Some(sk) = signing_key {
-        // TODO: merge with `zero_sum_scalars()` into a function
-        // producing a vec of scalars with the given sum?
-        // TODO: does it panic for `num_parties = 1`?
-        let partial_sum: Scalar = secrets[1..].iter().sum();
-        secrets[0] = Scalar::from(sk.as_nonzero_scalar()) + (-partial_sum);
-    }
-
-    let paillier_sks = (0..num_parties)
+    secrets: &[Scalar],
+) -> (Box<[KeyShareSecret<P>]>, Box<[KeySharePublic<P>]>) {
+    let paillier_sks = secrets
+        .iter()
         .map(|_| SecretKeyPaillier::<P::Paillier>::random(rng))
         .collect::<Vec<_>>();
 
-    let public: Box<[KeySharePublic<P>]> = secrets
+    let public = secrets
         .iter()
         .zip(paillier_sks.iter())
         .map(|(secret, sk)| KeySharePublic {
@@ -44,17 +33,78 @@ pub fn make_key_shares<P: SchemeParams>(
         })
         .collect();
 
-    (0..num_parties)
-        .zip(secrets.iter())
+    let secret = secrets
+        .iter()
         .zip(paillier_sks.iter())
-        .map(|((idx, secret), sk)| KeyShare {
+        .map(|(secret, sk)| KeyShareSecret {
+            secret: *secret,
+            sk: (*sk).clone(),
+            y: Scalar::random(rng), // TODO: currently unused in the protocol
+        })
+        .collect();
+
+    (secret, public)
+}
+
+/// Returns `num_parties` of random self-consistent key shares
+/// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
+pub fn make_key_shares<P: SchemeParams>(
+    rng: &mut (impl RngCore + CryptoRng),
+    num_parties: usize,
+    signing_key: Option<&k256::ecdsa::SigningKey>,
+) -> Box<[KeyShare<P>]> {
+    let secret = match signing_key {
+        None => Scalar::random(rng),
+        Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
+    };
+
+    let secrets = secret.split(rng, num_parties);
+
+    let (secret_shares, public_shares) = make_key_shares_from_secrets(rng, &secrets);
+
+    secret_shares
+        .into_vec()
+        .into_iter()
+        .enumerate()
+        .map(|(idx, secret)| KeyShare {
             index: PartyIdx::from_usize(idx),
-            secret: KeyShareSecret {
-                secret: *secret,
-                sk: (*sk).clone(),
-                y: Scalar::random(rng), // TODO: currently unused in the protocol
-            },
-            public: public.clone(),
+            secret,
+            public: public_shares.clone(),
+        })
+        .collect()
+}
+
+pub fn make_threshold_key_shares<P: SchemeParams>(
+    rng: &mut (impl RngCore + CryptoRng),
+    threshold: usize,
+    num_parties: usize,
+    signing_key: Option<&k256::ecdsa::SigningKey>,
+) -> Box<[ThresholdKeyShare<P>]> {
+    debug_assert!(threshold <= num_parties);
+
+    let secret = match signing_key {
+        None => Scalar::random(rng),
+        Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
+    };
+
+    let secrets = shamir_split(
+        rng,
+        &secret,
+        threshold,
+        &shamir_evaluation_points(num_parties),
+    );
+
+    let (secret_shares, public_shares) = make_key_shares_from_secrets(rng, &secrets);
+
+    secret_shares
+        .into_vec()
+        .into_iter()
+        .enumerate()
+        .map(|(idx, secret)| ThresholdKeyShare {
+            index: PartyIdx::from_usize(idx),
+            threshold: threshold as u32, // TODO: fallible conversion?
+            secret,
+            public: public_shares.clone(),
         })
         .collect()
 }
@@ -64,13 +114,31 @@ mod tests {
     use k256::ecdsa::SigningKey;
     use rand_core::OsRng;
 
-    use super::make_key_shares;
-    use crate::TestSchemeParams;
+    use super::{make_key_shares, make_threshold_key_shares};
+    use crate::tools::group::Scalar;
+    use crate::{PartyIdx, TestSchemeParams};
 
     #[test]
-    fn make_shares_for_siging_key() {
+    fn make_shares_for_signing_key() {
         let sk = SigningKey::random(&mut OsRng);
         let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, 3, Some(&sk));
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
+    }
+
+    #[test]
+    fn make_threshold_shares_for_signing_key() {
+        let sk = SigningKey::random(&mut OsRng);
+        let shares = make_threshold_key_shares::<TestSchemeParams>(&mut OsRng, 2, 3, Some(&sk));
+        assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
+
+        let nt_share0 = shares[0].to_key_share(&[PartyIdx::from_usize(2), PartyIdx::from_usize(0)]);
+        let nt_share1 = shares[2].to_key_share(&[PartyIdx::from_usize(2), PartyIdx::from_usize(0)]);
+
+        assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
+        assert_eq!(&nt_share1.verifying_key(), sk.verifying_key());
+        assert_eq!(
+            nt_share0.secret.secret + nt_share1.secret.secret,
+            Scalar::from(sk.as_nonzero_scalar())
+        );
     }
 }

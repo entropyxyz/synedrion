@@ -19,7 +19,7 @@ pub struct Round1 {
 impl Round1 {
     pub fn new(presigning: &PresigningData, message: &Scalar, verifying_key: &Point) -> Self {
         let r = presigning.big_r.x_coordinate();
-        let s_part = &presigning.k * message + &r * &presigning.chi;
+        let s_part = &presigning.k * message + r * presigning.chi;
         Self {
             r,
             s_part,

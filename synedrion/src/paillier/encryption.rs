@@ -203,7 +203,7 @@ mod tests {
         let new_ciphertext = ciphertext.homomorphic_mul(&pk, &coeff);
         let new_plaintext = new_ciphertext.decrypt(&sk);
 
-        assert_eq!(&plaintext * &coeff, new_plaintext);
+        assert_eq!(plaintext * coeff, new_plaintext);
     }
 
     #[test]
@@ -239,6 +239,6 @@ mod tests {
             .homomorphic_add(&pk, &ciphertext3);
 
         let plaintext_back = result.decrypt(&sk);
-        assert_eq!(&plaintext1 * &plaintext2 + plaintext3, plaintext_back);
+        assert_eq!(plaintext1 * plaintext2 + plaintext3, plaintext_back);
     }
 }
