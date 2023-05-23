@@ -7,7 +7,7 @@ use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    KeyShareChange, KeyShareChangePublic, KeyShareChangeSecret, SchemeParams, SessionId,
+    KeyShareChange, KeyShareChangePublic, KeyShareChangeSecret, PartyIdx, SchemeParams, SessionId,
 };
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{
@@ -20,7 +20,7 @@ use crate::sigma::fac::FacProof;
 use crate::sigma::mod_::ModProof;
 use crate::sigma::prm::PrmProof;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
-use crate::tools::collections::{HoleVec, PartyIdx};
+use crate::tools::collections::HoleVec;
 use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
@@ -222,7 +222,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        if &msg.data.hash() != self.hashes.get(from).unwrap() {
+        if &msg.data.hash() != self.hashes.get(from.as_usize()).unwrap() {
             return Err("Invalid hash".to_string());
         }
 
@@ -329,14 +329,14 @@ impl<P: SchemeParams> Round for Round3<P> {
         for (party_idx, data) in self.datas.enumerate() {
             let fac_proof = FacProof::random(rng, &self.secret_data.paillier_sk, &aux);
 
-            let x_secret = self.secret_data.xs_secret[party_idx.as_usize()];
-            let x_public = self.data.xs_public[party_idx.as_usize()];
+            let x_secret = self.secret_data.xs_secret[party_idx];
+            let x_public = self.data.xs_public[party_idx];
             let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &x_secret);
 
             let sch_proof_x = SchProof::new(
-                &self.secret_data.sch_secrets_x[party_idx.as_usize()],
+                &self.secret_data.sch_secrets_x[party_idx],
                 &x_secret,
-                &self.data.sch_commitments_x[party_idx.as_usize()],
+                &self.data.sch_commitments_x[party_idx],
                 &x_public,
                 &aux,
             );
@@ -349,7 +349,7 @@ impl<P: SchemeParams> Round for Round3<P> {
                 sch_proof_x,
             };
 
-            dms.push((party_idx, Round3Direct { data2 }));
+            dms.push((PartyIdx::from_usize(party_idx), Round3Direct { data2 }));
         }
 
         ToSendTyped::Direct(dms)
@@ -360,7 +360,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        let sender_data = &self.datas.get(from).unwrap();
+        let sender_data = &self.datas.get(from.as_usize()).unwrap();
 
         let x_secret = msg
             .data2
@@ -451,9 +451,8 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Round1;
-    use crate::protocols::common::{SessionId, TestSchemeParams};
+    use crate::protocols::common::{PartyIdx, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
-    use crate::tools::collections::PartyIdx;
     use crate::tools::group::Scalar;
 
     #[test]

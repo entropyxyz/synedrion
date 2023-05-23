@@ -4,8 +4,7 @@ use alloc::vec::Vec;
 use k256::ecdsa::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, KeySharePublic, KeyShareSecret};
-use crate::tools::collections::PartyIdx;
+use super::common::{KeyShare, KeySharePublic, KeyShareSecret, PartyIdx};
 use crate::tools::group::Point;
 use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points};
 use crate::SchemeParams;

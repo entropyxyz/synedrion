@@ -7,10 +7,10 @@ use core::marker::PhantomData;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShareSeed, SchemeParams, SessionId};
+use super::common::{KeyShareSeed, PartyIdx, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
-use crate::tools::collections::{HoleVec, PartyIdx};
+use crate::tools::collections::HoleVec;
 use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash};
 use crate::tools::random::random_bits;
@@ -159,7 +159,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        if &msg.data.hash() != self.hashes.get(from).unwrap() {
+        if &msg.data.hash() != self.hashes.get(from.as_usize()).unwrap() {
             return Err("Invalid hash".to_string());
         }
 
@@ -227,7 +227,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, Self::Error> {
-        let party_data = self.datas.get(from).unwrap();
+        let party_data = self.datas.get(from.as_usize()).unwrap();
 
         let aux = (&party_data.session_id, &party_data.party_idx, &self.rid);
         if !msg

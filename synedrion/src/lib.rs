@@ -11,10 +11,9 @@ mod tools;
 
 pub use centralized_keygen::{make_key_shares, make_threshold_key_shares};
 pub use protocols::{
-    common::{KeyShare, SchemeParams, TestSchemeParams},
+    common::{KeyShare, PartyIdx, SchemeParams, TestSchemeParams},
     threshold::ThresholdKeyShare,
 };
-pub use tools::collections::PartyIdx;
 pub use tools::group::Signature;
 
 pub use k256;

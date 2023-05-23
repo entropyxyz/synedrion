@@ -4,9 +4,8 @@ use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
 use crate::protocols::auxiliary::{Round1, Round2, Round3};
-use crate::protocols::common::{KeyShareChange, SchemeParams, SessionId};
+use crate::protocols::common::{KeyShareChange, PartyIdx, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
-use crate::tools::collections::PartyIdx;
 
 #[derive(Clone)]
 enum AuxiliaryStage<P: SchemeParams> {

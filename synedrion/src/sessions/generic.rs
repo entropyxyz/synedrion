@@ -6,9 +6,9 @@ use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use crate::protocols::common::SessionId;
+use crate::protocols::common::{PartyIdx, SessionId};
 use crate::protocols::generic::{Round, ToSendTyped};
-use crate::tools::collections::{HoleVecAccum, PartyIdx};
+use crate::tools::collections::HoleVecAccum;
 
 /// Serialized messages without the stage number specified.
 pub enum ToSendSerialized {
@@ -88,7 +88,7 @@ where
             ),
         };
 
-        let accum = HoleVecAccum::<R::Payload>::new(num_parties, index);
+        let accum = HoleVecAccum::<R::Payload>::new(num_parties, index.as_usize());
         self.accum = Some(accum);
         Ok(to_send)
     }
@@ -102,7 +102,7 @@ where
         let message: R::Message = deserialize_message(message_bytes)
             .map_err(|err| format!("Error deserializing: {}", err))?;
 
-        let slot = match accum.get_mut(from) {
+        let slot = match accum.get_mut(from.as_usize()) {
             Some(slot) => slot,
             None => return Err("Invalid `from` ID".into()),
         };

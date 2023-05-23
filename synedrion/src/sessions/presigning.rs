@@ -3,10 +3,9 @@ use alloc::string::String;
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
-use crate::protocols::common::{KeyShare, PresigningData, SchemeParams, SessionId};
+use crate::protocols::common::{KeyShare, PartyIdx, PresigningData, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::protocols::presigning::{Round1Part1, Round1Part2, Round2, Round3};
-use crate::tools::collections::PartyIdx;
 
 #[allow(clippy::large_enum_variant)] // TODO: should we box them?
 #[derive(Clone)]

@@ -5,7 +5,6 @@ use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
-use crate::tools::collections::PartyIdx;
 use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hashable};
 
@@ -38,6 +37,27 @@ impl SessionId {
 impl Hashable for SessionId {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain_constant_sized_bytes(&self.0)
+    }
+}
+
+// TODO: should it be here? HoleVecs can just function with usizes I think.
+// Maybe it's better moved to `protocols/common`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PartyIdx(u32);
+
+impl PartyIdx {
+    pub fn as_usize(self) -> usize {
+        self.0.try_into().unwrap()
+    }
+
+    pub fn from_usize(val: usize) -> Self {
+        Self(val.try_into().unwrap())
+    }
+}
+
+impl Hashable for PartyIdx {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.0)
     }
 }
 

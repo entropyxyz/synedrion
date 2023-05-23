@@ -3,65 +3,34 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::tools::hashing::{Chain, Hashable};
-
-// TODO: should it be here? HoleVecs can just function with usizes I think.
-// Maybe it's better moved to `protocols/common`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PartyIdx(u32);
-
-impl PartyIdx {
-    pub fn as_usize(self) -> usize {
-        self.0.try_into().unwrap()
-    }
-
-    pub fn from_usize(val: usize) -> Self {
-        Self(val.try_into().unwrap())
-    }
-
-    fn inc(self) -> Self {
-        Self(self.0 + 1)
-    }
-
-    fn dec(self) -> Self {
-        Self(self.0 - 1)
-    }
-}
-
-impl Hashable for PartyIdx {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct HoleVecAccum<T: Clone> {
-    hole_at: PartyIdx,
+    hole_at: usize,
     elems: Vec<Option<T>>,
 }
 
 impl<T: Clone> HoleVecAccum<T> {
-    pub fn new(length: usize, hole_at: PartyIdx) -> Self {
-        debug_assert!(length > 0 && hole_at.0 < length as u32);
+    pub fn new(length: usize, hole_at: usize) -> Self {
+        debug_assert!(length > 0 && hole_at < length);
         Self {
             hole_at,
             elems: vec![None; length - 1],
         }
     }
 
-    pub fn get_mut(&mut self, index: PartyIdx) -> Option<&mut Option<T>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Option<T>> {
         if index == self.hole_at {
             return None;
         }
         let index = if index > self.hole_at {
-            index.dec()
+            index - 1
         } else {
             index
         };
-        self.elems.get_mut(index.as_usize())
+        self.elems.get_mut(index)
     }
 
-    pub fn insert(&mut self, index: PartyIdx, value: T) -> Option<()> {
+    pub fn insert(&mut self, index: usize, value: T) -> Option<()> {
         let slot = self.get_mut(index)?;
         if slot.is_some() {
             return None;
@@ -94,33 +63,33 @@ impl<T: Clone> HoleVecAccum<T> {
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct HoleRange {
     length: usize,
-    position: PartyIdx,
-    hole_at: PartyIdx,
+    position: usize,
+    hole_at: usize,
 }
 
 impl HoleRange {
-    pub fn new(length: usize, hole_at: PartyIdx) -> Self {
-        debug_assert!(length > 0 && hole_at.as_usize() < length);
+    pub fn new(length: usize, hole_at: usize) -> Self {
+        debug_assert!(length > 0 && hole_at < length);
         Self {
             length,
             hole_at,
-            position: PartyIdx(0),
+            position: 0,
         }
     }
 
-    fn next(&mut self) -> Option<PartyIdx> {
-        if self.position.as_usize() == self.length {
+    fn next(&mut self) -> Option<usize> {
+        if self.position == self.length {
             None
         } else {
             let to_produce = self.position;
-            self.position = self.position.inc();
+            self.position += 1;
             Some(to_produce)
         }
     }
 }
 
 impl Iterator for HoleRange {
-    type Item = PartyIdx;
+    type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.next() {
@@ -136,14 +105,16 @@ impl Iterator for HoleRange {
     }
 }
 
+// TODO: how will serializing usize work on 32-bit platforms?
+// actually, why do we even need to serialize this?
 #[derive(Serialize, Deserialize)]
 pub(crate) struct HoleVec<T> {
     elems: Vec<T>,
-    hole_at: PartyIdx,
+    hole_at: usize,
 }
 
 impl<T> HoleVec<T> {
-    pub fn hole_at(&self) -> PartyIdx {
+    pub fn hole_at(&self) -> usize {
         self.hole_at
     }
 
@@ -151,16 +122,16 @@ impl<T> HoleVec<T> {
         self.elems.len() + 1
     }
 
-    pub fn get(&self, index: PartyIdx) -> Option<&T> {
+    pub fn get(&self, index: usize) -> Option<&T> {
         if index == self.hole_at {
             return None;
         }
         let index = if index > self.hole_at {
-            index.dec()
+            index - 1
         } else {
             index
         };
-        self.elems.get(index.as_usize())
+        self.elems.get(index)
     }
 
     pub fn range(&self) -> HoleRange {
@@ -177,7 +148,7 @@ impl<T> HoleVec<T> {
 
     pub fn into_vec(self, elem: T) -> Vec<T> {
         let mut result = self.elems;
-        result.insert(self.hole_at.as_usize(), elem);
+        result.insert(self.hole_at, elem);
         result
     }
 

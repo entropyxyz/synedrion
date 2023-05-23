@@ -3,9 +3,10 @@ use alloc::string::String;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
+use super::common::PartyIdx;
 use super::generic::{BroadcastRound, Round, ToSendTyped};
 use crate::protocols::common::PresigningData;
-use crate::tools::collections::{HoleVec, PartyIdx};
+use crate::tools::collections::HoleVec;
 use crate::tools::group::{Point, Scalar, Signature};
 
 #[derive(Clone)]
@@ -79,10 +80,9 @@ mod tests {
 
     use super::Round1;
     use crate::centralized_keygen::make_key_shares;
-    use crate::protocols::common::{SessionId, TestSchemeParams};
+    use crate::protocols::common::{PartyIdx, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::protocols::presigning;
-    use crate::tools::collections::PartyIdx;
     use crate::tools::group::Scalar;
 
     #[test]

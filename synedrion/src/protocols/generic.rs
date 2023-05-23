@@ -5,7 +5,8 @@ use core::fmt::Display;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use crate::tools::collections::{HoleVec, PartyIdx};
+use super::common::PartyIdx;
+use crate::tools::collections::HoleVec;
 
 pub(crate) enum ToSendTyped<Message> {
     Broadcast(Message),
@@ -160,7 +161,7 @@ pub(crate) mod tests {
         // Collect outgoing messages
 
         let mut accums = (0..init.len())
-            .map(|idx| HoleVecAccum::<R::Payload>::new(init.len(), PartyIdx::from_usize(idx)))
+            .map(|idx| HoleVecAccum::<R::Payload>::new(init.len(), idx))
             .collect::<Vec<_>>();
         // `to, from, message`
         let mut all_messages = Vec::<(PartyIdx, PartyIdx, R::Message)>::new();
@@ -171,8 +172,12 @@ pub(crate) mod tests {
 
             match to_send {
                 ToSendTyped::Broadcast(message) => {
-                    for idx_to in HoleRange::new(init.len(), idx_from) {
-                        all_messages.push((idx_to, idx_from, message.clone()));
+                    for idx_to in HoleRange::new(init.len(), idx_from.as_usize()) {
+                        all_messages.push((
+                            PartyIdx::from_usize(idx_to),
+                            idx_from,
+                            message.clone(),
+                        ));
                     }
                 }
                 ToSendTyped::Direct(messages) => {
@@ -188,7 +193,9 @@ pub(crate) mod tests {
         for (idx_to, idx_from, message) in all_messages.into_iter() {
             let round = &init[idx_to.as_usize()];
             let accum = accums.get_mut(idx_to.as_usize()).unwrap();
-            let slot = accum.get_mut(idx_from).ok_or(StepError::InvalidIndex)?;
+            let slot = accum
+                .get_mut(idx_from.as_usize())
+                .ok_or(StepError::InvalidIndex)?;
             if slot.is_some() {
                 return Err(StepError::RepeatingMessage);
             }

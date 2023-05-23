@@ -3,9 +3,8 @@ use alloc::string::String;
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
-use crate::protocols::common::{PresigningData, SessionId};
+use crate::protocols::common::{PartyIdx, PresigningData, SessionId};
 use crate::protocols::signing::Round1;
-use crate::tools::collections::PartyIdx;
 use crate::tools::group::{Point, Scalar, Signature};
 
 #[derive(Clone)]

@@ -4,13 +4,13 @@ use alloc::vec::Vec;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, PresigningData, SchemeParams, SessionId};
+use super::common::{KeyShare, PartyIdx, PresigningData, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
 use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;
-use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum, PartyIdx};
+use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::group::{Point, Scalar};
 
 #[derive(Clone)]
@@ -146,7 +146,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     type NextRound = Round2<P>;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
+        let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.session_id, &self.context.party_idx);
         let k_ciphertext = &self.k_ciphertexts[self.context.party_idx.as_usize()];
         let pk = self.context.key_share.secret.sk.public_key();
@@ -160,7 +160,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
                     k_ciphertext,
                     &aux,
                 );
-                (idx, Round1Direct(proof))
+                (PartyIdx::from_usize(idx), Round1Direct(proof))
             })
             .collect();
         ToSendTyped::Direct(messages)
@@ -225,10 +225,19 @@ pub struct Round2<P: SchemeParams> {
 
 impl<P: SchemeParams> Round2<P> {
     fn new(rng: &mut (impl RngCore + CryptoRng), round1: Round1Part2<P>) -> Self {
-        let mut betas = HoleVecAccum::new(round1.context.num_parties, round1.context.party_idx);
-        let mut betas_hat = HoleVecAccum::new(round1.context.num_parties, round1.context.party_idx);
+        let mut betas = HoleVecAccum::new(
+            round1.context.num_parties,
+            round1.context.party_idx.as_usize(),
+        );
+        let mut betas_hat = HoleVecAccum::new(
+            round1.context.num_parties,
+            round1.context.party_idx.as_usize(),
+        );
 
-        let range = HoleRange::new(round1.context.num_parties, round1.context.party_idx);
+        let range = HoleRange::new(
+            round1.context.num_parties,
+            round1.context.party_idx.as_usize(),
+        );
 
         range.for_each(|idx| {
             let beta = Scalar::random_in_range_j(rng);
@@ -265,7 +274,7 @@ impl<P: SchemeParams> Round for Round2<P> {
     type NextRound = Round3<P>;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
+        let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.session_id, &self.context.party_idx);
 
         let gamma = self.secret_data.gamma.mul_by_generator();
@@ -275,7 +284,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let messages = range
             .map(|idx| {
-                let target_pk = &self.context.key_share.public[idx.as_usize()].paillier_pk;
+                let target_pk = &self.context.key_share.public[idx].paillier_pk;
 
                 let r = target_pk.random_group_elem_raw(rng);
                 let s = target_pk.random_group_elem_raw(rng);
@@ -285,7 +294,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                 let beta = self.betas.get(idx).unwrap();
                 let beta_hat = self.betas_hat.get(idx).unwrap();
 
-                let d = self.k_ciphertexts[idx.as_usize()]
+                let d = self.k_ciphertexts[idx]
                     .homomorphic_mul(target_pk, &self.secret_data.gamma)
                     .homomorphic_add(
                         target_pk,
@@ -293,7 +302,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                     );
                 let f = Ciphertext::new_with_randomizer(pk, beta, &r);
 
-                let d_hat = self.k_ciphertexts[idx.as_usize()]
+                let d_hat = self.k_ciphertexts[idx]
                     .homomorphic_mul(target_pk, &self.context.key_share.secret.secret)
                     .homomorphic_add(
                         target_pk,
@@ -309,7 +318,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                     &r,
                     target_pk,
                     pk,
-                    &self.k_ciphertexts[idx.as_usize()],
+                    &self.k_ciphertexts[idx],
                     &d,
                     &f,
                     &gamma,
@@ -324,7 +333,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                     &r_hat,
                     target_pk,
                     pk,
-                    &self.k_ciphertexts[idx.as_usize()],
+                    &self.k_ciphertexts[idx],
                     &d_hat,
                     &f_hat,
                     &big_x,
@@ -353,7 +362,7 @@ impl<P: SchemeParams> Round for Round2<P> {
                     psi_hat_prime,
                 };
 
-                (idx, msg)
+                (PartyIdx::from_usize(idx), msg)
             })
             .collect();
         ToSendTyped::Direct(messages)
@@ -480,7 +489,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type NextRound = PresigningData;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(self.context.num_parties, self.context.party_idx);
+        let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.session_id, &self.context.party_idx);
         let pk = &self.context.key_share.secret.sk.public_key();
 
@@ -501,7 +510,7 @@ impl<P: SchemeParams> Round for Round3<P> {
                     big_delta: self.big_delta,
                     psi_hat_pprime,
                 };
-                (idx, message)
+                (PartyIdx::from_usize(idx), message)
             })
             .collect();
 
@@ -567,9 +576,8 @@ mod tests {
 
     use super::Round1Part1;
     use crate::centralized_keygen::make_key_shares;
-    use crate::protocols::common::{SessionId, TestSchemeParams};
+    use crate::protocols::common::{PartyIdx, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
-    use crate::tools::collections::PartyIdx;
 
     #[test]
     fn execute_presigning() {
