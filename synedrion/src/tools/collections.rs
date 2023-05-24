@@ -12,6 +12,8 @@ pub(crate) struct HoleVecAccum<T: Clone> {
 impl<T: Clone> HoleVecAccum<T> {
     pub fn new(length: usize, hole_at: usize) -> Self {
         debug_assert!(length > 0 && hole_at < length);
+        // We need this to be able to create HoleVec out of HoleVecAccum.
+        debug_assert!(<usize as TryInto<u16>>::try_into(length).is_ok());
         Self {
             hole_at,
             elems: vec![None; length - 1],
@@ -51,7 +53,7 @@ impl<T: Clone> HoleVecAccum<T> {
                 .map(|value| value.unwrap()) // TODO: return Self if there is an error
                 .collect();
             Ok(HoleVec {
-                hole_at: self.hole_at,
+                hole_at: self.hole_at.try_into().unwrap(),
                 elems,
             })
         } else {
@@ -105,16 +107,18 @@ impl Iterator for HoleRange {
     }
 }
 
-// TODO: how will serializing usize work on 32-bit platforms?
 #[derive(Serialize, Deserialize)]
 pub(crate) struct HoleVec<T> {
     elems: Vec<T>,
-    hole_at: usize,
+    // `u16` because we need it to be serialized uniformly across different platforms,
+    // and we don't expect to ever have more than 2^16 shares
+    // (which is what this collection is used for).
+    hole_at: u16,
 }
 
 impl<T> HoleVec<T> {
     pub fn hole_at(&self) -> usize {
-        self.hole_at
+        self.hole_at.try_into().unwrap()
     }
 
     pub fn len(&self) -> usize {
@@ -122,10 +126,10 @@ impl<T> HoleVec<T> {
     }
 
     pub fn get(&self, index: usize) -> Option<&T> {
-        if index == self.hole_at {
+        if index == self.hole_at() {
             return None;
         }
-        let index = if index > self.hole_at {
+        let index = if index > self.hole_at() {
             index - 1
         } else {
             index
@@ -146,8 +150,9 @@ impl<T> HoleVec<T> {
     }
 
     pub fn into_vec(self, elem: T) -> Vec<T> {
+        let hole_at = self.hole_at();
         let mut result = self.elems;
-        result.insert(self.hole_at, elem);
+        result.insert(hole_at, elem);
         result
     }
 
