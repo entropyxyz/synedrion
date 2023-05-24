@@ -22,7 +22,7 @@ use crate::sigma::prm::PrmProof;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
 use crate::tools::group::{Point, Scalar};
-use crate::tools::hashing::{Chain, Hash};
+use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 
 #[derive(Clone)]
@@ -57,7 +57,7 @@ struct SecretData<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FullData<P> {
-    fn hash(&self) -> Box<[u8]> {
+    fn hash(&self) -> HashOutput {
         Hash::new_with_dst(b"Auxiliary")
             .chain(&self.session_id)
             .chain(&self.party_idx)
@@ -71,7 +71,7 @@ impl<P: SchemeParams> FullData<P> {
             .chain(&self.prm_proof)
             .chain(&self.rho_bits)
             .chain(&self.u_bits)
-            .finalize_boxed()
+            .finalize()
     }
 }
 
@@ -152,12 +152,18 @@ impl<P: SchemeParams> Round1<P> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Round1Bcast {
-    hash: Box<[u8]>, // `V_j`
+    hash: HashOutput, // `V_j`
+}
+
+impl Hashable for Round1Bcast {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.hash)
+    }
 }
 
 impl<P: SchemeParams> Round for Round1<P> {
     type Error = String;
-    type Payload = Box<[u8]>;
+    type Payload = HashOutput;
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
 
@@ -196,7 +202,7 @@ impl<P: SchemeParams> NeedsConsensus for Round1<P> {}
 pub struct Round2<P: SchemeParams> {
     data: FullData<P>,
     secret_data: SecretData<P>,
-    hashes: HoleVec<Box<[u8]>>, // V_j
+    hashes: HoleVec<HashOutput>, // V_j
 }
 
 #[derive(Clone, Serialize, Deserialize)]

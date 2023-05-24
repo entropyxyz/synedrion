@@ -106,7 +106,6 @@ impl Iterator for HoleRange {
 }
 
 // TODO: how will serializing usize work on 32-bit platforms?
-// actually, why do we even need to serialize this?
 #[derive(Serialize, Deserialize)]
 pub(crate) struct HoleVec<T> {
     elems: Vec<T>,
@@ -152,6 +151,7 @@ impl<T> HoleVec<T> {
         result
     }
 
+    // TODO: can it take a reference?
     pub fn map<F, V>(self, f: F) -> HoleVec<V>
     where
         F: FnMut(T) -> V,

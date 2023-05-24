@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
 use crate::tools::collections::HoleVec;
+use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 
 pub(crate) enum ToSendTyped<Message> {
     Broadcast(Message),
@@ -49,6 +50,7 @@ impl<R: NeedsConsensus> PreConsensusSubround<R> {}
 impl<R: NeedsConsensus> Round for PreConsensusSubround<R>
 where
     R::NextRound: Round,
+    R::Message: Hashable,
 {
     type Error = R::Error;
     type Message = R::Message;
@@ -74,19 +76,30 @@ where
     ) -> Result<Self::NextRound, Self::Error> {
         let (payloads, messages) = payloads.unzip();
         let next_round = self.0.finalize(rng, payloads)?;
+        let broadcast_hashes = messages.map(|msg| {
+            Hash::new_with_dst(b"BroadcastConsensus")
+                .chain(&msg)
+                .finalize()
+        });
         Ok(ConsensusSubround {
             next_round,
-            broadcasts: messages,
+            broadcast_hashes,
         })
     }
 }
 
-impl<R: NeedsConsensus> BroadcastRound for PreConsensusSubround<R> where R::NextRound: Round {}
+impl<R: NeedsConsensus> BroadcastRound for PreConsensusSubround<R> where
+    PreConsensusSubround<R>: Round
+{
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct BroadcastHashes(HoleVec<HashOutput>);
 
 #[derive(Clone)]
 pub(crate) struct ConsensusSubround<R: Round> {
     next_round: R::NextRound,
-    pub(crate) broadcasts: HoleVec<R::Message>,
+    broadcast_hashes: HoleVec<HashOutput>,
 }
 
 impl<R: NeedsConsensus> Round for ConsensusSubround<R>
@@ -94,12 +107,12 @@ where
     <R as Round>::Message: PartialEq,
 {
     type Error = String;
-    type Message = HoleVec<R::Message>;
+    type Message = BroadcastHashes;
     type Payload = ();
     type NextRound = R::NextRound;
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
-        ToSendTyped::Broadcast(self.broadcasts.clone())
+        ToSendTyped::Broadcast(BroadcastHashes(self.broadcast_hashes.clone()))
     }
     fn verify_received(
         &self,
@@ -109,12 +122,12 @@ where
         // CHECK: should we save our own broadcast,
         // and check that the other nodes received it?
         // Or is this excessive since they are signed by us anyway?
-        if msg.len() != self.broadcasts.len() {
+        if msg.0.len() != self.broadcast_hashes.len() {
             return Err("Unexpected number of broadcasts received".into());
         }
-        for (idx, broadcast) in msg.range().zip(msg.iter()) {
+        for (idx, broadcast) in msg.0.range().zip(msg.0.iter()) {
             if !self
-                .broadcasts
+                .broadcast_hashes
                 .get(idx)
                 .map(|bc| bc == broadcast)
                 .unwrap_or(true)
@@ -134,10 +147,7 @@ where
     }
 }
 
-impl<R: NeedsConsensus> BroadcastRound for ConsensusSubround<R> where
-    <R as Round>::Message: PartialEq
-{
-}
+impl<R: NeedsConsensus> BroadcastRound for ConsensusSubround<R> where ConsensusSubround<R>: Round {}
 
 #[cfg(test)]
 pub(crate) mod tests {

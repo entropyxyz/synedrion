@@ -10,6 +10,7 @@ use super::uint::{
     UintModLike,
 };
 use crate::tools::group::Scalar;
+use crate::tools::hashing::{Chain, Hashable};
 
 /// Paillier ciphertext.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -158,6 +159,12 @@ impl<P: PaillierParams> Ciphertext<P> {
             ciphertext: (lhs_mod * rhs_mod).retrieve(),
             phantom: PhantomData,
         }
+    }
+}
+
+impl<P: PaillierParams> Hashable for Ciphertext<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.ciphertext)
     }
 }
 

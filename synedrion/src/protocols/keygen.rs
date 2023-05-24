@@ -12,7 +12,7 @@ use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
 use crate::tools::group::{Point, Scalar};
-use crate::tools::hashing::{Chain, Hash};
+use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,7 +27,7 @@ pub struct FullData {
 }
 
 impl FullData {
-    fn hash(&self) -> Scalar {
+    fn hash(&self) -> HashOutput {
         Hash::new_with_dst(b"Keygen")
             .chain(&self.session_id)
             .chain(&self.party_idx)
@@ -35,7 +35,7 @@ impl FullData {
             .chain(&self.public)
             .chain(&self.commitment)
             .chain(&self.u)
-            .finalize_to_scalar()
+            .finalize()
     }
 }
 
@@ -49,7 +49,13 @@ struct SecretData {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Round1Bcast {
-    hash: Scalar,
+    hash: HashOutput,
+}
+
+impl Hashable for Round1Bcast {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.hash)
+    }
 }
 
 #[derive(Clone)]
@@ -97,7 +103,7 @@ impl<P: SchemeParams> Round1<P> {
 
 impl<P: SchemeParams> Round for Round1<P> {
     type Error = String;
-    type Payload = Scalar;
+    type Payload = HashOutput;
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
 
@@ -134,7 +140,7 @@ impl<P: SchemeParams> NeedsConsensus for Round1<P> {}
 pub struct Round2<P: SchemeParams> {
     secret_data: SecretData,
     data: FullData,
-    hashes: HoleVec<Scalar>, // V_j
+    hashes: HoleVec<HashOutput>, // V_j
     phantom: PhantomData<P>,
 }
 

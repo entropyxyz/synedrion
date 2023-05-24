@@ -2,7 +2,8 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use digest::{Digest, ExtendableOutput, Output, Update, XofReader};
+use digest::{Digest, ExtendableOutput, Update, XofReader};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::Shake256;
 
@@ -48,6 +49,32 @@ impl Chain for Hash {
     }
 }
 
+// TODO: this may be more widely applicable than just in HashOutput
+fn serdect_serialize<S, T>(val: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+    T: AsRef<[u8]>,
+{
+    serdect::array::serialize_hex_lower_or_bin(val, serializer)
+}
+
+fn serdect_deserialize<'de, D, T, const N: usize>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: From<[u8; N]>,
+{
+    let mut buffer = [0; N];
+    serdect::array::deserialize_hex_or_bin(&mut buffer, deserializer)?;
+    Ok(buffer.into())
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct HashOutput(
+    #[serde(serialize_with = "serdect_serialize")]
+    #[serde(deserialize_with = "serdect_deserialize")]
+    [u8; 32], // Length of the Sha256 output. Unfortunately we can't get it in compile-time.
+);
+
 impl Hash {
     fn new() -> Self {
         Self(Sha256::new())
@@ -57,16 +84,8 @@ impl Hash {
         Self::new().chain_bytes(dst)
     }
 
-    pub fn finalize(self) -> Output<Sha256> {
-        self.0.finalize()
-    }
-
-    pub fn finalize_boxed(self) -> Box<[u8]> {
-        // TODO: probably can replace with a fixed-size array later;
-        // for now it's easier to handle a Box.
-        let arr = self.finalize();
-        let bytes: &[u8] = arr.as_ref();
-        bytes.into()
+    pub(crate) fn finalize(self) -> HashOutput {
+        HashOutput(self.0.finalize().into())
     }
 
     pub fn finalize_to_scalar(self) -> Scalar {
@@ -178,5 +197,11 @@ impl<K: Hashable, V: Hashable> Hashable for BTreeMap<K, V> {
             digest = digest.chain(value);
         }
         digest
+    }
+}
+
+impl Hashable for HashOutput {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(&self.0)
     }
 }

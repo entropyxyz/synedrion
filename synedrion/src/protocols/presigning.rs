@@ -12,6 +12,7 @@ use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::group::{Point, Scalar};
+use crate::tools::hashing::{Chain, Hashable};
 
 #[derive(Clone)]
 pub struct PublicContext<P: SchemeParams> {
@@ -81,6 +82,12 @@ impl<P: SchemeParams> Round1Part1<P> {
 pub struct Round1Bcast<P: PaillierParams> {
     k_ciphertext: Ciphertext<P>,
     g_ciphertext: Ciphertext<P>,
+}
+
+impl<P: PaillierParams> Hashable for Round1Bcast<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.k_ciphertext).chain(&self.g_ciphertext)
+    }
 }
 
 impl<P: SchemeParams> Round for Round1Part1<P> {
