@@ -47,7 +47,7 @@ struct SecretData {
     sch_secret: SchSecret,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Round1Bcast {
     hash: HashOutput,
 }

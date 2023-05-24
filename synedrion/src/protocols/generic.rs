@@ -102,10 +102,7 @@ pub(crate) struct ConsensusSubround<R: Round> {
     broadcast_hashes: HoleVec<HashOutput>,
 }
 
-impl<R: NeedsConsensus> Round for ConsensusSubround<R>
-where
-    <R as Round>::Message: PartialEq,
-{
+impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
     type Error = String;
     type Message = BroadcastHashes;
     type Payload = ();

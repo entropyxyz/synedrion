@@ -77,7 +77,7 @@ impl<P: SchemeParams> Round1Part1<P> {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(bound = "Ciphertext<P>: Serialize")]
 pub struct Round1Bcast<P: PaillierParams> {
     k_ciphertext: Ciphertext<P>,

@@ -150,7 +150,7 @@ impl<P: SchemeParams> Round1<P> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Round1Bcast {
     hash: HashOutput, // `V_j`
 }
