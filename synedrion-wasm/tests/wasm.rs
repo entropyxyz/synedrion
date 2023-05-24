@@ -12,7 +12,7 @@ where
     js_array
         .iter()
         .map(|js| T::try_from(&js).unwrap())
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 fn into_js_option<T, U>(val: Option<U>) -> T
