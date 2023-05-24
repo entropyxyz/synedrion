@@ -27,7 +27,7 @@ use k256::{
     ecdsa::{RecoveryId, VerifyingKey},
     Secp256k1,
 };
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::tools::hashing::{Chain, Hashable};
@@ -44,15 +44,15 @@ impl Scalar {
     pub const ZERO: Self = Self(BackendScalar::ZERO);
     pub const ONE: Self = Self(BackendScalar::ONE);
 
-    pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self(BackendScalar::random(rng))
     }
 
-    pub fn random_nonzero(rng: &mut (impl CryptoRng + RngCore)) -> Self {
+    pub fn random_nonzero(rng: &mut impl CryptoRngCore) -> Self {
         Self(*NonZeroScalar::<k256::Secp256k1>::random(rng).as_ref())
     }
 
-    pub fn random_in_range_j(rng: &mut (impl CryptoRng + RngCore)) -> Self {
+    pub fn random_in_range_j(rng: &mut impl CryptoRngCore) -> Self {
         // TODO: find out what the range `\mathcal{J}` is.
         Self(BackendScalar::random(rng))
     }
@@ -126,7 +126,7 @@ impl Scalar {
             .ok_or_else(|| "Invalid curve scalar representation".into())
     }
 
-    pub(crate) fn split(&self, rng: &mut (impl CryptoRng + RngCore), num: usize) -> Vec<Scalar> {
+    pub(crate) fn split(&self, rng: &mut impl CryptoRngCore, num: usize) -> Vec<Scalar> {
         // CHECK: do all the parts have to be non-zero?
         if num == 1 {
             return vec![*self];

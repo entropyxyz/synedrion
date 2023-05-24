@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
 use k256::ecdsa::VerifyingKey;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
@@ -27,7 +27,7 @@ impl SchemeParams for TestSchemeParams {
 pub struct SessionId([u8; 32]);
 
 impl SessionId {
-    pub fn random(rng: &mut (impl CryptoRng + RngCore)) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes);
         Self(bytes)

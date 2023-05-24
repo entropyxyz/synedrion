@@ -14,7 +14,7 @@ pub use signing::SigningState;
 
 use alloc::string::String;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use crate::protocols::common::{KeyShare, SessionId};
 use crate::tools::group::Scalar;
@@ -25,7 +25,7 @@ pub type PrehashedMessage = [u8; 32];
 pub type Error = String;
 
 pub fn make_interactive_signing_session<P: SchemeParams>(
-    rng: &mut (impl CryptoRng + RngCore),
+    rng: &mut impl CryptoRngCore,
     key_share: &KeyShare<P>,
     prehashed_message: &PrehashedMessage,
 ) -> Result<Session<InteractiveSigningState<P>>, String> {
