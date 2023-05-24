@@ -78,7 +78,8 @@ impl<P: SchemeParams> Round1Part1<P> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound = "Ciphertext<P>: Serialize")]
+#[serde(bound(serialize = "Ciphertext<P>: Serialize"))]
+#[serde(bound(deserialize = "Ciphertext<P>: for<'x> Deserialize<'x>"))]
 pub struct Round1Bcast<P: PaillierParams> {
     k_ciphertext: Ciphertext<P>,
     g_ciphertext: Ciphertext<P>,
@@ -143,7 +144,8 @@ pub struct Round1Part2<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound = "EncProof<P>: Serialize")]
+#[serde(bound(serialize = "EncProof<P>: Serialize"))]
+#[serde(bound(deserialize = "EncProof<P>: for<'x> Deserialize<'x>"))]
 pub struct Round1Direct<P: PaillierParams>(EncProof<P>);
 
 impl<P: SchemeParams> Round for Round1Part2<P> {
@@ -207,7 +209,12 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
 impl<P: SchemeParams> DirectRound for Round1Part2<P> {}
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound = "Ciphertext<P>: Serialize, AffGProof<P>: Serialize, LogStarProof<P>: Serialize")]
+#[serde(bound(serialize = "Ciphertext<P>: Serialize,
+    AffGProof<P>: Serialize,
+    LogStarProof<P>: Serialize"))]
+#[serde(bound(deserialize = "Ciphertext<P>: for<'x> Deserialize<'x>,
+    AffGProof<P>: for<'x> Deserialize<'x>,
+    LogStarProof<P>: for<'x> Deserialize<'x>"))]
 pub struct Round2Direct<P: PaillierParams> {
     gamma: Point,
     d: Ciphertext<P>,
@@ -465,7 +472,8 @@ impl<P: SchemeParams> Round for Round2<P> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound = "LogStarProof<P>: Serialize")]
+#[serde(bound(serialize = "LogStarProof<P>: Serialize"))]
+#[serde(bound(deserialize = "LogStarProof<P>: for<'x> Deserialize<'x>"))]
 pub struct Round3Bcast<P: PaillierParams> {
     delta: Scalar,
     big_delta: Point,

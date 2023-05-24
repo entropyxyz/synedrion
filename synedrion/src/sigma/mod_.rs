@@ -53,7 +53,8 @@ struct ModProofElem<P: PaillierParams> {
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(serialize = "ModCommitment<P>: Serialize, ModChallenge<P>: Serialize"))]
+#[serde(bound(serialize = "ModCommitment<P>: Serialize,
+    ModChallenge<P>: Serialize"))]
 #[serde(bound(deserialize = "ModCommitment<P>: for<'x> Deserialize<'x>,
     ModChallenge<P>: for<'x> Deserialize<'x>"))]
 pub(crate) struct ModProof<P: PaillierParams> {

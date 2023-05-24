@@ -88,7 +88,8 @@ impl Hashable for PrmChallenge {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound = "PrmCommitment<P>: Serialize + for<'x> Deserialize<'x>")]
+#[serde(bound(serialize = "PrmCommitment<P>: Serialize"))]
+#[serde(bound(deserialize = "PrmCommitment<P>: for<'x> Deserialize<'x>"))]
 pub(crate) struct PrmProof<P: PaillierParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,

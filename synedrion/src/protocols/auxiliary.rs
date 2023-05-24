@@ -206,7 +206,8 @@ pub struct Round2<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound = "FullData<P>: Serialize")]
+#[serde(bound(serialize = "FullData<P>: Serialize"))]
+#[serde(bound(deserialize = "FullData<P>: for<'x> Deserialize<'x>"))]
 pub struct Round2Bcast<P: SchemeParams> {
     data: FullData<P>,
 }
@@ -303,7 +304,8 @@ pub struct FullData2<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound = "FullData2<P>: Serialize + for<'x> Deserialize<'x>")]
+#[serde(bound(serialize = "FullData2<P>: Serialize"))]
+#[serde(bound(deserialize = "FullData2<P>: for<'x> Deserialize<'x>"))]
 pub struct Round3Direct<P: SchemeParams> {
     data2: FullData2<P>,
 }

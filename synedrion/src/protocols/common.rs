@@ -72,7 +72,7 @@ pub struct KeyShareSeed {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "for <'x> SecretKeyPaillier<P::Paillier>: Deserialize<'x>"))]
+#[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for<'x> Deserialize<'x>"))]
 pub struct KeyShareSecret<P: SchemeParams> {
     pub(crate) secret: Scalar,
     pub(crate) sk: SecretKeyPaillier<P::Paillier>,
@@ -80,9 +80,10 @@ pub struct KeyShareSecret<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "KeyShareSecret<P>: Serialize, KeySharePublic<P>: Serialize"))]
-#[serde(bound(deserialize = "for <'x> KeyShareSecret<P>: Deserialize<'x>,
-        for <'x> KeySharePublic<P>: Deserialize<'x>"))]
+#[serde(bound(serialize = "KeyShareSecret<P>: Serialize,
+        KeySharePublic<P>: Serialize"))]
+#[serde(bound(deserialize = "KeyShareSecret<P>: for<'x> Deserialize<'x>,
+        KeySharePublic<P>: for <'x> Deserialize<'x>"))]
 pub struct KeyShare<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     pub(crate) secret: KeyShareSecret<P>,
@@ -137,7 +138,7 @@ pub struct KeySharePublic<P: SchemeParams> {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "for <'x> SecretKeyPaillier<P::Paillier>: Deserialize<'x>"))]
+#[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub struct KeyShareChangeSecret<P: SchemeParams> {
     /// The value to be added to the secret share.
     #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)

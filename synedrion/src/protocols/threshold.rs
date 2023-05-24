@@ -10,9 +10,10 @@ use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points};
 use crate::SchemeParams;
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "KeyShareSecret<P>: Serialize, KeySharePublic<P>: Serialize"))]
-#[serde(bound(deserialize = "for <'x> KeyShareSecret<P>: Deserialize<'x>,
-        for <'x> KeySharePublic<P>: Deserialize<'x>"))]
+#[serde(bound(serialize = "KeyShareSecret<P>: Serialize,
+        KeySharePublic<P>: Serialize"))]
+#[serde(bound(deserialize = "KeyShareSecret<P>: for <'x> Deserialize<'x>,
+        KeySharePublic<P>: for <'x> Deserialize<'x>"))]
 pub struct ThresholdKeyShare<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     pub(crate) threshold: u32, // TODO: make typed? Can it be `ShareIdx`?
