@@ -3,7 +3,7 @@
 //! Publish $X$ and prove that we know a secret $x$ such that $g^x = X$,
 //! where $g$ is a EC generator.
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::tools::group::{Point, Scalar};
@@ -17,7 +17,7 @@ pub(crate) struct SchSecret(
 );
 
 impl SchSecret {
-    pub(crate) fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
+    pub(crate) fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self(Scalar::random(rng))
     }
 }

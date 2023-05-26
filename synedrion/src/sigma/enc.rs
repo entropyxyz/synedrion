@@ -1,4 +1,4 @@
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier};
@@ -12,7 +12,7 @@ pub(crate) struct EncProof<P: PaillierParams>(PublicKeyPaillier<P>);
 
 impl<P: PaillierParams> EncProof<P> {
     pub fn random(
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         _secret: &Scalar,            // `k`
         _randomizer: &P::DoubleUint, // `\rho`
         pk: &PublicKeyPaillier<P>,   // `N_0`

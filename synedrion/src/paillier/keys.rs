@@ -1,4 +1,4 @@
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::params::PaillierParams;
@@ -15,7 +15,7 @@ pub struct SecretKeyPaillier<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
-    pub fn random(rng: &mut (impl RngCore + CryptoRng)) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         let p = P::SingleUint::generate_safe_prime_with_rng(rng, Some(P::PRIME_BITS));
         let q = P::SingleUint::generate_safe_prime_with_rng(rng, Some(P::PRIME_BITS));
 
@@ -124,7 +124,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         a.checked_add(&m_odd.checked_mul(&t).unwrap()).unwrap()
     }
 
-    pub fn random_field_elem(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::DoubleUint {
+    pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUint {
         P::DoubleUint::random_mod(rng, &self.totient())
     }
 }
@@ -145,19 +145,16 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
         NonZero::new(self.modulus).unwrap()
     }
 
-    pub fn random_group_elem_raw(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::DoubleUint {
+    pub fn random_group_elem_raw(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUint {
         P::DoubleUint::random_mod(rng, &self.modulus())
     }
 
-    pub fn random_group_elem(&self, rng: &mut (impl RngCore + CryptoRng)) -> P::DoubleUintMod {
+    pub fn random_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUintMod {
         let r = P::DoubleUint::random_mod(rng, &self.modulus());
         P::DoubleUintMod::new(&r, &self.modulus())
     }
 
-    pub fn random_invertible_group_elem(
-        &self,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> P::DoubleUintMod {
+    pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUintMod {
         // TODO: is there a faster way? How many loops on average does it take?
         loop {
             let r = P::DoubleUint::random_mod(rng, &NonZero::new(self.modulus).unwrap());

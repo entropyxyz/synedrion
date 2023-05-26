@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::uint::{Pow, RandomMod, Retrieve, UintLike, UintModLike};
@@ -16,7 +16,7 @@ use crate::tools::{
 struct ModCommitment<P: PaillierParams>(P::DoubleUint);
 
 impl<P: PaillierParams> ModCommitment<P> {
-    pub fn random(rng: &mut (impl RngCore + CryptoRng), pk: &PublicKeyPaillier<P>) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillier<P>) -> Self {
         let w = loop {
             let w = P::DoubleUint::random_mod(rng, &pk.modulus());
             if w.jacobi_symbol(&pk.modulus()) == JacobiSymbol::MinusOne {
@@ -65,7 +65,7 @@ pub(crate) struct ModProof<P: PaillierParams> {
 
 impl<P: PaillierParams> ModProof<P> {
     pub(crate) fn random(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillier<P>,
         aux: &impl Hashable,
         security_parameter: usize,

@@ -1,4 +1,4 @@
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
 use super::{Error, MyFault};
@@ -20,7 +20,7 @@ impl SessionState for SigningState {
     type Context = (PresigningData, Scalar, Point);
 
     fn new(
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         _session_id: &SessionId,
         context: &Self::Context,
         _index: PartyIdx,
@@ -32,7 +32,7 @@ impl SessionState for SigningState {
 
     fn get_messages(
         &mut self,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         num_parties: usize,
         index: PartyIdx,
     ) -> Result<ToSendSerialized, MyFault> {
@@ -64,7 +64,7 @@ impl SessionState for SigningState {
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, Error> {
+    fn finalize_stage(self, rng: &mut impl CryptoRngCore) -> Result<Self, Error> {
         Ok(Self(match self.0 {
             SigningStage::Round1(r) => SigningStage::Result(r.finalize(rng)?),
             SigningStage::Result(_) => {

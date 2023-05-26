@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ struct PrmSecret<P: PaillierParams> {
 
 impl<P: PaillierParams> PrmSecret<P> {
     pub(crate) fn random(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillier<P>,
         security_parameter: usize,
     ) -> Self {
@@ -100,7 +100,7 @@ impl<P: PaillierParams> PrmProof<P> {
     /// Create a proof that we know the `secret`.
     // TODO: should it take `public` and `base` as non-mod uints too, to match verify()?
     pub(crate) fn random(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillier<P>,
         secret: &P::DoubleUint,
         base: &P::DoubleUintMod,

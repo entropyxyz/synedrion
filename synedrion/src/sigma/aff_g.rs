@@ -1,4 +1,4 @@
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier};
@@ -16,7 +16,7 @@ pub(crate) struct AffGProof<P: PaillierParams> {
 impl<P: PaillierParams> AffGProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn random(
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         _x: &Scalar,
         // CHECK: technically, it's something in range `\mathcal{J}`
         // CHECK: judging by how it is used in the protocols, we may need to take `-y`

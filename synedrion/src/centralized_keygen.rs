@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use crate::paillier::uint::Zero;
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
@@ -13,7 +13,7 @@ use crate::PartyIdx;
 
 #[allow(clippy::type_complexity)]
 fn make_key_shares_from_secrets<P: SchemeParams>(
-    rng: &mut (impl RngCore + CryptoRng),
+    rng: &mut impl CryptoRngCore,
     secrets: &[Scalar],
 ) -> (Box<[KeyShareSecret<P>]>, Box<[KeySharePublic<P>]>) {
     let paillier_sks = secrets
@@ -49,7 +49,7 @@ fn make_key_shares_from_secrets<P: SchemeParams>(
 /// Returns `num_parties` of random self-consistent key shares
 /// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
 pub fn make_key_shares<P: SchemeParams>(
-    rng: &mut (impl RngCore + CryptoRng),
+    rng: &mut impl CryptoRngCore,
     num_parties: usize,
     signing_key: Option<&k256::ecdsa::SigningKey>,
 ) -> Box<[KeyShare<P>]> {
@@ -75,7 +75,7 @@ pub fn make_key_shares<P: SchemeParams>(
 }
 
 pub fn make_threshold_key_shares<P: SchemeParams>(
-    rng: &mut (impl RngCore + CryptoRng),
+    rng: &mut impl CryptoRngCore,
     threshold: usize,
     num_parties: usize,
     signing_key: Option<&k256::ecdsa::SigningKey>,

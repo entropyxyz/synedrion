@@ -1,4 +1,4 @@
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
@@ -40,7 +40,7 @@ impl Round for Round1 {
     type NextRound = Signature;
     type ErrorRound = (); // TODO: implement the reveal round
 
-    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
             s_part: self.s_part,
         })
@@ -56,7 +56,7 @@ impl Round for Round1 {
 
     fn finalize(
         self,
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         let s: Scalar = payloads.iter().sum();

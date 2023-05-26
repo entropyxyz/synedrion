@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
@@ -20,7 +20,7 @@ pub(crate) trait Round: Sized {
     type NextRound: Sized;
     type ErrorRound: Sized;
 
-    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message>;
+    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message>;
     fn verify_received(
         &self,
         from: PartyIdx,
@@ -28,7 +28,7 @@ pub(crate) trait Round: Sized {
     ) -> Result<Self::Payload, TheirFault>;
     fn finalize(
         self,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound>;
 }
@@ -56,7 +56,7 @@ where
     type NextRound = ConsensusSubround<R>;
     type ErrorRound = ();
 
-    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         self.0.to_send(rng)
     }
     fn verify_received(
@@ -71,7 +71,7 @@ where
     }
     fn finalize(
         self,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         let (payloads, messages) = payloads.unzip();
@@ -108,7 +108,7 @@ impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
     type NextRound = R::NextRound;
     type ErrorRound = ();
 
-    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(BroadcastHashes(self.broadcast_hashes.clone()))
     }
     fn verify_received(
@@ -141,7 +141,7 @@ impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
     }
     fn finalize(
         self,
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         _payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         Ok(self.next_round)
@@ -167,7 +167,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn step<R: Round>(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         init: Vec<R>,
     ) -> Result<Vec<R::NextRound>, StepError> {
         // Collect outgoing messages

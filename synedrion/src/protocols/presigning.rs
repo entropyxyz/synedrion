@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, PartyIdx, PresigningData, SchemeParams, SessionId};
@@ -47,7 +47,7 @@ pub struct Round1Part1<P: SchemeParams> {
 
 impl<P: SchemeParams> Round1Part1<P> {
     pub fn new(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         session_id: &SessionId,
         party_idx: PartyIdx,
         num_parties: usize,
@@ -97,7 +97,7 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
     type NextRound = Round1Part2<P>;
     type ErrorRound = ();
 
-    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
             k_ciphertext: self.k_ciphertext.clone(),
             g_ciphertext: self.g_ciphertext.clone(),
@@ -114,7 +114,7 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
 
     fn finalize(
         self,
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         let (k_ciphertexts, g_ciphertexts) = payloads
@@ -154,7 +154,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     type NextRound = Round2<P>;
     type ErrorRound = ();
 
-    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.session_id, &self.context.party_idx);
         let k_ciphertext = &self.k_ciphertexts[self.context.party_idx.as_usize()];
@@ -196,7 +196,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
 
     fn finalize(
         self,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         _payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         Ok(Round2::new(rng, self))
@@ -235,7 +235,7 @@ pub struct Round2<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> Round2<P> {
-    fn new(rng: &mut (impl RngCore + CryptoRng), round1: Round1Part2<P>) -> Self {
+    fn new(rng: &mut impl CryptoRngCore, round1: Round1Part2<P>) -> Self {
         let mut betas = HoleVecAccum::new(
             round1.context.num_parties,
             round1.context.party_idx.as_usize(),
@@ -284,7 +284,7 @@ impl<P: SchemeParams> Round for Round2<P> {
     type NextRound = Round3<P>;
     type ErrorRound = ();
 
-    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.session_id, &self.context.party_idx);
 
@@ -443,7 +443,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
     fn finalize(
         self,
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
@@ -506,7 +506,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type NextRound = PresigningData;
     type ErrorRound = (); // TODO: implement reveal round
 
-    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.session_id, &self.context.party_idx);
         let pk = &self.context.key_share.secret.sk.public_key();
@@ -561,7 +561,7 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn finalize(
         self,
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         let (deltas, big_deltas) = payloads

@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crypto_bigint::Pow;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
@@ -77,7 +77,7 @@ impl<P: SchemeParams> FullData<P> {
 
 impl<P: SchemeParams> Round1<P> {
     pub fn new(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         session_id: &SessionId,
         party_idx: PartyIdx,
         num_parties: usize,
@@ -167,7 +167,7 @@ impl<P: SchemeParams> Round for Round1<P> {
     type NextRound = Round2<P>;
     type ErrorRound = ();
 
-    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
             hash: self.data.hash(),
         })
@@ -183,7 +183,7 @@ impl<P: SchemeParams> Round for Round1<P> {
 
     fn finalize(
         self,
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         Ok(Round2 {
@@ -218,7 +218,7 @@ impl<P: SchemeParams> Round for Round2<P> {
     type NextRound = Round3<P>;
     type ErrorRound = ();
 
-    fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round2Bcast {
             data: self.data.clone(),
         })
@@ -263,7 +263,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
     fn finalize(
         self,
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         // XOR the vectors together
@@ -322,7 +322,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     type NextRound = KeyShareChange<P>;
     type ErrorRound = ();
 
-    fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
+    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);
         let mod_proof = ModProof::random(
             rng,
@@ -429,7 +429,7 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn finalize(
         self,
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<Self::NextRound, Self::ErrorRound> {
         let secrets = payloads.into_vec(self.secret_data.xs_secret[self.data.party_idx.as_usize()]);

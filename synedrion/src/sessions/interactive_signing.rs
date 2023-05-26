@@ -1,4 +1,4 @@
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
 use super::{Error, MyFault};
@@ -32,7 +32,7 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
     type Context = (KeyShare<P>, Scalar);
 
     fn new(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         session_id: &SessionId,
         context: &Self::Context,
         index: PartyIdx,
@@ -52,7 +52,7 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
 
     fn get_messages(
         &mut self,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         num_parties: usize,
         index: PartyIdx,
     ) -> Result<ToSendSerialized, MyFault> {
@@ -101,7 +101,7 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, Error> {
+    fn finalize_stage(self, rng: &mut impl CryptoRngCore) -> Result<Self, Error> {
         let stage = match self.stage {
             InteractiveSigningStage::Round1Part1(r) => {
                 InteractiveSigningStage::Round1Part1Consensus(Stage::new(r.finalize(rng)?))

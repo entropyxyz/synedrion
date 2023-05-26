@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::keys::{PublicKeyPaillier, SecretKeyPaillier};
@@ -21,10 +21,7 @@ pub struct Ciphertext<P: PaillierParams> {
 
 impl<P: PaillierParams> Ciphertext<P> {
     /// Creates a suitable randomizer for encryption.
-    fn randomizer(
-        rng: &mut (impl RngCore + CryptoRng),
-        pk: &PublicKeyPaillier<P>,
-    ) -> P::DoubleUint {
+    fn randomizer(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillier<P>) -> P::DoubleUint {
         pk.random_invertible_group_elem(rng).retrieve()
     }
 
@@ -68,7 +65,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     /// Encrypts the plaintext with a random randomizer.
     pub fn new(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         pk: &PublicKeyPaillier<P>,
         plaintext: &Scalar,
     ) -> Self {

@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::error::{Error, MyFault, TheirFault};
@@ -60,7 +60,7 @@ impl<R: Round> Stage<R> {
 
     pub(crate) fn get_messages(
         &mut self,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         num_parties: usize,
         index: PartyIdx,
     ) -> Result<ToSendSerialized, MyFault> {
@@ -139,10 +139,7 @@ impl<R: Round> Stage<R> {
         })
     }
 
-    pub(crate) fn finalize(
-        self,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<R::NextRound, Error> {
+    pub(crate) fn finalize(self, rng: &mut impl CryptoRngCore) -> Result<R::NextRound, Error> {
         let accum = match self.accum {
             Some(accum) => accum,
             None => {
@@ -180,20 +177,20 @@ impl<R: Round> Stage<R> {
 pub trait SessionState: Clone {
     type Context;
     fn new(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         session_id: &SessionId,
         context: &Self::Context,
         index: PartyIdx,
     ) -> Self;
     fn get_messages(
         &mut self,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         num_parties: usize,
         index: PartyIdx,
     ) -> Result<ToSendSerialized, MyFault>;
     fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), Error>;
     fn is_finished_receiving(&self) -> Result<bool, MyFault>;
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, Error>;
+    fn finalize_stage(self, rng: &mut impl CryptoRngCore) -> Result<Self, Error>;
     fn is_final_stage(&self) -> bool;
     fn current_stage_num(&self) -> u8;
     fn stages_num(&self) -> u8;
@@ -210,7 +207,7 @@ pub struct Session<S: SessionState> {
 
 impl<S: SessionState> Session<S> {
     pub fn new(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         session_id: &SessionId,
         num_parties: usize,
         index: PartyIdx,
@@ -230,7 +227,7 @@ impl<S: SessionState> Session<S> {
         }
     }
 
-    pub fn get_messages(&mut self, rng: &mut (impl RngCore + CryptoRng)) -> Result<ToSend, Error> {
+    pub fn get_messages(&mut self, rng: &mut impl CryptoRngCore) -> Result<ToSend, Error> {
         let to_send = self
             .state
             .get_messages(rng, self.num_parties, self.index)
@@ -290,7 +287,7 @@ impl<S: SessionState> Session<S> {
         self.state.is_finished_receiving().map_err(Error::MyFault)
     }
 
-    pub fn finalize_stage(&mut self, rng: &mut (impl RngCore + CryptoRng)) -> Result<(), Error> {
+    pub fn finalize_stage(&mut self, rng: &mut impl CryptoRngCore) -> Result<(), Error> {
         // TODO: check that there are no cached messages left
         self.state = self.state.clone().finalize_stage(rng)?;
         Ok(())

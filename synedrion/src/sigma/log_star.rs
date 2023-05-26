@@ -1,4 +1,4 @@
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier};
@@ -13,7 +13,7 @@ pub(crate) struct LogStarProof<P: PaillierParams>(PublicKeyPaillier<P>);
 impl<P: PaillierParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn random(
-        _rng: &mut (impl RngCore + CryptoRng),
+        _rng: &mut impl CryptoRngCore,
         _secret: &Scalar,            // `x`
         _randomizer: &P::DoubleUint, // `\rho`
         pk: &PublicKeyPaillier<P>,   // `N_0`

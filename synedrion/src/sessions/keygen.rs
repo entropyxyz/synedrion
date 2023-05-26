@@ -1,4 +1,4 @@
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use super::error::{Error, MyFault};
 use super::generic::{SessionState, Stage, ToSendSerialized};
@@ -23,7 +23,7 @@ impl<P: SchemeParams> SessionState for KeygenState<P> {
     type Context = ();
 
     fn new(
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         session_id: &SessionId,
         _context: &(),
         index: PartyIdx,
@@ -36,7 +36,7 @@ impl<P: SchemeParams> SessionState for KeygenState<P> {
 
     fn get_messages(
         &mut self,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRngCore,
         num_parties: usize,
         index: PartyIdx,
     ) -> Result<ToSendSerialized, MyFault> {
@@ -77,7 +77,7 @@ impl<P: SchemeParams> SessionState for KeygenState<P> {
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, Error> {
+    fn finalize_stage(self, rng: &mut impl CryptoRngCore) -> Result<Self, Error> {
         Ok(Self(match self.0 {
             KeygenStage::Round1(r) => KeygenStage::Round1Consensus(Stage::new(r.finalize(rng)?)),
             KeygenStage::Round1Consensus(r) => KeygenStage::Round2(Stage::new(r.finalize(rng)?)),
