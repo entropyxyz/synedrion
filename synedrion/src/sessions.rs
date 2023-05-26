@@ -1,4 +1,5 @@
 mod auxiliary;
+mod error;
 mod generic;
 mod interactive_signing;
 mod keygen;
@@ -6,6 +7,7 @@ mod presigning;
 mod signing;
 
 pub use auxiliary::AuxiliaryState;
+pub use error::{Error, MyFault, TheirFault};
 pub use generic::{Session, ToSend};
 pub use interactive_signing::InteractiveSigningState;
 pub use keygen::KeygenState;
@@ -21,8 +23,6 @@ use crate::tools::group::Scalar;
 use crate::SchemeParams;
 
 pub type PrehashedMessage = [u8; 32];
-
-pub type Error = String;
 
 pub fn make_interactive_signing_session<P: SchemeParams>(
     rng: &mut impl CryptoRngCore,

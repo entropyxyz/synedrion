@@ -1,7 +1,6 @@
 //! ECDSA key generation (Fig. 5).
 
 use alloc::boxed::Box;
-use alloc::string::{String, ToString};
 use core::marker::PhantomData;
 
 use rand_core::{CryptoRng, RngCore};
@@ -9,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareSeed, PartyIdx, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
+use crate::sessions::TheirFault;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
 use crate::tools::group::{Point, Scalar};
@@ -102,10 +102,10 @@ impl<P: SchemeParams> Round1<P> {
 }
 
 impl<P: SchemeParams> Round for Round1<P> {
-    type Error = String;
     type Payload = HashOutput;
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
+    type ErrorRound = ();
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let hash = self.data.hash();
@@ -115,14 +115,14 @@ impl<P: SchemeParams> Round for Round1<P> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         Ok(msg.hash)
     }
     fn finalize(
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         Ok(Round2 {
             hashes: payloads,
             data: self.data,
@@ -150,10 +150,10 @@ pub struct Round2Bcast {
 }
 
 impl<P: SchemeParams> Round for Round2<P> {
-    type Error = String;
     type Payload = FullData;
     type Message = Round2Bcast;
     type NextRound = Round3<P>;
+    type ErrorRound = ();
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round2Bcast {
@@ -164,9 +164,9 @@ impl<P: SchemeParams> Round for Round2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         if &msg.data.hash() != self.hashes.get(from.as_usize()).unwrap() {
-            return Err("Invalid hash".to_string());
+            return Err(TheirFault::VerificationFail("Invalid hash".into()));
         }
 
         Ok(msg.data)
@@ -175,7 +175,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rid = self.data.rid.clone();
@@ -212,10 +212,10 @@ pub struct Round3Bcast {
 }
 
 impl<P: SchemeParams> Round for Round3<P> {
-    type Error = String;
     type Payload = bool;
     type Message = Round3Bcast;
     type NextRound = KeyShareSeed;
+    type ErrorRound = ();
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.data.party_idx, &self.rid);
@@ -232,7 +232,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         let party_data = self.datas.get(from.as_usize()).unwrap();
 
         let aux = (&party_data.session_id, &party_data.party_idx, &self.rid);
@@ -240,7 +240,9 @@ impl<P: SchemeParams> Round for Round3<P> {
             .proof
             .verify(&party_data.commitment, &party_data.public, &aux)
         {
-            return Err("Schnorr verification failed".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Schnorr verification failed".into(),
+            ));
         }
         Ok(true)
     }
@@ -248,7 +250,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         _payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         let datas = self.datas.into_vec(self.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
         Ok(KeyShareSeed {

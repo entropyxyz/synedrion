@@ -1,7 +1,6 @@
-use alloc::string::String;
-
 use rand_core::{CryptoRng, RngCore};
 
+use super::error::{Error, MyFault};
 use super::generic::{SessionState, Stage, ToSendSerialized};
 use crate::protocols::common::{KeyShareSeed, PartyIdx, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
@@ -40,54 +39,62 @@ impl<P: SchemeParams> SessionState for KeygenState<P> {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> Result<ToSendSerialized, String> {
+    ) -> Result<ToSendSerialized, MyFault> {
         Ok(match &mut self.0 {
             KeygenStage::Round1(r) => r.get_messages(rng, num_parties, index)?,
             KeygenStage::Round1Consensus(r) => r.get_messages(rng, num_parties, index)?,
             KeygenStage::Round2(r) => r.get_messages(rng, num_parties, index)?,
             KeygenStage::Round3(r) => r.get_messages(rng, num_parties, index)?,
-            _ => return Err("Not in a sending state".into()),
+            KeygenStage::Result(_) => {
+                return Err(MyFault::InvalidState(
+                    "This protocol has reached a result".into(),
+                ))
+            }
         })
     }
 
-    fn receive_current_stage(
-        &mut self,
-        from: PartyIdx,
-        message_bytes: &[u8],
-    ) -> Result<(), String> {
+    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), Error> {
         match &mut self.0 {
             KeygenStage::Round1(r) => r.receive(from, message_bytes),
             KeygenStage::Round1Consensus(r) => r.receive(from, message_bytes),
             KeygenStage::Round2(r) => r.receive(from, message_bytes),
             KeygenStage::Round3(r) => r.receive(from, message_bytes),
-            _ => Err("Not in a receiving stage".into()),
+            KeygenStage::Result(_) => Err(Error::MyFault(MyFault::InvalidState(
+                "This protocol has reached a result".into(),
+            ))),
         }
     }
 
-    fn is_finished_receiving(&self) -> Result<bool, String> {
+    fn is_finished_receiving(&self) -> Result<bool, MyFault> {
         match &self.0 {
             KeygenStage::Round1(r) => r.is_finished_receiving(),
             KeygenStage::Round1Consensus(r) => r.is_finished_receiving(),
             KeygenStage::Round2(r) => r.is_finished_receiving(),
             KeygenStage::Round3(r) => r.is_finished_receiving(),
-            _ => Err("Not in a receiving stage".into()),
+            KeygenStage::Result(_) => Err(MyFault::InvalidState(
+                "This protocol has reached a result".into(),
+            )),
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String> {
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, Error> {
         Ok(Self(match self.0 {
             KeygenStage::Round1(r) => KeygenStage::Round1Consensus(Stage::new(r.finalize(rng)?)),
             KeygenStage::Round1Consensus(r) => KeygenStage::Round2(Stage::new(r.finalize(rng)?)),
             KeygenStage::Round2(r) => KeygenStage::Round3(Stage::new(r.finalize(rng)?)),
             KeygenStage::Round3(r) => KeygenStage::Result(r.finalize(rng)?),
-            _ => return Err("Not in a receiving stage".into()),
+            KeygenStage::Result(_) => {
+                return Err(Error::MyFault(MyFault::InvalidState(
+                    "This protocol has reached a result".into(),
+                )))
+            }
         }))
     }
 
-    fn result(&self) -> Result<Self::Result, String> {
+    fn result(&self) -> Result<Self::Result, MyFault> {
         match &self.0 {
             KeygenStage::Result(r) => Ok(r.clone()),
-            _ => Err("Not in the result stage".into()),
+            _ => Err(MyFault::InvalidState("Not in the result stage".into())),
         }
     }
 

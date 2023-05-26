@@ -1,5 +1,4 @@
 use alloc::boxed::Box;
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crypto_bigint::Pow;
@@ -16,6 +15,7 @@ use crate::paillier::{
     params::PaillierParams,
     uint::{Retrieve, UintLike},
 };
+use crate::sessions::TheirFault;
 use crate::sigma::fac::FacProof;
 use crate::sigma::mod_::ModProof;
 use crate::sigma::prm::PrmProof;
@@ -162,10 +162,10 @@ impl Hashable for Round1Bcast {
 }
 
 impl<P: SchemeParams> Round for Round1<P> {
-    type Error = String;
     type Payload = HashOutput;
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
+    type ErrorRound = ();
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
@@ -177,7 +177,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         Ok(msg.hash)
     }
 
@@ -185,7 +185,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         Ok(Round2 {
             data: self.data,
             secret_data: self.secret_data,
@@ -213,10 +213,10 @@ pub struct Round2Bcast<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> Round for Round2<P> {
-    type Error = String;
     type Payload = FullData<P>;
     type Message = Round2Bcast<P>;
     type NextRound = Round3<P>;
+    type ErrorRound = ();
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round2Bcast {
@@ -228,18 +228,22 @@ impl<P: SchemeParams> Round for Round2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         if &msg.data.hash() != self.hashes.get(from.as_usize()).unwrap() {
-            return Err("Invalid hash".to_string());
+            return Err(TheirFault::VerificationFail("Invalid hash".into()));
         }
 
         if msg.data.paillier_pk.modulus().as_ref().bits() < 8 * P::SECURITY_PARAMETER {
-            return Err("Paillier modulus is too small".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Paillier modulus is too small".into(),
+            ));
         }
 
         let sum_x: Point = msg.data.xs_public.iter().sum();
         if sum_x != Point::IDENTITY {
-            return Err("Sum of X points is not identity".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Sum of X points is not identity".into(),
+            ));
         }
 
         let aux = (&self.data.session_id, &from);
@@ -249,7 +253,9 @@ impl<P: SchemeParams> Round for Round2<P> {
             &msg.data.rp_power,
             &aux,
         ) {
-            return Err("PRM verification failed".to_string());
+            return Err(TheirFault::VerificationFail(
+                "PRM verification failed".into(),
+            ));
         }
 
         Ok(msg.data)
@@ -259,7 +265,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rho = self.data.rho_bits.clone();
@@ -311,10 +317,10 @@ pub struct Round3Direct<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> Round for Round3<P> {
-    type Error = String;
     type Payload = Scalar;
     type Message = Round3Direct<P>;
     type NextRound = KeyShareChange<P>;
+    type ErrorRound = ();
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let aux = (&self.data.session_id, &self.rho, &self.data.party_idx);
@@ -367,7 +373,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         let sender_data = &self.datas.get(from.as_usize()).unwrap();
 
         let x_secret = msg
@@ -377,17 +383,21 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         if x_secret.mul_by_generator() != sender_data.xs_public[self.data.party_idx.as_usize()] {
             // TODO: paper has `\mu` calculation here.
-            return Err("Mismatched secret x".to_string());
+            return Err(TheirFault::VerificationFail("Mismatched secret x".into()));
         }
 
         let aux = (&self.data.session_id, &self.rho, &from);
 
         if !msg.data2.mod_proof.verify(&sender_data.paillier_pk, &aux) {
-            return Err("Mod proof verification failed".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Mod proof verification failed".into(),
+            ));
         }
 
         if !msg.data2.fac_proof.verify() {
-            return Err("Fac proof verification failed".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Fac proof verification failed".into(),
+            ));
         }
 
         if !msg
@@ -397,7 +407,9 @@ impl<P: SchemeParams> Round for Round3<P> {
         {
             // CHECK: not sending the commitment the second time in `msg`,
             // since we already got it from the previous round.
-            return Err("Sch proof verification (Y) failed".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Sch proof verification (Y) failed".into(),
+            ));
         }
 
         if !msg.data2.sch_proof_x.verify(
@@ -407,7 +419,9 @@ impl<P: SchemeParams> Round for Round3<P> {
         ) {
             // CHECK: not sending the commitment the second time in `msg`,
             // since we already got it from the previous round.
-            return Err("Sch proof verification (Y) failed".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Sch proof verification (Y) failed".into(),
+            ));
         }
 
         Ok(x_secret)
@@ -417,7 +431,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         let secrets = payloads.into_vec(self.secret_data.xs_secret[self.data.party_idx.as_usize()]);
         let share_change = secrets.iter().sum();
 

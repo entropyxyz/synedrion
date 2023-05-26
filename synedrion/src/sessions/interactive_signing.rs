@@ -1,8 +1,7 @@
-use alloc::string::String;
-
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
+use super::{Error, MyFault};
 use crate::protocols::common::{KeyShare, PartyIdx, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::protocols::presigning;
@@ -56,7 +55,7 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> Result<ToSendSerialized, String> {
+    ) -> Result<ToSendSerialized, MyFault> {
         Ok(match &mut self.stage {
             InteractiveSigningStage::Round1Part1(r) => r.get_messages(rng, num_parties, index)?,
             InteractiveSigningStage::Round1Part1Consensus(r) => {
@@ -66,15 +65,15 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
             InteractiveSigningStage::Round2(r) => r.get_messages(rng, num_parties, index)?,
             InteractiveSigningStage::Round3(r) => r.get_messages(rng, num_parties, index)?,
             InteractiveSigningStage::SigningRound(r) => r.get_messages(rng, num_parties, index)?,
-            _ => return Err("Not in a sending state".into()),
+            InteractiveSigningStage::Result(_) => {
+                return Err(MyFault::InvalidState(
+                    "This protocol has reached a result".into(),
+                ))
+            }
         })
     }
 
-    fn receive_current_stage(
-        &mut self,
-        from: PartyIdx,
-        message_bytes: &[u8],
-    ) -> Result<(), String> {
+    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), Error> {
         match &mut self.stage {
             InteractiveSigningStage::Round1Part1(r) => r.receive(from, message_bytes),
             InteractiveSigningStage::Round1Part1Consensus(r) => r.receive(from, message_bytes),
@@ -82,11 +81,13 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
             InteractiveSigningStage::Round2(r) => r.receive(from, message_bytes),
             InteractiveSigningStage::Round3(r) => r.receive(from, message_bytes),
             InteractiveSigningStage::SigningRound(r) => r.receive(from, message_bytes),
-            _ => Err("Not in a receiving stage".into()),
+            InteractiveSigningStage::Result(_) => Err(Error::MyFault(MyFault::InvalidState(
+                "This protocol has reached a result".into(),
+            ))),
         }
     }
 
-    fn is_finished_receiving(&self) -> Result<bool, String> {
+    fn is_finished_receiving(&self) -> Result<bool, MyFault> {
         match &self.stage {
             InteractiveSigningStage::Round1Part1(r) => r.is_finished_receiving(),
             InteractiveSigningStage::Round1Part1Consensus(r) => r.is_finished_receiving(),
@@ -94,11 +95,13 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
             InteractiveSigningStage::Round2(r) => r.is_finished_receiving(),
             InteractiveSigningStage::Round3(r) => r.is_finished_receiving(),
             InteractiveSigningStage::SigningRound(r) => r.is_finished_receiving(),
-            _ => Err("Not in a receiving stage".into()),
+            InteractiveSigningStage::Result(_) => Err(MyFault::InvalidState(
+                "This protocol has reached a result".into(),
+            )),
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String> {
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, Error> {
         let stage = match self.stage {
             InteractiveSigningStage::Round1Part1(r) => {
                 InteractiveSigningStage::Round1Part1Consensus(Stage::new(r.finalize(rng)?))
@@ -121,7 +124,11 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
             InteractiveSigningStage::SigningRound(r) => {
                 InteractiveSigningStage::Result(r.finalize(rng)?)
             }
-            _ => return Err("Not in a receiving stage".into()),
+            InteractiveSigningStage::Result(_) => {
+                return Err(Error::MyFault(MyFault::InvalidState(
+                    "This protocol has reached a result".into(),
+                )))
+            }
         };
         Ok(Self {
             stage,
@@ -130,10 +137,10 @@ impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
         })
     }
 
-    fn result(&self) -> Result<Self::Result, String> {
+    fn result(&self) -> Result<Self::Result, MyFault> {
         match &self.stage {
             InteractiveSigningStage::Result(r) => Ok(r.clone()),
-            _ => Err("Not in the result stage".into()),
+            _ => Err(MyFault::InvalidState("Not in the result stage".into())),
         }
     }
 

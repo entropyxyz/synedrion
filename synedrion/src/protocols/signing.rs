@@ -1,11 +1,10 @@
-use alloc::string::String;
-
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
 use super::generic::{BroadcastRound, Round, ToSendTyped};
 use crate::protocols::common::PresigningData;
+use crate::sessions::TheirFault;
 use crate::tools::collections::HoleVec;
 use crate::tools::group::{Point, Scalar, Signature};
 
@@ -36,10 +35,10 @@ pub struct Round1Bcast {
 }
 
 impl Round for Round1 {
-    type Error = String;
     type Payload = Scalar;
     type Message = Round1Bcast;
     type NextRound = Signature;
+    type ErrorRound = (); // TODO: implement the reveal round
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
@@ -51,7 +50,7 @@ impl Round for Round1 {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         Ok(msg.s_part)
     }
 
@@ -59,7 +58,7 @@ impl Round for Round1 {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         let s: Scalar = payloads.iter().sum();
         let s = s + self.s_part;
 

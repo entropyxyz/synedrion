@@ -1,4 +1,3 @@
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use rand_core::{CryptoRng, RngCore};
@@ -7,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::common::{KeyShare, PartyIdx, PresigningData, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
 use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
+use crate::sessions::TheirFault;
 use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;
@@ -92,10 +92,10 @@ impl<P: PaillierParams> Hashable for Round1Bcast<P> {
 }
 
 impl<P: SchemeParams> Round for Round1Part1<P> {
-    type Error = String;
     type Payload = Round1Bcast<P::Paillier>;
     type Message = Round1Bcast<P::Paillier>;
     type NextRound = Round1Part2<P>;
+    type ErrorRound = ();
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
@@ -108,7 +108,7 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         Ok(msg)
     }
 
@@ -116,7 +116,7 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         let (k_ciphertexts, g_ciphertexts) = payloads
             .map(|data| (data.k_ciphertext, data.g_ciphertext))
             .unzip();
@@ -149,10 +149,10 @@ pub struct Round1Part2<P: SchemeParams> {
 pub struct Round1Direct<P: PaillierParams>(EncProof<P>);
 
 impl<P: SchemeParams> Round for Round1Part2<P> {
-    type Error = String;
     type Payload = ();
     type Message = Round1Direct<P::Paillier>;
     type NextRound = Round2<P>;
+    type ErrorRound = ();
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -179,7 +179,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         let aux = (&self.context.session_id, &self.context.party_idx);
         if msg.0.verify(
             &self.context.key_share.public[from.as_usize()].paillier_pk,
@@ -188,7 +188,9 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         ) {
             Ok(())
         } else {
-            Err("Failed to verify EncProof".to_string())
+            Err(TheirFault::VerificationFail(
+                "Failed to verify EncProof".into(),
+            ))
         }
     }
 
@@ -196,12 +198,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         self,
         rng: &mut (impl RngCore + CryptoRng),
         _payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
-        // TODO: seems like we will have to pass the RNG to finalize() methods as well.
-        // In fact, if we pass an RNG here, we might not need one in to_send() -
-        // the messages can be created right in the constructor
-        // (but then we will need to return them separately as a tuple with the new round,
-        // so we don't have to store them)
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         Ok(Round2::new(rng, self))
     }
 }
@@ -282,10 +279,10 @@ pub struct Round2Payload {
 }
 
 impl<P: SchemeParams> Round for Round2<P> {
-    type Error = String;
     type Payload = Round2Payload;
     type Message = Round2Direct<P::Paillier>;
     type NextRound = Round3<P>;
+    type ErrorRound = ();
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -386,7 +383,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         let aux = (&self.context.session_id, &self.context.party_idx);
         let pk = &self.context.key_share.secret.sk.public_key();
         let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
@@ -403,7 +400,9 @@ impl<P: SchemeParams> Round for Round2<P> {
             &msg.gamma,
             &aux,
         ) {
-            return Err("Failed to verify EncProof".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Failed to verify EncProof".into(),
+            ));
         }
 
         if !msg.psi_hat.verify(
@@ -415,7 +414,9 @@ impl<P: SchemeParams> Round for Round2<P> {
             &big_x,
             &aux,
         ) {
-            return Err("Failed to verify EncProof".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Failed to verify EncProof".into(),
+            ));
         }
 
         if !msg.psi_hat_prime.verify(
@@ -425,7 +426,9 @@ impl<P: SchemeParams> Round for Round2<P> {
             &msg.gamma,
             &aux,
         ) {
-            return Err("Failed to verify EncProof".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Failed to verify EncProof".into(),
+            ));
         }
 
         let alpha = msg.d.decrypt(&self.context.key_share.secret.sk);
@@ -442,7 +445,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
         let gamma = gamma + self.secret_data.gamma.mul_by_generator();
 
@@ -498,10 +501,10 @@ pub struct Round3Payload {
 }
 
 impl<P: SchemeParams> Round for Round3<P> {
-    type Error = String;
     type Payload = Round3Payload;
     type Message = Round3Bcast<P::Paillier>;
     type NextRound = PresigningData;
+    type ErrorRound = (); // TODO: implement reveal round
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -536,7 +539,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         let aux = (&self.context.session_id, &self.context.party_idx);
         let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
         if !msg.psi_hat_pprime.verify(
@@ -546,7 +549,9 @@ impl<P: SchemeParams> Round for Round3<P> {
             &msg.big_delta,
             &aux,
         ) {
-            return Err("Failed to verify Log-Star proof".to_string());
+            return Err(TheirFault::VerificationFail(
+                "Failed to verify Log-Star proof".into(),
+            ));
         }
         Ok(Round3Payload {
             delta: msg.delta,
@@ -558,7 +563,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         let (deltas, big_deltas) = payloads
             .map(|payload| (payload.delta, payload.big_delta))
             .unzip();
@@ -570,7 +575,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         let big_delta = big_delta + self.big_delta;
 
         if delta.mul_by_generator() != big_delta {
-            return Err("Deltas do not coincide".into());
+            return Err(());
             // TODO: calculate the required proofs here according to the paper.
         }
 

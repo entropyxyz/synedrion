@@ -1,11 +1,10 @@
-use alloc::string::String;
 use alloc::vec::Vec;
-use core::fmt::Display;
 
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
+use crate::sessions::TheirFault;
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 
@@ -16,22 +15,22 @@ pub(crate) enum ToSendTyped<Message> {
 }
 
 pub(crate) trait Round: Sized {
-    type Error: Sized + Display;
     type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
     type Payload: Sized + Clone;
     type NextRound: Sized;
+    type ErrorRound: Sized;
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message>;
     fn verify_received(
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error>;
+    ) -> Result<Self::Payload, TheirFault>;
     fn finalize(
         self,
         rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error>;
+    ) -> Result<Self::NextRound, Self::ErrorRound>;
 }
 
 // TODO: find a way to move `get_messages()` in this trait.
@@ -52,10 +51,10 @@ where
     R::NextRound: Round,
     R::Message: Hashable,
 {
-    type Error = R::Error;
     type Message = R::Message;
     type Payload = (R::Payload, R::Message);
     type NextRound = ConsensusSubround<R>;
+    type ErrorRound = ();
 
     fn to_send(&self, rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         self.0.to_send(rng)
@@ -64,8 +63,9 @@ where
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         self.0
+            // TODO: save a hash here right away to avoid cloning
             .verify_received(from, msg.clone())
             .map(|payload| (payload, msg))
     }
@@ -73,9 +73,9 @@ where
         self,
         rng: &mut (impl RngCore + CryptoRng),
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         let (payloads, messages) = payloads.unzip();
-        let next_round = self.0.finalize(rng, payloads)?;
+        let next_round = self.0.finalize(rng, payloads).or(Err(()))?;
         let broadcast_hashes = messages.map(|msg| {
             Hash::new_with_dst(b"BroadcastConsensus")
                 .chain(&msg)
@@ -103,10 +103,10 @@ pub(crate) struct ConsensusSubround<R: Round> {
 }
 
 impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
-    type Error = String;
     type Message = BroadcastHashes;
     type Payload = ();
     type NextRound = R::NextRound;
+    type ErrorRound = ();
 
     fn to_send(&self, _rng: &mut (impl RngCore + CryptoRng)) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(BroadcastHashes(self.broadcast_hashes.clone()))
@@ -115,12 +115,14 @@ impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, Self::Error> {
+    ) -> Result<Self::Payload, TheirFault> {
         // CHECK: should we save our own broadcast,
         // and check that the other nodes received it?
         // Or is this excessive since they are signed by us anyway?
         if msg.0.len() != self.broadcast_hashes.len() {
-            return Err("Unexpected number of broadcasts received".into());
+            return Err(TheirFault::VerificationFail(
+                "Unexpected number of broadcasts received".into(),
+            ));
         }
         for (idx, broadcast) in msg.0.range().zip(msg.0.iter()) {
             if !self
@@ -130,7 +132,9 @@ impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
                 .unwrap_or(true)
             {
                 // TODO: specify which node the conflicting broadcast was from
-                return Err("Received conflicting broadcasts".into());
+                return Err(TheirFault::VerificationFail(
+                    "Received conflicting broadcasts".into(),
+                ));
             }
         }
         Ok(())
@@ -139,7 +143,7 @@ impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
         self,
         _rng: &mut (impl RngCore + CryptoRng),
         _payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::Error> {
+    ) -> Result<Self::NextRound, Self::ErrorRound> {
         Ok(self.next_round)
     }
 }
@@ -149,22 +153,23 @@ impl<R: NeedsConsensus> BroadcastRound for ConsensusSubround<R> where ConsensusS
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use super::*;
+    use super::*; // TODO: remove glob import
+    use crate::sessions::TheirFault;
     use crate::tools::collections::{HoleRange, HoleVecAccum};
 
     #[derive(Debug)]
-    pub(crate) enum StepError<Error> {
+    pub(crate) enum StepError {
         AccumFinalize,
         InvalidIndex,
         RepeatingMessage,
-        Receive(Error),
-        Finalize(Error),
+        Receive(TheirFault),
+        Finalize,
     }
 
     pub(crate) fn step<R: Round>(
         rng: &mut (impl RngCore + CryptoRng),
         init: Vec<R>,
-    ) -> Result<Vec<R::NextRound>, StepError<R::Error>> {
+    ) -> Result<Vec<R::NextRound>, StepError> {
         // Collect outgoing messages
 
         let mut accums = (0..init.len())
@@ -221,7 +226,7 @@ pub(crate) mod tests {
             let accum_final = accum.finalize().map_err(|_| StepError::AccumFinalize)?;
             let next_state = round
                 .finalize(rng, accum_final)
-                .map_err(StepError::Finalize)?;
+                .map_err(|_err| StepError::Finalize)?;
             result.push(next_state);
         }
 

@@ -1,8 +1,7 @@
-use alloc::string::String;
-
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
+use super::{Error, MyFault};
 use crate::protocols::common::{KeyShare, PartyIdx, PresigningData, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::protocols::presigning::{Round1Part1, Round1Part2, Round2, Round3};
@@ -43,44 +42,48 @@ impl<P: SchemeParams> SessionState for PresigningState<P> {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> Result<ToSendSerialized, String> {
+    ) -> Result<ToSendSerialized, MyFault> {
         Ok(match &mut self.0 {
             PresigningStage::Round1Part1(r) => r.get_messages(rng, num_parties, index)?,
             PresigningStage::Round1Part1Consensus(r) => r.get_messages(rng, num_parties, index)?,
             PresigningStage::Round1Part2(r) => r.get_messages(rng, num_parties, index)?,
             PresigningStage::Round2(r) => r.get_messages(rng, num_parties, index)?,
             PresigningStage::Round3(r) => r.get_messages(rng, num_parties, index)?,
-            _ => return Err("Not in a sending state".into()),
+            PresigningStage::Result(_) => {
+                return Err(MyFault::InvalidState(
+                    "This protocol has reached a result".into(),
+                ))
+            }
         })
     }
 
-    fn receive_current_stage(
-        &mut self,
-        from: PartyIdx,
-        message_bytes: &[u8],
-    ) -> Result<(), String> {
+    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), Error> {
         match &mut self.0 {
             PresigningStage::Round1Part1(r) => r.receive(from, message_bytes),
             PresigningStage::Round1Part1Consensus(r) => r.receive(from, message_bytes),
             PresigningStage::Round1Part2(r) => r.receive(from, message_bytes),
             PresigningStage::Round2(r) => r.receive(from, message_bytes),
             PresigningStage::Round3(r) => r.receive(from, message_bytes),
-            _ => Err("Not in a receiving stage".into()),
+            PresigningStage::Result(_) => Err(Error::MyFault(MyFault::InvalidState(
+                "This protocol has reached a result".into(),
+            ))),
         }
     }
 
-    fn is_finished_receiving(&self) -> Result<bool, String> {
+    fn is_finished_receiving(&self) -> Result<bool, MyFault> {
         match &self.0 {
             PresigningStage::Round1Part1(r) => r.is_finished_receiving(),
             PresigningStage::Round1Part1Consensus(r) => r.is_finished_receiving(),
             PresigningStage::Round1Part2(r) => r.is_finished_receiving(),
             PresigningStage::Round2(r) => r.is_finished_receiving(),
             PresigningStage::Round3(r) => r.is_finished_receiving(),
-            _ => Err("Not in a receiving stage".into()),
+            PresigningStage::Result(_) => Err(MyFault::InvalidState(
+                "This protocol has reached a result".into(),
+            )),
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String> {
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, Error> {
         Ok(Self(match self.0 {
             PresigningStage::Round1Part1(r) => {
                 PresigningStage::Round1Part1Consensus(Stage::new(r.finalize(rng)?))
@@ -93,14 +96,18 @@ impl<P: SchemeParams> SessionState for PresigningState<P> {
             }
             PresigningStage::Round2(r) => PresigningStage::Round3(Stage::new(r.finalize(rng)?)),
             PresigningStage::Round3(r) => PresigningStage::Result(r.finalize(rng)?),
-            _ => return Err("Not in a receiving stage".into()),
+            PresigningStage::Result(_) => {
+                return Err(Error::MyFault(MyFault::InvalidState(
+                    "This protocol has reached a result".into(),
+                )))
+            }
         }))
     }
 
-    fn result(&self) -> Result<Self::Result, String> {
+    fn result(&self) -> Result<Self::Result, MyFault> {
         match &self.0 {
             PresigningStage::Result(r) => Ok(r.clone()),
-            _ => Err("Not in the result stage".into()),
+            _ => Err(MyFault::InvalidState("Not in the result stage".into())),
         }
     }
 

@@ -1,8 +1,7 @@
-use alloc::string::String;
-
 use rand_core::{CryptoRng, RngCore};
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
+use super::{Error, MyFault};
 use crate::protocols::auxiliary::{Round1, Round2, Round3};
 use crate::protocols::common::{KeyShareChange, PartyIdx, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
@@ -41,41 +40,45 @@ impl<P: SchemeParams> SessionState for AuxiliaryState<P> {
         rng: &mut (impl RngCore + CryptoRng),
         num_parties: usize,
         index: PartyIdx,
-    ) -> Result<ToSendSerialized, String> {
+    ) -> Result<ToSendSerialized, MyFault> {
         Ok(match &mut self.0 {
             AuxiliaryStage::Round1(r) => r.get_messages(rng, num_parties, index)?,
             AuxiliaryStage::Round1Consensus(r) => r.get_messages(rng, num_parties, index)?,
             AuxiliaryStage::Round2(r) => r.get_messages(rng, num_parties, index)?,
             AuxiliaryStage::Round3(r) => r.get_messages(rng, num_parties, index)?,
-            _ => return Err("Not in a sending state".into()),
+            AuxiliaryStage::Result(_) => {
+                return Err(MyFault::InvalidState(
+                    "This protocol has reached a result".into(),
+                ))
+            }
         })
     }
 
-    fn receive_current_stage(
-        &mut self,
-        from: PartyIdx,
-        message_bytes: &[u8],
-    ) -> Result<(), String> {
+    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), Error> {
         match &mut self.0 {
             AuxiliaryStage::Round1(r) => r.receive(from, message_bytes),
             AuxiliaryStage::Round1Consensus(r) => r.receive(from, message_bytes),
             AuxiliaryStage::Round2(r) => r.receive(from, message_bytes),
             AuxiliaryStage::Round3(r) => r.receive(from, message_bytes),
-            _ => Err("Not in a receiving stage".into()),
+            AuxiliaryStage::Result(_) => Err(Error::MyFault(MyFault::InvalidState(
+                "This protocol has reached a result".into(),
+            ))),
         }
     }
 
-    fn is_finished_receiving(&self) -> Result<bool, String> {
+    fn is_finished_receiving(&self) -> Result<bool, MyFault> {
         match &self.0 {
             AuxiliaryStage::Round1(r) => r.is_finished_receiving(),
             AuxiliaryStage::Round1Consensus(r) => r.is_finished_receiving(),
             AuxiliaryStage::Round2(r) => r.is_finished_receiving(),
             AuxiliaryStage::Round3(r) => r.is_finished_receiving(),
-            _ => Err("Not in a receiving stage".into()),
+            AuxiliaryStage::Result(_) => Err(MyFault::InvalidState(
+                "This protocol has reached a result".into(),
+            )),
         }
     }
 
-    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, String> {
+    fn finalize_stage(self, rng: &mut (impl RngCore + CryptoRng)) -> Result<Self, Error> {
         Ok(Self(match self.0 {
             AuxiliaryStage::Round1(r) => {
                 AuxiliaryStage::Round1Consensus(Stage::new(r.finalize(rng)?))
@@ -85,14 +88,18 @@ impl<P: SchemeParams> SessionState for AuxiliaryState<P> {
             }
             AuxiliaryStage::Round2(r) => AuxiliaryStage::Round3(Stage::new(r.finalize(rng)?)),
             AuxiliaryStage::Round3(r) => AuxiliaryStage::Result(r.finalize(rng)?),
-            _ => return Err("Not in the receiving stage".into()),
+            AuxiliaryStage::Result(_) => {
+                return Err(Error::MyFault(MyFault::InvalidState(
+                    "This protocol has reached a result".into(),
+                )))
+            }
         }))
     }
 
-    fn result(&self) -> Result<Self::Result, String> {
+    fn result(&self) -> Result<Self::Result, MyFault> {
         match &self.0 {
             AuxiliaryStage::Result(r) => Ok(r.clone()),
-            _ => Err("Not in the result stage".into()),
+            _ => Err(MyFault::InvalidState("Not in the result stage".into())),
         }
     }
 
