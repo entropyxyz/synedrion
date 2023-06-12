@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
 use super::generic::{BroadcastRound, Round, ToSendTyped};
+use crate::curve::{Point, RecoverableSignature, Scalar};
 use crate::protocols::common::PresigningData;
 use crate::sessions::TheirFault;
 use crate::tools::collections::HoleVec;
-use crate::tools::group::{Point, Scalar, Signature};
 
 #[derive(Clone)]
 pub struct Round1 {
@@ -37,7 +37,7 @@ pub struct Round1Bcast {
 impl Round for Round1 {
     type Payload = Scalar;
     type Message = Round1Bcast;
-    type NextRound = Signature;
+    type NextRound = RecoverableSignature;
     type ErrorRound = (); // TODO: implement the reveal round
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
@@ -64,7 +64,9 @@ impl Round for Round1 {
 
         // CHECK: should `s` be normalized here?
 
-        let sig = Signature::from_scalars(&self.r, &s, &self.verifying_key, &self.message).unwrap();
+        let sig =
+            RecoverableSignature::from_scalars(&self.r, &s, &self.verifying_key, &self.message)
+                .unwrap();
 
         Ok(sig)
     }
@@ -79,10 +81,10 @@ mod tests {
 
     use super::Round1;
     use crate::centralized_keygen::make_key_shares;
+    use crate::curve::Scalar;
     use crate::protocols::common::{PartyIdx, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
     use crate::protocols::presigning;
-    use crate::tools::group::Scalar;
 
     #[test]
     fn execute_signing() {

@@ -2,11 +2,11 @@ use rand_core::CryptoRngCore;
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
 use super::{Error, MyFault};
+use crate::curve::{Point, RecoverableSignature, Scalar};
 use crate::protocols::common::{KeyShare, PartyIdx, SchemeParams, SessionId};
 use crate::protocols::generic::{ConsensusSubround, PreConsensusSubround};
 use crate::protocols::presigning;
 use crate::protocols::signing;
-use crate::tools::group::{Point, Scalar, Signature};
 
 #[allow(clippy::large_enum_variant)] // TODO: should we box them?
 #[derive(Clone)]
@@ -17,7 +17,7 @@ enum InteractiveSigningStage<P: SchemeParams> {
     Round2(Stage<presigning::Round2<P>>),
     Round3(Stage<presigning::Round3<P>>),
     SigningRound(Stage<signing::Round1>),
-    Result(Signature),
+    Result(RecoverableSignature),
 }
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ pub struct InteractiveSigningState<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> SessionState for InteractiveSigningState<P> {
-    type Result = Signature;
+    type Result = RecoverableSignature;
     type Context = (KeyShare<P>, Scalar);
 
     fn new(

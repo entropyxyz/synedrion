@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, PartyIdx, PresigningData, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
+use crate::curve::{Point, Scalar};
 use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
 use crate::sessions::TheirFault;
 use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
-use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hashable};
 
 #[derive(Clone)]

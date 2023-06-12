@@ -1,8 +1,8 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier};
-use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::Hashable;
 
 #[derive(Clone, Serialize, Deserialize)]

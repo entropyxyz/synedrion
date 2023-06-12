@@ -6,7 +6,7 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::tools::group::{Point, Scalar};
+use crate::curve::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 
 /// Secret data the proof is based on (~ signing key)
@@ -92,7 +92,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{SchCommitment, SchProof, SchSecret};
-    use crate::tools::group::Scalar;
+    use crate::curve::Scalar;
 
     #[test]
     fn protocol() {

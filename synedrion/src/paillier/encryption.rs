@@ -9,7 +9,7 @@ use super::uint::{
     CheckedAdd, CheckedSub, FromScalar, HasWide, Integer, Invert, NonZero, Pow, Retrieve,
     UintModLike,
 };
-use crate::tools::group::Scalar;
+use crate::curve::Scalar;
 use crate::tools::hashing::{Chain, Hashable};
 
 /// Paillier ciphertext.
@@ -170,9 +170,9 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Ciphertext;
+    use crate::curve::Scalar;
     use crate::paillier::keys::SecretKeyPaillier;
     use crate::paillier::params::PaillierTest;
-    use crate::tools::group::Scalar;
 
     #[test]
     fn roundtrip() {

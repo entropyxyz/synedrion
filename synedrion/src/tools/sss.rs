@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
 
-use crate::tools::group::Scalar;
+use crate::curve::Scalar;
 
 pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<Scalar> {
     // For now we are hardcoding the points to be 1, 2, ..., n.
@@ -48,7 +48,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{interpolation_coeff, shamir_evaluation_points, shamir_split};
-    use crate::tools::group::Scalar;
+    use crate::curve::Scalar;
 
     fn shamir_join(secrets: &[Scalar], points: &[Scalar]) -> Scalar {
         secrets

@@ -1,7 +1,3 @@
-//! This module is an adapter to the ECC backend.
-//! `elliptic_curves` has a somewhat unstable API,
-//! and we isolate all the related logic here.
-
 use alloc::format;
 use alloc::string::String;
 use alloc::{vec, vec::Vec};
@@ -16,17 +12,13 @@ use k256::elliptic_curve::{
     generic_array::GenericArray,
     ops::Reduce,
     point::AffineCoordinates,
-    scalar::IsHigh,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::CtOption,
     Field,
     FieldBytesSize,
     NonZeroScalar,
 };
-use k256::{
-    ecdsa::{RecoveryId, VerifyingKey},
-    Secp256k1,
-};
+use k256::{ecdsa::VerifyingKey, Secp256k1};
 use rand_core::CryptoRngCore;
 use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -73,14 +65,6 @@ impl Scalar {
         self.0.invert().map(Self)
     }
 
-    pub fn normalize(&self) -> Self {
-        if self.0.is_high().into() {
-            -self
-        } else {
-            *self
-        }
-    }
-
     pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
         // There's currently no way to make the required digest output size
         // depend on the target scalar size, so we are hardcoding it to 256 bit
@@ -105,6 +89,10 @@ impl Scalar {
 
     pub fn repr_len() -> usize {
         <FieldBytesSize<Secp256k1> as Unsigned>::to_usize()
+    }
+
+    pub(crate) fn to_backend(self) -> BackendScalar {
+        self.0
     }
 
     pub(crate) fn try_from_be_array(arr: &[u8; 32]) -> Result<Self, String> {
@@ -167,41 +155,6 @@ impl<'de> Deserialize<'de> for Scalar {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Signature {
-    signature: k256::ecdsa::Signature,
-    recovery_id: RecoveryId,
-}
-
-impl Signature {
-    pub(crate) fn from_scalars(
-        r: &Scalar,
-        s: &Scalar,
-        vkey: &Point,
-        message: &Scalar,
-    ) -> Option<Self> {
-        // TODO: call `normalize_s()` on the result?
-        // TODO: pass a message too and derive the recovery byte?
-        let signature = k256::ecdsa::Signature::from_scalars(r.0, s.0).ok()?;
-        let message_bytes = message.to_be_bytes();
-        let recovery_id = RecoveryId::trial_recovery_from_prehash(
-            &VerifyingKey::from_affine(vkey.0.to_affine()).ok()?,
-            &message_bytes,
-            &signature,
-        )
-        .ok()?;
-
-        Some(Self {
-            signature,
-            recovery_id,
-        })
-    }
-
-    pub fn to_backend(self) -> (k256::ecdsa::Signature, RecoveryId) {
-        (self.signature, self.recovery_id)
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point(BackendPoint);
 
@@ -235,6 +188,10 @@ impl Point {
         *GenericArray::<u8, CompressedPointSize>::from_slice(
             self.0.to_affine().to_encoded_point(true).as_bytes(),
         )
+    }
+
+    pub(crate) fn to_backend(self) -> BackendPoint {
+        self.0
     }
 }
 

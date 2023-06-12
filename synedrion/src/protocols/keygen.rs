@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareSeed, PartyIdx, SchemeParams, SessionId};
 use super::generic::{BroadcastRound, NeedsConsensus, Round, ToSendTyped};
+use crate::curve::{Point, Scalar};
 use crate::sessions::TheirFault;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
-use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 

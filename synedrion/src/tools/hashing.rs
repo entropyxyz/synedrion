@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::Shake256;
 
-use super::group::Scalar;
+use crate::curve::Scalar;
 
 /// Encodes the object into bytes for hashing purposes.
 pub trait HashInto {
@@ -40,8 +40,10 @@ pub trait Chain: Sized {
     }
 }
 
+pub type BackendDigest = Sha256;
+
 /// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub struct Hash(Sha256);
+pub struct Hash(BackendDigest);
 
 impl Chain for Hash {
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
@@ -72,16 +74,20 @@ where
 pub(crate) struct HashOutput(
     #[serde(serialize_with = "serdect_serialize")]
     #[serde(deserialize_with = "serdect_deserialize")]
-    [u8; 32], // Length of the Sha256 output. Unfortunately we can't get it in compile-time.
+    [u8; 32], // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
 );
 
 impl Hash {
     fn new() -> Self {
-        Self(Sha256::new())
+        Self(BackendDigest::new())
     }
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
+    }
+
+    pub(crate) fn digest(self) -> BackendDigest {
+        self.0
     }
 
     pub(crate) fn finalize(self) -> HashOutput {
@@ -131,6 +137,12 @@ pub trait Hashable {
 // NOTE: we *do not* want to implement Hashable for `usize` to prevent hashes being different
 // on different targets.
 impl Hashable for u32 {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(&self.to_be_bytes())
+    }
+}
+
+impl Hashable for u8 {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain_constant_sized_bytes(&self.to_be_bytes())
     }

@@ -4,8 +4,8 @@ use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+use crate::curve::{Point, Scalar};
 use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
-use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hashable};
 
 // TODO: this trait can include curve scalar/point types as well,

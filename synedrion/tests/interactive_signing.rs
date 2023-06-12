@@ -8,19 +8,21 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     make_key_shares,
-    sessions::{make_interactive_signing_session, ToSend},
-    KeyShare, PartyIdx, Signature, TestSchemeParams,
+    sessions::{make_interactive_signing_session, SignedMessage, ToSend},
+    KeyShare, PartyIdx, RecoverableSignature, Signer, TestSchemeParams, Verifier,
 };
 
-type MessageOut = (PartyIdx, PartyIdx, Box<[u8]>);
-type MessageIn = (PartyIdx, Box<[u8]>);
+type MessageOut = (PartyIdx, PartyIdx, SignedMessage);
+type MessageIn = (PartyIdx, SignedMessage);
 
 async fn node_session(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
+    signer: Signer,
+    verifiers: Vec<Verifier>,
     key_share: KeyShare<TestSchemeParams>,
     message: &[u8; 32],
-) -> Signature {
+) -> RecoverableSignature {
     let mut rx = rx;
 
     let party_idx = key_share.party_index();
@@ -30,7 +32,9 @@ async fn node_session(
         .filter(|idx| idx != &party_idx)
         .collect::<Vec<_>>();
 
-    let mut session = make_interactive_signing_session(&mut OsRng, &key_share, message).unwrap();
+    let mut session =
+        make_interactive_signing_session(&mut OsRng, &signer, &verifiers, &key_share, message)
+            .unwrap();
 
     while !session.is_final_stage() {
         println!(
@@ -62,9 +66,9 @@ async fn node_session(
 
         while !session.is_finished_receiving().unwrap() {
             println!("{party_idx:?}: waiting for a message");
-            let (id_from, message_bytes) = rx.recv().await.unwrap();
+            let (id_from, message) = rx.recv().await.unwrap();
             println!("{party_idx:?}: applying the message from {id_from:?}");
-            session.receive(id_from, &message_bytes).unwrap();
+            session.receive(id_from, message).unwrap();
         }
 
         println!("{party_idx:?}: finalizing the stage");
@@ -93,8 +97,8 @@ async fn message_dispatcher(
         messages.shuffle(&mut rand::thread_rng());
 
         while !messages.is_empty() {
-            let (id_from, id_to, message_bytes) = messages.pop().unwrap();
-            txs[&id_to].send((id_from, message_bytes)).await.unwrap();
+            let (id_from, id_to, message) = messages.pop().unwrap();
+            txs[&id_to].send((id_from, message)).await.unwrap();
 
             // Give up execution so that the tasks could process messages.
             sleep(Duration::from_millis(0)).await;
@@ -114,11 +118,16 @@ async fn interactive_signing() {
     let parties = (0..num_parties)
         .map(PartyIdx::from_usize)
         .collect::<Vec<_>>();
-    let shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties, None);
-    let key_shares = parties
+
+    let signers = (0..num_parties)
+        .map(|_| Signer::random(&mut OsRng))
+        .collect::<Vec<_>>();
+    let verifiers = signers
         .iter()
-        .zip(shares.into_vec().into_iter())
-        .collect::<BTreeMap<_, _>>();
+        .map(|signer| signer.verifier())
+        .collect::<Vec<_>>();
+    let key_shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties, None);
+
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
     let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
@@ -132,12 +141,14 @@ async fn interactive_signing() {
     let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
     let dispatcher = tokio::spawn(dispatcher_task);
 
-    let handles: Vec<tokio::task::JoinHandle<Signature>> = rx_map
+    let handles: Vec<tokio::task::JoinHandle<RecoverableSignature>> = rx_map
         .map(|(party_idx, rx)| {
             let node_task = node_session(
                 dispatcher_tx.clone(),
                 rx,
-                key_shares.get(&party_idx).unwrap().clone(),
+                signers[party_idx.as_usize()].clone(),
+                verifiers.clone(),
+                key_shares[party_idx.as_usize()].clone(),
                 message,
             );
             tokio::spawn(node_task)
@@ -150,7 +161,7 @@ async fn interactive_signing() {
     for handle in handles {
         let signature = handle.await.unwrap();
         let (sig, rec_id) = signature.to_backend();
-        let vkey = key_shares[&parties[0]].verifying_key();
+        let vkey = key_shares[0].verifying_key();
 
         // Check that the signature can be verified
         vkey.verify_prehash(message, &sig).unwrap();

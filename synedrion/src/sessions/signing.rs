@@ -2,21 +2,21 @@ use rand_core::CryptoRngCore;
 
 use super::generic::{SessionState, Stage, ToSendSerialized};
 use super::{Error, MyFault};
+use crate::curve::{Point, RecoverableSignature, Scalar};
 use crate::protocols::common::{PartyIdx, PresigningData, SessionId};
 use crate::protocols::signing::Round1;
-use crate::tools::group::{Point, Scalar, Signature};
 
 #[derive(Clone)]
 enum SigningStage {
     Round1(Stage<Round1>),
-    Result(Signature),
+    Result(RecoverableSignature),
 }
 
 #[derive(Clone)]
 pub struct SigningState(SigningStage);
 
 impl SessionState for SigningState {
-    type Result = Signature;
+    type Result = RecoverableSignature;
     type Context = (PresigningData, Scalar, Point);
 
     fn new(

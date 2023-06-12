@@ -3,11 +3,11 @@ use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
 
+use crate::curve::{Point, Scalar};
 use crate::paillier::uint::Zero;
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
 use crate::protocols::common::{KeyShare, KeySharePublic, KeyShareSecret, SchemeParams};
 use crate::protocols::threshold::ThresholdKeyShare;
-use crate::tools::group::{Point, Scalar};
 use crate::tools::sss::{shamir_evaluation_points, shamir_split};
 use crate::PartyIdx;
 
@@ -115,7 +115,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{make_key_shares, make_threshold_key_shares};
-    use crate::tools::group::Scalar;
+    use crate::curve::Scalar;
     use crate::{PartyIdx, TestSchemeParams};
 
     #[test]

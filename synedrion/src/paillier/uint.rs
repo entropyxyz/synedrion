@@ -8,7 +8,7 @@ use crypto_bigint::{
 };
 use digest::XofReader;
 
-use crate::tools::group::Scalar;
+use crate::curve::Scalar;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::jacobi::JacobiSymbolTrait;
 

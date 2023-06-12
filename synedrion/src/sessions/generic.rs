@@ -2,9 +2,12 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use super::error::{Error, MyFault, TheirFault};
+use super::signed_message::{
+    deserialize_message, serialize_message, SignedMessage, VerifiedMessage,
+};
+use crate::curve::{Signer, Verifier};
 use crate::protocols::common::{PartyIdx, SessionId};
 use crate::protocols::generic::{Round, ToSendTyped};
 use crate::tools::collections::HoleVecAccum;
@@ -18,33 +21,9 @@ pub enum ToSendSerialized {
 
 /// Serialized messages with the stage number specified.
 pub enum ToSend {
-    Broadcast(Box<[u8]>),
+    Broadcast(SignedMessage),
     // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(PartyIdx, Box<[u8]>)>),
-}
-
-fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, MyFault> {
-    rmp_serde::encode::to_vec(message)
-        .map(|serialized| serialized.into_boxed_slice())
-        .map_err(MyFault::SerializationError)
-}
-
-fn deserialize_message<M: for<'de> Deserialize<'de>>(
-    message_bytes: &[u8],
-) -> Result<M, rmp_serde::decode::Error> {
-    rmp_serde::decode::from_slice(message_bytes)
-}
-
-fn serialize_with_round(round: u8, message: &[u8]) -> Box<[u8]> {
-    rmp_serde::encode::to_vec(&(round, message))
-        .unwrap()
-        .into_boxed_slice()
-}
-
-fn deserialize_with_round(
-    message_bytes: &[u8],
-) -> Result<(u8, Box<[u8]>), rmp_serde::decode::Error> {
-    rmp_serde::decode::from_slice(message_bytes)
+    Direct(Vec<(PartyIdx, SignedMessage)>),
 }
 
 #[derive(Clone)]
@@ -199,6 +178,8 @@ pub trait SessionState: Clone {
 }
 
 pub struct Session<S: SessionState> {
+    signer: Signer,
+    verifiers: Vec<Verifier>,
     index: PartyIdx,
     num_parties: usize,
     next_stage_messages: Vec<(PartyIdx, Box<[u8]>)>,
@@ -208,7 +189,10 @@ pub struct Session<S: SessionState> {
 impl<S: SessionState> Session<S> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
+        signer: &Signer,
+        verifiers: &[Verifier],
         session_id: &SessionId,
+        // TODO: `num_parties` and `index` can be merged with signer and verifier in a single struct
         num_parties: usize,
         index: PartyIdx,
         context: &S::Context,
@@ -220,6 +204,8 @@ impl<S: SessionState> Session<S> {
 
         let state = S::new(rng, session_id, context, index);
         Self {
+            signer: signer.clone(),
+            verifiers: verifiers.to_vec(),
             index,
             num_parties,
             next_stage_messages: Vec::new(),
@@ -234,31 +220,37 @@ impl<S: SessionState> Session<S> {
             .map_err(Error::MyFault)?;
         let stage_num = self.state.current_stage_num();
         Ok(match to_send {
-            ToSendSerialized::Broadcast(message) => {
-                let message = serialize_with_round(stage_num, &message);
-                ToSend::Broadcast(message)
+            ToSendSerialized::Broadcast(message_bytes) => {
+                let message = VerifiedMessage::new(&self.signer, stage_num, &message_bytes);
+                ToSend::Broadcast(message.into_unverified())
             }
             ToSendSerialized::Direct(messages) => ToSend::Direct(
                 messages
                     .into_iter()
-                    .map(|(index, message)| {
-                        let message = serialize_with_round(stage_num, &message);
-                        (index, message)
+                    .map(|(index, message_bytes)| {
+                        let message = VerifiedMessage::new(&self.signer, stage_num, &message_bytes);
+                        (index, message.into_unverified())
                     })
                     .collect(),
             ),
         })
     }
 
-    pub fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), Error> {
+    pub fn receive(&mut self, from: PartyIdx, message: SignedMessage) -> Result<(), Error> {
         let stage_num = self.state.current_stage_num();
         let max_stages = self.state.stages_num();
-        let (stage, message_bytes) =
-            deserialize_with_round(message_bytes).map_err(|err| Error::TheirFault {
+
+        let verified_message = message
+            .verify(&self.verifiers[from.as_usize()])
+            .map_err(|err| Error::TheirFaultUnprovable {
                 party: from,
-                error: TheirFault::DeserializationError(err),
+                error: err,
             })?;
 
+        // TODO: check that the message has the correct session_id here
+
+        let stage = verified_message.stage();
+        let message_bytes = verified_message.payload().into();
         if stage == stage_num + 1 && stage <= max_stages {
             self.next_stage_messages.push((from, message_bytes));
         } else if stage == stage_num {

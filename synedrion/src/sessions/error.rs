@@ -7,6 +7,7 @@ pub enum Error {
     ErrorRound, // TODO: to be replaced with actual error round handling
     MyFault(MyFault),
     TheirFault { party: PartyIdx, error: TheirFault },
+    TheirFaultUnprovable { party: PartyIdx, error: TheirFault },
 }
 
 #[derive(Debug)]

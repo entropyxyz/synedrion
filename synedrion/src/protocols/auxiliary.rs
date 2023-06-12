@@ -9,6 +9,7 @@ use super::common::{
     KeyShareChange, KeyShareChangePublic, KeyShareChangeSecret, PartyIdx, SchemeParams, SessionId,
 };
 use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
+use crate::curve::{Point, Scalar};
 use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
@@ -21,7 +22,6 @@ use crate::sigma::mod_::ModProof;
 use crate::sigma::prm::PrmProof;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
-use crate::tools::group::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 
@@ -473,9 +473,9 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Round1;
+    use crate::curve::Scalar;
     use crate::protocols::common::{PartyIdx, SessionId, TestSchemeParams};
     use crate::protocols::generic::tests::step;
-    use crate::tools::group::Scalar;
 
     #[test]
     fn execute_auxiliary() {
