@@ -234,18 +234,20 @@ where
         let stage_num = self.state.current_stage_num();
         Ok(match to_send {
             ToSendSerialized::Broadcast(message_bytes) => {
-                let message = VerifiedMessage::new(&self.signer, stage_num, &message_bytes);
+                let message = VerifiedMessage::new(&self.signer, stage_num, &message_bytes)
+                    .map_err(Error::MyFault)?;
                 ToSend::Broadcast(message.into_unverified())
             }
-            ToSendSerialized::Direct(messages) => ToSend::Direct(
-                messages
-                    .into_iter()
-                    .map(|(index, message_bytes)| {
-                        let message = VerifiedMessage::new(&self.signer, stage_num, &message_bytes);
-                        (index, message.into_unverified())
-                    })
-                    .collect(),
-            ),
+            ToSendSerialized::Direct(messages) => {
+                let mut signed_messages = Vec::with_capacity(messages.len());
+                for (index, message_bytes) in messages.into_iter() {
+                    let signed_message =
+                        VerifiedMessage::new(&self.signer, stage_num, &message_bytes)
+                            .map_err(Error::MyFault)?;
+                    signed_messages.push((index, signed_message.into_unverified()));
+                }
+                ToSend::Direct(signed_messages)
+            }
         })
     }
 

@@ -21,6 +21,7 @@ pub enum MyFault {
     /// Refer to the documentation of the chosen serialization library for more info.
     SerializationError(rmp_serde::encode::Error),
     InvalidId(PartyIdx),
+    SigningError(String),
 }
 
 #[derive(Debug)]
