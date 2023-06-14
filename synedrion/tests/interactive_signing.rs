@@ -12,8 +12,8 @@ use synedrion::{
     KeyShare, PartyIdx, RecoverableSignature, TestSchemeParams,
 };
 
-type MessageOut = (PartyIdx, PartyIdx, SignedMessage);
-type MessageIn = (PartyIdx, SignedMessage);
+type MessageOut = (PartyIdx, PartyIdx, SignedMessage<Signature>);
+type MessageIn = (PartyIdx, SignedMessage<Signature>);
 
 async fn node_session(
     tx: mpsc::Sender<MessageOut>,

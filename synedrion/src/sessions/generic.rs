@@ -3,10 +3,7 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
-use signature::{
-    hazmat::{PrehashSigner, PrehashVerifier},
-    SignatureEncoding,
-};
+use signature::hazmat::{PrehashSigner, PrehashVerifier};
 
 use super::error::{Error, MyFault, TheirFault};
 use super::signed_message::{
@@ -24,10 +21,10 @@ pub enum ToSendSerialized {
 }
 
 /// Serialized messages with the stage number specified.
-pub enum ToSend {
-    Broadcast(SignedMessage),
+pub enum ToSend<Sig> {
+    Broadcast(SignedMessage<Sig>),
     // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(PartyIdx, SignedMessage)>),
+    Direct(Vec<(PartyIdx, SignedMessage<Sig>)>),
 }
 
 #[derive(Clone)]
@@ -201,8 +198,6 @@ where
     S: SessionState,
     Signer: PrehashSigner<Sig> + Clone,
     Verifier: PrehashVerifier<Sig> + Clone,
-    Sig: SignatureEncoding + for<'a> TryFrom<&'a [u8]>,
-    for<'a> <Sig as TryFrom<&'a [u8]>>::Error: core::fmt::Display,
 {
     pub fn new(
         rng: &mut impl CryptoRngCore,
@@ -231,7 +226,7 @@ where
         }
     }
 
-    pub fn get_messages(&mut self, rng: &mut impl CryptoRngCore) -> Result<ToSend, Error> {
+    pub fn get_messages(&mut self, rng: &mut impl CryptoRngCore) -> Result<ToSend<Sig>, Error> {
         let to_send = self
             .state
             .get_messages(rng, self.num_parties, self.index)
@@ -254,7 +249,7 @@ where
         })
     }
 
-    pub fn receive(&mut self, from: PartyIdx, message: SignedMessage) -> Result<(), Error> {
+    pub fn receive(&mut self, from: PartyIdx, message: SignedMessage<Sig>) -> Result<(), Error> {
         let stage_num = self.state.current_stage_num();
         let max_stages = self.state.stages_num();
 

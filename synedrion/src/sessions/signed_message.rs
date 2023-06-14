@@ -2,10 +2,7 @@ use alloc::boxed::Box;
 use alloc::format;
 
 use serde::{Deserialize, Serialize};
-use signature::{
-    hazmat::{PrehashSigner, PrehashVerifier},
-    SignatureEncoding,
-};
+use signature::hazmat::{PrehashSigner, PrehashVerifier};
 
 use super::error::{MyFault, TheirFault};
 use crate::tools::hashing::{Chain, Hash};
@@ -23,42 +20,34 @@ pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SignedMessage {
+pub struct SignedMessage<Sig> {
     // TODO
     //session_id: SessionId,
     stage: u8,
     payload: Box<[u8]>, // TODO: add serialization attribute to avoid serializing as Vec<u8>
-    signature: Box<[u8]>,
+    signature: Sig,
 }
 
-impl SignedMessage {
-    pub(crate) fn verify<V, Sig>(self, verifier: &V) -> Result<VerifiedMessage, TheirFault>
-    where
-        V: PrehashVerifier<Sig>,
-        Sig: for<'a> TryFrom<&'a [u8]>,
-        for<'a> <Sig as TryFrom<&'a [u8]>>::Error: core::fmt::Display,
-    {
+impl<Sig> SignedMessage<Sig> {
+    pub(crate) fn verify(
+        self,
+        verifier: &impl PrehashVerifier<Sig>,
+    ) -> Result<VerifiedMessage<Sig>, TheirFault> {
         let digest = Hash::new_with_dst(b"SignedMessage")
             .chain(&self.stage)
             .chain(&self.payload)
             .finalize();
-        let signature = Sig::try_from(&self.signature)
-            .map_err(|err| TheirFault::SignatureFormatError(format!("{}", err)))?;
         verifier
-            .verify_prehash(digest.as_ref(), &signature)
+            .verify_prehash(digest.as_ref(), &self.signature)
             .map_err(|err| TheirFault::VerificationFail(format!("{}", err)))?;
         Ok(VerifiedMessage(self))
     }
 }
 
-pub(crate) struct VerifiedMessage(SignedMessage);
+pub(crate) struct VerifiedMessage<Sig>(SignedMessage<Sig>);
 
-impl VerifiedMessage {
-    pub(crate) fn new<S, Sig>(signer: &S, stage: u8, message_bytes: &[u8]) -> Self
-    where
-        S: PrehashSigner<Sig>,
-        Sig: SignatureEncoding,
-    {
+impl<Sig> VerifiedMessage<Sig> {
+    pub(crate) fn new(signer: &impl PrehashSigner<Sig>, stage: u8, message_bytes: &[u8]) -> Self {
         // In order for the messages be impossible to reuse by a malicious third party,
         // we need to sign, besides the message itself, the session and the stage in this session
         // it belongs to.
@@ -74,11 +63,11 @@ impl VerifiedMessage {
         Self(SignedMessage {
             stage,
             payload: message_bytes.into(),
-            signature: signature.to_vec().into(),
+            signature,
         })
     }
 
-    pub fn into_unverified(self) -> SignedMessage {
+    pub fn into_unverified(self) -> SignedMessage<Sig> {
         self.0
     }
 

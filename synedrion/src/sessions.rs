@@ -19,10 +19,7 @@ pub use signing::SigningState;
 use alloc::string::String;
 
 use rand_core::CryptoRngCore;
-use signature::{
-    hazmat::{PrehashSigner, PrehashVerifier},
-    SignatureEncoding,
-};
+use signature::hazmat::{PrehashSigner, PrehashVerifier};
 
 use crate::curve::Scalar;
 use crate::protocols::common::{KeyShare, SessionId};
@@ -41,8 +38,6 @@ where
     P: SchemeParams,
     Signer: PrehashSigner<Sig> + Clone,
     Verifier: PrehashVerifier<Sig> + Clone,
-    Sig: SignatureEncoding + for<'a> TryFrom<&'a [u8]>,
-    for<'a> <Sig as TryFrom<&'a [u8]>>::Error: core::fmt::Display,
 {
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
 
