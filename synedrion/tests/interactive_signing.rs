@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+use k256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, SigningKey, VerifyingKey};
 use rand::seq::SliceRandom;
 use rand_core::OsRng;
 use tokio::sync::mpsc;
@@ -9,7 +9,7 @@ use tokio::time::{sleep, Duration};
 use synedrion::{
     make_key_shares,
     sessions::{make_interactive_signing_session, SignedMessage, ToSend},
-    KeyShare, PartyIdx, RecoverableSignature, Signer, TestSchemeParams, Verifier,
+    KeyShare, PartyIdx, RecoverableSignature, TestSchemeParams,
 };
 
 type MessageOut = (PartyIdx, PartyIdx, SignedMessage);
@@ -18,8 +18,8 @@ type MessageIn = (PartyIdx, SignedMessage);
 async fn node_session(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
-    signer: Signer,
-    verifiers: Vec<Verifier>,
+    signer: SigningKey,
+    verifiers: Vec<VerifyingKey>,
     key_share: KeyShare<TestSchemeParams>,
     message: &[u8; 32],
 ) -> RecoverableSignature {
@@ -32,9 +32,10 @@ async fn node_session(
         .filter(|idx| idx != &party_idx)
         .collect::<Vec<_>>();
 
-    let mut session =
-        make_interactive_signing_session(&mut OsRng, &signer, &verifiers, &key_share, message)
-            .unwrap();
+    let mut session = make_interactive_signing_session::<_, Signature, _, _>(
+        &mut OsRng, &signer, &verifiers, &key_share, message,
+    )
+    .unwrap();
 
     while !session.is_final_stage() {
         println!(
@@ -120,11 +121,11 @@ async fn interactive_signing() {
         .collect::<Vec<_>>();
 
     let signers = (0..num_parties)
-        .map(|_| Signer::random(&mut OsRng))
+        .map(|_| SigningKey::random(&mut OsRng))
         .collect::<Vec<_>>();
     let verifiers = signers
         .iter()
-        .map(|signer| signer.verifier())
+        .map(|signer| *signer.verifying_key())
         .collect::<Vec<_>>();
     let key_shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties, None);
 

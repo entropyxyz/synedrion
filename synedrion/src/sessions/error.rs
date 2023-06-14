@@ -25,6 +25,7 @@ pub enum MyFault {
 
 #[derive(Debug)]
 pub enum TheirFault {
+    SignatureFormatError(String),
     DeserializationError(rmp_serde::decode::Error),
     DuplicateMessage,
     OutOfOrderMessage {

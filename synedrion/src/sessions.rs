@@ -19,26 +19,37 @@ pub use signing::SigningState;
 use alloc::string::String;
 
 use rand_core::CryptoRngCore;
+use signature::{
+    hazmat::{PrehashSigner, PrehashVerifier},
+    SignatureEncoding,
+};
 
-use crate::curve::{Scalar, Signer, Verifier};
+use crate::curve::Scalar;
 use crate::protocols::common::{KeyShare, SessionId};
 use crate::SchemeParams;
 
 pub type PrehashedMessage = [u8; 32];
 
-pub fn make_interactive_signing_session<P: SchemeParams>(
+pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
     signer: &Signer,
     verifiers: &[Verifier],
     key_share: &KeyShare<P>,
     prehashed_message: &PrehashedMessage,
-) -> Result<Session<InteractiveSigningState<P>>, String> {
+) -> Result<Session<InteractiveSigningState<P>, Sig, Signer, Verifier>, String>
+where
+    P: SchemeParams,
+    Signer: PrehashSigner<Sig> + Clone,
+    Verifier: PrehashVerifier<Sig> + Clone,
+    Sig: SignatureEncoding + for<'a> TryFrom<&'a [u8]>,
+    for<'a> <Sig as TryFrom<&'a [u8]>>::Error: core::fmt::Display,
+{
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
 
     let session_id = SessionId::random(rng);
     let context = (key_share.clone(), scalar_message);
 
-    Ok(Session::<InteractiveSigningState<P>>::new(
+    Ok(Session::new(
         rng,
         signer,
         verifiers,

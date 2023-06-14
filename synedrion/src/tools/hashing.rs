@@ -77,6 +77,12 @@ pub(crate) struct HashOutput(
     [u8; 32], // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
 );
 
+impl AsRef<[u8]> for HashOutput {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 impl Hash {
     fn new() -> Self {
         Self(BackendDigest::new())
@@ -84,10 +90,6 @@ impl Hash {
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
-    }
-
-    pub(crate) fn digest(self) -> BackendDigest {
-        self.0
     }
 
     pub(crate) fn finalize(self) -> HashOutput {

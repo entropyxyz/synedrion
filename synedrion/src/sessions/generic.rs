@@ -1,13 +1,17 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
+use signature::{
+    hazmat::{PrehashSigner, PrehashVerifier},
+    SignatureEncoding,
+};
 
 use super::error::{Error, MyFault, TheirFault};
 use super::signed_message::{
     deserialize_message, serialize_message, SignedMessage, VerifiedMessage,
 };
-use crate::curve::{Signer, Verifier};
 use crate::protocols::common::{PartyIdx, SessionId};
 use crate::protocols::generic::{Round, ToSendTyped};
 use crate::tools::collections::HoleVecAccum;
@@ -177,16 +181,29 @@ pub trait SessionState: Clone {
     type Result;
 }
 
-pub struct Session<S: SessionState> {
+pub struct Session<S, Sig, Signer, Verifier>
+where
+    S: SessionState,
+    Signer: PrehashSigner<Sig>,
+    Verifier: PrehashVerifier<Sig>,
+{
     signer: Signer,
     verifiers: Vec<Verifier>,
     index: PartyIdx,
     num_parties: usize,
     next_stage_messages: Vec<(PartyIdx, Box<[u8]>)>,
     state: S,
+    phantom_signature: PhantomData<Sig>,
 }
 
-impl<S: SessionState> Session<S> {
+impl<S, Sig, Signer, Verifier> Session<S, Sig, Signer, Verifier>
+where
+    S: SessionState,
+    Signer: PrehashSigner<Sig> + Clone,
+    Verifier: PrehashVerifier<Sig> + Clone,
+    Sig: SignatureEncoding + for<'a> TryFrom<&'a [u8]>,
+    for<'a> <Sig as TryFrom<&'a [u8]>>::Error: core::fmt::Display,
+{
     pub fn new(
         rng: &mut impl CryptoRngCore,
         signer: &Signer,
@@ -210,6 +227,7 @@ impl<S: SessionState> Session<S> {
             num_parties,
             next_stage_messages: Vec::new(),
             state,
+            phantom_signature: PhantomData,
         }
     }
 

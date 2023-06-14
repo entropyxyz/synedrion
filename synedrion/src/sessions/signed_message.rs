@@ -2,9 +2,12 @@ use alloc::boxed::Box;
 use alloc::format;
 
 use serde::{Deserialize, Serialize};
+use signature::{
+    hazmat::{PrehashSigner, PrehashVerifier},
+    SignatureEncoding,
+};
 
 use super::error::{MyFault, TheirFault};
-use crate::curve::{Signature, Signer, Verifier};
 use crate::tools::hashing::{Chain, Hash};
 
 pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, MyFault> {
@@ -25,17 +28,24 @@ pub struct SignedMessage {
     //session_id: SessionId,
     stage: u8,
     payload: Box<[u8]>, // TODO: add serialization attribute to avoid serializing as Vec<u8>
-    signature: Signature,
+    signature: Box<[u8]>,
 }
 
 impl SignedMessage {
-    pub(crate) fn verify(self, verifier: &Verifier) -> Result<VerifiedMessage, TheirFault> {
+    pub(crate) fn verify<V, Sig>(self, verifier: &V) -> Result<VerifiedMessage, TheirFault>
+    where
+        V: PrehashVerifier<Sig>,
+        Sig: for<'a> TryFrom<&'a [u8]>,
+        for<'a> <Sig as TryFrom<&'a [u8]>>::Error: core::fmt::Display,
+    {
         let digest = Hash::new_with_dst(b"SignedMessage")
             .chain(&self.stage)
             .chain(&self.payload)
-            .digest();
+            .finalize();
+        let signature = Sig::try_from(&self.signature)
+            .map_err(|err| TheirFault::SignatureFormatError(format!("{}", err)))?;
         verifier
-            .verify_digest(digest, &self.signature)
+            .verify_prehash(digest.as_ref(), &signature)
             .map_err(|err| TheirFault::VerificationFail(format!("{}", err)))?;
         Ok(VerifiedMessage(self))
     }
@@ -44,7 +54,11 @@ impl SignedMessage {
 pub(crate) struct VerifiedMessage(SignedMessage);
 
 impl VerifiedMessage {
-    pub(crate) fn new(signer: &Signer, stage: u8, message_bytes: &[u8]) -> Self {
+    pub(crate) fn new<S, Sig>(signer: &S, stage: u8, message_bytes: &[u8]) -> Self
+    where
+        S: PrehashSigner<Sig>,
+        Sig: SignatureEncoding,
+    {
         // In order for the messages be impossible to reuse by a malicious third party,
         // we need to sign, besides the message itself, the session and the stage in this session
         // it belongs to.
@@ -54,12 +68,13 @@ impl VerifiedMessage {
         let digest = Hash::new_with_dst(b"SignedMessage")
             .chain(&stage)
             .chain(&message_bytes)
-            .digest();
-        let signature = signer.sign_digest(digest);
+            .finalize();
+        // TODO: propagate the failure here
+        let signature = signer.sign_prehash(digest.as_ref()).unwrap();
         Self(SignedMessage {
             stage,
             payload: message_bytes.into(),
-            signature,
+            signature: signature.to_vec().into(),
         })
     }
 

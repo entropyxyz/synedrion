@@ -6,5 +6,5 @@
 mod arithmetic;
 mod ecdsa;
 
-pub use self::ecdsa::{RecoverableSignature, Signature, Signer, Verifier};
+pub use self::ecdsa::RecoverableSignature;
 pub use arithmetic::{Point, Scalar};
