@@ -6,6 +6,8 @@ use crate::protocols::common::PartyIdx;
 pub enum Error {
     ErrorRound, // TODO: to be replaced with actual error round handling
     MyFault(MyFault),
+    NotEnoughMessages,
+    Finalize,
     TheirFault { party: PartyIdx, error: TheirFault },
     TheirFaultUnprovable { party: PartyIdx, error: TheirFault },
 }
@@ -19,19 +21,19 @@ pub enum MyFault {
     /// A message could not be serialized.
     ///
     /// Refer to the documentation of the chosen serialization library for more info.
-    SerializationError(rmp_serde::encode::Error),
+    SerializationError(String),
     InvalidId(PartyIdx),
     SigningError(String),
 }
 
 #[derive(Debug)]
 pub enum TheirFault {
-    SignatureFormatError(String),
-    DeserializationError(rmp_serde::decode::Error),
+    DeserializationError(String),
     DuplicateMessage,
     OutOfOrderMessage {
         current_stage: u8,
         message_stage: u8,
     },
+    Receive(String),
     VerificationFail(String),
 }

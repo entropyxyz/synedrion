@@ -4,10 +4,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, PartyIdx, PresigningData, SchemeParams, SessionId};
-use super::generic::{BroadcastRound, DirectRound, NeedsConsensus, Round, ToSendTyped};
+use super::generic::{
+    FinalizeError, FinalizeSuccess, FirstRound, NonExistent, ReceiveError, Round, ToSendTyped,
+};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
-use crate::sessions::TheirFault;
 use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;
@@ -45,18 +46,23 @@ pub struct Round1Part1<P: SchemeParams> {
     g_ciphertext: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams> Round1Part1<P> {
-    pub fn new(
+pub(crate) struct Context<P: SchemeParams> {
+    pub(crate) session_id: SessionId,
+    pub(crate) key_share: KeyShare<P>,
+}
+
+impl<P: SchemeParams> FirstRound for Round1Part1<P> {
+    type Context = Context<P>;
+    fn new(
         rng: &mut impl CryptoRngCore,
-        session_id: &SessionId,
-        party_idx: PartyIdx,
         num_parties: usize,
-        key_share: &KeyShare<P>,
+        party_idx: PartyIdx,
+        context: &Self::Context,
     ) -> Self {
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
 
-        let pk = key_share.secret.sk.public_key();
+        let pk = context.key_share.secret.sk.public_key();
         let rho = pk.random_invertible_group_elem(rng).retrieve();
         let nu = pk.random_invertible_group_elem(rng).retrieve();
 
@@ -65,10 +71,10 @@ impl<P: SchemeParams> Round1Part1<P> {
 
         Self {
             context: PublicContext {
-                session_id: session_id.clone(),
+                session_id: context.session_id.clone(),
                 num_parties,
                 party_idx,
-                key_share: key_share.clone(),
+                key_share: context.key_share.clone(),
             },
             secret_data: SecretData { k, gamma, rho, nu },
             k_ciphertext,
@@ -95,7 +101,24 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
     type Payload = Round1Bcast<P::Paillier>;
     type Message = Round1Bcast<P::Paillier>;
     type NextRound = Round1Part2<P>;
-    type ErrorRound = ();
+    type Result = PresigningData;
+
+    fn party_idx(&self) -> PartyIdx {
+        self.context.party_idx
+    }
+    fn num_parties(&self) -> usize {
+        self.context.num_parties
+    }
+
+    fn round_num() -> u8 {
+        1
+    }
+    fn next_round_num() -> Option<u8> {
+        Some(2)
+    }
+    fn requires_broadcast_consensus() -> bool {
+        true
+    }
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
@@ -108,7 +131,7 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
+    ) -> Result<Self::Payload, ReceiveError> {
         Ok(msg)
     }
 
@@ -116,24 +139,20 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
+    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         let (k_ciphertexts, g_ciphertexts) = payloads
             .map(|data| (data.k_ciphertext, data.g_ciphertext))
             .unzip();
         let k_ciphertexts = k_ciphertexts.into_vec(self.k_ciphertext);
         let g_ciphertexts = g_ciphertexts.into_vec(self.g_ciphertext);
-        Ok(Round1Part2 {
+        Ok(FinalizeSuccess::AnotherRound(Round1Part2 {
             context: self.context,
             secret_data: self.secret_data,
             k_ciphertexts,
             g_ciphertexts,
-        })
+        }))
     }
 }
-
-impl<P: SchemeParams> BroadcastRound for Round1Part1<P> {}
-
-impl<P: SchemeParams> NeedsConsensus for Round1Part1<P> {}
 
 #[derive(Clone)]
 pub struct Round1Part2<P: SchemeParams> {
@@ -152,7 +171,24 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     type Payload = ();
     type Message = Round1Direct<P::Paillier>;
     type NextRound = Round2<P>;
-    type ErrorRound = ();
+    type Result = PresigningData;
+
+    fn party_idx(&self) -> PartyIdx {
+        self.context.party_idx
+    }
+    fn num_parties(&self) -> usize {
+        self.context.num_parties
+    }
+
+    fn round_num() -> u8 {
+        2
+    }
+    fn next_round_num() -> Option<u8> {
+        Some(3)
+    }
+    fn requires_broadcast_consensus() -> bool {
+        false
+    }
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -179,7 +215,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
+    ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.session_id, &self.context.party_idx);
         if msg.0.verify(
             &self.context.key_share.public[from.as_usize()].paillier_pk,
@@ -188,7 +224,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         ) {
             Ok(())
         } else {
-            Err(TheirFault::VerificationFail(
+            Err(ReceiveError::VerificationFail(
                 "Failed to verify EncProof".into(),
             ))
         }
@@ -198,12 +234,10 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
         self,
         rng: &mut impl CryptoRngCore,
         _payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
-        Ok(Round2::new(rng, self))
+    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
+        Ok(FinalizeSuccess::AnotherRound(Round2::new(rng, self)))
     }
 }
-
-impl<P: SchemeParams> DirectRound for Round1Part2<P> {}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "Ciphertext<P>: Serialize,
@@ -282,7 +316,24 @@ impl<P: SchemeParams> Round for Round2<P> {
     type Payload = Round2Payload;
     type Message = Round2Direct<P::Paillier>;
     type NextRound = Round3<P>;
-    type ErrorRound = ();
+    type Result = PresigningData;
+
+    fn party_idx(&self) -> PartyIdx {
+        self.context.party_idx
+    }
+    fn num_parties(&self) -> usize {
+        self.context.num_parties
+    }
+
+    fn round_num() -> u8 {
+        3
+    }
+    fn next_round_num() -> Option<u8> {
+        Some(4)
+    }
+    fn requires_broadcast_consensus() -> bool {
+        false
+    }
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -383,7 +434,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
+    ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.session_id, &self.context.party_idx);
         let pk = &self.context.key_share.secret.sk.public_key();
         let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
@@ -400,7 +451,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             &msg.gamma,
             &aux,
         ) {
-            return Err(TheirFault::VerificationFail(
+            return Err(ReceiveError::VerificationFail(
                 "Failed to verify EncProof".into(),
             ));
         }
@@ -414,7 +465,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             &big_x,
             &aux,
         ) {
-            return Err(TheirFault::VerificationFail(
+            return Err(ReceiveError::VerificationFail(
                 "Failed to verify EncProof".into(),
             ));
         }
@@ -426,7 +477,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             &msg.gamma,
             &aux,
         ) {
-            return Err(TheirFault::VerificationFail(
+            return Err(ReceiveError::VerificationFail(
                 "Failed to verify EncProof".into(),
             ));
         }
@@ -445,7 +496,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
+    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
         let gamma = gamma + self.secret_data.gamma.mul_by_generator();
 
@@ -462,7 +513,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             + alpha_hat_sum
             + beta_hat_sum;
 
-        Ok(Round3 {
+        Ok(FinalizeSuccess::AnotherRound(Round3 {
             context: self.context,
             secret_data: self.secret_data,
             delta,
@@ -470,7 +521,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             big_delta,
             big_gamma: gamma,
             k_ciphertexts: self.k_ciphertexts,
-        })
+        }))
     }
 }
 
@@ -503,8 +554,25 @@ pub struct Round3Payload {
 impl<P: SchemeParams> Round for Round3<P> {
     type Payload = Round3Payload;
     type Message = Round3Bcast<P::Paillier>;
-    type NextRound = PresigningData;
-    type ErrorRound = (); // TODO: implement reveal round
+    type NextRound = NonExistent<Self::Result>;
+    type Result = PresigningData;
+
+    fn party_idx(&self) -> PartyIdx {
+        self.context.party_idx
+    }
+    fn num_parties(&self) -> usize {
+        self.context.num_parties
+    }
+
+    fn round_num() -> u8 {
+        4
+    }
+    fn next_round_num() -> Option<u8> {
+        None
+    }
+    fn requires_broadcast_consensus() -> bool {
+        false
+    }
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -539,7 +607,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
+    ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.session_id, &self.context.party_idx);
         let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
         if !msg.psi_hat_pprime.verify(
@@ -549,7 +617,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             &msg.big_delta,
             &aux,
         ) {
-            return Err(TheirFault::VerificationFail(
+            return Err(ReceiveError::VerificationFail(
                 "Failed to verify Log-Star proof".into(),
             ));
         }
@@ -563,7 +631,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
+    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         let (deltas, big_deltas) = payloads
             .map(|payload| (payload.delta, payload.big_delta))
             .unzip();
@@ -575,18 +643,18 @@ impl<P: SchemeParams> Round for Round3<P> {
         let big_delta = big_delta + self.big_delta;
 
         if delta.mul_by_generator() != big_delta {
-            return Err(());
+            return Err(FinalizeError::Unspecified("Invalid Delta".into()));
             // TODO: calculate the required proofs here according to the paper.
         }
 
         // TODO: seems like we only need the x-coordinate of this (as a Scalar)
         let big_r = &self.big_gamma * &delta.invert().unwrap();
 
-        Ok(PresigningData {
+        Ok(FinalizeSuccess::Result(PresigningData {
             big_r,
             k: self.secret_data.k,
             chi: self.chi,
-        })
+        }))
     }
 }
 
@@ -594,10 +662,13 @@ impl<P: SchemeParams> Round for Round3<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::Round1Part1;
+    use super::{Context, Round1Part1};
     use crate::centralized_keygen::make_key_shares;
     use crate::protocols::common::{PartyIdx, SessionId, TestSchemeParams};
-    use crate::protocols::generic::tests::step;
+    use crate::protocols::generic::{
+        tests::{assert_next_round, assert_result, step},
+        FirstRound,
+    };
 
     #[test]
     fn execute_presigning() {
@@ -608,31 +679,37 @@ mod tests {
         let r1 = vec![
             Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
-                &session_id,
+                3,
                 PartyIdx::from_usize(0),
-                3,
-                &key_shares[0],
+                &Context {
+                    session_id: session_id.clone(),
+                    key_share: key_shares[0].clone(),
+                },
             ),
             Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
-                &session_id,
+                3,
                 PartyIdx::from_usize(1),
-                3,
-                &key_shares[1],
+                &Context {
+                    session_id: session_id.clone(),
+                    key_share: key_shares[1].clone(),
+                },
             ),
             Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
-                &session_id,
-                PartyIdx::from_usize(2),
                 3,
-                &key_shares[2],
+                PartyIdx::from_usize(2),
+                &Context {
+                    session_id: session_id.clone(),
+                    key_share: key_shares[2].clone(),
+                },
             ),
         ];
 
-        let r1p2 = step(&mut OsRng, r1).unwrap();
-        let r2 = step(&mut OsRng, r1p2).unwrap();
-        let r3 = step(&mut OsRng, r2).unwrap();
-        let presigning_datas = step(&mut OsRng, r3).unwrap();
+        let r1p2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
+        let r2 = assert_next_round(step(&mut OsRng, r1p2).unwrap()).unwrap();
+        let r3 = assert_next_round(step(&mut OsRng, r2).unwrap()).unwrap();
+        let presigning_datas = assert_result(step(&mut OsRng, r3).unwrap()).unwrap();
 
         assert_eq!(presigning_datas[0].big_r, presigning_datas[1].big_r);
         assert_eq!(presigning_datas[0].big_r, presigning_datas[2].big_r);

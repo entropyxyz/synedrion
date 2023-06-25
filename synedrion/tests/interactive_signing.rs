@@ -37,14 +37,10 @@ async fn node_session(
     )
     .unwrap();
 
-    while !session.is_final_stage() {
-        println!(
-            "*** {:?}: starting stage {}",
-            party_idx,
-            session.current_stage_num()
-        );
+    while !session.is_finished() {
+        println!("*** {:?}: starting round", party_idx,);
 
-        let to_send = session.get_messages(&mut OsRng).unwrap();
+        let to_send = session.get_messages().unwrap();
 
         match to_send {
             ToSend::Broadcast(message) => {
@@ -73,10 +69,10 @@ async fn node_session(
         }
 
         println!("{party_idx:?}: finalizing the stage");
-        session.finalize_stage(&mut OsRng).unwrap();
+        session.finalize_round(&mut OsRng).unwrap();
     }
 
-    session.result().unwrap()
+    session.result().unwrap().clone()
 }
 
 async fn message_dispatcher(

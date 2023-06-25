@@ -2,29 +2,45 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
-use super::generic::{BroadcastRound, Round, ToSendTyped};
+use super::generic::{
+    FinalizeError, FinalizeSuccess, FirstRound, NonExistent, ReceiveError, Round, ToSendTyped,
+};
 use crate::curve::{Point, RecoverableSignature, Scalar};
 use crate::protocols::common::PresigningData;
-use crate::sessions::TheirFault;
 use crate::tools::collections::HoleVec;
 
 #[derive(Clone)]
 pub struct Round1 {
-    verifying_key: Point,
-    message: Scalar,
     r: Scalar,
     s_part: Scalar,
+    context: Context,
+    num_parties: usize,
+    party_idx: PartyIdx,
 }
 
-impl Round1 {
-    pub fn new(presigning: &PresigningData, message: &Scalar, verifying_key: &Point) -> Self {
-        let r = presigning.big_r.x_coordinate();
-        let s_part = &presigning.k * message + r * presigning.chi;
+#[derive(Clone)]
+pub(crate) struct Context {
+    pub(crate) message: Scalar,
+    pub(crate) verifying_key: Point,
+    pub(crate) presigning: PresigningData,
+}
+
+impl FirstRound for Round1 {
+    type Context = Context;
+    fn new(
+        _rng: &mut impl CryptoRngCore,
+        num_parties: usize,
+        party_idx: PartyIdx,
+        context: &Self::Context,
+    ) -> Self {
+        let r = context.presigning.big_r.x_coordinate();
+        let s_part = &context.presigning.k * &context.message + r * context.presigning.chi;
         Self {
             r,
             s_part,
-            verifying_key: *verifying_key,
-            message: *message,
+            context: context.clone(),
+            num_parties,
+            party_idx,
         }
     }
 }
@@ -37,8 +53,25 @@ pub struct Round1Bcast {
 impl Round for Round1 {
     type Payload = Scalar;
     type Message = Round1Bcast;
-    type NextRound = RecoverableSignature;
-    type ErrorRound = (); // TODO: implement the reveal round
+    type NextRound = NonExistent<Self::Result>;
+    type Result = RecoverableSignature;
+
+    fn party_idx(&self) -> PartyIdx {
+        self.party_idx
+    }
+    fn num_parties(&self) -> usize {
+        self.num_parties
+    }
+
+    fn round_num() -> u8 {
+        1
+    }
+    fn next_round_num() -> Option<u8> {
+        Some(2)
+    }
+    fn requires_broadcast_consensus() -> bool {
+        false
+    }
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
@@ -50,7 +83,7 @@ impl Round for Round1 {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
+    ) -> Result<Self::Payload, ReceiveError> {
         Ok(msg.s_part)
     }
 
@@ -58,32 +91,37 @@ impl Round for Round1 {
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
+    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         let s: Scalar = payloads.iter().sum();
         let s = s + self.s_part;
 
         // CHECK: should `s` be normalized here?
 
-        let sig =
-            RecoverableSignature::from_scalars(&self.r, &s, &self.verifying_key, &self.message)
-                .unwrap();
+        let sig = RecoverableSignature::from_scalars(
+            &self.r,
+            &s,
+            &self.context.verifying_key,
+            &self.context.message,
+        )
+        .unwrap();
 
-        Ok(sig)
+        Ok(FinalizeSuccess::Result(sig))
     }
 }
-
-impl BroadcastRound for Round1 {}
 
 #[cfg(test)]
 mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::OsRng;
 
-    use super::Round1;
+    use super::{Context, Round1};
     use crate::centralized_keygen::make_key_shares;
     use crate::curve::Scalar;
     use crate::protocols::common::{PartyIdx, SessionId, TestSchemeParams};
-    use crate::protocols::generic::tests::step;
+    use crate::protocols::generic::{
+        tests::{assert_next_round, assert_result, step},
+        FirstRound,
+    };
     use crate::protocols::presigning;
 
     #[test]
@@ -92,47 +130,77 @@ mod tests {
 
         let key_shares = make_key_shares(&mut OsRng, 3, None);
 
-        // TODO: need to run the presigning protocol to get the consistent presigning data.
-        // Repeats the code in the presigning test. Merge them somehow.
-
         let r1 = vec![
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
-                &session_id,
+                3,
                 PartyIdx::from_usize(0),
-                3,
-                &key_shares[0],
+                &presigning::Context {
+                    session_id: session_id.clone(),
+                    key_share: key_shares[0].clone(),
+                },
             ),
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
-                &session_id,
+                3,
                 PartyIdx::from_usize(1),
-                3,
-                &key_shares[1],
+                &presigning::Context {
+                    session_id: session_id.clone(),
+                    key_share: key_shares[1].clone(),
+                },
             ),
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
-                &session_id,
-                PartyIdx::from_usize(2),
                 3,
-                &key_shares[2],
+                PartyIdx::from_usize(2),
+                &presigning::Context {
+                    session_id: session_id.clone(),
+                    key_share: key_shares[2].clone(),
+                },
             ),
         ];
 
-        let r1p2 = step(&mut OsRng, r1).unwrap();
-        let r2 = step(&mut OsRng, r1p2).unwrap();
-        let r3 = step(&mut OsRng, r2).unwrap();
-        let presigning_datas = step(&mut OsRng, r3).unwrap();
+        let r1p2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
+        let r2 = assert_next_round(step(&mut OsRng, r1p2).unwrap()).unwrap();
+        let r3 = assert_next_round(step(&mut OsRng, r2).unwrap()).unwrap();
+        let presigning_datas = assert_result(step(&mut OsRng, r3).unwrap()).unwrap();
 
         let message = Scalar::random(&mut OsRng);
         let verifying_key = key_shares[0].verifying_key_as_point();
 
         let r1 = vec![
-            Round1::new(&presigning_datas[0], &message, &verifying_key),
-            Round1::new(&presigning_datas[1], &message, &verifying_key),
-            Round1::new(&presigning_datas[2], &message, &verifying_key),
+            Round1::new(
+                &mut OsRng,
+                3,
+                PartyIdx::from_usize(0),
+                &Context {
+                    presigning: presigning_datas[0].clone(),
+                    message,
+                    verifying_key,
+                },
+            ),
+            Round1::new(
+                &mut OsRng,
+                3,
+                PartyIdx::from_usize(1),
+                &Context {
+                    presigning: presigning_datas[1].clone(),
+                    message,
+                    verifying_key,
+                },
+            ),
+            Round1::new(
+                &mut OsRng,
+                3,
+                PartyIdx::from_usize(2),
+                &Context {
+                    presigning: presigning_datas[2].clone(),
+                    message,
+                    verifying_key,
+                },
+            ),
         ];
-        let signatures = step(&mut OsRng, r1).unwrap();
+        let signatures = assert_result(step(&mut OsRng, r1).unwrap()).unwrap();
 
         for signature in signatures {
             let (sig, rec_id) = signature.to_backend();

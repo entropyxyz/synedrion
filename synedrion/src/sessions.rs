@@ -1,29 +1,21 @@
-mod auxiliary;
-mod error;
+pub(crate) mod error;
 mod generic;
-mod interactive_signing;
-mod keygen;
-mod presigning;
-mod signed_message;
-mod signing;
-
-pub use auxiliary::AuxiliaryState;
-pub use error::{Error, MyFault, TheirFault};
-pub use generic::{Session, ToSend};
-pub use interactive_signing::InteractiveSigningState;
-pub use keygen::KeygenState;
-pub use presigning::PresigningState;
-pub use signed_message::SignedMessage;
-pub use signing::SigningState;
+pub(crate) mod signed_message;
+//mod broadcast;
 
 use alloc::string::String;
 
 use rand_core::CryptoRngCore;
 use signature::hazmat::{PrehashSigner, PrehashVerifier};
 
-use crate::curve::Scalar;
+use crate::curve::{RecoverableSignature, Scalar};
 use crate::protocols::common::{KeyShare, SessionId};
+use crate::protocols::interactive_signing;
 use crate::SchemeParams;
+
+pub use error::Error;
+pub use generic::{Session, ToSend};
+pub use signed_message::SignedMessage;
 
 pub type PrehashedMessage = [u8; 32];
 
@@ -33,24 +25,26 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     verifiers: &[Verifier],
     key_share: &KeyShare<P>,
     prehashed_message: &PrehashedMessage,
-) -> Result<Session<InteractiveSigningState<P>, Sig, Signer, Verifier>, String>
+) -> Result<Session<RecoverableSignature, Sig, Signer, Verifier>, String>
 where
-    P: SchemeParams,
+    P: SchemeParams + 'static,
     Signer: PrehashSigner<Sig> + Clone,
     Verifier: PrehashVerifier<Sig> + Clone,
 {
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
 
     let session_id = SessionId::random(rng);
-    let context = (key_share.clone(), scalar_message);
+    let context = interactive_signing::Context {
+        session_id,
+        key_share: key_share.clone(),
+        message: scalar_message,
+    };
 
-    Ok(Session::new(
+    Ok(Session::new::<interactive_signing::Round1Part1<P>>(
         rng,
         signer,
-        verifiers,
-        &session_id,
-        key_share.num_parties(),
         key_share.party_index(),
+        verifiers,
         &context,
     ))
 }

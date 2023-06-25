@@ -10,7 +10,7 @@ use crate::tools::hashing::{Chain, Hashable};
 
 // TODO: this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
-pub trait SchemeParams: Clone {
+pub trait SchemeParams: Clone + Send {
     const SECURITY_PARAMETER: usize;
     type Paillier: PaillierParams;
 }

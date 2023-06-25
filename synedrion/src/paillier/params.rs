@@ -5,7 +5,7 @@ use super::uint::{
 };
 use crate::tools::hashing::Hashable;
 
-pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug {
+pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     const PRIME_BITS: usize;
     type SingleUint: UintLike + HasWide<Wide = Self::DoubleUint>;
     type SingleUintMod: UintModLike<RawUint = Self::SingleUint>;

@@ -1,12 +1,27 @@
+use alloc::string::String;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
-use crate::sessions::TheirFault;
 use crate::tools::collections::HoleVec;
-use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
+
+#[derive(Debug)]
+pub(crate) enum ReceiveError {
+    VerificationFail(String),
+}
+
+pub(crate) enum FinalizeSuccess<R: Round> {
+    Result(R::Result),
+    AnotherRound(R::NextRound),
+}
+
+#[derive(Debug)]
+pub(crate) enum FinalizeError {
+    Unspecified(String), // TODO: add fine-grained errors
+}
 
 pub(crate) enum ToSendTyped<Message> {
     Broadcast(Message),
@@ -14,147 +29,90 @@ pub(crate) enum ToSendTyped<Message> {
     Direct(Vec<(PartyIdx, Message)>),
 }
 
-pub(crate) trait Round: Sized {
+pub(crate) trait Round: Sized + Send {
     type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
-    type Payload: Sized + Clone;
-    type NextRound: Sized;
-    type ErrorRound: Sized;
+    type Payload: Sized + Clone + Send;
+    type NextRound: Round<Result = Self::Result>;
+    type Result: Sized + Send;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message>;
     fn verify_received(
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault>;
+    ) -> Result<Self::Payload, ReceiveError>;
     fn finalize(
         self,
         rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound>;
+    ) -> Result<FinalizeSuccess<Self>, FinalizeError>;
+    fn round_num() -> u8;
+    fn party_idx(&self) -> PartyIdx;
+    fn num_parties(&self) -> usize;
+
+    // TODO: these may be possible to implement generically without needing to specify them
+    // in every `Round` impl. See the mutually exclusive trait trick.
+    fn next_round_num() -> Option<u8>;
+    fn requires_broadcast_consensus() -> bool;
 }
 
-// TODO: find a way to move `get_messages()` in this trait.
-// For now it will just stay a marker trait.
-pub(crate) trait BroadcastRound: Round {}
-
-pub(crate) trait DirectRound: Round {}
-
-pub(crate) trait NeedsConsensus: BroadcastRound {}
-
-#[derive(Clone)]
-pub(crate) struct PreConsensusSubround<R: NeedsConsensus>(pub(crate) R);
-
-impl<R: NeedsConsensus> PreConsensusSubround<R> {}
-
-impl<R: NeedsConsensus> Round for PreConsensusSubround<R>
-where
-    R::NextRound: Round,
-    R::Message: Hashable,
-{
-    type Message = R::Message;
-    type Payload = (R::Payload, R::Message);
-    type NextRound = ConsensusSubround<R>;
-    type ErrorRound = ();
-
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        self.0.to_send(rng)
-    }
-    fn verify_received(
-        &self,
-        from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
-        self.0
-            // TODO: save a hash here right away to avoid cloning
-            .verify_received(from, msg.clone())
-            .map(|payload| (payload, msg))
-    }
-    fn finalize(
-        self,
+pub(crate) trait FirstRound: Round {
+    type Context;
+    fn new(
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
-        let (payloads, messages) = payloads.unzip();
-        let next_round = self.0.finalize(rng, payloads).or(Err(()))?;
-        let broadcast_hashes = messages.map(|msg| {
-            Hash::new_with_dst(b"BroadcastConsensus")
-                .chain(&msg)
-                .finalize()
-        });
-        Ok(ConsensusSubround {
-            next_round,
-            broadcast_hashes,
-        })
-    }
+        num_parties: usize,
+        party_idx: PartyIdx,
+        context: &Self::Context,
+    ) -> Self;
 }
 
-impl<R: NeedsConsensus> BroadcastRound for PreConsensusSubround<R> where
-    PreConsensusSubround<R>: Round
-{
-}
+/// A dummy round to use as the `Round::NextRound` when there is no actual next round.
+pub(crate) struct NonExistent<Res>(PhantomData<Res>);
 
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct BroadcastHashes(HoleVec<HashOutput>);
-
-#[derive(Clone)]
-pub(crate) struct ConsensusSubround<R: Round> {
-    next_round: R::NextRound,
-    broadcast_hashes: HoleVec<HashOutput>,
-}
-
-impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
-    type Message = BroadcastHashes;
+impl<Res: Send> Round for NonExistent<Res> {
+    type Message = ();
     type Payload = ();
-    type NextRound = R::NextRound;
-    type ErrorRound = ();
+    type NextRound = Self;
+    type Result = Res;
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        ToSendTyped::Broadcast(BroadcastHashes(self.broadcast_hashes.clone()))
+        unreachable!()
     }
     fn verify_received(
         &self,
         _from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
-        // CHECK: should we save our own broadcast,
-        // and check that the other nodes received it?
-        // Or is this excessive since they are signed by us anyway?
-        if msg.0.len() != self.broadcast_hashes.len() {
-            return Err(TheirFault::VerificationFail(
-                "Unexpected number of broadcasts received".into(),
-            ));
-        }
-        for (idx, broadcast) in msg.0.range().zip(msg.0.iter()) {
-            if !self
-                .broadcast_hashes
-                .get(idx)
-                .map(|bc| bc == broadcast)
-                .unwrap_or(true)
-            {
-                // TODO: specify which node the conflicting broadcast was from
-                return Err(TheirFault::VerificationFail(
-                    "Received conflicting broadcasts".into(),
-                ));
-            }
-        }
-        Ok(())
+        _msg: Self::Message,
+    ) -> Result<Self::Payload, ReceiveError> {
+        unreachable!()
     }
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
         _payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
-        Ok(self.next_round)
+    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
+        unreachable!()
+    }
+    fn round_num() -> u8 {
+        unreachable!()
+    }
+    fn next_round_num() -> Option<u8> {
+        unreachable!()
+    }
+    fn requires_broadcast_consensus() -> bool {
+        unreachable!()
+    }
+    fn party_idx(&self) -> PartyIdx {
+        unreachable!()
+    }
+    fn num_parties(&self) -> usize {
+        unreachable!()
     }
 }
-
-impl<R: NeedsConsensus> BroadcastRound for ConsensusSubround<R> where ConsensusSubround<R>: Round {}
 
 #[cfg(test)]
 pub(crate) mod tests {
 
     use super::*; // TODO: remove glob import
-    use crate::sessions::TheirFault;
     use crate::tools::collections::{HoleRange, HoleVecAccum};
 
     #[derive(Debug)]
@@ -162,14 +120,44 @@ pub(crate) mod tests {
         AccumFinalize,
         InvalidIndex,
         RepeatingMessage,
-        Receive(TheirFault),
-        Finalize,
+        Receive(ReceiveError),
+        Finalize(FinalizeError),
+    }
+
+    pub(crate) fn assert_next_round<R: Round>(
+        results: impl IntoIterator<Item = FinalizeSuccess<R>>,
+    ) -> Result<Vec<R::NextRound>, String> {
+        let mut rounds = Vec::new();
+        for result in results.into_iter() {
+            match result {
+                FinalizeSuccess::Result(_) => {
+                    return Err("Expected the next round, got result".into())
+                }
+                FinalizeSuccess::AnotherRound(round) => rounds.push(round),
+            }
+        }
+        Ok(rounds)
+    }
+
+    pub(crate) fn assert_result<R: Round>(
+        outcomes: impl IntoIterator<Item = FinalizeSuccess<R>>,
+    ) -> Result<Vec<R::Result>, String> {
+        let mut results = Vec::new();
+        for outcome in outcomes.into_iter() {
+            match outcome {
+                FinalizeSuccess::Result(result) => results.push(result),
+                FinalizeSuccess::AnotherRound(_) => {
+                    return Err("Expected the result, got another round".into())
+                }
+            }
+        }
+        Ok(results)
     }
 
     pub(crate) fn step<R: Round>(
         rng: &mut impl CryptoRngCore,
         init: Vec<R>,
-    ) -> Result<Vec<R::NextRound>, StepError> {
+    ) -> Result<Vec<FinalizeSuccess<R>>, StepError> {
         // Collect outgoing messages
 
         let mut accums = (0..init.len())
@@ -220,14 +208,14 @@ pub(crate) mod tests {
 
         // Check that all the states are finished
 
-        let mut result = Vec::<R::NextRound>::new();
+        let mut result = Vec::new();
 
         for (round, accum) in init.into_iter().zip(accums.into_iter()) {
             let accum_final = accum.finalize().map_err(|_| StepError::AccumFinalize)?;
-            let next_state = round
+            let outcome = round
                 .finalize(rng, accum_final)
-                .map_err(|_err| StepError::Finalize)?;
-            result.push(next_state);
+                .map_err(StepError::Finalize)?;
+            result.push(outcome);
         }
 
         Ok(result)

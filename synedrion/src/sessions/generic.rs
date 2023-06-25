@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::format;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -6,235 +7,278 @@ use rand_core::CryptoRngCore;
 use signature::hazmat::{PrehashSigner, PrehashVerifier};
 
 use super::error::{Error, MyFault, TheirFault};
-use super::signed_message::{
-    deserialize_message, serialize_message, SignedMessage, VerifiedMessage,
+use super::signed_message::{SignedMessage, VerifiedMessage};
+use crate::protocols::generic::{FirstRound, Round};
+use crate::protocols::type_erased::{
+    FinalizeOutcome, ReceiveOutcome, ToSendSerialized, TypeErasedReceivingRound, TypeErasedRound,
 };
-use crate::protocols::common::{PartyIdx, SessionId};
-use crate::protocols::generic::{Round, ToSendTyped};
-use crate::tools::collections::HoleVecAccum;
+use crate::PartyIdx;
 
-/// Serialized messages without the stage number specified.
-pub enum ToSendSerialized {
-    Broadcast(Box<[u8]>),
-    // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(PartyIdx, Box<[u8]>)>),
-}
-
-/// Serialized messages with the stage number specified.
 pub enum ToSend<Sig> {
     Broadcast(SignedMessage<Sig>),
     // TODO: return an iterator instead, since preparing one message can take some time
     Direct(Vec<(PartyIdx, SignedMessage<Sig>)>),
 }
 
-#[derive(Clone)]
-pub(crate) struct Stage<R: Round> {
-    round: R,
-    accum: Option<HoleVecAccum<R::Payload>>,
+enum State<Res> {
+    Result(Res),
+    Receiving {
+        round: Box<dyn TypeErasedReceivingRound<Res>>,
+        to_send: ToSendSerialized,
+    },
+    Halted(Error),
 }
 
-impl<R: Round> Stage<R> {
-    pub(crate) fn new(round: R) -> Self {
-        Self { round, accum: None }
-    }
-
-    pub(crate) fn get_messages(
-        &mut self,
-        rng: &mut impl CryptoRngCore,
-        num_parties: usize,
-        index: PartyIdx,
-    ) -> Result<ToSendSerialized, MyFault> {
-        if self.accum.is_some() {
-            return Err(MyFault::InvalidState(
-                "The session is not in a sending state".into(),
-            ));
-        }
-
-        let to_send = match self.round.to_send(rng) {
-            ToSendTyped::Broadcast(message) => {
-                let message = serialize_message(&message)?;
-                ToSendSerialized::Broadcast(message)
-            }
-            ToSendTyped::Direct(messages) => ToSendSerialized::Direct({
-                let mut serialized = Vec::with_capacity(messages.len());
-                for (idx, message) in messages.into_iter() {
-                    serialized.push((idx, serialize_message(&message)?));
-                }
-                serialized
-            }),
-        };
-
-        let accum = HoleVecAccum::<R::Payload>::new(num_parties, index.as_usize());
-        self.accum = Some(accum);
-        Ok(to_send)
-    }
-
-    pub(crate) fn receive(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), Error> {
-        let accum = match self.accum.as_mut() {
-            Some(accum) => accum,
-            None => {
-                return Err(Error::MyFault(MyFault::InvalidState(
-                    "The session is in a sending stage, cannot receive messages".into(),
-                )))
-            }
-        };
-
-        let message: R::Message =
-            deserialize_message(message_bytes).map_err(|err| Error::TheirFault {
-                party: from,
-                error: TheirFault::DeserializationError(err),
-            })?;
-
-        let slot = match accum.get_mut(from.as_usize()) {
-            Some(slot) => slot,
-            None => return Err(Error::MyFault(MyFault::InvalidId(from))),
-        };
-
-        if slot.is_some() {
-            return Err(Error::TheirFault {
-                party: from,
-                error: TheirFault::DuplicateMessage,
-            });
-        }
-
-        let payload = match self.round.verify_received(from, message) {
-            Ok(res) => res,
-            Err(err) => {
-                return Err(Error::TheirFault {
-                    party: from,
-                    error: err,
-                })
-            }
-        };
-
-        *slot = Some(payload);
-
-        Ok(())
-    }
-
-    pub(crate) fn is_finished_receiving(&self) -> Result<bool, MyFault> {
-        Ok(match &self.accum {
-            Some(accum) => accum.can_finalize(),
-            None => return Err(MyFault::InvalidState("Not in a receiving state".into())),
-        })
-    }
-
-    pub(crate) fn finalize(self, rng: &mut impl CryptoRngCore) -> Result<R::NextRound, Error> {
-        let accum = match self.accum {
-            Some(accum) => accum,
-            None => {
-                return Err(Error::MyFault(MyFault::InvalidState(
-                    "The session is in a sending stage, cannot receive messages".into(),
-                )))
-            }
-        };
-
-        if accum.can_finalize() {
-            match accum.finalize() {
-                Ok(finalized) => self
-                    .round
-                    .finalize(rng, finalized)
-                    // TODO: we need to switch to the error round here
-                    .map_err(|_err| Error::ErrorRound),
-                // TODO: If this error fires, it indicates an error in `accum` implementation.
-                // Can we make it impossible via types?
-                Err(_) => Err(Error::MyFault(MyFault::InvalidState(
-                    "Messages from some of the parties are missing".into(),
-                ))),
-            }
-        } else {
-            // This is our fault, because the caller needs to wait for all the messages,
-            // and then invoke a special method to get the list of missing ones.
-            // TODO: implement that method.
-            Err(Error::MyFault(MyFault::InvalidState(
-                "Messages from some of the parties are missing".into(),
-            )))
-        }
+impl<Res> State<Res> {
+    fn mutate(&mut self, callable: impl FnOnce(Self) -> Self) {
+        let state = core::mem::replace(self, State::Halted(Error::Finalize));
+        let new_state = callable(state);
+        *self = new_state;
     }
 }
 
-// TODO: may be able to get rid of the clone requirement - perhaps with `take_mut`.
-pub trait SessionState: Clone {
-    type Context;
-    fn new(
-        rng: &mut impl CryptoRngCore,
-        session_id: &SessionId,
-        context: &Self::Context,
-        index: PartyIdx,
-    ) -> Self;
-    fn get_messages(
-        &mut self,
-        rng: &mut impl CryptoRngCore,
-        num_parties: usize,
-        index: PartyIdx,
-    ) -> Result<ToSendSerialized, MyFault>;
-    fn receive_current_stage(&mut self, from: PartyIdx, message_bytes: &[u8]) -> Result<(), Error>;
-    fn is_finished_receiving(&self) -> Result<bool, MyFault>;
-    fn finalize_stage(self, rng: &mut impl CryptoRngCore) -> Result<Self, Error>;
-    fn is_final_stage(&self) -> bool;
-    fn current_stage_num(&self) -> u8;
-    fn stages_num(&self) -> u8;
-    fn result(&self) -> Result<Self::Result, MyFault>;
-    type Result;
-}
-
-pub struct Session<S, Sig, Signer, Verifier>
+pub struct Session<Res, Sig, Signer, Verifier>
 where
-    S: SessionState,
     Signer: PrehashSigner<Sig>,
     Verifier: PrehashVerifier<Sig>,
 {
     signer: Signer,
     verifiers: Vec<Verifier>,
-    index: PartyIdx,
-    num_parties: usize,
-    next_stage_messages: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
-    state: S,
+    message_cache: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
+    state: State<Res>,
+    party_idx: PartyIdx,
+    //broadcast_consensus: Option<BroadcastConsensus<Sig>>,
     phantom_signature: PhantomData<Sig>,
 }
 
-impl<S, Sig, Signer, Verifier> Session<S, Sig, Signer, Verifier>
+impl<Res, Sig, Signer, Verifier> Session<Res, Sig, Signer, Verifier>
 where
-    S: SessionState,
     Signer: PrehashSigner<Sig> + Clone,
     Verifier: PrehashVerifier<Sig> + Clone,
 {
-    pub fn new(
+    pub(crate) fn new<R: FirstRound + 'static>(
         rng: &mut impl CryptoRngCore,
+        // TODO: merge signers and verifiers into one struct to make getting party_idx more natural?
         signer: &Signer,
+        party_idx: PartyIdx,
         verifiers: &[Verifier],
-        session_id: &SessionId,
-        // TODO: `num_parties` and `index` can be merged with signer and verifier in a single struct
-        num_parties: usize,
-        index: PartyIdx,
-        context: &S::Context,
-    ) -> Self {
-        // CHECK: in the paper session id includes all the party ID's;
-        // but since it's going to contain a random component too
-        // (to distinguish sessions on the same node sets),
-        // it might as well be completely random, right?
+        context: &R::Context,
+    ) -> Self
+    where
+        R: Round<Result = Res>,
+    {
+        let round = R::new(rng, verifiers.len(), party_idx, context);
+        let boxed_round: Box<dyn TypeErasedRound<Res>> = Box::new(round);
 
-        let state = S::new(rng, session_id, context, index);
+        let (round, to_send) = boxed_round.to_receiving_state(rng);
+
         Self {
             signer: signer.clone(),
-            verifiers: verifiers.to_vec(),
-            index,
-            num_parties,
-            next_stage_messages: Vec::new(),
-            state,
+            verifiers: verifiers.into(),
+            message_cache: Vec::new(),
+            state: State::Receiving { round, to_send },
+            party_idx: party_idx,
             phantom_signature: PhantomData,
         }
     }
 
+    pub fn party_idx(&self) -> PartyIdx {
+        self.party_idx
+    }
+
+    pub fn num_parties(&self) -> usize {
+        self.verifiers.len()
+    }
+
+    fn round_ref(&self) -> Result<&Box<dyn TypeErasedReceivingRound<Res>>, Error> {
+        match &self.state {
+            State::Receiving { round, .. } => Ok(&round),
+            State::Result(_) => Err(Error::MyFault(MyFault::InvalidState(
+                "Result is reached".into(),
+            ))),
+            State::Halted(_) => Err(Error::MyFault(MyFault::InvalidState("Halted".into()))),
+        }
+    }
+
+    fn round_ref_mut(&mut self) -> Result<&mut Box<dyn TypeErasedReceivingRound<Res>>, Error> {
+        match &mut self.state {
+            State::Receiving { round, .. } => Ok(round),
+            State::Result(_) => Err(Error::MyFault(MyFault::InvalidState(
+                "Result is reached".into(),
+            ))),
+            State::Halted(_) => Err(Error::MyFault(MyFault::InvalidState("Halted".into()))),
+        }
+    }
+
+    pub fn get_messages(&mut self) -> Result<ToSend<Sig>, Error> {
+        let (round, to_send) = match &self.state {
+            State::Receiving { round, to_send } => Ok((round, to_send)),
+            State::Result(_) => Err(Error::MyFault(MyFault::InvalidState(
+                "Result is reached".into(),
+            ))),
+            State::Halted(_) => Err(Error::MyFault(MyFault::InvalidState("Halted".into()))),
+        }?;
+
+        let round_num = round.round_num();
+        Ok(match &to_send {
+            ToSendSerialized::Broadcast(message_bytes) => {
+                let message = VerifiedMessage::new(&self.signer, round_num, false, &message_bytes)
+                    .map_err(Error::MyFault)?;
+                ToSend::Broadcast(message.into_unverified())
+            }
+            ToSendSerialized::Direct(messages) => {
+                let mut signed_messages = Vec::with_capacity(messages.len());
+                for (index, message_bytes) in messages.iter() {
+                    let signed_message =
+                        VerifiedMessage::new(&self.signer, round_num, false, &message_bytes)
+                            .map_err(Error::MyFault)?;
+                    signed_messages.push((*index, signed_message.into_unverified()));
+                }
+                ToSend::Direct(signed_messages)
+            }
+        })
+    }
+
+    fn receive_message(
+        &mut self,
+        from: PartyIdx,
+        message: VerifiedMessage<Sig>,
+    ) -> Result<(), Error> {
+        let round = self.round_ref_mut()?;
+        match round.receive(from, message.payload()) {
+            ReceiveOutcome::Success => Ok(()),
+            ReceiveOutcome::Error(err) => Err(Error::TheirFault {
+                party: from,
+                error: TheirFault::Receive(format!("{:?}", err)),
+            }),
+            // TODO: here we may check if the message is a duplicate, or has different contents
+            // the latter should be a more serious error.
+            ReceiveOutcome::AlreadyReceived => Err(Error::TheirFault {
+                party: from,
+                error: TheirFault::DuplicateMessage,
+            }),
+            ReceiveOutcome::DeserializationFail(err) => Err(Error::TheirFault {
+                party: from,
+                error: TheirFault::DeserializationError(err),
+            }),
+        }
+    }
+
+    pub fn receive(&mut self, from: PartyIdx, message: SignedMessage<Sig>) -> Result<(), Error> {
+        let round = self.round_ref()?;
+        let this_round = round.round_num();
+        let next_round = round.next_round_num();
+
+        let verified_message = message.verify(&self.verifiers[from.as_usize()]).unwrap();
+
+        let message_round = verified_message.round();
+
+        let message_for_this_round = message_round == this_round;
+        let message_for_next_round = next_round.is_some() && message_round == next_round.unwrap();
+
+        if message_for_this_round {
+            return self.receive_message(from, verified_message);
+        } else if message_for_next_round {
+            self.message_cache.push((from, verified_message));
+        } else {
+            return Err(Error::TheirFault {
+                party: from,
+                error: TheirFault::OutOfOrderMessage {
+                    current_stage: this_round,
+                    message_stage: message_round,
+                },
+            });
+        }
+
+        Ok(())
+    }
+
+    pub fn receive_cached_message(&mut self) -> Result<(), Error> {
+        let (from, verified_message) = self.message_cache.pop().ok_or_else(|| {
+            Error::MyFault(MyFault::InvalidState("No more cached messages left".into()))
+        })?;
+        self.receive_message(from, verified_message)
+    }
+
+    pub fn is_finished_receiving(&self) -> Result<bool, Error> {
+        self.round_ref().map(|round| round.is_finished_receiving())
+    }
+
+    fn finalize_impl(state: State<Res>, rng: &mut impl CryptoRngCore) -> State<Res> {
+        let round = match state {
+            State::Receiving { round, .. } => round,
+            _ => {
+                return State::Halted(Error::MyFault(MyFault::InvalidState(
+                    "Not in receiving state".into(),
+                )))
+            }
+        };
+
+        // TODO: check that there are no cached messages left
+
+        match round.finalize(rng) {
+            FinalizeOutcome::Result(res) => State::Result(res),
+            FinalizeOutcome::AnotherRound(round) => {
+                let (round, to_send) = round.to_receiving_state(rng);
+                State::Receiving { round, to_send }
+            }
+            FinalizeOutcome::NotEnoughMessages => State::Halted(Error::NotEnoughMessages),
+            FinalizeOutcome::Error(_) => State::Halted(Error::Finalize),
+        }
+    }
+
+    pub fn finalize_round(&mut self, rng: &mut impl CryptoRngCore) -> Result<(), Error> {
+        self.state.mutate(|state| Self::finalize_impl(state, rng));
+
+        Ok(())
+    }
+
+    pub fn result(&self) -> Option<&Res> {
+        match &self.state {
+            State::Receiving { .. } => None,
+            State::Result(res) => Some(res),
+            State::Halted(_) => None,
+        }
+    }
+
+    pub fn has_cached_messages(&self) -> bool {
+        !self.message_cache.is_empty()
+    }
+
+    pub fn is_finished(&self) -> bool {
+        match &self.state {
+            State::Receiving { .. } => false,
+            _ => true,
+        }
+    }
+}
+
+/*
+impl<Res, Sig, Signer, Verifier> Session<Res, Sig, Signer, Verifier>
+where
+    Signer: PrehashSigner<Sig> + Clone,
+    Verifier: PrehashVerifier<Sig> + Clone,
+{
+    pub fn new<R: Round<Result=Res>>(
+        rng: &mut impl CryptoRngCore,
+        round: R,
+        signer: &Signer,
+        verifiers: &[Verifier],
+        // TODO: `num_parties` and `index` can be merged with signer and verifier in a single struct
+        num_parties: usize,
+        index: PartyIdx,
+    ) -> Self
+    {
+        let with_accum = RoundAndAccum::new(round, num_parties, index.as_usize());
+        let type_erased: Box<dyn TypeErasedRound> = Box::new(with_accum);
+    }
+
     pub fn get_messages(&mut self, rng: &mut impl CryptoRngCore) -> Result<ToSend<Sig>, Error> {
-        let to_send = self
-            .state
-            .get_messages(rng, self.num_parties, self.index)
-            .map_err(Error::MyFault)?;
-        let stage_num = self.state.current_stage_num();
+        let to_send = self.round.to_send(rng).unwrap();
+        let round_num = self.round.round_num();
         Ok(match to_send {
             ToSendSerialized::Broadcast(message_bytes) => {
-                let message = VerifiedMessage::new(&self.signer, stage_num, &message_bytes)
+                let message = VerifiedMessage::new(&self.signer, round_num, &message_bytes)
                     .map_err(Error::MyFault)?;
                 ToSend::Broadcast(message.into_unverified())
             }
@@ -242,7 +286,7 @@ where
                 let mut signed_messages = Vec::with_capacity(messages.len());
                 for (index, message_bytes) in messages.into_iter() {
                     let signed_message =
-                        VerifiedMessage::new(&self.signer, stage_num, &message_bytes)
+                        VerifiedMessage::new(&self.signer, round_num, &message_bytes)
                             .map_err(Error::MyFault)?;
                     signed_messages.push((index, signed_message.into_unverified()));
                 }
@@ -252,30 +296,41 @@ where
     }
 
     pub fn receive(&mut self, from: PartyIdx, message: SignedMessage<Sig>) -> Result<(), Error> {
-        let stage_num = self.state.current_stage_num();
-        let max_stages = self.state.stages_num();
+        let this_round = self.round.round_num();
+        let next_round = self.round.next_round_num();
+        let requires_bc = self.round.requires_broadcast();
+        let bc_round = self.broadcast_consensus.is_some();
 
-        let verified_message = message
-            .verify(&self.verifiers[from.as_usize()])
-            .map_err(|err| Error::TheirFaultUnprovable {
-                party: from,
-                error: err,
-            })?;
+        let verified_message = message.verify(&self.verifiers[from.as_usize()]).unwrap();
 
-        // TODO: check that the message has the correct session_id here
+        let message_round = verified_message.round();
+        let message_bc = verified_message.broadcast_consensus();
 
-        let stage = verified_message.stage();
-        if stage == stage_num + 1 && stage <= max_stages {
-            self.next_stage_messages.push((from, verified_message));
-        } else if stage == stage_num {
-            self.state
-                .receive_current_stage(from, verified_message.payload())?;
+        let message_for_this_round = message_round == this_round && message_bc == bc_round;
+        let message_for_next_round =
+            // This is a non-broadcast round, and the next round exists, and the message is for it
+            (next_round.is_some() && message_round == next_round.unwrap() && !bc_round && !requires_bc) ||
+            // This is a broadcast consensus round, and the next round exists, and the message is for it
+            (next_round.is_some() && message_round == next_round.unwrap() && bc_round) ||
+            // This is a broadcast round, and the message is from the broadcast consensus round
+            (message_round == this_round && !bc_round && requires_bc && message_bc);
+
+        if message_for_this_round {
+            if bc_round {
+                self.broadcast_consensus.receive(from, verified_message).unwrap();
+            }
+            else {
+                self.round.receive(from, verified_message.payload())?;
+            }
+        }
+        else if message_for_next_round {
+            self.message_cache.push((from, verified_message));
         } else {
             return Err(Error::TheirFault {
                 party: from,
                 error: TheirFault::OutOfOrderMessage {
-                    current_stage: stage_num,
-                    message_stage: stage,
+                    current_stage: this_round,
+                    message_stage: message_round,
                 },
             });
         }
@@ -284,40 +339,40 @@ where
     }
 
     pub fn receive_cached_message(&mut self) -> Result<(), Error> {
-        let (from, verified_message) = self.next_stage_messages.pop().ok_or_else(|| {
+        let (from, verified_message) = self.message_cache.pop().ok_or_else(|| {
             Error::MyFault(MyFault::InvalidState("No more cached messages left".into()))
         })?;
-        self.state
-            .receive_current_stage(from, verified_message.payload())
+
+        if let Some(bc) = self.broadcast_consensus {
+            bc.receive(from, verified_message)
+        }
+        else {
+            self.round.receive(from, verified_message.payload())
+        }
     }
 
     pub fn is_finished_receiving(&self) -> Result<bool, Error> {
-        self.state.is_finished_receiving().map_err(Error::MyFault)
+        self.round.is_finished_receiving().map_err(Error::MyFault)
     }
 
-    pub fn finalize_stage(&mut self, rng: &mut impl CryptoRngCore) -> Result<(), Error> {
+    pub fn finalize_round(&mut self, rng: &mut impl CryptoRngCore) -> Result<(), Error> {
         // TODO: check that there are no cached messages left
-        self.state = self.state.clone().finalize_stage(rng)?;
+        let result = self.round.finalize(rng)?;
+        match result {
+            TypeErasedResult::Result(res) => self.result = Some(res),
+            TypeErasedResult::HappyPath(round) => self.round = round,
+            TypeErasedResult::ErrorPath(round) => self.round = round,
+        }
+
         Ok(())
     }
 
-    pub fn result(&self) -> Result<S::Result, Error> {
-        self.state.result().map_err(Error::MyFault)
-    }
-
-    pub fn is_final_stage(&self) -> bool {
-        self.state.is_final_stage()
-    }
-
-    pub fn current_stage_num(&self) -> u8 {
-        self.state.current_stage_num()
-    }
-
-    pub fn stages_num(&self) -> u8 {
-        self.state.stages_num()
+    pub fn result(&self) -> Option<Res> {
+        self.result
     }
 
     pub fn has_cached_messages(&self) -> bool {
-        !self.next_stage_messages.is_empty()
+        !self.message_cache.is_empty()
     }
 }
+*/
