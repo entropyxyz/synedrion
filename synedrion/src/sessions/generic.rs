@@ -188,7 +188,7 @@ where
     verifiers: Vec<Verifier>,
     index: PartyIdx,
     num_parties: usize,
-    next_stage_messages: Vec<(PartyIdx, Box<[u8]>)>,
+    next_stage_messages: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
     state: S,
     phantom_signature: PhantomData<Sig>,
 }
@@ -265,11 +265,11 @@ where
         // TODO: check that the message has the correct session_id here
 
         let stage = verified_message.stage();
-        let message_bytes = verified_message.payload().into();
         if stage == stage_num + 1 && stage <= max_stages {
-            self.next_stage_messages.push((from, message_bytes));
+            self.next_stage_messages.push((from, verified_message));
         } else if stage == stage_num {
-            self.state.receive_current_stage(from, &message_bytes)?;
+            self.state
+                .receive_current_stage(from, verified_message.payload())?;
         } else {
             return Err(Error::TheirFault {
                 party: from,
@@ -284,10 +284,11 @@ where
     }
 
     pub fn receive_cached_message(&mut self) -> Result<(), Error> {
-        let (from, message_bytes) = self.next_stage_messages.pop().ok_or_else(|| {
+        let (from, verified_message) = self.next_stage_messages.pop().ok_or_else(|| {
             Error::MyFault(MyFault::InvalidState("No more cached messages left".into()))
         })?;
-        self.state.receive_current_stage(from, &message_bytes)
+        self.state
+            .receive_current_stage(from, verified_message.payload())
     }
 
     pub fn is_finished_receiving(&self) -> Result<bool, Error> {
