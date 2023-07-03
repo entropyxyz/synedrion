@@ -1,7 +1,7 @@
 mod broadcast;
 pub(crate) mod error;
-mod generic;
 pub(crate) mod signed_message;
+mod states;
 
 use alloc::string::String;
 
@@ -15,8 +15,8 @@ use crate::protocols::interactive_signing;
 use crate::SchemeParams;
 
 pub use error::Error;
-pub use generic::{Session, ToSend};
 pub use signed_message::SignedMessage;
+pub use states::{FinalizeOutcome, SendingState, ToSend};
 
 pub type PrehashedMessage = [u8; 32];
 
@@ -26,7 +26,7 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     verifiers: &[Verifier],
     key_share: &KeyShare<P>,
     prehashed_message: &PrehashedMessage,
-) -> Result<Session<RecoverableSignature, Sig, Signer, Verifier>, String>
+) -> Result<SendingState<RecoverableSignature, Sig, Signer, Verifier>, String>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
@@ -42,7 +42,7 @@ where
         message: scalar_message,
     };
 
-    Ok(Session::new::<interactive_signing::Round1Part1<P>>(
+    Ok(SendingState::new::<interactive_signing::Round1Part1<P>>(
         rng,
         signer,
         key_share.party_index(),

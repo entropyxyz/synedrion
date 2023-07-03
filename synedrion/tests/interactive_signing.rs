@@ -8,7 +8,7 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     make_key_shares,
-    sessions::{make_interactive_signing_session, SignedMessage, ToSend},
+    sessions::{make_interactive_signing_session, FinalizeOutcome, SignedMessage, ToSend},
     KeyShare, PartyIdx, RecoverableSignature, TestSchemeParams,
 };
 
@@ -32,15 +32,15 @@ async fn node_session(
         .filter(|idx| idx != &party_idx)
         .collect::<Vec<_>>();
 
-    let mut session = make_interactive_signing_session::<_, Signature, _, _>(
+    let mut sending = make_interactive_signing_session::<_, Signature, _, _>(
         &mut OsRng, &signer, &verifiers, &key_share, message,
     )
     .unwrap();
 
-    while !session.is_finished() {
+    loop {
         println!("*** {:?}: starting round", party_idx);
 
-        let to_send = session.start_receiving(&mut OsRng).unwrap();
+        let (mut receiving, to_send) = sending.start_receiving(&mut OsRng).unwrap();
 
         match to_send {
             ToSend::Broadcast(message) => {
@@ -57,22 +57,24 @@ async fn node_session(
 
         println!("{party_idx:?}: applying cached messages");
 
-        while session.has_cached_messages() {
-            session.receive_cached_message().unwrap();
+        while receiving.has_cached_messages() {
+            receiving.receive_cached_message().unwrap();
         }
 
-        while !session.can_finalize().unwrap() {
+        while !receiving.can_finalize() {
             println!("{party_idx:?}: waiting for a message");
             let (id_from, message) = rx.recv().await.unwrap();
             println!("{party_idx:?}: applying the message from {id_from:?}");
-            session.receive(id_from, message).unwrap();
+            receiving.receive(id_from, message).unwrap();
         }
 
         println!("{party_idx:?}: finalizing the round");
-        session.finalize_round(&mut OsRng).unwrap();
-    }
 
-    session.result().unwrap().clone()
+        match receiving.finalize(&mut OsRng).unwrap() {
+            FinalizeOutcome::Result(res) => break res,
+            FinalizeOutcome::AnotherRound(new_sending) => sending = new_sending,
+        }
+    }
 }
 
 async fn message_dispatcher(
