@@ -33,7 +33,7 @@ async fn node_session(
         .collect::<Vec<_>>();
 
     let mut sending = make_interactive_signing_session::<_, Signature, _, _>(
-        &mut OsRng, &signer, &verifiers, &key_share, message,
+        &mut OsRng, signer, &verifiers, &key_share, message,
     )
     .unwrap();
 

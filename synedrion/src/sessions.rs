@@ -22,7 +22,7 @@ pub type PrehashedMessage = [u8; 32];
 
 pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    signer: &Signer,
+    signer: Signer,
     verifiers: &[Verifier],
     key_share: &KeyShare<P>,
     prehashed_message: &PrehashedMessage,
@@ -30,7 +30,7 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
-    Signer: PrehashSigner<Sig> + Clone,
+    Signer: PrehashSigner<Sig>,
     Verifier: PrehashVerifier<Sig> + Clone,
 {
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
@@ -47,6 +47,6 @@ where
         signer,
         key_share.party_index(),
         verifiers,
-        &context,
+        context,
     ))
 }

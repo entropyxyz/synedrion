@@ -26,7 +26,6 @@ use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 
-#[derive(Clone)]
 pub struct Round1<P: SchemeParams> {
     data: FullData<P>,
     secret_data: SecretData<P>,
@@ -48,7 +47,6 @@ pub struct FullData<P: SchemeParams> {
     u_bits: Box<[u8]>,                                         // $u_i$
 }
 
-#[derive(Clone)]
 struct SecretData<P: SchemeParams> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
     y_secret: Scalar,
@@ -76,6 +74,7 @@ impl<P: SchemeParams> FullData<P> {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Context {
     session_id: SessionId,
 }
@@ -86,7 +85,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         rng: &mut impl CryptoRngCore,
         num_parties: usize,
         party_idx: PartyIdx,
-        context: &Self::Context,
+        context: Self::Context,
     ) -> Self {
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
         let paillier_pk = paillier_sk.public_key();
@@ -217,7 +216,6 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 }
 
-#[derive(Clone)]
 pub struct Round2<P: SchemeParams> {
     data: FullData<P>,
     secret_data: SecretData<P>,
@@ -320,7 +318,6 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
-#[derive(Clone)]
 pub struct Round3<P: SchemeParams> {
     rho: Box<[u8]>,
     data: FullData<P>,
@@ -536,9 +533,19 @@ mod tests {
         let context = Context { session_id };
 
         let r1 = vec![
-            Round1::<TestSchemeParams>::new(&mut OsRng, 3, PartyIdx::from_usize(0), &context),
-            Round1::<TestSchemeParams>::new(&mut OsRng, 3, PartyIdx::from_usize(1), &context),
-            Round1::<TestSchemeParams>::new(&mut OsRng, 3, PartyIdx::from_usize(2), &context),
+            Round1::<TestSchemeParams>::new(
+                &mut OsRng,
+                3,
+                PartyIdx::from_usize(0),
+                context.clone(),
+            ),
+            Round1::<TestSchemeParams>::new(
+                &mut OsRng,
+                3,
+                PartyIdx::from_usize(1),
+                context.clone(),
+            ),
+            Round1::<TestSchemeParams>::new(&mut OsRng, 3, PartyIdx::from_usize(2), context),
         ];
 
         let r2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();

@@ -9,7 +9,6 @@ use super::signing;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::tools::collections::HoleVec;
 
-#[derive(Clone)]
 pub struct Round1Part1<P: SchemeParams> {
     context: Context<P>,
     round: presigning::Round1Part1<P>,
@@ -28,17 +27,14 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         rng: &mut impl CryptoRngCore,
         num_parties: usize,
         party_idx: PartyIdx,
-        context: &Self::Context,
+        context: Self::Context,
     ) -> Self {
         let presigning_context = presigning::Context {
             session_id: context.session_id.clone(),
             key_share: context.key_share.clone(),
         };
-        let round = presigning::Round1Part1::new(rng, num_parties, party_idx, &presigning_context);
-        Self {
-            context: context.clone(),
-            round,
-        }
+        let round = presigning::Round1Part1::new(rng, num_parties, party_idx, presigning_context);
+        Self { context, round }
     }
 }
 
@@ -98,7 +94,6 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
     }
 }
 
-#[derive(Clone)]
 pub struct Round1Part2<P: SchemeParams> {
     context: Context<P>,
     round: presigning::Round1Part2<P>,
@@ -158,7 +153,6 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     }
 }
 
-#[derive(Clone)]
 pub struct Round2<P: SchemeParams> {
     context: Context<P>,
     round: presigning::Round2<P>,
@@ -218,7 +212,6 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
-#[derive(Clone)]
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
     round: presigning::Round3<P>,
@@ -278,7 +271,7 @@ impl<P: SchemeParams> Round for Round3<P> {
                         verifying_key: self.context.key_share.verifying_key_as_point(),
                     };
                     let signing_round =
-                        signing::Round1::new(rng, num_parties, party_idx, &signing_context);
+                        signing::Round1::new(rng, num_parties, party_idx, signing_context);
                     FinalizeSuccess::AnotherRound(SigningRound {
                         round: signing_round,
                     })
@@ -288,7 +281,6 @@ impl<P: SchemeParams> Round for Round3<P> {
     }
 }
 
-#[derive(Clone)]
 pub struct SigningRound {
     round: signing::Round1,
 }

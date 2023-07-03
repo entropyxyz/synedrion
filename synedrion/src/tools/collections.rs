@@ -1,4 +1,3 @@
-use alloc::vec;
 use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
@@ -9,15 +8,20 @@ pub(crate) struct HoleVecAccum<T> {
     elems: Vec<Option<T>>,
 }
 
-impl<T: Clone> HoleVecAccum<T> {
+impl<T> HoleVecAccum<T> {
     pub fn new(length: usize, hole_at: usize) -> Self {
         debug_assert!(length > 0 && hole_at < length);
         // We need this to be able to create HoleVec out of HoleVecAccum.
         debug_assert!(<usize as TryInto<u16>>::try_into(length).is_ok());
-        Self {
-            hole_at,
-            elems: vec![None; length - 1],
+
+        // Can't use `vec![]` without requiring `T: Clone`,
+        // even though we're only filling it with `None`s.
+        let mut elems = Vec::with_capacity(length - 1);
+        for _ in 0..(length - 1) {
+            elems.push(None);
         }
+
+        Self { hole_at, elems }
     }
 
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Option<T>> {
@@ -116,7 +120,7 @@ pub(crate) struct HoleVec<T> {
     hole_at: u16,
 }
 
-impl<T: Clone> HoleVec<T> {
+impl<T> HoleVec<T> {
     pub fn hole_at(&self) -> usize {
         self.hole_at.try_into().unwrap()
     }

@@ -29,9 +29,9 @@ pub(crate) enum ToSendTyped<Message> {
     Direct(Vec<(PartyIdx, Message)>),
 }
 
-pub(crate) trait Round: Clone + Sized + Send {
+pub(crate) trait Round: Sized + Send {
     type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
-    type Payload: Sized + Clone + Send;
+    type Payload: Sized + Send;
     type NextRound: Round<Result = Self::Result>;
     type Result: Sized + Send;
 
@@ -62,7 +62,7 @@ pub(crate) trait FirstRound: Round {
         rng: &mut impl CryptoRngCore,
         num_parties: usize,
         party_idx: PartyIdx,
-        context: &Self::Context,
+        context: Self::Context,
     ) -> Self;
 }
 

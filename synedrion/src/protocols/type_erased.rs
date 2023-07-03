@@ -3,7 +3,6 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use dyn_clone::DynClone;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +22,6 @@ pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
     rmp_serde::decode::from_slice(message_bytes)
 }
 
-#[derive(Clone)]
 struct RoundAndAccum<R: Round> {
     round: R,
     accum: HoleVecAccum<R::Payload>,
@@ -120,7 +118,7 @@ impl<'a> rand_core::RngCore for BoxedRng<'a> {
     }
 }
 
-pub(crate) trait TypeErasedRound<Res>: DynClone + Send {
+pub(crate) trait TypeErasedRound<Res>: Send {
     fn to_receiving_state(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
@@ -128,10 +126,7 @@ pub(crate) trait TypeErasedRound<Res>: DynClone + Send {
     fn round_num(&self) -> u8;
 }
 
-// Makes Box<dyn TypeErasedRound> cloneable.
-dyn_clone::clone_trait_object!(<Res> TypeErasedRound<Res>);
-
-pub(crate) trait TypeErasedReceivingRound<Res>: DynClone + Send {
+pub(crate) trait TypeErasedReceivingRound<Res>: Send {
     // Possible outcomes:
     // - success
     // - ReceiveError (verification fail etc)
@@ -151,10 +146,7 @@ pub(crate) trait TypeErasedReceivingRound<Res>: DynClone + Send {
     fn can_finalize(&self) -> bool;
 }
 
-// Makes Box<dyn TypeErasedReceivingRound> cloneable.
-dyn_clone::clone_trait_object!(<Res> TypeErasedReceivingRound<Res>);
-
-impl<R: Round + Clone + 'static> TypeErasedRound<R::Result> for R {
+impl<R: Round + 'static> TypeErasedRound<R::Result> for R {
     fn to_receiving_state(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
@@ -189,7 +181,7 @@ impl<R: Round + Clone + 'static> TypeErasedRound<R::Result> for R {
     }
 }
 
-impl<R: Round + Clone + 'static + Send> TypeErasedReceivingRound<R::Result> for RoundAndAccum<R> {
+impl<R: Round + 'static + Send> TypeErasedReceivingRound<R::Result> for RoundAndAccum<R> {
     fn round_num(&self) -> u8 {
         R::round_num()
     }

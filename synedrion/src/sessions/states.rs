@@ -58,17 +58,17 @@ pub struct ReceivingState<Res, Sig, Signer, Verifier> {
 
 impl<Res, Sig, Signer, Verifier> SendingState<Res, Sig, Signer, Verifier>
 where
-    Signer: PrehashSigner<Sig> + Clone,
+    Signer: PrehashSigner<Sig>,
     Verifier: Clone + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
     pub(crate) fn new<R: FirstRound + 'static>(
         rng: &mut impl CryptoRngCore,
         // TODO: merge signers and verifiers into one struct to make getting party_idx more natural?
-        signer: &Signer,
+        signer: Signer,
         party_idx: PartyIdx,
         verifiers: &[Verifier],
-        context: &R::Context,
+        context: R::Context,
     ) -> Self
     where
         R: Round<Result = Res>,
@@ -76,7 +76,7 @@ where
         let typed_round = R::new(rng, verifiers.len(), party_idx, context);
         let round: Box<dyn TypeErasedRound<Res>> = Box::new(typed_round);
         let context = Context {
-            signer: signer.clone(),
+            signer,
             verifiers: verifiers.into(),
             message_cache: Vec::new(),
             received_messages: BTreeMap::new(),
@@ -112,6 +112,7 @@ where
         })
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn start_receiving(
         self,
         rng: &mut impl CryptoRngCore,
@@ -205,7 +206,7 @@ pub enum FinalizeOutcome<Res, Sig, Signer, Verifier> {
 
 impl<Res, Sig, Signer, Verifier> ReceivingState<Res, Sig, Signer, Verifier>
 where
-    Signer: PrehashSigner<Sig> + Clone,
+    Signer: PrehashSigner<Sig>,
     Verifier: Clone + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {

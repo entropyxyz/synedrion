@@ -9,7 +9,6 @@ use crate::curve::{Point, RecoverableSignature, Scalar};
 use crate::protocols::common::PresigningData;
 use crate::tools::collections::HoleVec;
 
-#[derive(Clone)]
 pub struct Round1 {
     r: Scalar,
     s_part: Scalar,
@@ -31,14 +30,14 @@ impl FirstRound for Round1 {
         _rng: &mut impl CryptoRngCore,
         num_parties: usize,
         party_idx: PartyIdx,
-        context: &Self::Context,
+        context: Self::Context,
     ) -> Self {
         let r = context.presigning.big_r.x_coordinate();
         let s_part = context.presigning.k * context.message + r * context.presigning.chi;
         Self {
             r,
             s_part,
-            context: context.clone(),
+            context,
             num_parties,
             party_idx,
         }
@@ -135,7 +134,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(0),
-                &presigning::Context {
+                presigning::Context {
                     session_id: session_id.clone(),
                     key_share: key_shares[0].clone(),
                 },
@@ -144,7 +143,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(1),
-                &presigning::Context {
+                presigning::Context {
                     session_id: session_id.clone(),
                     key_share: key_shares[1].clone(),
                 },
@@ -153,7 +152,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(2),
-                &presigning::Context {
+                presigning::Context {
                     session_id,
                     key_share: key_shares[2].clone(),
                 },
@@ -173,7 +172,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(0),
-                &Context {
+                Context {
                     presigning: presigning_datas[0].clone(),
                     message,
                     verifying_key,
@@ -183,7 +182,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(1),
-                &Context {
+                Context {
                     presigning: presigning_datas[1].clone(),
                     message,
                     verifying_key,
@@ -193,7 +192,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(2),
-                &Context {
+                Context {
                     presigning: presigning_datas[2].clone(),
                     message,
                     verifying_key,

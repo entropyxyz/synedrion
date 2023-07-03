@@ -15,7 +15,6 @@ use crate::sigma::log_star::LogStarProof;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
 
-#[derive(Clone)]
 pub struct PublicContext<P: SchemeParams> {
     session_id: SessionId,
     num_parties: usize,
@@ -23,7 +22,6 @@ pub struct PublicContext<P: SchemeParams> {
     key_share: KeyShare<P>,
 }
 
-#[derive(Clone)]
 struct SecretData<P: PaillierParams> {
     k: Scalar,
     gamma: Scalar,
@@ -38,7 +36,6 @@ struct SecretData<P: PaillierParams> {
 // We could support sending both types of messages generically, but that would mean that most
 // rounds would have empty implementations and unused types, since that behavior only happens
 // in a few cases.
-#[derive(Clone)]
 pub struct Round1Part1<P: SchemeParams> {
     context: PublicContext<P>,
     secret_data: SecretData<P::Paillier>,
@@ -46,6 +43,7 @@ pub struct Round1Part1<P: SchemeParams> {
     g_ciphertext: Ciphertext<P::Paillier>,
 }
 
+#[derive(Clone)]
 pub(crate) struct Context<P: SchemeParams> {
     pub(crate) session_id: SessionId,
     pub(crate) key_share: KeyShare<P>,
@@ -57,7 +55,7 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         rng: &mut impl CryptoRngCore,
         num_parties: usize,
         party_idx: PartyIdx,
-        context: &Self::Context,
+        context: Self::Context,
     ) -> Self {
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
@@ -74,7 +72,7 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
                 session_id: context.session_id.clone(),
                 num_parties,
                 party_idx,
-                key_share: context.key_share.clone(),
+                key_share: context.key_share,
             },
             secret_data: SecretData { k, gamma, rho, nu },
             k_ciphertext,
@@ -154,7 +152,6 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
     }
 }
 
-#[derive(Clone)]
 pub struct Round1Part2<P: SchemeParams> {
     context: PublicContext<P>,
     secret_data: SecretData<P::Paillier>,
@@ -257,7 +254,6 @@ pub struct Round2Direct<P: PaillierParams> {
     psi_hat_prime: LogStarProof<P>,
 }
 
-#[derive(Clone)]
 pub struct Round2<P: SchemeParams> {
     context: PublicContext<P>,
     secret_data: SecretData<P::Paillier>,
@@ -305,7 +301,6 @@ impl<P: SchemeParams> Round2<P> {
     }
 }
 
-#[derive(Clone)]
 pub struct Round2Payload {
     gamma: Point,
     alpha: Scalar,
@@ -534,7 +529,6 @@ pub struct Round3Bcast<P: PaillierParams> {
     psi_hat_pprime: LogStarProof<P>,
 }
 
-#[derive(Clone)]
 pub struct Round3<P: SchemeParams> {
     context: PublicContext<P>,
     secret_data: SecretData<P::Paillier>,
@@ -545,7 +539,6 @@ pub struct Round3<P: SchemeParams> {
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
 }
 
-#[derive(Clone)]
 pub struct Round3Payload {
     delta: Scalar,
     big_delta: Point,
@@ -681,7 +674,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(0),
-                &Context {
+                Context {
                     session_id: session_id.clone(),
                     key_share: key_shares[0].clone(),
                 },
@@ -690,7 +683,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(1),
-                &Context {
+                Context {
                     session_id: session_id.clone(),
                     key_share: key_shares[1].clone(),
                 },
@@ -699,7 +692,7 @@ mod tests {
                 &mut OsRng,
                 3,
                 PartyIdx::from_usize(2),
-                &Context {
+                Context {
                     session_id,
                     key_share: key_shares[2].clone(),
                 },
