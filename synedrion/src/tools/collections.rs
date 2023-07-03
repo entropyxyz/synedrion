@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
-pub(crate) struct HoleVecAccum<T: Clone> {
+pub(crate) struct HoleVecAccum<T> {
     hole_at: usize,
     elems: Vec<Option<T>>,
 }
@@ -107,7 +107,7 @@ impl Iterator for HoleRange {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct HoleVec<T> {
     elems: Vec<T>,
     // `u16` because we need it to be serialized uniformly across different platforms,
@@ -116,7 +116,7 @@ pub(crate) struct HoleVec<T> {
     hole_at: u16,
 }
 
-impl<T> HoleVec<T> {
+impl<T: Clone> HoleVec<T> {
     pub fn hole_at(&self) -> usize {
         self.hole_at.try_into().unwrap()
     }
@@ -135,10 +135,6 @@ impl<T> HoleVec<T> {
             index
         };
         self.elems.get(index)
-    }
-
-    pub fn range(&self) -> HoleRange {
-        HoleRange::new(self.len(), self.hole_at())
     }
 
     pub fn iter(&self) -> core::slice::Iter<T> {
@@ -164,15 +160,6 @@ impl<T> HoleVec<T> {
         HoleVec {
             elems: self.elems.into_iter().map(f).collect(),
             hole_at: self.hole_at,
-        }
-    }
-}
-
-impl<T: Clone> Clone for HoleVec<T> {
-    fn clone(&self) -> Self {
-        Self {
-            hole_at: self.hole_at,
-            elems: self.elems.clone(),
         }
     }
 }

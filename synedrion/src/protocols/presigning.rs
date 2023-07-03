@@ -700,7 +700,7 @@ mod tests {
                 3,
                 PartyIdx::from_usize(2),
                 &Context {
-                    session_id: session_id.clone(),
+                    session_id,
                     key_share: key_shares[2].clone(),
                 },
             ),

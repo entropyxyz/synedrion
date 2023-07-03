@@ -10,13 +10,15 @@ categories = ["cryptography", "no-std"]
 
 [dependencies]
 signature = { version = "2", default-features = false, features = ["alloc"] }
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
+# TODO: we only need `serde` feature in tests
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "serde"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["getrandom"] }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 digest = { version = "0.10", default-features = false, features = ["alloc"]}
 hex = { version = "0.4", features = ["alloc"] }
 serdect = "0.2"
+dyn-clone = "1"
 
 crypto-bigint = { version = "0.5", features = ["serde"] }
 crypto-primes = "0.3"

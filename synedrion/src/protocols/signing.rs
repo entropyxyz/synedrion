@@ -34,7 +34,7 @@ impl FirstRound for Round1 {
         context: &Self::Context,
     ) -> Self {
         let r = context.presigning.big_r.x_coordinate();
-        let s_part = &context.presigning.k * &context.message + r * context.presigning.chi;
+        let s_part = context.presigning.k * context.message + r * context.presigning.chi;
         Self {
             r,
             s_part,
@@ -154,7 +154,7 @@ mod tests {
                 3,
                 PartyIdx::from_usize(2),
                 &presigning::Context {
-                    session_id: session_id.clone(),
+                    session_id,
                     key_share: key_shares[2].clone(),
                 },
             ),

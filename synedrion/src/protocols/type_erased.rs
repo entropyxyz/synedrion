@@ -3,6 +3,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use dyn_clone::DynClone;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +23,7 @@ pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
     rmp_serde::decode::from_slice(message_bytes)
 }
 
+#[derive(Clone)]
 struct RoundAndAccum<R: Round> {
     round: R,
     accum: HoleVecAccum<R::Payload>,
@@ -48,10 +50,11 @@ impl<R: Round> RoundAndAccum<R> {
             Ok(payload) => payload,
             Err(err) => return ReceiveOutcome::Error(err),
         };
-        match self.accum.insert(from.as_usize(), payload) {
-            None => return ReceiveOutcome::AlreadyReceived,
-            _ => {}
+
+        if self.accum.insert(from.as_usize(), payload).is_none() {
+            return ReceiveOutcome::AlreadyReceived;
         }
+
         ReceiveOutcome::Success
     }
     fn finalize_typed(
@@ -98,7 +101,7 @@ pub(crate) enum FinalizeOutcome<R> {
     AnotherRound(Box<dyn TypeErasedRound<R>>),
 }
 
-struct BoxedRng<'a>(Box<&'a mut dyn CryptoRngCore>);
+struct BoxedRng<'a>(&'a mut dyn CryptoRngCore);
 
 impl<'a> rand_core::CryptoRng for BoxedRng<'a> {}
 
@@ -117,14 +120,18 @@ impl<'a> rand_core::RngCore for BoxedRng<'a> {
     }
 }
 
-pub(crate) trait TypeErasedRound<Res> {
+pub(crate) trait TypeErasedRound<Res>: DynClone + Send {
     fn to_receiving_state(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
     ) -> (Box<dyn TypeErasedReceivingRound<Res>>, ToSendSerialized);
+    fn round_num(&self) -> u8;
 }
 
-pub(crate) trait TypeErasedReceivingRound<Res>: Send {
+// Makes Box<dyn TypeErasedRound> cloneable.
+dyn_clone::clone_trait_object!(<Res> TypeErasedRound<Res>);
+
+pub(crate) trait TypeErasedReceivingRound<Res>: DynClone + Send {
     // Possible outcomes:
     // - success
     // - ReceiveError (verification fail etc)
@@ -141,10 +148,13 @@ pub(crate) trait TypeErasedReceivingRound<Res>: Send {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
     fn requires_broadcast_consensus(&self) -> bool;
-    fn is_finished_receiving(&self) -> bool;
+    fn can_finalize(&self) -> bool;
 }
 
-impl<R: Round + 'static> TypeErasedRound<R::Result> for R {
+// Makes Box<dyn TypeErasedReceivingRound> cloneable.
+dyn_clone::clone_trait_object!(<Res> TypeErasedReceivingRound<Res>);
+
+impl<R: Round + Clone + 'static> TypeErasedRound<R::Result> for R {
     fn to_receiving_state(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
@@ -152,7 +162,7 @@ impl<R: Round + 'static> TypeErasedRound<R::Result> for R {
         Box<dyn TypeErasedReceivingRound<R::Result>>,
         ToSendSerialized,
     ) {
-        let mut boxed_rng = BoxedRng(Box::new(rng));
+        let mut boxed_rng = BoxedRng(rng);
         let num_parties = self.num_parties();
         let party_idx = self.party_idx().as_usize();
         let (receiving_round, to_send) =
@@ -174,9 +184,12 @@ impl<R: Round + 'static> TypeErasedRound<R::Result> for R {
             Box::new(receiving_round);
         (receiving_round, to_send)
     }
+    fn round_num(&self) -> u8 {
+        R::round_num()
+    }
 }
 
-impl<R: Round + 'static + Send> TypeErasedReceivingRound<R::Result> for RoundAndAccum<R> {
+impl<R: Round + Clone + 'static + Send> TypeErasedReceivingRound<R::Result> for RoundAndAccum<R> {
     fn round_num(&self) -> u8 {
         R::round_num()
     }
@@ -195,7 +208,7 @@ impl<R: Round + 'static + Send> TypeErasedReceivingRound<R::Result> for RoundAnd
     }
 
     fn finalize(self: Box<Self>, rng: &mut dyn CryptoRngCore) -> FinalizeOutcome<R::Result> {
-        let mut boxed_rng = BoxedRng(Box::new(rng));
+        let mut boxed_rng = BoxedRng(rng);
         match self.finalize_typed(&mut boxed_rng) {
             FinalizeOutcomeTyped::Result(res) => FinalizeOutcome::Result(res),
             FinalizeOutcomeTyped::AnotherRound(round) => {
@@ -206,7 +219,7 @@ impl<R: Round + 'static + Send> TypeErasedReceivingRound<R::Result> for RoundAnd
         }
     }
 
-    fn is_finished_receiving(&self) -> bool {
+    fn can_finalize(&self) -> bool {
         self.accum.can_finalize()
     }
 }

@@ -38,9 +38,9 @@ async fn node_session(
     .unwrap();
 
     while !session.is_finished() {
-        println!("*** {:?}: starting round", party_idx,);
+        println!("*** {:?}: starting round", party_idx);
 
-        let to_send = session.get_messages().unwrap();
+        let to_send = session.start_receiving(&mut OsRng).unwrap();
 
         match to_send {
             ToSend::Broadcast(message) => {
@@ -61,14 +61,14 @@ async fn node_session(
             session.receive_cached_message().unwrap();
         }
 
-        while !session.is_finished_receiving().unwrap() {
+        while !session.can_finalize().unwrap() {
             println!("{party_idx:?}: waiting for a message");
             let (id_from, message) = rx.recv().await.unwrap();
             println!("{party_idx:?}: applying the message from {id_from:?}");
             session.receive(id_from, message).unwrap();
         }
 
-        println!("{party_idx:?}: finalizing the stage");
+        println!("{party_idx:?}: finalizing the round");
         session.finalize_round(&mut OsRng).unwrap();
     }
 

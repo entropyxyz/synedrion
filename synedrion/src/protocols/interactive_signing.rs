@@ -9,6 +9,7 @@ use super::signing;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::tools::collections::HoleVec;
 
+#[derive(Clone)]
 pub struct Round1Part1<P: SchemeParams> {
     context: Context<P>,
     round: presigning::Round1Part1<P>,
@@ -97,6 +98,7 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
     }
 }
 
+#[derive(Clone)]
 pub struct Round1Part2<P: SchemeParams> {
     context: Context<P>,
     round: presigning::Round1Part2<P>,
@@ -156,6 +158,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     }
 }
 
+#[derive(Clone)]
 pub struct Round2<P: SchemeParams> {
     context: Context<P>,
     round: presigning::Round2<P>,
@@ -215,6 +218,7 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
+#[derive(Clone)]
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
     round: presigning::Round3<P>,
@@ -284,6 +288,7 @@ impl<P: SchemeParams> Round for Round3<P> {
     }
 }
 
+#[derive(Clone)]
 pub struct SigningRound {
     round: signing::Round1,
 }

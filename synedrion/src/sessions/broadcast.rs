@@ -1,146 +1,123 @@
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::format;
+use alloc::vec::Vec;
+
 use serde::{Deserialize, Serialize};
+use signature::hazmat::PrehashVerifier;
 
-use super::error::TheirFault;
-use super::generic::ToSendSerialized;
-use super::signed_message::{serialize_message, SignedMessage, VerifiedMessage};
-use crate::tools::collections::{HoleVec, HoleVecAccum};
+use super::error::{Error, TheirFault};
+use super::signed_message::{SignedMessage, VerifiedMessage};
+use crate::protocols::type_erased::{deserialize_message, serialize_message, ToSendSerialized};
+use crate::PartyIdx;
 
-pub(crate) struct BroadcastConsensus<Sig: Clone> {
-    broadcasts: HoleVec<SignedMessage<Sig>>,
-    accum: Option<HoleVecAccum<SignedMessage<Sig>>>,
+#[derive(Clone)]
+pub(crate) struct BroadcastConsensus<Sig, Verifier> {
+    verifiers: Vec<Verifier>,
+    broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
+    received_echo_from: BTreeSet<PartyIdx>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Message<Sig> {
-    broadcasts: HoleVec<SignedMessage<Sig>>,
+    broadcasts: Vec<(PartyIdx, SignedMessage<Sig>)>,
 }
 
-impl<Sig: Clone + Serialize> BroadcastConsensus<Sig> {
-    pub(crate) fn new(broadcasts: HoleVec<SignedMessage<Sig>>) -> Self {
+impl<Sig, Verifier> BroadcastConsensus<Sig, Verifier>
+where
+    Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
+    Verifier: PrehashVerifier<Sig> + Clone,
+{
+    pub fn new(broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>, verifiers: &[Verifier]) -> Self {
+        // TODO: don't have to clone `verifiers` here, can just keep a ref.
         Self {
             broadcasts,
-            accum: None,
+            verifiers: verifiers.into(),
+            received_echo_from: BTreeSet::new(),
         }
     }
 
-    pub(crate) fn to_send(&self) -> ToSendSerialized {
-        let message = Message { broadcasts: self.broadcasts.clone() };
+    pub fn to_send(&self) -> ToSendSerialized {
+        let message = Message {
+            broadcasts: self
+                .broadcasts
+                .iter()
+                .cloned()
+                .map(|(idx, msg)| (idx, msg.into_unverified()))
+                .collect(),
+        };
         ToSendSerialized::Broadcast(serialize_message(&message).unwrap())
     }
 
-    pub(crate) fn receive(&mut self, verified_message: VerifiedMessage) -> Result<(), TheirFault> {
-
-    }
-}
-
-/*
-
-#[derive(Clone)]
-pub(crate) struct PreConsensusSubround<R: NeedsConsensus>(pub(crate) R);
-
-impl<R: NeedsConsensus> PreConsensusSubround<R> {}
-
-impl<R: NeedsConsensus> Round for PreConsensusSubround<R>
-where
-    R::NextRound: Round,
-    R::Message: Hashable,
-{
-    type Message = R::Message;
-    type Payload = (R::Payload, R::Message);
-    type NextRound = ConsensusSubround<R>;
-    type ErrorRound = ();
-
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        self.0.to_send(rng)
-    }
-    fn verify_received(
-        &self,
+    pub fn receive_message(
+        &mut self,
         from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
-        self.0
-            // TODO: save a hash here right away to avoid cloning
-            .verify_received(from, msg.clone())
-            .map(|payload| (payload, msg))
-    }
-    fn finalize(
-        self,
-        rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
-        let (payloads, messages) = payloads.unzip();
-        let next_round = self.0.finalize(rng, payloads).or(Err(()))?;
-        let broadcast_hashes = messages.map(|msg| {
-            Hash::new_with_dst(b"BroadcastConsensus")
-                .chain(&msg)
-                .finalize()
-        });
-        Ok(ConsensusSubround {
-            next_round,
-            broadcast_hashes,
-        })
-    }
-}
+        verified_message: VerifiedMessage<Sig>,
+    ) -> Result<(), Error> {
+        // TODO: check that `from` is valid here?
+        let message: Message<Sig> = deserialize_message(verified_message.payload()).unwrap();
 
-impl<R: NeedsConsensus> BroadcastRound for PreConsensusSubround<R> where
-    PreConsensusSubround<R>: Round
-{
-}
+        // TODO: check that there are no repeating indices?
+        let bc_map = message.broadcasts.into_iter().collect::<BTreeMap<_, _>>();
 
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct BroadcastHashes(HoleVec<HashOutput>);
+        if bc_map.len() != self.broadcasts.len() {
+            return Err(Error::TheirFault {
+                party: from,
+                error: TheirFault::VerificationFail(
+                    "Unexpected number of broadcasts received".into(),
+                ),
+            });
+        }
 
-#[derive(Clone)]
-pub(crate) struct ConsensusSubround<R: Round> {
-    next_round: R::NextRound,
-    broadcast_hashes: HoleVec<HashOutput>,
-}
-
-impl<R: NeedsConsensus> Round for ConsensusSubround<R> {
-    type Message = BroadcastHashes;
-    type Payload = ();
-    type NextRound = R::NextRound;
-    type ErrorRound = ();
-
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        ToSendTyped::Broadcast(BroadcastHashes(self.broadcast_hashes.clone()))
-    }
-    fn verify_received(
-        &self,
-        _from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, TheirFault> {
         // CHECK: should we save our own broadcast,
         // and check that the other nodes received it?
         // Or is this excessive since they are signed by us anyway?
-        if msg.0.len() != self.broadcast_hashes.len() {
-            return Err(TheirFault::VerificationFail(
-                "Unexpected number of broadcasts received".into(),
-            ));
-        }
-        for (idx, broadcast) in msg.0.range().zip(msg.0.iter()) {
-            if !self
-                .broadcast_hashes
-                .get(idx)
-                .map(|bc| bc == broadcast)
-                .unwrap_or(true)
-            {
-                // TODO: specify which node the conflicting broadcast was from
-                return Err(TheirFault::VerificationFail(
-                    "Received conflicting broadcasts".into(),
-                ));
+
+        for (idx, broadcast) in self.broadcasts.iter() {
+            // CHECK: the party `from` won't send us its own broadcast the second time.
+            // It gives no additional assurance.
+            if idx == &from {
+                continue;
             }
+
+            let echoed_bc = bc_map.get(idx).ok_or_else(|| Error::TheirFault {
+                party: from,
+                error: TheirFault::VerificationFail(format!(
+                    "Missing broadcast from party {idx:?}"
+                )),
+            })?;
+
+            let verified_bc = echoed_bc
+                .clone()
+                .verify(&self.verifiers[idx.as_usize()])
+                .map_err(|error| Error::TheirFault { party: from, error })?;
+
+            if broadcast != &verified_bc {
+                return Err(Error::TheirFault {
+                    party: *idx,
+                    error: TheirFault::VerificationFail("Received conflicting broadcasts".into()),
+                });
+            }
+        }
+
+        self.received_echo_from.insert(from);
+
+        Ok(())
+    }
+
+    pub fn can_finalize(&self) -> bool {
+        for (idx, _) in self.broadcasts.iter() {
+            if self.received_echo_from.get(idx).is_none() {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn finalize(self) -> Result<(), Error> {
+        if !self.can_finalize() {
+            // TODO: report which nodes are missing
+            return Err(Error::NotEnoughMessages);
         }
         Ok(())
     }
-    fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
-        _payloads: HoleVec<Self::Payload>,
-    ) -> Result<Self::NextRound, Self::ErrorRound> {
-        Ok(self.next_round)
-    }
 }
-
-impl<R: NeedsConsensus> BroadcastRound for ConsensusSubround<R> where ConsensusSubround<R>: Round {}
-*/

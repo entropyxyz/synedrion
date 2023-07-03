@@ -15,7 +15,9 @@ fn message_hash(round: u8, broadcast_consensus: bool, payload: &[u8]) -> HashOut
         .finalize()
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+//pub trait Signature: Clone + core::fmt::Debug + Serialize + for<'de> Deserialize<'de> + Eq + PartialEq {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct SignedMessage<Sig> {
     // TODO
     //session_id: SessionId,
@@ -40,6 +42,7 @@ impl<Sig> SignedMessage<Sig> {
     }
 }
 
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) struct VerifiedMessage<Sig>(SignedMessage<Sig>);
 
 impl<Sig> VerifiedMessage<Sig> {

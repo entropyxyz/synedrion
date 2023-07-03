@@ -2,7 +2,7 @@ use alloc::string::String;
 
 use crate::protocols::common::PartyIdx;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     ErrorRound, // TODO: to be replaced with actual error round handling
     MyFault(MyFault),
@@ -12,7 +12,7 @@ pub enum Error {
     TheirFaultUnprovable { party: PartyIdx, error: TheirFault },
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum MyFault {
     /// A mutable object was in an invalid state for calling a method.
     ///
@@ -26,14 +26,11 @@ pub enum MyFault {
     SigningError(String),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum TheirFault {
     DeserializationError(String),
     DuplicateMessage,
-    OutOfOrderMessage {
-        current_stage: u8,
-        message_stage: u8,
-    },
+    OutOfOrderMessage,
     Receive(String),
     VerificationFail(String),
 }

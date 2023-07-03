@@ -1,11 +1,12 @@
+mod broadcast;
 pub(crate) mod error;
 mod generic;
 pub(crate) mod signed_message;
-//mod broadcast;
 
 use alloc::string::String;
 
 use rand_core::CryptoRngCore;
+use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashSigner, PrehashVerifier};
 
 use crate::curve::{RecoverableSignature, Scalar};
@@ -27,6 +28,7 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     prehashed_message: &PrehashedMessage,
 ) -> Result<Session<RecoverableSignature, Sig, Signer, Verifier>, String>
 where
+    Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: PrehashSigner<Sig> + Clone,
     Verifier: PrehashVerifier<Sig> + Clone,

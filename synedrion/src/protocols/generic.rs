@@ -29,7 +29,7 @@ pub(crate) enum ToSendTyped<Message> {
     Direct(Vec<(PartyIdx, Message)>),
 }
 
-pub(crate) trait Round: Sized + Send {
+pub(crate) trait Round: Clone + Sized + Send {
     type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
     type Payload: Sized + Clone + Send;
     type NextRound: Round<Result = Self::Result>;
@@ -67,9 +67,10 @@ pub(crate) trait FirstRound: Round {
 }
 
 /// A dummy round to use as the `Round::NextRound` when there is no actual next round.
+#[derive(Clone)]
 pub(crate) struct NonExistent<Res>(PhantomData<Res>);
 
-impl<Res: Send> Round for NonExistent<Res> {
+impl<Res: Clone + Send> Round for NonExistent<Res> {
     type Message = ();
     type Payload = ();
     type NextRound = Self;
