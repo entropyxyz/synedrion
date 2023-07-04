@@ -13,8 +13,6 @@ pub struct Round1 {
     r: Scalar,
     s_part: Scalar,
     context: Context,
-    num_parties: usize,
-    party_idx: PartyIdx,
 }
 
 #[derive(Clone)]
@@ -28,19 +26,13 @@ impl FirstRound for Round1 {
     type Context = Context;
     fn new(
         _rng: &mut impl CryptoRngCore,
-        num_parties: usize,
-        party_idx: PartyIdx,
+        _num_parties: usize,
+        _party_idx: PartyIdx,
         context: Self::Context,
     ) -> Self {
         let r = context.presigning.big_r.x_coordinate();
         let s_part = context.presigning.k * context.message + r * context.presigning.chi;
-        Self {
-            r,
-            s_part,
-            context,
-            num_parties,
-            party_idx,
-        }
+        Self { r, s_part, context }
     }
 }
 
@@ -54,13 +46,6 @@ impl Round for Round1 {
     type Message = Round1Bcast;
     type NextRound = NonExistent<Self::Result>;
     type Result = RecoverableSignature;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.num_parties
-    }
 
     fn round_num() -> u8 {
         1

@@ -7,7 +7,7 @@ use signature::hazmat::PrehashVerifier;
 
 use super::error::{Error, TheirFault};
 use super::signed_message::{SignedMessage, VerifiedMessage};
-use crate::protocols::type_erased::{deserialize_message, serialize_message, ToSendSerialized};
+use super::type_erased::{deserialize_message, serialize_message, ToSendSerialized};
 use crate::PartyIdx;
 
 #[derive(Clone)]

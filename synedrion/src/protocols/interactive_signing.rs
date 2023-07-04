@@ -44,13 +44,6 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
     type NextRound = Round1Part2<P>;
     type Result = RecoverableSignature;
 
-    fn party_idx(&self) -> PartyIdx {
-        self.round.party_idx()
-    }
-    fn num_parties(&self) -> usize {
-        self.round.num_parties()
-    }
-
     fn round_num() -> u8 {
         1
     }
@@ -105,13 +98,6 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     type NextRound = Round2<P>;
     type Result = RecoverableSignature;
 
-    fn party_idx(&self) -> PartyIdx {
-        self.round.party_idx()
-    }
-    fn num_parties(&self) -> usize {
-        self.round.num_parties()
-    }
-
     fn round_num() -> u8 {
         2
     }
@@ -163,13 +149,6 @@ impl<P: SchemeParams> Round for Round2<P> {
     type Message = <presigning::Round2<P> as Round>::Message;
     type NextRound = Round3<P>;
     type Result = RecoverableSignature;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.round.party_idx()
-    }
-    fn num_parties(&self) -> usize {
-        self.round.num_parties()
-    }
 
     fn round_num() -> u8 {
         3
@@ -223,13 +202,6 @@ impl<P: SchemeParams> Round for Round3<P> {
     type NextRound = SigningRound;
     type Result = RecoverableSignature;
 
-    fn party_idx(&self) -> PartyIdx {
-        self.round.party_idx()
-    }
-    fn num_parties(&self) -> usize {
-        self.round.num_parties()
-    }
-
     fn round_num() -> u8 {
         4
     }
@@ -257,8 +229,8 @@ impl<P: SchemeParams> Round for Round3<P> {
         rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let num_parties = self.num_parties();
-        let party_idx = self.party_idx();
+        let num_parties = self.context.key_share.num_parties();
+        let party_idx = self.context.key_share.party_index();
         self.round
             .finalize(rng, payloads)
             .map(|success| match success {
@@ -290,13 +262,6 @@ impl Round for SigningRound {
     type Message = <signing::Round1 as Round>::Message;
     type NextRound = NonExistent<Self::Result>;
     type Result = RecoverableSignature;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.round.party_idx()
-    }
-    fn num_parties(&self) -> usize {
-        self.round.num_parties()
-    }
 
     fn round_num() -> u8 {
         5

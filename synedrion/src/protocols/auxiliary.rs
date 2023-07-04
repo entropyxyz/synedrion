@@ -172,13 +172,6 @@ impl<P: SchemeParams> Round for Round1<P> {
     type NextRound = Round2<P>;
     type Result = KeyShareChange<P>;
 
-    fn party_idx(&self) -> PartyIdx {
-        self.data.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.data.xs_public.len()
-    }
-
     fn round_num() -> u8 {
         1
     }
@@ -234,13 +227,6 @@ impl<P: SchemeParams> Round for Round2<P> {
     type Message = Round2Bcast<P>;
     type NextRound = Round3<P>;
     type Result = KeyShareChange<P>;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.data.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.data.xs_public.len()
-    }
 
     fn round_num() -> u8 {
         2
@@ -352,13 +338,6 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Message = Round3Direct<P>;
     type NextRound = NonExistent<Self::Result>;
     type Result = KeyShareChange<P>;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.data.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.data.xs_public.len()
-    }
 
     fn round_num() -> u8 {
         3

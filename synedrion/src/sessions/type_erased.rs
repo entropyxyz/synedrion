@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::generic::{FinalizeError, FinalizeSuccess, ReceiveError, Round, ToSendTyped};
+use crate::protocols::{FinalizeError, FinalizeSuccess, ReceiveError, Round, ToSendTyped};
 use crate::tools::collections::HoleVecAccum;
 use crate::PartyIdx;
 
@@ -122,6 +122,8 @@ pub(crate) trait TypeErasedRound<Res>: Send {
     fn to_receiving_state(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
+        num_parties: usize,
+        party_idx: PartyIdx,
     ) -> (Box<dyn TypeErasedReceivingRound<Res>>, ToSendSerialized);
     fn round_num(&self) -> u8;
 }
@@ -150,15 +152,15 @@ impl<R: Round + 'static> TypeErasedRound<R::Result> for R {
     fn to_receiving_state(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
+        num_parties: usize,
+        party_idx: PartyIdx,
     ) -> (
         Box<dyn TypeErasedReceivingRound<R::Result>>,
         ToSendSerialized,
     ) {
         let mut boxed_rng = BoxedRng(rng);
-        let num_parties = self.num_parties();
-        let party_idx = self.party_idx().as_usize();
         let (receiving_round, to_send) =
-            RoundAndAccum::new(*self, &mut boxed_rng, num_parties, party_idx);
+            RoundAndAccum::new(*self, &mut boxed_rng, num_parties, party_idx.as_usize());
         let to_send = match to_send {
             ToSendTyped::Broadcast(message) => {
                 let message = serialize_message(&message).unwrap();

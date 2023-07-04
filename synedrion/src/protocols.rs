@@ -6,4 +6,5 @@ pub(crate) mod keygen;
 pub(crate) mod presigning;
 pub(crate) mod signing;
 pub(crate) mod threshold;
-pub(crate) mod type_erased;
+
+pub(crate) use generic::{FinalizeError, FinalizeSuccess, ReceiveError, Round, ToSendTyped};

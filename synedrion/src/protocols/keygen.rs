@@ -61,7 +61,6 @@ impl Hashable for Round1Bcast {
 pub(crate) struct Round1<P: SchemeParams> {
     secret_data: SecretData,
     data: FullData,
-    num_parties: usize,
     phantom: PhantomData<P>,
 }
 
@@ -75,7 +74,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 
     fn new(
         rng: &mut impl CryptoRngCore,
-        num_parties: usize,
+        _num_parties: usize,
         party_idx: PartyIdx,
         context: Self::Context,
     ) -> Self {
@@ -104,7 +103,6 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         Self {
             secret_data,
             data,
-            num_parties,
             phantom: PhantomData,
         }
     }
@@ -115,13 +113,6 @@ impl<P: SchemeParams> Round for Round1<P> {
     type Message = Round1Bcast;
     type NextRound = Round2<P>;
     type Result = KeyShareSeed;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.data.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.num_parties
-    }
 
     fn round_num() -> u8 {
         1
@@ -176,12 +167,6 @@ impl<P: SchemeParams> Round for Round2<P> {
     type NextRound = Round3<P>;
     type Result = KeyShareSeed;
 
-    fn party_idx(&self) -> PartyIdx {
-        self.data.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.hashes.len()
-    }
     fn round_num() -> u8 {
         2
     }
@@ -251,12 +236,6 @@ impl<P: SchemeParams> Round for Round3<P> {
     type NextRound = NonExistent<Self::Result>;
     type Result = KeyShareSeed;
 
-    fn party_idx(&self) -> PartyIdx {
-        self.data.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.datas.len()
-    }
     fn round_num() -> u8 {
         3
     }

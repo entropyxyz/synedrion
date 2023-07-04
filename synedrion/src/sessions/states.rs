@@ -10,10 +10,10 @@ use signature::hazmat::{PrehashSigner, PrehashVerifier};
 use super::broadcast::BroadcastConsensus;
 use super::error::{Error, MyFault, TheirFault};
 use super::signed_message::{SignedMessage, VerifiedMessage};
-use crate::protocols::generic::{FirstRound, Round};
-use crate::protocols::type_erased::{
+use super::type_erased::{
     self, ReceiveOutcome, ToSendSerialized, TypeErasedReceivingRound, TypeErasedRound,
 };
+use crate::protocols::generic::{FirstRound, Round};
 use crate::PartyIdx;
 
 pub enum ToSend<Sig> {
@@ -25,6 +25,7 @@ pub enum ToSend<Sig> {
 struct Context<Sig, Signer, Verifier> {
     signer: Signer,
     verifiers: Vec<Verifier>,
+    party_idx: PartyIdx,
     message_cache: Vec<(PartyIdx, VerifiedMessage<Sig>)>, // could it be in the state as well?
     // TODO: do we need to save broadcast conesnsus messages too?
     received_messages: BTreeMap<u8, Vec<(PartyIdx, VerifiedMessage<Sig>)>>,
@@ -78,6 +79,7 @@ where
         let context = Context {
             signer,
             verifiers: verifiers.into(),
+            party_idx,
             message_cache: Vec::new(),
             received_messages: BTreeMap::new(),
         };
@@ -121,7 +123,8 @@ where
         match self.tp {
             SendingType::Normal(round) => {
                 let round_num = round.round_num();
-                let (receiving_round, to_send) = round.to_receiving_state(rng);
+                let (receiving_round, to_send) =
+                    round.to_receiving_state(rng, context.verifiers.len(), context.party_idx);
                 let signed_to_send =
                     Self::sign_messages(&context.signer, &to_send, round_num, false)?;
                 context.received_messages.insert(round_num, Vec::new());

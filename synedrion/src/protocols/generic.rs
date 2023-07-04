@@ -47,8 +47,6 @@ pub(crate) trait Round: Sized + Send {
         payloads: HoleVec<Self::Payload>,
     ) -> Result<FinalizeSuccess<Self>, FinalizeError>;
     fn round_num() -> u8;
-    fn party_idx(&self) -> PartyIdx;
-    fn num_parties(&self) -> usize;
 
     // TODO: these may be possible to implement generically without needing to specify them
     // in every `Round` impl. See the mutually exclusive trait trick.
@@ -100,12 +98,6 @@ impl<Res: Clone + Send> Round for NonExistent<Res> {
         unreachable!()
     }
     fn requires_broadcast_consensus() -> bool {
-        unreachable!()
-    }
-    fn party_idx(&self) -> PartyIdx {
-        unreachable!()
-    }
-    fn num_parties(&self) -> usize {
         unreachable!()
     }
 }

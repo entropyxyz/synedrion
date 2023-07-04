@@ -2,6 +2,7 @@ mod broadcast;
 pub(crate) mod error;
 pub(crate) mod signed_message;
 mod states;
+mod type_erased;
 
 use alloc::string::String;
 

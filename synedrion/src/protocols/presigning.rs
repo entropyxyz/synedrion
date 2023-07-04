@@ -15,6 +15,7 @@ use crate::sigma::log_star::LogStarProof;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
 
+// TODO: change the name, it's not really public
 pub struct PublicContext<P: SchemeParams> {
     session_id: SessionId,
     num_parties: usize,
@@ -101,13 +102,6 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
     type NextRound = Round1Part2<P>;
     type Result = PresigningData;
 
-    fn party_idx(&self) -> PartyIdx {
-        self.context.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.context.num_parties
-    }
-
     fn round_num() -> u8 {
         1
     }
@@ -169,13 +163,6 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
     type Message = Round1Direct<P::Paillier>;
     type NextRound = Round2<P>;
     type Result = PresigningData;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.context.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.context.num_parties
-    }
 
     fn round_num() -> u8 {
         2
@@ -312,13 +299,6 @@ impl<P: SchemeParams> Round for Round2<P> {
     type Message = Round2Direct<P::Paillier>;
     type NextRound = Round3<P>;
     type Result = PresigningData;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.context.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.context.num_parties
-    }
 
     fn round_num() -> u8 {
         3
@@ -549,13 +529,6 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Message = Round3Bcast<P::Paillier>;
     type NextRound = NonExistent<Self::Result>;
     type Result = PresigningData;
-
-    fn party_idx(&self) -> PartyIdx {
-        self.context.party_idx
-    }
-    fn num_parties(&self) -> usize {
-        self.context.num_parties
-    }
 
     fn round_num() -> u8 {
         4
