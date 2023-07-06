@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 
 use k256::ecdsa::VerifyingKey;
-use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::curve::{Point, Scalar};
@@ -21,23 +20,6 @@ pub struct TestSchemeParams;
 impl SchemeParams for TestSchemeParams {
     const SECURITY_PARAMETER: usize = 10;
     type Paillier = PaillierTest;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionId([u8; 32]);
-
-impl SessionId {
-    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        let mut bytes = [0u8; 32];
-        rng.fill_bytes(&mut bytes);
-        Self(bytes)
-    }
-}
-
-impl Hashable for SessionId {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.0)
-    }
 }
 
 // TODO: should it be here? HoleVecs can just function with usizes I think.

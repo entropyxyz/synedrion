@@ -1,6 +1,8 @@
+use alloc::boxed::Box;
+
 use rand_core::CryptoRngCore;
 
-use super::common::{KeyShare, PartyIdx, SchemeParams, SessionId};
+use super::common::{KeyShare, PartyIdx, SchemeParams};
 use super::generic::{
     FinalizeError, FinalizeSuccess, FirstRound, NonExistent, ReceiveError, Round, ToSendTyped,
 };
@@ -10,13 +12,18 @@ use crate::curve::{RecoverableSignature, Scalar};
 use crate::tools::collections::HoleVec;
 
 pub struct Round1Part1<P: SchemeParams> {
-    context: Context<P>,
+    context: RoundContext<P>,
     round: presigning::Round1Part1<P>,
+}
+
+struct RoundContext<P: SchemeParams> {
+    shared_randomness: Box<[u8]>,
+    key_share: KeyShare<P>,
+    message: Scalar,
 }
 
 #[derive(Clone)]
 pub(crate) struct Context<P: SchemeParams> {
-    pub(crate) session_id: SessionId,
     pub(crate) key_share: KeyShare<P>,
     pub(crate) message: Scalar,
 }
@@ -25,15 +32,23 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
     type Context = Context<P>;
     fn new(
         rng: &mut impl CryptoRngCore,
+        shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
         context: Self::Context,
     ) -> Self {
-        let presigning_context = presigning::Context {
-            session_id: context.session_id.clone(),
-            key_share: context.key_share.clone(),
+        let round = presigning::Round1Part1::new(
+            rng,
+            shared_randomness,
+            num_parties,
+            party_idx,
+            context.key_share.clone(),
+        );
+        let context = RoundContext {
+            shared_randomness: shared_randomness.into(),
+            key_share: context.key_share,
+            message: context.message,
         };
-        let round = presigning::Round1Part1::new(rng, num_parties, party_idx, presigning_context);
         Self { context, round }
     }
 }
@@ -88,7 +103,7 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
 }
 
 pub struct Round1Part2<P: SchemeParams> {
-    context: Context<P>,
+    context: RoundContext<P>,
     round: presigning::Round1Part2<P>,
 }
 
@@ -140,7 +155,7 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
 }
 
 pub struct Round2<P: SchemeParams> {
-    context: Context<P>,
+    context: RoundContext<P>,
     round: presigning::Round2<P>,
 }
 
@@ -192,7 +207,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 }
 
 pub struct Round3<P: SchemeParams> {
-    context: Context<P>,
+    context: RoundContext<P>,
     round: presigning::Round3<P>,
 }
 
@@ -242,8 +257,13 @@ impl<P: SchemeParams> Round for Round3<P> {
                         presigning,
                         verifying_key: self.context.key_share.verifying_key_as_point(),
                     };
-                    let signing_round =
-                        signing::Round1::new(rng, num_parties, party_idx, signing_context);
+                    let signing_round = signing::Round1::new(
+                        rng,
+                        &self.context.shared_randomness,
+                        num_parties,
+                        party_idx,
+                        signing_context,
+                    );
                     FinalizeSuccess::AnotherRound(SigningRound {
                         round: signing_round,
                     })

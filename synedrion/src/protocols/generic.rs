@@ -58,6 +58,7 @@ pub(crate) trait FirstRound: Round {
     type Context;
     fn new(
         rng: &mut impl CryptoRngCore,
+        shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
         context: Self::Context,

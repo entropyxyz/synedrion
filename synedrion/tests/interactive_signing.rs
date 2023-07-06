@@ -20,6 +20,7 @@ async fn node_session(
     rx: mpsc::Receiver<MessageIn>,
     signer: SigningKey,
     verifiers: Vec<VerifyingKey>,
+    shared_randomness: &[u8],
     key_share: KeyShare<TestSchemeParams>,
     message: &[u8; 32],
 ) -> RecoverableSignature {
@@ -33,7 +34,12 @@ async fn node_session(
         .collect::<Vec<_>>();
 
     let mut sending = make_interactive_signing_session::<_, Signature, _, _>(
-        &mut OsRng, signer, &verifiers, &key_share, message,
+        &mut OsRng,
+        shared_randomness,
+        signer,
+        &verifiers,
+        &key_share,
+        message,
     )
     .unwrap();
 
@@ -127,6 +133,7 @@ async fn interactive_signing() {
         .collect::<Vec<_>>();
     let key_shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties, None);
 
+    let shared_randomness = b"1234567890";
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
     let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
@@ -147,6 +154,7 @@ async fn interactive_signing() {
                 rx,
                 signers[party_idx.as_usize()].clone(),
                 verifiers.clone(),
+                shared_randomness,
                 key_shares[party_idx.as_usize()].clone(),
                 message,
             );

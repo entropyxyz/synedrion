@@ -9,7 +9,7 @@ use signature::hazmat::{PrehashSigner, PrehashVerifier};
 
 use super::broadcast::BroadcastConsensus;
 use super::error::{Error, MyFault, TheirFault};
-use super::signed_message::{SignedMessage, VerifiedMessage};
+use super::signed_message::{SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
     self, ReceiveOutcome, ToSendSerialized, TypeErasedReceivingRound, TypeErasedRound,
 };
@@ -25,6 +25,7 @@ pub enum ToSend<Sig> {
 struct Context<Sig, Signer, Verifier> {
     signer: Signer,
     verifiers: Vec<Verifier>,
+    session_id: SessionId,
     party_idx: PartyIdx,
     message_cache: Vec<(PartyIdx, VerifiedMessage<Sig>)>, // could it be in the state as well?
     // TODO: do we need to save broadcast conesnsus messages too?
@@ -65,6 +66,7 @@ where
 {
     pub(crate) fn new<R: FirstRound + 'static>(
         rng: &mut impl CryptoRngCore,
+        shared_randomness: &[u8],
         // TODO: merge signers and verifiers into one struct to make getting party_idx more natural?
         signer: Signer,
         party_idx: PartyIdx,
@@ -74,11 +76,15 @@ where
     where
         R: Round<Result = Res>,
     {
-        let typed_round = R::new(rng, verifiers.len(), party_idx, context);
+        // CHECK: is this enough? Do we need to hash in e.g. the verifier public keys?
+        // TODO: Need to specify the requirements for the shared randomness in the docstring.
+        let session_id = SessionId::from_seed(shared_randomness);
+        let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, context);
         let round: Box<dyn TypeErasedRound<Res>> = Box::new(typed_round);
         let context = Context {
             signer,
             verifiers: verifiers.into(),
+            session_id,
             party_idx,
             message_cache: Vec::new(),
             received_messages: BTreeMap::new(),
@@ -91,22 +97,34 @@ where
 
     fn sign_messages(
         signer: &Signer,
+        session_id: &SessionId,
         to_send: &ToSendSerialized,
         round_num: u8,
         bc_consensus: bool,
     ) -> Result<ToSend<Sig>, Error> {
         Ok(match &to_send {
             ToSendSerialized::Broadcast(message_bytes) => {
-                let message = VerifiedMessage::new(signer, round_num, bc_consensus, message_bytes)
-                    .map_err(Error::MyFault)?;
+                let message = VerifiedMessage::new(
+                    signer,
+                    session_id,
+                    round_num,
+                    bc_consensus,
+                    message_bytes,
+                )
+                .map_err(Error::MyFault)?;
                 ToSend::Broadcast(message.into_unverified())
             }
             ToSendSerialized::Direct(messages) => {
                 let mut signed_messages = Vec::with_capacity(messages.len());
                 for (index, message_bytes) in messages.iter() {
-                    let signed_message =
-                        VerifiedMessage::new(signer, round_num, bc_consensus, message_bytes)
-                            .map_err(Error::MyFault)?;
+                    let signed_message = VerifiedMessage::new(
+                        signer,
+                        session_id,
+                        round_num,
+                        bc_consensus,
+                        message_bytes,
+                    )
+                    .map_err(Error::MyFault)?;
                     signed_messages.push((*index, signed_message.into_unverified()));
                 }
                 ToSend::Direct(signed_messages)
@@ -125,8 +143,13 @@ where
                 let round_num = round.round_num();
                 let (receiving_round, to_send) =
                     round.to_receiving_state(rng, context.verifiers.len(), context.party_idx);
-                let signed_to_send =
-                    Self::sign_messages(&context.signer, &to_send, round_num, false)?;
+                let signed_to_send = Self::sign_messages(
+                    &context.signer,
+                    &context.session_id,
+                    &to_send,
+                    round_num,
+                    false,
+                )?;
                 context.received_messages.insert(round_num, Vec::new());
                 let state = ReceivingState {
                     tp: ReceivingType::Normal(receiving_round),
@@ -137,8 +160,13 @@ where
             SendingType::Bc { next_round, bc } => {
                 let round_num = next_round.round_num() - 1;
                 let to_send = bc.to_send();
-                let signed_to_send =
-                    Self::sign_messages(&context.signer, &to_send, round_num, true)?;
+                let signed_to_send = Self::sign_messages(
+                    &context.signer,
+                    &context.session_id,
+                    &to_send,
+                    round_num,
+                    true,
+                )?;
                 let state = ReceivingState {
                     tp: ReceivingType::Bc { next_round, bc },
                     context,
@@ -217,6 +245,15 @@ where
         let verified_message = message
             .verify(&self.context.verifiers[from.as_usize()])
             .unwrap();
+
+        // TODO: this is an unprovable fault (may be a replay attack)
+        if verified_message.session_id() != &self.context.session_id {
+            return Err(Error::TheirFault {
+                party: from,
+                error: TheirFault::InvalidSessionId,
+            });
+        }
+
         let message_for = match &self.tp {
             ReceivingType::Normal(round) => route_message_normal(round.as_ref(), &verified_message),
             ReceivingType::Bc { next_round, .. } => {
@@ -230,6 +267,7 @@ where
                 self.context.message_cache.push((from, verified_message));
                 Ok(())
             }
+            // TODO: this is an unprovable fault (may be a replay attack)
             MessageFor::OutOfOrder => Err(Error::TheirFault {
                 party: from,
                 error: TheirFault::OutOfOrderMessage,

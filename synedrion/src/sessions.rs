@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashSigner, PrehashVerifier};
 
 use crate::curve::{RecoverableSignature, Scalar};
-use crate::protocols::common::{KeyShare, SessionId};
+use crate::protocols::common::KeyShare;
 use crate::protocols::interactive_signing;
 use crate::SchemeParams;
 
@@ -23,6 +23,7 @@ pub type PrehashedMessage = [u8; 32];
 
 pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
+    shared_randomness: &[u8],
     signer: Signer,
     verifiers: &[Verifier],
     key_share: &KeyShare<P>,
@@ -36,15 +37,14 @@ where
 {
     let scalar_message = Scalar::try_from_reduced_bytes(prehashed_message)?;
 
-    let session_id = SessionId::random(rng);
     let context = interactive_signing::Context {
-        session_id,
         key_share: key_share.clone(),
         message: scalar_message,
     };
 
     Ok(SendingState::new::<interactive_signing::Round1Part1<P>>(
         rng,
+        shared_randomness,
         signer,
         key_share.party_index(),
         verifiers,

@@ -26,6 +26,7 @@ impl FirstRound for Round1 {
     type Context = Context;
     fn new(
         _rng: &mut impl CryptoRngCore,
+        _shared_randomness: &[u8],
         _num_parties: usize,
         _party_idx: PartyIdx,
         context: Self::Context,
@@ -96,12 +97,12 @@ impl Round for Round1 {
 #[cfg(test)]
 mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
-    use rand_core::OsRng;
+    use rand_core::{OsRng, RngCore};
 
     use super::{Context, Round1};
     use crate::centralized_keygen::make_key_shares;
     use crate::curve::Scalar;
-    use crate::protocols::common::{PartyIdx, SessionId, TestSchemeParams};
+    use crate::protocols::common::{PartyIdx, TestSchemeParams};
     use crate::protocols::generic::{
         tests::{assert_next_round, assert_result, step},
         FirstRound,
@@ -110,37 +111,32 @@ mod tests {
 
     #[test]
     fn execute_signing() {
-        let session_id = SessionId::random(&mut OsRng);
+        let mut shared_randomness = [0u8; 32];
+        OsRng.fill_bytes(&mut shared_randomness);
 
         let key_shares = make_key_shares(&mut OsRng, 3, None);
 
         let r1 = vec![
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
+                &shared_randomness,
                 3,
                 PartyIdx::from_usize(0),
-                presigning::Context {
-                    session_id: session_id.clone(),
-                    key_share: key_shares[0].clone(),
-                },
+                key_shares[0].clone(),
             ),
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
+                &shared_randomness,
                 3,
                 PartyIdx::from_usize(1),
-                presigning::Context {
-                    session_id: session_id.clone(),
-                    key_share: key_shares[1].clone(),
-                },
+                key_shares[1].clone(),
             ),
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
+                &shared_randomness,
                 3,
                 PartyIdx::from_usize(2),
-                presigning::Context {
-                    session_id,
-                    key_share: key_shares[2].clone(),
-                },
+                key_shares[2].clone(),
             ),
         ];
 
@@ -155,6 +151,7 @@ mod tests {
         let r1 = vec![
             Round1::new(
                 &mut OsRng,
+                &shared_randomness,
                 3,
                 PartyIdx::from_usize(0),
                 Context {
@@ -165,6 +162,7 @@ mod tests {
             ),
             Round1::new(
                 &mut OsRng,
+                &shared_randomness,
                 3,
                 PartyIdx::from_usize(1),
                 Context {
@@ -175,6 +173,7 @@ mod tests {
             ),
             Round1::new(
                 &mut OsRng,
+                &shared_randomness,
                 3,
                 PartyIdx::from_usize(2),
                 Context {

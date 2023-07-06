@@ -31,6 +31,7 @@ pub enum TheirFault {
     DeserializationError(String),
     DuplicateMessage,
     OutOfOrderMessage,
+    InvalidSessionId,
     Receive(String),
     VerificationFail(String),
 }
