@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
 use super::generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, NonExistent, ReceiveError, Round, ToSendTyped,
+    FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError, Round,
+    ToSendTyped,
 };
 use crate::curve::{Point, RecoverableSignature, Scalar};
 use crate::protocols::common::PresigningData;
@@ -30,10 +31,10 @@ impl FirstRound for Round1 {
         _num_parties: usize,
         _party_idx: PartyIdx,
         context: Self::Context,
-    ) -> Self {
+    ) -> Result<Self, InitError> {
         let r = context.presigning.big_r.x_coordinate();
         let s_part = context.presigning.k * context.message + r * context.presigning.chi;
-        Self { r, s_part, context }
+        Ok(Self { r, s_part, context })
     }
 }
 
@@ -123,21 +124,24 @@ mod tests {
                 3,
                 PartyIdx::from_usize(0),
                 key_shares[0].clone(),
-            ),
+            )
+            .unwrap(),
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
                 PartyIdx::from_usize(1),
                 key_shares[1].clone(),
-            ),
+            )
+            .unwrap(),
             presigning::Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
                 PartyIdx::from_usize(2),
                 key_shares[2].clone(),
-            ),
+            )
+            .unwrap(),
         ];
 
         let r1p2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
@@ -159,7 +163,8 @@ mod tests {
                     message,
                     verifying_key,
                 },
-            ),
+            )
+            .unwrap(),
             Round1::new(
                 &mut OsRng,
                 &shared_randomness,
@@ -170,7 +175,8 @@ mod tests {
                     message,
                     verifying_key,
                 },
-            ),
+            )
+            .unwrap(),
             Round1::new(
                 &mut OsRng,
                 &shared_randomness,
@@ -181,7 +187,8 @@ mod tests {
                     message,
                     verifying_key,
                 },
-            ),
+            )
+            .unwrap(),
         ];
         let signatures = assert_result(step(&mut OsRng, r1).unwrap()).unwrap();
 

@@ -9,7 +9,8 @@ use super::common::{
     KeyShareChange, KeyShareChangePublic, KeyShareChangeSecret, PartyIdx, SchemeParams,
 };
 use super::generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, NonExistent, ReceiveError, Round, ToSendTyped,
+    FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError, Round,
+    ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
@@ -89,7 +90,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         num_parties: usize,
         party_idx: PartyIdx,
         _context: Self::Context,
-    ) -> Self {
+    ) -> Result<Self, InitError> {
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
         let paillier_pk = paillier_sk.public_key();
         let y_secret = Scalar::random(rng);
@@ -155,7 +156,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             shared_randomness: shared_randomness.into(),
         };
 
-        Self { context }
+        Ok(Self { context })
     }
 }
 
@@ -519,21 +520,24 @@ mod tests {
                 3,
                 PartyIdx::from_usize(0),
                 (),
-            ),
+            )
+            .unwrap(),
             Round1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
                 PartyIdx::from_usize(1),
                 (),
-            ),
+            )
+            .unwrap(),
             Round1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
                 PartyIdx::from_usize(2),
                 (),
-            ),
+            )
+            .unwrap(),
         ];
 
         let r2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();

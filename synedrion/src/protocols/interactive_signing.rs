@@ -4,7 +4,8 @@ use rand_core::CryptoRngCore;
 
 use super::common::{KeyShare, PartyIdx, SchemeParams};
 use super::generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, NonExistent, ReceiveError, Round, ToSendTyped,
+    FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError, Round,
+    ToSendTyped,
 };
 use super::presigning;
 use super::signing;
@@ -36,20 +37,20 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         num_parties: usize,
         party_idx: PartyIdx,
         context: Self::Context,
-    ) -> Self {
+    ) -> Result<Self, InitError> {
         let round = presigning::Round1Part1::new(
             rng,
             shared_randomness,
             num_parties,
             party_idx,
             context.key_share.clone(),
-        );
+        )?;
         let context = RoundContext {
             shared_randomness: shared_randomness.into(),
             key_share: context.key_share,
             message: context.message,
         };
-        Self { context, round }
+        Ok(Self { context, round })
     }
 }
 
@@ -246,30 +247,30 @@ impl<P: SchemeParams> Round for Round3<P> {
     ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         let num_parties = self.context.key_share.num_parties();
         let party_idx = self.context.key_share.party_index();
-        self.round
-            .finalize(rng, payloads)
-            .map(|success| match success {
-                // TODO: figure out how to avoid this. Type erasure should happen in `type_erased.rs`,
-                // not here.
-                FinalizeSuccess::Result(presigning) => {
-                    let signing_context = signing::Context {
-                        message: self.context.message,
-                        presigning,
-                        verifying_key: self.context.key_share.verifying_key_as_point(),
-                    };
-                    let signing_round = signing::Round1::new(
-                        rng,
-                        &self.context.shared_randomness,
-                        num_parties,
-                        party_idx,
-                        signing_context,
-                    );
-                    FinalizeSuccess::AnotherRound(SigningRound {
-                        round: signing_round,
-                    })
-                }
-                FinalizeSuccess::AnotherRound(_round) => unreachable!(),
-            })
+        let outcome = self.round.finalize(rng, payloads)?;
+        match outcome {
+            // TODO: figure out how to avoid this. Type erasure should happen in `type_erased.rs`,
+            // not here.
+            FinalizeSuccess::Result(presigning) => {
+                let signing_context = signing::Context {
+                    message: self.context.message,
+                    presigning,
+                    verifying_key: self.context.key_share.verifying_key_as_point(),
+                };
+                let signing_round = signing::Round1::new(
+                    rng,
+                    &self.context.shared_randomness,
+                    num_parties,
+                    party_idx,
+                    signing_context,
+                )
+                .map_err(FinalizeError::ProtocolMerge)?;
+                Ok(FinalizeSuccess::AnotherRound(SigningRound {
+                    round: signing_round,
+                }))
+            }
+            FinalizeSuccess::AnotherRound(_round) => unreachable!(),
+        }
     }
 }
 

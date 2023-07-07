@@ -77,9 +77,9 @@ impl Scalar {
     ///
     /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
     /// is larger than the modulus.
-    pub fn try_from_reduced_bytes(bytes: &[u8; 32]) -> Result<Self, String> {
+    pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
         let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from(*bytes);
-        Ok(Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr)))
+        Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr))
     }
 
     pub fn to_be_bytes(self) -> k256::FieldBytes {

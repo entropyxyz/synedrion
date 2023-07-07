@@ -1,6 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
+use core::fmt;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,9 @@ pub(crate) enum FinalizeSuccess<R: Round> {
 
 #[derive(Debug)]
 pub(crate) enum FinalizeError {
+    /// Returned when there is an error chaining the start of another protocol
+    /// on the finalization of the previous one.
+    ProtocolMerge(InitError),
     Unspecified(String), // TODO: add fine-grained errors
 }
 
@@ -54,6 +58,16 @@ pub(crate) trait Round: Sized + Send {
     fn requires_broadcast_consensus() -> bool;
 }
 
+#[derive(Debug)]
+pub struct InitError(String);
+
+impl fmt::Display for InitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        // TODO: make proper Display impls
+        write!(f, "{self:?}")
+    }
+}
+
 pub(crate) trait FirstRound: Round {
     type Context;
     fn new(
@@ -62,7 +76,7 @@ pub(crate) trait FirstRound: Round {
         num_parties: usize,
         party_idx: PartyIdx,
         context: Self::Context,
-    ) -> Self;
+    ) -> Result<Self, InitError>;
 }
 
 /// A dummy round to use as the `Round::NextRound` when there is no actual next round.

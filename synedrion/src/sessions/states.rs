@@ -13,7 +13,7 @@ use super::signed_message::{SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
     self, ReceiveOutcome, ToSendSerialized, TypeErasedReceivingRound, TypeErasedRound,
 };
-use crate::protocols::generic::{FirstRound, Round};
+use crate::protocols::generic::{FirstRound, InitError, Round};
 use crate::PartyIdx;
 
 pub enum ToSend<Sig> {
@@ -72,14 +72,14 @@ where
         party_idx: PartyIdx,
         verifiers: &[Verifier],
         context: R::Context,
-    ) -> Self
+    ) -> Result<Self, InitError>
     where
         R: Round<Result = Res>,
     {
         // CHECK: is this enough? Do we need to hash in e.g. the verifier public keys?
         // TODO: Need to specify the requirements for the shared randomness in the docstring.
         let session_id = SessionId::from_seed(shared_randomness);
-        let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, context);
+        let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, context)?;
         let round: Box<dyn TypeErasedRound<Res>> = Box::new(typed_round);
         let context = Context {
             signer,
@@ -89,10 +89,10 @@ where
             message_cache: Vec::new(),
             received_messages: BTreeMap::new(),
         };
-        Self {
+        Ok(Self {
             tp: SendingType::Normal(round),
             context,
-        }
+        })
     }
 
     fn sign_messages(

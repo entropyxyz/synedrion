@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareSeed, PartyIdx, SchemeParams};
 use super::generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, NonExistent, ReceiveError, Round, ToSendTyped,
+    FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError, Round,
+    ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
@@ -78,7 +79,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         _num_parties: usize,
         party_idx: PartyIdx,
         _context: Self::Context,
-    ) -> Self {
+    ) -> Result<Self, InitError> {
         let secret = Scalar::random(rng);
         let public = secret.mul_by_generator();
 
@@ -102,10 +103,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             data,
         };
 
-        Self {
+        Ok(Self {
             context,
             phantom: PhantomData,
-        }
+        })
     }
 }
 
@@ -320,21 +321,24 @@ mod tests {
                 3,
                 PartyIdx::from_usize(0),
                 (),
-            ),
+            )
+            .unwrap(),
             Round1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
                 PartyIdx::from_usize(1),
                 (),
-            ),
+            )
+            .unwrap(),
             Round1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
                 PartyIdx::from_usize(2),
                 (),
-            ),
+            )
+            .unwrap(),
         ];
 
         let r2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();

@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, PartyIdx, PresigningData, SchemeParams};
 use super::generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, NonExistent, ReceiveError, Round, ToSendTyped,
+    FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError, Round,
+    ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
@@ -48,8 +49,10 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         num_parties: usize,
         party_idx: PartyIdx,
         context: Self::Context,
-    ) -> Self {
+    ) -> Result<Self, InitError> {
         let key_share = context;
+
+        // TODO: checl that KeyShare is consistent with num_parties/party_idx
 
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
@@ -61,7 +64,7 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         let g_ciphertext = Ciphertext::new_with_randomizer(&pk, &gamma, &nu);
         let k_ciphertext = Ciphertext::new_with_randomizer(&pk, &k, &rho);
 
-        Self {
+        Ok(Self {
             context: Context {
                 shared_randomness: shared_randomness.into(),
                 num_parties,
@@ -74,7 +77,7 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
             },
             k_ciphertext,
             g_ciphertext,
-        }
+        })
     }
 }
 
@@ -639,21 +642,24 @@ mod tests {
                 3,
                 PartyIdx::from_usize(0),
                 key_shares[0].clone(),
-            ),
+            )
+            .unwrap(),
             Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
                 PartyIdx::from_usize(1),
                 key_shares[1].clone(),
-            ),
+            )
+            .unwrap(),
             Round1Part1::<TestSchemeParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
                 PartyIdx::from_usize(2),
                 key_shares[2].clone(),
-            ),
+            )
+            .unwrap(),
         ];
 
         let r1p2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
