@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use signature::hazmat::{PrehashSigner, PrehashVerifier};
+use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
 use super::broadcast::BroadcastConsensus;
 use super::error::{Error, MyFault, TheirFault};
@@ -60,7 +60,7 @@ pub struct ReceivingState<Res, Sig, Signer, Verifier> {
 
 impl<Res, Sig, Signer, Verifier> SendingState<Res, Sig, Signer, Verifier>
 where
-    Signer: PrehashSigner<Sig>,
+    Signer: RandomizedPrehashSigner<Sig>,
     Verifier: Clone + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
@@ -96,6 +96,7 @@ where
     }
 
     fn sign_messages(
+        rng: &mut impl CryptoRngCore,
         signer: &Signer,
         session_id: &SessionId,
         to_send: &ToSendSerialized,
@@ -105,6 +106,7 @@ where
         Ok(match &to_send {
             ToSendSerialized::Broadcast(message_bytes) => {
                 let message = VerifiedMessage::new(
+                    rng,
                     signer,
                     session_id,
                     round_num,
@@ -118,6 +120,7 @@ where
                 let mut signed_messages = Vec::with_capacity(messages.len());
                 for (index, message_bytes) in messages.iter() {
                     let signed_message = VerifiedMessage::new(
+                        rng,
                         signer,
                         session_id,
                         round_num,
@@ -144,6 +147,7 @@ where
                 let (receiving_round, to_send) =
                     round.to_receiving_state(rng, context.verifiers.len(), context.party_idx);
                 let signed_to_send = Self::sign_messages(
+                    rng,
                     &context.signer,
                     &context.session_id,
                     &to_send,
@@ -161,6 +165,7 @@ where
                 let round_num = next_round.round_num() - 1;
                 let to_send = bc.to_send();
                 let signed_to_send = Self::sign_messages(
+                    rng,
                     &context.signer,
                     &context.session_id,
                     &to_send,
@@ -237,7 +242,7 @@ pub enum FinalizeOutcome<Res, Sig, Signer, Verifier> {
 
 impl<Res, Sig, Signer, Verifier> ReceivingState<Res, Sig, Signer, Verifier>
 where
-    Signer: PrehashSigner<Sig>,
+    Signer: RandomizedPrehashSigner<Sig>,
     Verifier: Clone + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {

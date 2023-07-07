@@ -1,7 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::marker::PhantomData;
 use core::fmt;
+use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};

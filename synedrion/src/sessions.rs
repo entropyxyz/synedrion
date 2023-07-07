@@ -6,7 +6,7 @@ mod type_erased;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use signature::hazmat::{PrehashSigner, PrehashVerifier};
+use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::protocols::{common::KeyShare, interactive_signing};
@@ -30,7 +30,7 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
-    Signer: PrehashSigner<Sig>,
+    Signer: RandomizedPrehashSigner<Sig>,
     Verifier: PrehashVerifier<Sig> + Clone,
 {
     let scalar_message = Scalar::from_reduced_bytes(prehashed_message);

@@ -1,8 +1,9 @@
 use alloc::boxed::Box;
 use alloc::string::ToString;
 
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use signature::hazmat::{PrehashSigner, PrehashVerifier};
+use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
 use super::error::{MyFault, TheirFault};
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
@@ -71,7 +72,8 @@ pub(crate) struct VerifiedMessage<Sig>(SignedMessage<Sig>);
 
 impl<Sig> VerifiedMessage<Sig> {
     pub(crate) fn new(
-        signer: &impl PrehashSigner<Sig>,
+        rng: &mut impl CryptoRngCore,
+        signer: &impl RandomizedPrehashSigner<Sig>,
         session_id: &SessionId,
         round: u8,
         broadcast_consensus: bool,
@@ -84,7 +86,8 @@ impl<Sig> VerifiedMessage<Sig> {
         // so that these signatures could be verified by a third party.
 
         let signature = signer
-            .sign_prehash(
+            .sign_prehash_with_rng(
+                rng,
                 message_hash(session_id, round, broadcast_consensus, message_bytes).as_ref(),
             )
             .map_err(|err| MyFault::SigningError(err.to_string()))?;
