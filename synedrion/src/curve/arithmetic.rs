@@ -95,14 +95,6 @@ impl Scalar {
         self.0
     }
 
-    pub(crate) fn try_from_be_array(arr: &[u8; 32]) -> Result<Self, String> {
-        let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from(*arr);
-
-        BackendScalar::from_repr_vartime(arr)
-            .map(Self)
-            .ok_or_else(|| "Invalid curve scalar representation".into())
-    }
-
     // TODO: replace with try_from_be_array()
     pub(crate) fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
         let arr =
@@ -140,7 +132,7 @@ impl Serialize for Scalar {
     where
         S: Serializer,
     {
-        serdect::array::serialize_hex_lower_or_bin(&self.to_be_bytes(), serializer)
+        serde_bytes::serialize(AsRef::<[u8]>::as_ref(&self.to_be_bytes()), serializer)
     }
 }
 
@@ -149,9 +141,8 @@ impl<'de> Deserialize<'de> for Scalar {
     where
         D: Deserializer<'de>,
     {
-        let mut buffer = [0; 32];
-        serdect::array::deserialize_hex_or_bin(&mut buffer, deserializer)?;
-        Self::try_from_be_array(&buffer).map_err(D::Error::custom)
+        let bytes: &[u8] = serde_bytes::deserialize(deserializer)?;
+        Self::try_from_be_bytes(bytes).map_err(D::Error::custom)
     }
 }
 
@@ -200,7 +191,10 @@ impl Serialize for Point {
     where
         S: Serializer,
     {
-        serdect::array::serialize_hex_lower_or_bin(&self.to_compressed_array(), serializer)
+        serde_bytes::serialize(
+            AsRef::<[u8]>::as_ref(&self.to_compressed_array()),
+            serializer,
+        )
     }
 }
 
@@ -209,9 +203,8 @@ impl<'de> Deserialize<'de> for Point {
     where
         D: Deserializer<'de>,
     {
-        let mut buffer = [0; 33];
-        serdect::array::deserialize_hex_or_bin(&mut buffer, deserializer)?;
-        Self::try_from_compressed_bytes(&buffer).map_err(D::Error::custom)
+        let bytes: &[u8] = serde_bytes::deserialize(deserializer)?;
+        Self::try_from_compressed_bytes(bytes).map_err(D::Error::custom)
     }
 }
 

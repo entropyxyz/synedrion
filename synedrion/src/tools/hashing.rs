@@ -3,7 +3,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use digest::{Digest, ExtendableOutput, Update, XofReader};
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::Shake256;
 
@@ -57,7 +57,7 @@ where
     S: serde::Serializer,
     T: AsRef<[u8]>,
 {
-    serdect::array::serialize_hex_lower_or_bin(val, serializer)
+    serde_bytes::serialize(val.as_ref(), serializer)
 }
 
 fn serdect_deserialize<'de, D, T, const N: usize>(deserializer: D) -> Result<T, D::Error>
@@ -65,8 +65,8 @@ where
     D: serde::Deserializer<'de>,
     T: From<[u8; N]>,
 {
-    let mut buffer = [0; N];
-    serdect::array::deserialize_hex_or_bin(&mut buffer, deserializer)?;
+    let bytes: &[u8] = serde_bytes::deserialize(deserializer)?;
+    let buffer: [u8; N] = bytes.try_into().map_err(D::Error::custom)?;
     Ok(buffer.into())
 }
 
