@@ -241,6 +241,13 @@ where
     Verifier: Clone + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
+    pub fn current_stage(&self) -> (u8, bool) {
+        match &self.tp {
+            ReceivingType::Normal(round) => (round.round_num(), false),
+            ReceivingType::Bc { next_round, .. } => (next_round.round_num() - 1, true),
+        }
+    }
+
     pub fn receive(&mut self, from: PartyIdx, message: SignedMessage<Sig>) -> Result<(), Error> {
         let verified_message = message
             .verify(&self.context.verifiers[from.as_usize()])
