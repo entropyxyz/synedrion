@@ -1,4 +1,5 @@
 use alloc::string::String;
+use core::fmt;
 
 use crate::protocols::common::PartyIdx;
 
@@ -10,6 +11,13 @@ pub enum Error {
     Finalize,
     TheirFault { party: PartyIdx, error: TheirFault },
     TheirFaultUnprovable { party: PartyIdx, error: TheirFault },
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        // TODO: make proper Display impls
+        write!(f, "{self:?}")
+    }
 }
 
 #[derive(Clone, Debug)]
