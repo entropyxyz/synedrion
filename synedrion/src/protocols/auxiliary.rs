@@ -26,6 +26,7 @@ use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
+use crate::tools::serde_bytes;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData<P: SchemeParams> {
@@ -37,8 +38,10 @@ pub struct FullData<P: SchemeParams> {
     rp_power: <P::Paillier as PaillierParams>::DoubleUint,     // $s_i$
     rp_generator: <P::Paillier as PaillierParams>::DoubleUint, // $t_i$
     prm_proof: PrmProof<P::Paillier>,                          // $\hat{\psi}_i$
-    rho_bits: Box<[u8]>,                                       // $\rho_i$
-    u_bits: Box<[u8]>,                                         // $u_i$
+    #[serde(with = "serde_bytes::as_base64")]
+    rho_bits: Box<[u8]>, // $\rho_i$
+    #[serde(with = "serde_bytes::as_base64")]
+    u_bits: Box<[u8]>, // $u_i$
 }
 
 struct Context<P: SchemeParams> {

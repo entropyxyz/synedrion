@@ -7,6 +7,7 @@ use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
 use super::error::{MyFault, TheirFault};
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
+use crate::tools::serde_bytes;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct SessionId(HashOutput);
@@ -42,7 +43,8 @@ pub struct SignedMessage<Sig> {
     session_id: SessionId,
     round: u8,
     broadcast_consensus: bool,
-    payload: Box<[u8]>, // TODO: add serialization attribute to avoid serializing as Vec<u8>
+    #[serde(with = "serde_bytes::as_base64")]
+    payload: Box<[u8]>,
     signature: Sig,
 }
 

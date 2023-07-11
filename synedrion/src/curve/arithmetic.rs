@@ -20,9 +20,10 @@ use k256::elliptic_curve::{
 };
 use k256::{ecdsa::VerifyingKey, Secp256k1};
 use rand_core::CryptoRngCore;
-use serde::{de::Error as SerdeDeError, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::tools::hashing::{Chain, Hashable};
+use crate::tools::serde_bytes;
 
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
@@ -121,6 +122,13 @@ impl Scalar {
     }
 }
 
+impl<'a> TryFrom<&'a [u8]> for Scalar {
+    type Error = String;
+    fn try_from(val: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::try_from_be_bytes(val)
+    }
+}
+
 impl From<&NonZeroScalar<k256::Secp256k1>> for Scalar {
     fn from(val: &NonZeroScalar<k256::Secp256k1>) -> Self {
         Self(*val.as_ref())
@@ -128,21 +136,14 @@ impl From<&NonZeroScalar<k256::Secp256k1>> for Scalar {
 }
 
 impl Serialize for Scalar {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serde_bytes::serialize(AsRef::<[u8]>::as_ref(&self.to_be_bytes()), serializer)
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde_bytes::as_hex::serialize(&self.to_be_bytes(), serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for Scalar {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes: &[u8] = serde_bytes::deserialize(deserializer)?;
-        Self::try_from_be_bytes(bytes).map_err(D::Error::custom)
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde_bytes::as_hex::deserialize(deserializer)
     }
 }
 
@@ -186,25 +187,22 @@ impl Point {
     }
 }
 
+impl<'a> TryFrom<&'a [u8]> for Point {
+    type Error = String;
+    fn try_from(val: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::try_from_compressed_bytes(val)
+    }
+}
+
 impl Serialize for Point {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serde_bytes::serialize(
-            AsRef::<[u8]>::as_ref(&self.to_compressed_array()),
-            serializer,
-        )
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde_bytes::as_hex::serialize(&self.to_compressed_array(), serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for Point {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes: &[u8] = serde_bytes::deserialize(deserializer)?;
-        Self::try_from_compressed_bytes(bytes).map_err(D::Error::custom)
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde_bytes::as_hex::deserialize(deserializer)
     }
 }
 

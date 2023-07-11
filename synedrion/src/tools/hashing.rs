@@ -3,11 +3,12 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use digest::{Digest, ExtendableOutput, Update, XofReader};
-use serde::{de::Error, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::Shake256;
 
 use crate::curve::Scalar;
+use crate::tools::serde_bytes;
 
 /// Encodes the object into bytes for hashing purposes.
 pub trait HashInto {
@@ -51,30 +52,9 @@ impl Chain for Hash {
     }
 }
 
-// TODO: this may be more widely applicable than just in HashOutput
-fn serdect_serialize<S, T>(val: &T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-    T: AsRef<[u8]>,
-{
-    serde_bytes::serialize(val.as_ref(), serializer)
-}
-
-fn serdect_deserialize<'de, D, T, const N: usize>(deserializer: D) -> Result<T, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: From<[u8; N]>,
-{
-    let bytes: &[u8] = serde_bytes::deserialize(deserializer)?;
-    let buffer: [u8; N] = bytes.try_into().map_err(D::Error::custom)?;
-    Ok(buffer.into())
-}
-
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct HashOutput(
-    #[serde(serialize_with = "serdect_serialize")]
-    #[serde(deserialize_with = "serdect_deserialize")]
-    [u8; 32], // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
+    #[serde(with = "serde_bytes::as_hex")] [u8; 32], // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
 );
 
 impl AsRef<[u8]> for HashOutput {

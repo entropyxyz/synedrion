@@ -16,6 +16,7 @@ use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
+use crate::tools::serde_bytes;
 
 // CHECK: note that we don't include `sid` (shared randomness) or `i` (party idx) here.
 // Since `sid` is shared, every node already has it,
@@ -24,10 +25,12 @@ use crate::tools::random::random_bits;
 // Although these will be still added to the hash and auxiliary params of proofs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData {
-    rid: Box<[u8]>,            // rid_i
+    #[serde(with = "serde_bytes::as_base64")]
+    rid: Box<[u8]>, // rid_i
     public: Point,             // X_i
     commitment: SchCommitment, // A_i
-    u: Box<[u8]>,              // u_i
+    #[serde(with = "serde_bytes::as_base64")]
+    u: Box<[u8]>, // u_i
 }
 
 impl Hashable for FullData {
