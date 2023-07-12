@@ -20,7 +20,7 @@ hex = { version = "0.4", default-features = false, features = ["alloc"] }
 base64 = { version = "0.21", default-features = false, features = ["alloc"] }
 
 crypto-bigint = { version = "0.5", features = ["serde"] }
-crypto-primes = "0.3"
+crypto-primes = "0.4.1"
 
 serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"
