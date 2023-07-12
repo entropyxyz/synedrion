@@ -4,7 +4,7 @@
     "Bogdan Opanchuk <bogdan@opanchuk.net>"
   ],
   "description": "Bindings for the Rust threshold signing library `synedrion`",
-  "version": "0.0.3",
+  "version": "0.0.6",
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
