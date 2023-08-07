@@ -254,13 +254,16 @@ where
     }
 
     pub fn receive(&mut self, from: PartyIdx, message: SignedMessage<Sig>) -> Result<(), Error> {
+        // TODO: should we check the session ID and round number before verification, to save time?
+
         let verified_message = message
             .verify(&self.context.verifiers[from.as_usize()])
             .unwrap();
 
-        // TODO: this is an unprovable fault (may be a replay attack)
         if verified_message.session_id() != &self.context.session_id {
-            return Err(Error::TheirFault {
+            // Even though the message was verified, it may be just a replay attack,
+            // hence unprovable.
+            return Err(Error::TheirFaultUnprovable {
                 party: from,
                 error: TheirFault::InvalidSessionId,
             });
