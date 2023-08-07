@@ -101,8 +101,7 @@ async fn message_dispatcher(
         }
         messages.shuffle(&mut rand::thread_rng());
 
-        while !messages.is_empty() {
-            let (id_from, id_to, message) = messages.pop().unwrap();
+        while let Some((id_from, id_to, message)) = messages.pop() {
             txs[&id_to].send((id_from, message)).await.unwrap();
 
             // Give up execution so that the tasks could process messages.
