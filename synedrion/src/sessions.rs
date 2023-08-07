@@ -4,6 +4,8 @@ pub(crate) mod signed_message;
 mod states;
 mod type_erased;
 
+use alloc::format;
+
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
@@ -76,6 +78,17 @@ where
     Signer: RandomizedPrehashSigner<Sig>,
     Verifier: PrehashVerifier<Sig> + Clone,
 {
+    if verifiers.len() != key_share.num_parties() {
+        return Err(InitError(format!(
+            concat![
+                "Number of verifiers (got: {}) must be equal ",
+                "to the number of parties in the key share (got: {})"
+            ],
+            verifiers.len(),
+            key_share.num_parties()
+        )));
+    }
+
     let scalar_message = Scalar::from_reduced_bytes(prehashed_message);
 
     let context = interactive_signing::Context {

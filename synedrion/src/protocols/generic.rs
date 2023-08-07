@@ -59,7 +59,7 @@ pub(crate) trait Round: Sized + Send {
 }
 
 #[derive(Debug)]
-pub struct InitError(String);
+pub struct InitError(pub(crate) String);
 
 impl fmt::Display for InitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
