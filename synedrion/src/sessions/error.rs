@@ -5,7 +5,6 @@ use crate::protocols::common::PartyIdx;
 
 #[derive(Clone, Debug)]
 pub enum Error {
-    ErrorRound, // TODO: to be replaced with actual error round handling
     MyFault(MyFault),
     NotEnoughMessages,
     Finalize,
