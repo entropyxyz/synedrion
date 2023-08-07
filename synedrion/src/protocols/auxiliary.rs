@@ -492,7 +492,11 @@ impl<P: SchemeParams> Round for Round3<P> {
             y: self.context.y_secret,
         };
 
-        let key_share_change = KeyShareChange { secret, public };
+        let key_share_change = KeyShareChange {
+            index: self.context.party_idx,
+            secret,
+            public,
+        };
 
         Ok(FinalizeSuccess::Result(key_share_change))
     }

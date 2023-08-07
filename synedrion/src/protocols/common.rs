@@ -73,6 +73,59 @@ pub struct KeyShare<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> KeyShare<P> {
+    pub fn new(seed: KeyShareSeed, change: KeyShareChange<P>) -> Self {
+        // TODO: check that party_idx is the same for both, and the number of parties is the same
+        let secret = KeyShareSecret {
+            secret: seed.secret + change.secret.secret,
+            sk: change.secret.sk,
+            y: change.secret.y,
+        };
+        let public = seed
+            .public
+            .iter()
+            .zip(change.public.into_vec().into_iter())
+            .map(|(seed_public, change_public)| KeySharePublic {
+                x: seed_public + &change_public.x,
+                y: change_public.y,
+                paillier_pk: change_public.paillier_pk,
+                rp_generator: change_public.rp_generator,
+                rp_power: change_public.rp_power,
+            })
+            .collect();
+        Self {
+            index: change.index,
+            secret,
+            public,
+        }
+    }
+
+    pub fn update(self, change: KeyShareChange<P>) -> Self {
+        // TODO: check that party_idx is the same for both, and the number of parties is the same
+        let secret = KeyShareSecret {
+            secret: self.secret.secret + change.secret.secret,
+            sk: change.secret.sk,
+            y: change.secret.y,
+        };
+        let public = self
+            .public
+            .into_vec()
+            .into_iter()
+            .zip(change.public.into_vec().into_iter())
+            .map(|(self_public, change_public)| KeySharePublic {
+                x: self_public.x + change_public.x,
+                y: change_public.y,
+                paillier_pk: change_public.paillier_pk,
+                rp_generator: change_public.rp_generator,
+                rp_power: change_public.rp_power,
+            })
+            .collect();
+        Self {
+            index: change.index,
+            secret,
+            public,
+        }
+    }
+
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         self.public.iter().map(|p| p.x).sum()
     }
@@ -123,37 +176,30 @@ pub struct KeySharePublic<P: SchemeParams> {
 #[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub struct KeyShareChangeSecret<P: SchemeParams> {
     /// The value to be added to the secret share.
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) secret: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
     pub sk: SecretKeyPaillier<P::Paillier>,
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
 }
 
+// TODO: can it be `KeySharePublic`?
 #[derive(Clone)]
 pub struct KeyShareChangePublic<P: SchemeParams> {
     /// The value to be added to the public share of a remote node.
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) x: Point, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) y: Point, // TODO: a more descriptive name? Where is it even used?
     /// The Paillier public key.
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     /// The ring-Pedersen generator.
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) rp_generator: <P::Paillier as PaillierParams>::DoubleUint, // `t_i`
     /// The ring-Pedersen power (a number belonging to the group produced by the generator).
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) rp_power: <P::Paillier as PaillierParams>::DoubleUint, // `s_i`
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
 #[derive(Clone)]
 pub struct KeyShareChange<P: SchemeParams> {
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
+    pub(crate) index: PartyIdx,
     pub(crate) secret: KeyShareChangeSecret<P>,
-    #[allow(dead_code)] // TODO: to be used in KeyShare.apply(KeyShareChange)
     pub(crate) public: Box<[KeyShareChangePublic<P>]>,
 }
 
