@@ -179,19 +179,19 @@ impl<R: Round + 'static> TypeErasedRound<R::Result> for R {
         (receiving_round, to_send)
     }
     fn round_num(&self) -> u8 {
-        R::round_num()
+        R::ROUND_NUM
     }
 }
 
 impl<R: Round + 'static + Send> TypeErasedReceivingRound<R::Result> for RoundAndAccum<R> {
     fn round_num(&self) -> u8 {
-        R::round_num()
+        R::ROUND_NUM
     }
     fn next_round_num(&self) -> Option<u8> {
-        R::next_round_num()
+        R::NEXT_ROUND_NUM
     }
     fn requires_broadcast_consensus(&self) -> bool {
-        R::requires_broadcast_consensus()
+        R::REQUIRES_BROADCAST_CONSENSUS
     }
     fn receive(&mut self, from: PartyIdx, msg: &[u8]) -> ReceiveOutcome {
         let message: R::Message = match deserialize_message(msg) {

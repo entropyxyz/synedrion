@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
 use super::generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError, Round,
-    ToSendTyped,
+    BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
+    Round, ToSendTyped,
 };
 use crate::curve::{Point, RecoverableSignature, Scalar};
 use crate::protocols::common::PresigningData;
@@ -43,21 +43,12 @@ pub struct Round1Bcast {
     s_part: Scalar,
 }
 
-impl Round for Round1 {
+impl BaseRound for Round1 {
     type Payload = Scalar;
     type Message = Round1Bcast;
-    type NextRound = NonExistent<Self::Result>;
-    type Result = RecoverableSignature;
 
-    fn round_num() -> u8 {
-        1
-    }
-    fn next_round_num() -> Option<u8> {
-        Some(2)
-    }
-    fn requires_broadcast_consensus() -> bool {
-        false
-    }
+    const ROUND_NUM: u8 = 1;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
@@ -72,6 +63,13 @@ impl Round for Round1 {
     ) -> Result<Self::Payload, ReceiveError> {
         Ok(msg.s_part)
     }
+}
+
+impl Round for Round1 {
+    type NextRound = NonExistent<Self::Result>;
+    type Result = RecoverableSignature;
+
+    const NEXT_ROUND_NUM: Option<u8> = Some(2);
 
     fn finalize(
         self,

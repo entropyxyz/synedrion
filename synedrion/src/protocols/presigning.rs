@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, PartyIdx, PresigningData, SchemeParams};
 use super::generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError, Round,
-    ToSendTyped,
+    BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
+    Round, ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
@@ -95,21 +95,12 @@ impl<P: PaillierParams> Hashable for Round1Bcast<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round1Part1<P> {
+impl<P: SchemeParams> BaseRound for Round1Part1<P> {
     type Payload = Round1Bcast<P::Paillier>;
     type Message = Round1Bcast<P::Paillier>;
-    type NextRound = Round1Part2<P>;
-    type Result = PresigningData;
 
-    fn round_num() -> u8 {
-        1
-    }
-    fn next_round_num() -> Option<u8> {
-        Some(2)
-    }
-    fn requires_broadcast_consensus() -> bool {
-        true
-    }
+    const ROUND_NUM: u8 = 1;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = true;
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
@@ -125,6 +116,13 @@ impl<P: SchemeParams> Round for Round1Part1<P> {
     ) -> Result<Self::Payload, ReceiveError> {
         Ok(msg)
     }
+}
+
+impl<P: SchemeParams> Round for Round1Part1<P> {
+    type NextRound = Round1Part2<P>;
+    type Result = PresigningData;
+
+    const NEXT_ROUND_NUM: Option<u8> = Some(2);
 
     fn finalize(
         self,
@@ -155,21 +153,12 @@ pub struct Round1Part2<P: SchemeParams> {
 #[serde(bound(deserialize = "EncProof<P>: for<'x> Deserialize<'x>"))]
 pub struct Round1Direct<P: PaillierParams>(EncProof<P>);
 
-impl<P: SchemeParams> Round for Round1Part2<P> {
+impl<P: SchemeParams> BaseRound for Round1Part2<P> {
     type Payload = ();
     type Message = Round1Direct<P::Paillier>;
-    type NextRound = Round2<P>;
-    type Result = PresigningData;
 
-    fn round_num() -> u8 {
-        2
-    }
-    fn next_round_num() -> Option<u8> {
-        Some(3)
-    }
-    fn requires_broadcast_consensus() -> bool {
-        false
-    }
+    const ROUND_NUM: u8 = 2;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -210,6 +199,13 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
             ))
         }
     }
+}
+
+impl<P: SchemeParams> Round for Round1Part2<P> {
+    type NextRound = Round2<P>;
+    type Result = PresigningData;
+
+    const NEXT_ROUND_NUM: Option<u8> = Some(3);
 
     fn finalize(
         self,
@@ -289,21 +285,12 @@ pub struct Round2Payload {
     alpha_hat: Scalar,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> BaseRound for Round2<P> {
     type Payload = Round2Payload;
     type Message = Round2Direct<P::Paillier>;
-    type NextRound = Round3<P>;
-    type Result = PresigningData;
 
-    fn round_num() -> u8 {
-        3
-    }
-    fn next_round_num() -> Option<u8> {
-        Some(4)
-    }
-    fn requires_broadcast_consensus() -> bool {
-        false
-    }
+    const ROUND_NUM: u8 = 3;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -461,6 +448,13 @@ impl<P: SchemeParams> Round for Round2<P> {
             alpha_hat,
         })
     }
+}
+
+impl<P: SchemeParams> Round for Round2<P> {
+    type NextRound = Round3<P>;
+    type Result = PresigningData;
+
+    const NEXT_ROUND_NUM: Option<u8> = Some(4);
 
     fn finalize(
         self,
@@ -516,21 +510,12 @@ pub struct Round3Payload {
     big_delta: Point,
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
+impl<P: SchemeParams> BaseRound for Round3<P> {
     type Payload = Round3Payload;
     type Message = Round3Bcast<P::Paillier>;
-    type NextRound = NonExistent<Self::Result>;
-    type Result = PresigningData;
 
-    fn round_num() -> u8 {
-        4
-    }
-    fn next_round_num() -> Option<u8> {
-        None
-    }
-    fn requires_broadcast_consensus() -> bool {
-        false
-    }
+    const ROUND_NUM: u8 = 4;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
@@ -584,6 +569,13 @@ impl<P: SchemeParams> Round for Round3<P> {
             big_delta: msg.big_delta,
         })
     }
+}
+
+impl<P: SchemeParams> Round for Round3<P> {
+    type NextRound = NonExistent<Self::Result>;
+    type Result = PresigningData;
+
+    const NEXT_ROUND_NUM: Option<u8> = None;
 
     fn finalize(
         self,

@@ -33,11 +33,12 @@ pub(crate) enum ToSendTyped<Message> {
     Direct(Vec<(PartyIdx, Message)>),
 }
 
-pub(crate) trait Round: Sized + Send {
+pub(crate) trait BaseRound: Sized + Send {
     type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
     type Payload: Sized + Send;
-    type NextRound: Round<Result = Self::Result>;
-    type Result: Sized + Send;
+
+    const ROUND_NUM: u8;
+    const REQUIRES_BROADCAST_CONSENSUS: bool;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message>;
     fn verify_received(
@@ -45,17 +46,19 @@ pub(crate) trait Round: Sized + Send {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError>;
+}
+
+pub(crate) trait Round: BaseRound {
+    type NextRound: Round<Result = Self::Result>;
+    type Result: Sized + Send;
     fn finalize(
         self,
         rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<FinalizeSuccess<Self>, FinalizeError>;
-    fn round_num() -> u8;
-
     // TODO: these may be possible to implement generically without needing to specify them
     // in every `Round` impl. See the mutually exclusive trait trick.
-    fn next_round_num() -> Option<u8>;
-    fn requires_broadcast_consensus() -> bool;
+    const NEXT_ROUND_NUM: Option<u8>;
 }
 
 #[derive(Debug)]
@@ -68,7 +71,7 @@ impl fmt::Display for InitError {
     }
 }
 
-pub(crate) trait FirstRound: Round {
+pub(crate) trait FirstRound: BaseRound {
     type Context;
     fn new(
         rng: &mut impl CryptoRngCore,
@@ -82,11 +85,9 @@ pub(crate) trait FirstRound: Round {
 /// A dummy round to use as the `Round::NextRound` when there is no actual next round.
 pub(crate) struct NonExistent<Res>(PhantomData<Res>);
 
-impl<Res: Send> Round for NonExistent<Res> {
+impl<Res: Send> BaseRound for NonExistent<Res> {
     type Message = ();
     type Payload = ();
-    type NextRound = Self;
-    type Result = Res;
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         unreachable!()
@@ -98,6 +99,14 @@ impl<Res: Send> Round for NonExistent<Res> {
     ) -> Result<Self::Payload, ReceiveError> {
         unreachable!()
     }
+
+    const ROUND_NUM: u8 = 0;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
+}
+
+impl<Res: Send> Round for NonExistent<Res> {
+    type NextRound = Self;
+    type Result = Res;
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
@@ -105,15 +114,8 @@ impl<Res: Send> Round for NonExistent<Res> {
     ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         unreachable!()
     }
-    fn round_num() -> u8 {
-        unreachable!()
-    }
-    fn next_round_num() -> Option<u8> {
-        unreachable!()
-    }
-    fn requires_broadcast_consensus() -> bool {
-        unreachable!()
-    }
+
+    const NEXT_ROUND_NUM: Option<u8> = None;
 }
 
 #[cfg(test)]

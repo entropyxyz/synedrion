@@ -9,8 +9,8 @@ use super::common::{
     KeyShareChange, KeyShareChangePublic, KeyShareChangeSecret, PartyIdx, SchemeParams,
 };
 use super::generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError, Round,
-    ToSendTyped,
+    BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
+    Round, ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
@@ -174,21 +174,12 @@ impl Hashable for Round1Bcast {
     }
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams> BaseRound for Round1<P> {
     type Payload = HashOutput;
     type Message = Round1Bcast;
-    type NextRound = Round2<P>;
-    type Result = KeyShareChange<P>;
 
-    fn round_num() -> u8 {
-        1
-    }
-    fn next_round_num() -> Option<u8> {
-        Some(2)
-    }
-    fn requires_broadcast_consensus() -> bool {
-        true
-    }
+    const ROUND_NUM: u8 = 1;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = true;
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round1Bcast {
@@ -206,7 +197,12 @@ impl<P: SchemeParams> Round for Round1<P> {
     ) -> Result<Self::Payload, ReceiveError> {
         Ok(msg.hash)
     }
+}
 
+impl<P: SchemeParams> Round for Round1<P> {
+    type NextRound = Round2<P>;
+    type Result = KeyShareChange<P>;
+    const NEXT_ROUND_NUM: Option<u8> = Some(2);
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
@@ -231,21 +227,12 @@ pub struct Round2Bcast<P: SchemeParams> {
     data: FullData<P>,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> BaseRound for Round2<P> {
     type Payload = FullData<P>;
     type Message = Round2Bcast<P>;
-    type NextRound = Round3<P>;
-    type Result = KeyShareChange<P>;
 
-    fn round_num() -> u8 {
-        2
-    }
-    fn next_round_num() -> Option<u8> {
-        Some(3)
-    }
-    fn requires_broadcast_consensus() -> bool {
-        false
-    }
+    const ROUND_NUM: u8 = 2;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round2Bcast {
@@ -291,7 +278,12 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         Ok(msg.data)
     }
+}
 
+impl<P: SchemeParams> Round for Round2<P> {
+    type NextRound = Round3<P>;
+    type Result = KeyShareChange<P>;
+    const NEXT_ROUND_NUM: Option<u8> = Some(3);
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
@@ -342,21 +334,12 @@ pub struct Round3Direct<P: SchemeParams> {
     data2: FullData2<P>,
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
+impl<P: SchemeParams> BaseRound for Round3<P> {
     type Payload = Scalar;
     type Message = Round3Direct<P>;
-    type NextRound = NonExistent<Self::Result>;
-    type Result = KeyShareChange<P>;
 
-    fn round_num() -> u8 {
-        3
-    }
-    fn next_round_num() -> Option<u8> {
-        None
-    }
-    fn requires_broadcast_consensus() -> bool {
-        false
-    }
+    const ROUND_NUM: u8 = 3;
+    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let aux = (
@@ -459,7 +442,12 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         Ok(x_secret)
     }
+}
 
+impl<P: SchemeParams> Round for Round3<P> {
+    type NextRound = NonExistent<Self::Result>;
+    type Result = KeyShareChange<P>;
+    const NEXT_ROUND_NUM: Option<u8> = None;
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
