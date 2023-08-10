@@ -8,40 +8,31 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     make_key_shares,
-    sessions::{make_interactive_signing_session, FinalizeOutcome, SignedMessage, ToSend},
-    KeyShare, PartyIdx, RecoverableSignature, TestSchemeParams,
+    sessions::{
+        make_interactive_signing_session, make_keygen_and_aux_session, FinalizeOutcome,
+        SendingState, SignedMessage, ToSend,
+    },
+    PartyIdx, TestSchemeParams,
 };
 
 type MessageOut = (PartyIdx, PartyIdx, SignedMessage<Signature>);
 type MessageIn = (PartyIdx, SignedMessage<Signature>);
 
-async fn node_session(
+async fn run_session<Res>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
-    signer: SigningKey,
-    verifiers: Vec<VerifyingKey>,
-    shared_randomness: &[u8],
-    key_share: KeyShare<TestSchemeParams>,
-    message: &[u8; 32],
-) -> RecoverableSignature {
+    session: SendingState<Res, Signature, SigningKey, VerifyingKey>,
+    party_idx: PartyIdx,
+    num_parties: usize,
+) -> Res {
     let mut rx = rx;
 
-    let party_idx = key_share.party_index();
-
-    let other_ids = (0..key_share.num_parties())
+    let other_ids = (0..num_parties)
         .map(PartyIdx::from_usize)
         .filter(|idx| idx != &party_idx)
         .collect::<Vec<_>>();
 
-    let mut sending = make_interactive_signing_session::<_, Signature, _, _>(
-        &mut OsRng,
-        shared_randomness,
-        signer,
-        &verifiers,
-        &key_share,
-        message,
-    )
-    .unwrap();
+    let mut sending = session;
 
     loop {
         println!("*** {:?}: starting round", party_idx);
@@ -116,13 +107,7 @@ async fn message_dispatcher(
     }
 }
 
-#[tokio::test]
-async fn interactive_signing() {
-    let num_parties = 3;
-    let parties = (0..num_parties)
-        .map(PartyIdx::from_usize)
-        .collect::<Vec<_>>();
-
+fn make_signers(num_parties: usize) -> (Vec<SigningKey>, Vec<VerifyingKey>) {
     let signers = (0..num_parties)
         .map(|_| SigningKey::random(&mut OsRng))
         .collect::<Vec<_>>();
@@ -130,10 +115,16 @@ async fn interactive_signing() {
         .iter()
         .map(|signer| *signer.verifying_key())
         .collect::<Vec<_>>();
-    let key_shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties, None);
+    (signers, verifiers)
+}
 
-    let shared_randomness = b"1234567890";
-    let message = b"abcdefghijklmnopqrstuvwxyz123456";
+async fn run_nodes<Res: Send + 'static>(
+    sessions: Vec<SendingState<Res, Signature, SigningKey, VerifyingKey>>,
+) -> Vec<Res> {
+    let num_parties = sessions.len();
+    let parties = (0..num_parties)
+        .map(PartyIdx::from_usize)
+        .collect::<Vec<_>>();
 
     let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
 
@@ -146,17 +137,10 @@ async fn interactive_signing() {
     let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
     let dispatcher = tokio::spawn(dispatcher_task);
 
-    let handles: Vec<tokio::task::JoinHandle<RecoverableSignature>> = rx_map
-        .map(|(party_idx, rx)| {
-            let node_task = node_session(
-                dispatcher_tx.clone(),
-                rx,
-                signers[party_idx.as_usize()].clone(),
-                verifiers.clone(),
-                shared_randomness,
-                key_shares[party_idx.as_usize()].clone(),
-                message,
-            );
+    let handles: Vec<tokio::task::JoinHandle<Res>> = rx_map
+        .zip(sessions.into_iter())
+        .map(|((party_idx, rx), session)| {
+            let node_task = run_session(dispatcher_tx.clone(), rx, session, party_idx, num_parties);
             tokio::spawn(node_task)
         })
         .collect();
@@ -164,8 +148,75 @@ async fn interactive_signing() {
     // Drop the last copy of the dispatcher's incoming channel so that it could finish.
     drop(dispatcher_tx);
 
+    let mut results = Vec::with_capacity(num_parties);
     for handle in handles {
-        let signature = handle.await.unwrap();
+        results.push(handle.await.unwrap());
+    }
+
+    dispatcher.await.unwrap();
+
+    results
+}
+
+#[tokio::test]
+async fn keygen_and_aux() {
+    let num_parties = 3;
+    let (signers, verifiers) = make_signers(num_parties);
+
+    let shared_randomness = b"1234567890";
+
+    let sessions = signers
+        .into_iter()
+        .enumerate()
+        .map(|(idx, signer)| {
+            make_keygen_and_aux_session::<TestSchemeParams, Signature, _, _>(
+                &mut OsRng,
+                shared_randomness,
+                signer,
+                &verifiers,
+                PartyIdx::from_usize(idx),
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let key_shares = run_nodes(sessions).await;
+
+    for (idx, key_share) in key_shares.iter().enumerate() {
+        assert_eq!(key_share.party_index(), PartyIdx::from_usize(idx));
+        assert_eq!(key_share.num_parties(), num_parties);
+        assert_eq!(key_share.verifying_key(), key_shares[0].verifying_key());
+    }
+}
+
+#[tokio::test]
+async fn interactive_signing() {
+    let num_parties = 3;
+    let (signers, verifiers) = make_signers(num_parties);
+
+    let key_shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties, None);
+    let shared_randomness = b"1234567890";
+    let message = b"abcdefghijklmnopqrstuvwxyz123456";
+
+    let sessions = key_shares
+        .iter()
+        .zip(signers.into_iter())
+        .map(|(key_share, signer)| {
+            make_interactive_signing_session::<_, Signature, _, _>(
+                &mut OsRng,
+                shared_randomness,
+                signer,
+                &verifiers,
+                key_share,
+                message,
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let signatures = run_nodes(sessions).await;
+
+    for signature in signatures {
         let (sig, rec_id) = signature.to_backend();
         let vkey = key_shares[0].verifying_key();
 
@@ -176,6 +227,4 @@ async fn interactive_signing() {
         let recovered_key = VerifyingKey::recover_from_prehash(message, &sig, rec_id).unwrap();
         assert_eq!(recovered_key, vkey);
     }
-
-    dispatcher.await.unwrap();
 }
