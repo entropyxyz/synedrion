@@ -191,7 +191,7 @@ impl<P: SchemeParams> Round for Round3<P> {
                     party_idx,
                     signing_context,
                 )
-                .map_err(FinalizeError::ProtocolMerge)?;
+                .map_err(FinalizeError::ProtocolMergeSequential)?;
                 Ok(FinalizeSuccess::AnotherRound(SigningRound {
                     round: signing_round,
                 }))
