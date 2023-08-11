@@ -27,7 +27,9 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
         self.public[0..self.threshold as usize]
             .iter()
             .enumerate()
-            .map(|(idx, p)| &p.x * &interpolation_coeff(&points[0..self.threshold as usize], idx))
+            .map(|(idx, p)| {
+                &p.share_pk * &interpolation_coeff(&points[0..self.threshold as usize], idx)
+            })
             .sum()
     }
 
@@ -68,7 +70,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
 
         // TODO: make the rescaling a method of KeyShareSecret?
         let secret = KeyShareSecret {
-            secret: self.secret.secret * interpolation_coeff(&points, mapped_idx),
+            share_sk: self.secret.share_sk * interpolation_coeff(&points, mapped_idx),
             paillier_sk: self.secret.paillier_sk.clone(),
             el_gamal_sk: self.secret.el_gamal_sk,
         };
@@ -79,7 +81,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .map(|(mapped_idx, idx)| {
                 let public = &self.public[idx.as_usize()];
                 KeySharePublic {
-                    x: &public.x * &interpolation_coeff(&points, mapped_idx),
+                    share_pk: &public.share_pk * &interpolation_coeff(&points, mapped_idx),
                     el_gamal_pk: public.el_gamal_pk,
                     paillier_pk: public.paillier_pk.clone(),
                     rp_generator: public.rp_generator,

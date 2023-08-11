@@ -284,8 +284,8 @@ impl<P: SchemeParams> Round for Round3<P> {
         let datas = self.datas.into_vec(self.context.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
         Ok(FinalizeSuccess::Result(KeyShareSeed {
-            public: public_keys,
-            secret: self.context.key_share,
+            share_pk: public_keys,
+            share_sk: self.context.key_share,
         }))
     }
 }
@@ -341,14 +341,20 @@ mod tests {
 
         // Check that the sets of public keys are the same at each node
 
-        let public_sets = shares.iter().map(|s| s.public.clone()).collect::<Vec<_>>();
+        let public_sets = shares
+            .iter()
+            .map(|s| s.share_pk.clone())
+            .collect::<Vec<_>>();
 
         assert!(public_sets[1..].iter().all(|pk| pk == &public_sets[0]));
 
         // Check that the public keys correspond to the secret key shares
         let public_set = &public_sets[0];
 
-        let public_from_secret = shares.iter().map(|s| s.secret.mul_by_generator()).collect();
+        let public_from_secret = shares
+            .iter()
+            .map(|s| s.share_sk.mul_by_generator())
+            .collect();
 
         assert!(public_set == &public_from_secret);
     }

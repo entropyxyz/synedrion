@@ -298,7 +298,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let gamma = self.context.gamma.mul_by_generator();
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.context.key_share.secret.secret.mul_by_generator();
+        let big_x = self.context.key_share.secret.share_sk.mul_by_generator();
         let pk = &self.context.key_share.secret.paillier_sk.public_key();
 
         let messages = range
@@ -322,7 +322,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                 let f = Ciphertext::new_with_randomizer(pk, beta, &r);
 
                 let d_hat = self.k_ciphertexts[idx]
-                    .homomorphic_mul(target_pk, &self.context.key_share.secret.secret)
+                    .homomorphic_mul(target_pk, &self.context.key_share.secret.share_sk)
                     .homomorphic_add(
                         target_pk,
                         &Ciphertext::new_with_randomizer(target_pk, &-beta_hat, &s_hat),
@@ -346,7 +346,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi_hat = AffGProof::random(
                     rng,
-                    &self.context.key_share.secret.secret,
+                    &self.context.key_share.secret.share_sk,
                     beta_hat,
                     &s_hat,
                     &r_hat,
@@ -397,7 +397,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
 
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.context.key_share.secret.secret.mul_by_generator();
+        let big_x = self.context.key_share.secret.share_sk.mul_by_generator();
 
         if !msg.psi.verify(
             pk,
@@ -476,7 +476,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let delta = self.context.gamma * self.context.k + alpha_sum + beta_sum;
         let chi =
-            self.context.key_share.secret.secret * self.context.k + alpha_hat_sum + beta_hat_sum;
+            self.context.key_share.secret.share_sk * self.context.k + alpha_hat_sum + beta_hat_sum;
 
         Ok(FinalizeSuccess::AnotherRound(Round3 {
             context: self.context,

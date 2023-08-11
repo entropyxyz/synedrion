@@ -24,8 +24,8 @@ fn make_key_shares_from_secrets<P: SchemeParams>(
     let public = secrets
         .iter()
         .zip(paillier_sks.iter())
-        .map(|(secret, sk)| KeySharePublic {
-            x: secret.mul_by_generator(),
+        .map(|(share_sk, sk)| KeySharePublic {
+            share_pk: share_sk.mul_by_generator(),
             el_gamal_pk: Point::GENERATOR, // TODO: currently unused in the protocol
             rp_generator: <P::Paillier as PaillierParams>::DoubleUint::ZERO, // TODO: currently unused in the protocol
             rp_power: <P::Paillier as PaillierParams>::DoubleUint::ZERO, // TODO: currently unused in the protocol
@@ -36,8 +36,8 @@ fn make_key_shares_from_secrets<P: SchemeParams>(
     let secret = secrets
         .iter()
         .zip(paillier_sks.iter())
-        .map(|(secret, paillier_sk)| KeyShareSecret {
-            secret: *secret,
+        .map(|(share_sk, paillier_sk)| KeyShareSecret {
+            share_sk: *share_sk,
             paillier_sk: (*paillier_sk).clone(),
             el_gamal_sk: Scalar::random(rng), // TODO: currently unused in the protocol
         })
@@ -137,7 +137,7 @@ mod tests {
         assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
         assert_eq!(&nt_share1.verifying_key(), sk.verifying_key());
         assert_eq!(
-            nt_share0.secret.secret + nt_share1.secret.secret,
+            nt_share0.secret.share_sk + nt_share1.secret.share_sk,
             Scalar::from(sk.as_nonzero_scalar())
         );
     }

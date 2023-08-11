@@ -45,18 +45,18 @@ impl Hashable for PartyIdx {
 #[derive(Clone)]
 pub struct KeyShareSeed {
     /// Secret key share of this node.
-    pub secret: Scalar, // `x`
+    pub share_sk: Scalar, // `x`
     /// Public key shares of all nodes (including this one).
-    pub public: Box<[Point]>, // `X`
+    pub share_pk: Box<[Point]>, // `X`
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for<'x> Deserialize<'x>"))]
 pub struct KeyShareSecret<P: SchemeParams> {
-    pub(crate) secret: Scalar,
+    pub(crate) share_sk: Scalar,
     pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
-    pub(crate) el_gamal_sk: Scalar,
+    pub(crate) el_gamal_sk: Scalar, // `y_i`
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -74,16 +74,16 @@ impl<P: SchemeParams> KeyShare<P> {
     pub fn new(seed: KeyShareSeed, change: KeyShareChange<P>) -> Self {
         // TODO: check that party_idx is the same for both, and the number of parties is the same
         let secret = KeyShareSecret {
-            secret: seed.secret + change.secret.secret,
+            share_sk: seed.share_sk + change.secret.share_sk,
             paillier_sk: change.secret.paillier_sk,
             el_gamal_sk: change.secret.el_gamal_sk,
         };
         let public = seed
-            .public
+            .share_pk
             .iter()
             .zip(change.public.into_vec().into_iter())
-            .map(|(seed_public, change_public)| KeySharePublic {
-                x: seed_public + &change_public.x,
+            .map(|(seed_share_pk, change_public)| KeySharePublic {
+                share_pk: seed_share_pk + &change_public.share_pk,
                 el_gamal_pk: change_public.el_gamal_pk,
                 paillier_pk: change_public.paillier_pk,
                 rp_generator: change_public.rp_generator,
@@ -100,7 +100,7 @@ impl<P: SchemeParams> KeyShare<P> {
     pub fn update(self, change: KeyShareChange<P>) -> Self {
         // TODO: check that party_idx is the same for both, and the number of parties is the same
         let secret = KeyShareSecret {
-            secret: self.secret.secret + change.secret.secret,
+            share_sk: self.secret.share_sk + change.secret.share_sk,
             paillier_sk: change.secret.paillier_sk,
             el_gamal_sk: change.secret.el_gamal_sk,
         };
@@ -110,7 +110,7 @@ impl<P: SchemeParams> KeyShare<P> {
             .into_iter()
             .zip(change.public.into_vec().into_iter())
             .map(|(self_public, change_public)| KeySharePublic {
-                x: self_public.x + change_public.x,
+                share_pk: self_public.share_pk + change_public.share_pk,
                 el_gamal_pk: change_public.el_gamal_pk,
                 paillier_pk: change_public.paillier_pk,
                 rp_generator: change_public.rp_generator,
@@ -125,7 +125,7 @@ impl<P: SchemeParams> KeyShare<P> {
     }
 
     pub(crate) fn verifying_key_as_point(&self) -> Point {
-        self.public.iter().map(|p| p.x).sum()
+        self.public.iter().map(|p| p.share_pk).sum()
     }
 
     pub fn verifying_key(&self) -> VerifyingKey {
@@ -159,8 +159,8 @@ impl<P: SchemeParams> core::fmt::Debug for KeyShare<P> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct KeySharePublic<P: SchemeParams> {
-    pub(crate) x: Point,
-    pub(crate) el_gamal_pk: Point,
+    pub(crate) share_pk: Point,
+    pub(crate) el_gamal_pk: Point, // `Y_i`
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     /// The ring-Pedersen generator.
@@ -174,17 +174,17 @@ pub struct KeySharePublic<P: SchemeParams> {
 #[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub struct KeyShareChangeSecret<P: SchemeParams> {
     /// The value to be added to the secret share.
-    pub(crate) secret: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
+    pub(crate) share_sk: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
     pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
-    pub(crate) el_gamal_sk: Scalar,
+    pub(crate) el_gamal_sk: Scalar, // `y_i`
 }
 
 // TODO: can it be `KeySharePublic`?
 #[derive(Clone)]
 pub struct KeyShareChangePublic<P: SchemeParams> {
     /// The value to be added to the public share of a remote node.
-    pub(crate) x: Point, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
-    pub(crate) el_gamal_pk: Point, // TODO: a more descriptive name? Where is it even used?
+    pub(crate) share_pk: Point, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
+    pub(crate) el_gamal_pk: Point, // `Y_i`
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     /// The ring-Pedersen generator.

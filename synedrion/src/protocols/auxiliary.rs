@@ -466,7 +466,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             .into_iter()
             .enumerate()
             .map(|(idx, data)| KeyShareChangePublic {
-                x: public_share_changes[idx],
+                share_pk: public_share_changes[idx],
                 el_gamal_pk: data.el_gamal_pk,
                 paillier_pk: data.paillier_pk,
                 rp_generator: data.rp_generator,
@@ -475,7 +475,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             .collect();
 
         let secret = KeyShareChangeSecret {
-            secret: share_change,
+            share_sk: share_change,
             paillier_sk: self.context.paillier_sk,
             el_gamal_sk: self.context.el_gamal_sk,
         };
@@ -543,8 +543,8 @@ mod tests {
         for (idx, change) in results.iter().enumerate() {
             for other_change in results.iter() {
                 assert_eq!(
-                    change.secret.secret.mul_by_generator(),
-                    other_change.public[idx].x
+                    change.secret.share_sk.mul_by_generator(),
+                    other_change.public[idx].share_pk
                 );
                 assert_eq!(
                     change.secret.el_gamal_sk.mul_by_generator(),
@@ -555,7 +555,7 @@ mod tests {
 
         // The resulting sum of masks should be zero, since the combined secret key
         // should not change after applying the masks at each node.
-        let mask_sum: Scalar = results.iter().map(|change| change.secret.secret).sum();
+        let mask_sum: Scalar = results.iter().map(|change| change.secret.share_sk).sum();
         assert_eq!(mask_sum, Scalar::ZERO);
     }
 }
