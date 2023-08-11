@@ -69,7 +69,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
         // TODO: make the rescaling a method of KeyShareSecret?
         let secret = KeyShareSecret {
             secret: self.secret.secret * interpolation_coeff(&points, mapped_idx),
-            sk: self.secret.sk.clone(),
+            paillier_sk: self.secret.paillier_sk.clone(),
             el_gamal_sk: self.secret.el_gamal_sk,
         };
 

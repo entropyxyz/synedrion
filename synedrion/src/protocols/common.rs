@@ -55,7 +55,7 @@ pub struct KeyShareSeed {
 #[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for<'x> Deserialize<'x>"))]
 pub struct KeyShareSecret<P: SchemeParams> {
     pub(crate) secret: Scalar,
-    pub(crate) sk: SecretKeyPaillier<P::Paillier>,
+    pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
     pub(crate) el_gamal_sk: Scalar,
 }
 
@@ -75,7 +75,7 @@ impl<P: SchemeParams> KeyShare<P> {
         // TODO: check that party_idx is the same for both, and the number of parties is the same
         let secret = KeyShareSecret {
             secret: seed.secret + change.secret.secret,
-            sk: change.secret.sk,
+            paillier_sk: change.secret.paillier_sk,
             el_gamal_sk: change.secret.el_gamal_sk,
         };
         let public = seed
@@ -101,7 +101,7 @@ impl<P: SchemeParams> KeyShare<P> {
         // TODO: check that party_idx is the same for both, and the number of parties is the same
         let secret = KeyShareSecret {
             secret: self.secret.secret + change.secret.secret,
-            sk: change.secret.sk,
+            paillier_sk: change.secret.paillier_sk,
             el_gamal_sk: change.secret.el_gamal_sk,
         };
         let public = self
@@ -175,7 +175,7 @@ pub struct KeySharePublic<P: SchemeParams> {
 pub struct KeyShareChangeSecret<P: SchemeParams> {
     /// The value to be added to the secret share.
     pub(crate) secret: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
-    pub(crate) sk: SecretKeyPaillier<P::Paillier>,
+    pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
     pub(crate) el_gamal_sk: Scalar,
 }
 

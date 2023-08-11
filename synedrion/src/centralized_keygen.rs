@@ -36,9 +36,9 @@ fn make_key_shares_from_secrets<P: SchemeParams>(
     let secret = secrets
         .iter()
         .zip(paillier_sks.iter())
-        .map(|(secret, sk)| KeyShareSecret {
+        .map(|(secret, paillier_sk)| KeyShareSecret {
             secret: *secret,
-            sk: (*sk).clone(),
+            paillier_sk: (*paillier_sk).clone(),
             el_gamal_sk: Scalar::random(rng), // TODO: currently unused in the protocol
         })
         .collect();

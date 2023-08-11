@@ -57,7 +57,7 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         let k = Scalar::random(rng);
         let gamma = Scalar::random(rng);
 
-        let pk = key_share.secret.sk.public_key();
+        let pk = key_share.secret.paillier_sk.public_key();
         let rho = pk.random_invertible_group_elem(rng).retrieve();
         let nu = pk.random_invertible_group_elem(rng).retrieve();
 
@@ -164,7 +164,7 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
         let k_ciphertext = &self.k_ciphertexts[self.context.party_idx.as_usize()];
-        let pk = self.context.key_share.secret.sk.public_key();
+        let pk = self.context.key_share.secret.paillier_sk.public_key();
         let messages = range
             .map(|idx| {
                 let proof = EncProof::random(
@@ -299,7 +299,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         let gamma = self.context.gamma.mul_by_generator();
         // TODO: technically it's already been precalculated somewhere earlier
         let big_x = self.context.key_share.secret.secret.mul_by_generator();
-        let pk = &self.context.key_share.secret.sk.public_key();
+        let pk = &self.context.key_share.secret.paillier_sk.public_key();
 
         let messages = range
             .map(|idx| {
@@ -393,7 +393,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
-        let pk = &self.context.key_share.secret.sk.public_key();
+        let pk = &self.context.key_share.secret.paillier_sk.public_key();
         let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
 
         // TODO: technically it's already been precalculated somewhere earlier
@@ -439,8 +439,10 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             ));
         }
 
-        let alpha = msg.d.decrypt(&self.context.key_share.secret.sk);
-        let alpha_hat = msg.d_hat.decrypt(&self.context.key_share.secret.sk);
+        let alpha = msg.d.decrypt(&self.context.key_share.secret.paillier_sk);
+        let alpha_hat = msg
+            .d_hat
+            .decrypt(&self.context.key_share.secret.paillier_sk);
 
         Ok(Round2Payload {
             gamma: msg.gamma,
@@ -520,7 +522,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
-        let pk = &self.context.key_share.secret.sk.public_key();
+        let pk = &self.context.key_share.secret.paillier_sk.public_key();
 
         let messages = range
             .map(|idx| {

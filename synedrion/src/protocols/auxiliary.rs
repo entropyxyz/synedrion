@@ -476,7 +476,7 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         let secret = KeyShareChangeSecret {
             secret: share_change,
-            sk: self.context.paillier_sk,
+            paillier_sk: self.context.paillier_sk,
             el_gamal_sk: self.context.el_gamal_sk,
         };
 
