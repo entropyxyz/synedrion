@@ -7,7 +7,7 @@ use crate::curve::{Point, Scalar};
 use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
 use crate::tools::hashing::{Chain, Hashable};
 
-// TODO: this trait can include curve scalar/point types as well,
+// TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Clone + Send {
     const SECURITY_PARAMETER: usize;
@@ -22,8 +22,6 @@ impl SchemeParams for TestSchemeParams {
     type Paillier = PaillierTest;
 }
 
-// TODO: should it be here? HoleVecs can just function with usizes I think.
-// Maybe it's better moved to `protocols/common`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PartyIdx(u32);
 
@@ -58,7 +56,7 @@ pub struct KeyShareSeed {
 pub struct KeyShareSecret<P: SchemeParams> {
     pub(crate) secret: Scalar,
     pub(crate) sk: SecretKeyPaillier<P::Paillier>,
-    pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
+    pub(crate) el_gamal_sk: Scalar,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -78,7 +76,7 @@ impl<P: SchemeParams> KeyShare<P> {
         let secret = KeyShareSecret {
             secret: seed.secret + change.secret.secret,
             sk: change.secret.sk,
-            y: change.secret.y,
+            el_gamal_sk: change.secret.el_gamal_sk,
         };
         let public = seed
             .public
@@ -86,7 +84,7 @@ impl<P: SchemeParams> KeyShare<P> {
             .zip(change.public.into_vec().into_iter())
             .map(|(seed_public, change_public)| KeySharePublic {
                 x: seed_public + &change_public.x,
-                y: change_public.y,
+                el_gamal_pk: change_public.el_gamal_pk,
                 paillier_pk: change_public.paillier_pk,
                 rp_generator: change_public.rp_generator,
                 rp_power: change_public.rp_power,
@@ -104,7 +102,7 @@ impl<P: SchemeParams> KeyShare<P> {
         let secret = KeyShareSecret {
             secret: self.secret.secret + change.secret.secret,
             sk: change.secret.sk,
-            y: change.secret.y,
+            el_gamal_sk: change.secret.el_gamal_sk,
         };
         let public = self
             .public
@@ -113,7 +111,7 @@ impl<P: SchemeParams> KeyShare<P> {
             .zip(change.public.into_vec().into_iter())
             .map(|(self_public, change_public)| KeySharePublic {
                 x: self_public.x + change_public.x,
-                y: change_public.y,
+                el_gamal_pk: change_public.el_gamal_pk,
                 paillier_pk: change_public.paillier_pk,
                 rp_generator: change_public.rp_generator,
                 rp_power: change_public.rp_power,
@@ -162,7 +160,7 @@ impl<P: SchemeParams> core::fmt::Debug for KeyShare<P> {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct KeySharePublic<P: SchemeParams> {
     pub(crate) x: Point,
-    pub(crate) y: Point, // TODO: a more descriptive name? Where is it even used?
+    pub(crate) el_gamal_pk: Point,
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     /// The ring-Pedersen generator.
@@ -177,8 +175,8 @@ pub struct KeySharePublic<P: SchemeParams> {
 pub struct KeyShareChangeSecret<P: SchemeParams> {
     /// The value to be added to the secret share.
     pub(crate) secret: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
-    pub sk: SecretKeyPaillier<P::Paillier>,
-    pub(crate) y: Scalar, // TODO: a more descriptive name? Where is it even used?
+    pub(crate) sk: SecretKeyPaillier<P::Paillier>,
+    pub(crate) el_gamal_sk: Scalar,
 }
 
 // TODO: can it be `KeySharePublic`?
@@ -186,7 +184,7 @@ pub struct KeyShareChangeSecret<P: SchemeParams> {
 pub struct KeyShareChangePublic<P: SchemeParams> {
     /// The value to be added to the public share of a remote node.
     pub(crate) x: Point, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
-    pub(crate) y: Point, // TODO: a more descriptive name? Where is it even used?
+    pub(crate) el_gamal_pk: Point, // TODO: a more descriptive name? Where is it even used?
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     /// The ring-Pedersen generator.

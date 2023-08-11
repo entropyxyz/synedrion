@@ -32,8 +32,8 @@ use crate::tools::serde_bytes;
 pub struct FullData<P: SchemeParams> {
     xs_public: Vec<Point>,                                     // $\bm{X}_i$
     sch_commitments_x: Vec<SchCommitment>,                     // $\bm{A}_i$
-    y_public: Point,                                           // $Y_i$,
-    sch_commitment_y: SchCommitment,                           // $B_i$
+    el_gamal_pk: Point,                                        // $Y_i$,
+    el_gamal_commitment: SchCommitment,                        // $B_i$
     paillier_pk: PublicKeyPaillier<P::Paillier>,               // $N_i$
     rp_power: <P::Paillier as PaillierParams>::DoubleUint,     // $s_i$
     rp_generator: <P::Paillier as PaillierParams>::DoubleUint, // $t_i$
@@ -46,9 +46,9 @@ pub struct FullData<P: SchemeParams> {
 
 struct Context<P: SchemeParams> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
-    y_secret: Scalar,
+    el_gamal_sk: Scalar,
     xs_secret: Vec<Scalar>,
-    sch_secret_y: SchSecret,
+    el_gamal_proof_secret: SchSecret,
     sch_secrets_x: Vec<SchSecret>,
     data: FullData<P>,
     party_idx: PartyIdx,
@@ -60,8 +60,8 @@ impl<P: SchemeParams> Hashable for FullData<P> {
         digest
             .chain(&self.xs_public)
             .chain(&self.sch_commitments_x)
-            .chain(&self.y_public)
-            .chain(&self.sch_commitment_y)
+            .chain(&self.el_gamal_pk)
+            .chain(&self.el_gamal_commitment)
             .chain(&self.paillier_pk)
             .chain(&self.rp_power)
             .chain(&self.rp_generator)
@@ -96,11 +96,11 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     ) -> Result<Self, InitError> {
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
         let paillier_pk = paillier_sk.public_key();
-        let y_secret = Scalar::random(rng);
-        let y_public = y_secret.mul_by_generator();
+        let el_gamal_sk = Scalar::random(rng);
+        let el_gamal_pk = el_gamal_sk.mul_by_generator();
 
-        let sch_secret_y = SchSecret::random(rng); // $\tau$
-        let sch_commitment_y = SchCommitment::new(&sch_secret_y); // $B_i$
+        let el_gamal_proof_secret = SchSecret::random(rng); // $\tau$
+        let el_gamal_commitment = SchCommitment::new(&el_gamal_proof_secret); // $B_i$
 
         let xs_secret = Scalar::ZERO.split(rng, num_parties);
         let xs_public = xs_secret
@@ -138,8 +138,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let data = FullData {
             xs_public,
             sch_commitments_x,
-            y_public,
-            sch_commitment_y,
+            el_gamal_pk,
+            el_gamal_commitment,
             paillier_pk,
             rp_power: rp_power.retrieve(),
             rp_generator: rp_generator.retrieve(),
@@ -150,10 +150,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 
         let context = Context {
             paillier_sk,
-            y_secret,
+            el_gamal_sk,
             xs_secret,
             sch_secrets_x,
-            sch_secret_y,
+            el_gamal_proof_secret,
             data,
             party_idx,
             shared_randomness: shared_randomness.into(),
@@ -351,10 +351,10 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             ModProof::random(rng, &self.context.paillier_sk, &aux, P::SECURITY_PARAMETER);
 
         let sch_proof_y = SchProof::new(
-            &self.context.sch_secret_y,
-            &self.context.y_secret,
-            &self.context.data.sch_commitment_y,
-            &self.context.data.y_public,
+            &self.context.el_gamal_proof_secret,
+            &self.context.el_gamal_sk,
+            &self.context.data.el_gamal_commitment,
+            &self.context.data.el_gamal_pk,
             &aux,
         );
 
@@ -416,11 +416,11 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             ));
         }
 
-        if !msg
-            .data2
-            .sch_proof_y
-            .verify(&sender_data.sch_commitment_y, &sender_data.y_public, &aux)
-        {
+        if !msg.data2.sch_proof_y.verify(
+            &sender_data.el_gamal_commitment,
+            &sender_data.el_gamal_pk,
+            &aux,
+        ) {
             // CHECK: not sending the commitment the second time in `msg`,
             // since we already got it from the previous round.
             return Err(ReceiveError::VerificationFail(
@@ -467,7 +467,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             .enumerate()
             .map(|(idx, data)| KeyShareChangePublic {
                 x: public_share_changes[idx],
-                y: data.y_public,
+                el_gamal_pk: data.el_gamal_pk,
                 paillier_pk: data.paillier_pk,
                 rp_generator: data.rp_generator,
                 rp_power: data.rp_power,
@@ -477,7 +477,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         let secret = KeyShareChangeSecret {
             secret: share_change,
             sk: self.context.paillier_sk,
-            y: self.context.y_secret,
+            el_gamal_sk: self.context.el_gamal_sk,
         };
 
         let key_share_change = KeyShareChange {
@@ -547,8 +547,8 @@ mod tests {
                     other_change.public[idx].x
                 );
                 assert_eq!(
-                    change.secret.y.mul_by_generator(),
-                    other_change.public[idx].y
+                    change.secret.el_gamal_sk.mul_by_generator(),
+                    other_change.public[idx].el_gamal_pk
                 );
             }
         }

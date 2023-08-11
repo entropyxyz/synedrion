@@ -26,7 +26,7 @@ fn make_key_shares_from_secrets<P: SchemeParams>(
         .zip(paillier_sks.iter())
         .map(|(secret, sk)| KeySharePublic {
             x: secret.mul_by_generator(),
-            y: Point::GENERATOR, // TODO: currently unused in the protocol
+            el_gamal_pk: Point::GENERATOR, // TODO: currently unused in the protocol
             rp_generator: <P::Paillier as PaillierParams>::DoubleUint::ZERO, // TODO: currently unused in the protocol
             rp_power: <P::Paillier as PaillierParams>::DoubleUint::ZERO, // TODO: currently unused in the protocol
             paillier_pk: sk.public_key(),
@@ -39,7 +39,7 @@ fn make_key_shares_from_secrets<P: SchemeParams>(
         .map(|(secret, sk)| KeyShareSecret {
             secret: *secret,
             sk: (*sk).clone(),
-            y: Scalar::random(rng), // TODO: currently unused in the protocol
+            el_gamal_sk: Scalar::random(rng), // TODO: currently unused in the protocol
         })
         .collect();
 

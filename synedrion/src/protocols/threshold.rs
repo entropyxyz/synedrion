@@ -70,7 +70,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
         let secret = KeyShareSecret {
             secret: self.secret.secret * interpolation_coeff(&points, mapped_idx),
             sk: self.secret.sk.clone(),
-            y: self.secret.y,
+            el_gamal_sk: self.secret.el_gamal_sk,
         };
 
         let public = party_idxs
@@ -80,7 +80,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
                 let public = &self.public[idx.as_usize()];
                 KeySharePublic {
                     x: &public.x * &interpolation_coeff(&points, mapped_idx),
-                    y: public.y,
+                    el_gamal_pk: public.el_gamal_pk,
                     paillier_pk: public.paillier_pk.clone(),
                     rp_generator: public.rp_generator,
                     rp_power: public.rp_power,
