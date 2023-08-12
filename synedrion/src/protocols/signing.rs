@@ -32,8 +32,9 @@ impl FirstRound for Round1 {
         _party_idx: PartyIdx,
         context: Self::Context,
     ) -> Result<Self, InitError> {
-        let r = context.presigning.big_r.x_coordinate();
-        let s_part = context.presigning.k * context.message + r * context.presigning.chi;
+        let r = context.presigning.nonce.x_coordinate();
+        let s_part = context.presigning.ephemeral_scalar_share * context.message
+            + r * context.presigning.product_share;
         Ok(Self { r, s_part, context })
     }
 }

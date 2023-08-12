@@ -284,8 +284,8 @@ impl<P: SchemeParams> Round for Round3<P> {
         let datas = self.datas.into_vec(self.context.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
         Ok(FinalizeSuccess::Result(KeyShareSeed {
-            share_pk: public_keys,
-            share_sk: self.context.key_share,
+            secret_share: self.context.key_share,
+            public_shares: public_keys,
         }))
     }
 }
@@ -343,7 +343,7 @@ mod tests {
 
         let public_sets = shares
             .iter()
-            .map(|s| s.share_pk.clone())
+            .map(|s| s.public_shares.clone())
             .collect::<Vec<_>>();
 
         assert!(public_sets[1..].iter().all(|pk| pk == &public_sets[0]));
@@ -353,7 +353,7 @@ mod tests {
 
         let public_from_secret = shares
             .iter()
-            .map(|s| s.share_sk.mul_by_generator())
+            .map(|s| s.secret_share.mul_by_generator())
             .collect();
 
         assert!(public_set == &public_from_secret);

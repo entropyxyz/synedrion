@@ -4,32 +4,32 @@ use alloc::vec::Vec;
 use k256::ecdsa::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, KeySharePublic, KeyShareSecret, PartyIdx};
-use crate::curve::Point;
+use super::common::{KeyShare, PartyIdx, PublicAuxInfo, SecretAuxInfo};
+use crate::curve::{Point, Scalar};
 use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points};
 use crate::SchemeParams;
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "KeyShareSecret<P>: Serialize,
-        KeySharePublic<P>: Serialize"))]
-#[serde(bound(deserialize = "KeyShareSecret<P>: for <'x> Deserialize<'x>,
-        KeySharePublic<P>: for <'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "SecretAuxInfo<P>: Serialize,
+        PublicAuxInfo<P>: Serialize"))]
+#[serde(bound(deserialize = "SecretAuxInfo<P>: for <'x> Deserialize<'x>,
+        PublicAuxInfo<P>: for <'x> Deserialize<'x>"))]
 pub struct ThresholdKeyShare<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     pub(crate) threshold: u32, // TODO: make typed? Can it be `ShareIdx`?
-    pub(crate) secret: KeyShareSecret<P>,
-    pub(crate) public: Box<[KeySharePublic<P>]>,
+    pub(crate) secret_share: Scalar,
+    pub(crate) public_shares: Box<[Point]>,
+    pub(crate) secret_aux: SecretAuxInfo<P>,
+    pub(crate) public_aux: Box<[PublicAuxInfo<P>]>,
 }
 
 impl<P: SchemeParams> ThresholdKeyShare<P> {
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         let points = shamir_evaluation_points(self.num_parties());
-        self.public[0..self.threshold as usize]
+        self.public_shares[0..self.threshold as usize]
             .iter()
             .enumerate()
-            .map(|(idx, p)| {
-                &p.share_pk * &interpolation_coeff(&points[0..self.threshold as usize], idx)
-            })
+            .map(|(idx, p)| p * &interpolation_coeff(&points[0..self.threshold as usize], idx))
             .sum()
     }
 
@@ -42,7 +42,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     pub fn num_parties(&self) -> usize {
         // TODO: technically it is `num_shares`, but for now we are equating the two,
         // since we assume that one party has one share.
-        self.public.len()
+        self.public_shares.len()
     }
 
     pub fn party_index(&self) -> PartyIdx {
@@ -69,31 +69,21 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .collect::<Vec<_>>();
 
         // TODO: make the rescaling a method of KeyShareSecret?
-        let secret = KeyShareSecret {
-            share_sk: self.secret.share_sk * interpolation_coeff(&points, mapped_idx),
-            paillier_sk: self.secret.paillier_sk.clone(),
-            el_gamal_sk: self.secret.el_gamal_sk,
-        };
-
-        let public = party_idxs
+        let secret_share = self.secret_share * interpolation_coeff(&points, mapped_idx);
+        let public_shares = party_idxs
             .iter()
             .enumerate()
             .map(|(mapped_idx, idx)| {
-                let public = &self.public[idx.as_usize()];
-                KeySharePublic {
-                    share_pk: &public.share_pk * &interpolation_coeff(&points, mapped_idx),
-                    el_gamal_pk: public.el_gamal_pk,
-                    paillier_pk: public.paillier_pk.clone(),
-                    rp_generator: public.rp_generator,
-                    rp_power: public.rp_power,
-                }
+                &self.public_shares[idx.as_usize()] * &interpolation_coeff(&points, mapped_idx)
             })
             .collect();
 
         KeyShare {
             index: PartyIdx::from_usize(mapped_idx),
-            secret,
-            public,
+            secret_share,
+            public_shares,
+            secret_aux: self.secret_aux.clone(),
+            public_aux: self.public_aux.clone(),
         }
     }
 }

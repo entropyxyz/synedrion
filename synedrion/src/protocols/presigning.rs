@@ -22,7 +22,7 @@ pub struct Context<P: SchemeParams> {
     num_parties: usize,
     party_idx: PartyIdx,
     key_share: KeyShare<P>,
-    k: Scalar,
+    ephemeral_scalar_share: Scalar,
     gamma: Scalar,
     rho: <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint,
     nu: <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint,
@@ -54,15 +54,15 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
 
         // TODO: checl that KeyShare is consistent with num_parties/party_idx
 
-        let k = Scalar::random(rng);
+        let ephemeral_scalar_share = Scalar::random(rng);
         let gamma = Scalar::random(rng);
 
-        let pk = key_share.secret.paillier_sk.public_key();
+        let pk = key_share.secret_aux.paillier_sk.public_key();
         let rho = pk.random_invertible_group_elem(rng).retrieve();
         let nu = pk.random_invertible_group_elem(rng).retrieve();
 
         let g_ciphertext = Ciphertext::new_with_randomizer(&pk, &gamma, &nu);
-        let k_ciphertext = Ciphertext::new_with_randomizer(&pk, &k, &rho);
+        let k_ciphertext = Ciphertext::new_with_randomizer(&pk, &ephemeral_scalar_share, &rho);
 
         Ok(Self {
             context: Context {
@@ -70,7 +70,7 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
                 num_parties,
                 party_idx,
                 key_share,
-                k,
+                ephemeral_scalar_share,
                 gamma,
                 rho,
                 nu,
@@ -164,12 +164,12 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
         let k_ciphertext = &self.k_ciphertexts[self.context.party_idx.as_usize()];
-        let pk = self.context.key_share.secret.paillier_sk.public_key();
+        let pk = self.context.key_share.secret_aux.paillier_sk.public_key();
         let messages = range
             .map(|idx| {
                 let proof = EncProof::random(
                     rng,
-                    &self.context.k,
+                    &self.context.ephemeral_scalar_share,
                     &self.context.rho,
                     &pk,
                     k_ciphertext,
@@ -188,7 +188,7 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
     ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
         if msg.0.verify(
-            &self.context.key_share.public[from.as_usize()].paillier_pk,
+            &self.context.key_share.public_aux[from.as_usize()].paillier_pk,
             &self.k_ciphertexts[from.as_usize()],
             &aux,
         ) {
@@ -298,12 +298,12 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let gamma = self.context.gamma.mul_by_generator();
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.context.key_share.secret.share_sk.mul_by_generator();
-        let pk = &self.context.key_share.secret.paillier_sk.public_key();
+        let big_x = self.context.key_share.secret_share.mul_by_generator();
+        let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
 
         let messages = range
             .map(|idx| {
-                let target_pk = &self.context.key_share.public[idx].paillier_pk;
+                let target_pk = &self.context.key_share.public_aux[idx].paillier_pk;
 
                 let r = target_pk.random_group_elem_raw(rng);
                 let s = target_pk.random_group_elem_raw(rng);
@@ -322,7 +322,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                 let f = Ciphertext::new_with_randomizer(pk, beta, &r);
 
                 let d_hat = self.k_ciphertexts[idx]
-                    .homomorphic_mul(target_pk, &self.context.key_share.secret.share_sk)
+                    .homomorphic_mul(target_pk, &self.context.key_share.secret_share)
                     .homomorphic_add(
                         target_pk,
                         &Ciphertext::new_with_randomizer(target_pk, &-beta_hat, &s_hat),
@@ -346,7 +346,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi_hat = AffGProof::random(
                     rng,
-                    &self.context.key_share.secret.share_sk,
+                    &self.context.key_share.secret_share,
                     beta_hat,
                     &s_hat,
                     &r_hat,
@@ -393,11 +393,11 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
-        let pk = &self.context.key_share.secret.paillier_sk.public_key();
-        let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
+        let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
+        let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
         // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.context.key_share.secret.share_sk.mul_by_generator();
+        let big_x = self.context.key_share.secret_share.mul_by_generator();
 
         if !msg.psi.verify(
             pk,
@@ -439,10 +439,12 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             ));
         }
 
-        let alpha = msg.d.decrypt(&self.context.key_share.secret.paillier_sk);
+        let alpha = msg
+            .d
+            .decrypt(&self.context.key_share.secret_aux.paillier_sk);
         let alpha_hat = msg
             .d_hat
-            .decrypt(&self.context.key_share.secret.paillier_sk);
+            .decrypt(&self.context.key_share.secret_aux.paillier_sk);
 
         Ok(Round2Payload {
             gamma: msg.gamma,
@@ -466,7 +468,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
         let gamma = gamma + self.context.gamma.mul_by_generator();
 
-        let big_delta = &gamma * &self.context.k;
+        let big_delta = &gamma * &self.context.ephemeral_scalar_share;
 
         let alpha_sum: Scalar = payloads.iter().map(|payload| payload.alpha).sum();
         let alpha_hat_sum: Scalar = payloads.iter().map(|payload| payload.alpha_hat).sum();
@@ -474,14 +476,16 @@ impl<P: SchemeParams> Round for Round2<P> {
         let beta_sum: Scalar = self.betas.iter().sum();
         let beta_hat_sum: Scalar = self.betas_hat.iter().sum();
 
-        let delta = self.context.gamma * self.context.k + alpha_sum + beta_sum;
-        let chi =
-            self.context.key_share.secret.share_sk * self.context.k + alpha_hat_sum + beta_hat_sum;
+        let delta = self.context.gamma * self.context.ephemeral_scalar_share + alpha_sum + beta_sum;
+        let product_share = self.context.key_share.secret_share
+            * self.context.ephemeral_scalar_share
+            + alpha_hat_sum
+            + beta_hat_sum;
 
         Ok(FinalizeSuccess::AnotherRound(Round3 {
             context: self.context,
             delta,
-            chi,
+            product_share,
             big_delta,
             big_gamma: gamma,
             k_ciphertexts: self.k_ciphertexts,
@@ -501,7 +505,7 @@ pub struct Round3Bcast<P: PaillierParams> {
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
     delta: Scalar,
-    chi: Scalar,
+    product_share: Scalar,
     big_delta: Point,
     big_gamma: Point,
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
@@ -522,13 +526,13 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
-        let pk = &self.context.key_share.secret.paillier_sk.public_key();
+        let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
 
         let messages = range
             .map(|idx| {
                 let psi_hat_pprime = LogStarProof::random(
                     rng,
-                    &self.context.k,
+                    &self.context.ephemeral_scalar_share,
                     &self.context.rho,
                     pk,
                     &self.k_ciphertexts[self.context.party_idx.as_usize()],
@@ -554,7 +558,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
-        let from_pk = &self.context.key_share.public[from.as_usize()].paillier_pk;
+        let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
         if !msg.psi_hat_pprime.verify(
             from_pk,
             &self.k_ciphertexts[from.as_usize()],
@@ -600,12 +604,12 @@ impl<P: SchemeParams> Round for Round3<P> {
         }
 
         // TODO: seems like we only need the x-coordinate of this (as a Scalar)
-        let big_r = &self.big_gamma * &delta.invert().unwrap();
+        let nonce = &self.big_gamma * &delta.invert().unwrap();
 
         Ok(FinalizeSuccess::Result(PresigningData {
-            big_r,
-            k: self.context.k,
-            chi: self.chi,
+            nonce,
+            ephemeral_scalar_share: self.context.ephemeral_scalar_share,
+            product_share: self.product_share,
         }))
     }
 }
@@ -616,6 +620,7 @@ mod tests {
 
     use super::Round1Part1;
     use crate::centralized_keygen::make_key_shares;
+    use crate::curve::Scalar;
     use crate::protocols::common::{PartyIdx, TestSchemeParams};
     use crate::protocols::generic::{
         tests::{assert_next_round, assert_result, step},
@@ -661,9 +666,17 @@ mod tests {
         let r3 = assert_next_round(step(&mut OsRng, r2).unwrap()).unwrap();
         let presigning_datas = assert_result(step(&mut OsRng, r3).unwrap()).unwrap();
 
-        assert_eq!(presigning_datas[0].big_r, presigning_datas[1].big_r);
-        assert_eq!(presigning_datas[0].big_r, presigning_datas[2].big_r);
+        // Check that each node ends up with the same nonce.
+        assert_eq!(presigning_datas[0].nonce, presigning_datas[1].nonce);
+        assert_eq!(presigning_datas[0].nonce, presigning_datas[2].nonce);
 
-        // TODO: what contracts do we expect?
+        // Check that the additive shares were constructed in a consistent way.
+        let k: Scalar = presigning_datas
+            .iter()
+            .map(|data| data.ephemeral_scalar_share)
+            .sum();
+        let k_times_x: Scalar = presigning_datas.iter().map(|data| data.product_share).sum();
+        let x: Scalar = key_shares.iter().map(|share| share.secret_share).sum();
+        assert_eq!(x * k, k_times_x);
     }
 }

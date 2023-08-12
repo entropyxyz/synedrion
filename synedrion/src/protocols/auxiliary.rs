@@ -5,9 +5,7 @@ use crypto_bigint::Pow;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{
-    KeyShareChange, KeyShareChangePublic, KeyShareChangeSecret, PartyIdx, SchemeParams,
-};
+use super::common::{KeyShareChange, PartyIdx, PublicAuxInfo, SchemeParams, SecretAuxInfo};
 use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
@@ -454,19 +452,17 @@ impl<P: SchemeParams> Round for Round3<P> {
         payloads: HoleVec<Self::Payload>,
     ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         let secrets = payloads.into_vec(self.context.xs_secret[self.context.party_idx.as_usize()]);
-        let share_change = secrets.iter().sum();
+        let secret_share_change = secrets.iter().sum();
 
         let datas = self.datas.into_vec(self.context.data);
 
-        let public_share_changes: Vec<_> = (0..datas.len())
+        let public_share_changes = (0..datas.len())
             .map(|idx| datas.iter().map(|data| data.xs_public[idx]).sum())
-            .collect();
+            .collect::<Box<_>>();
 
-        let public = datas
+        let public_aux = datas
             .into_iter()
-            .enumerate()
-            .map(|(idx, data)| KeyShareChangePublic {
-                share_pk: public_share_changes[idx],
+            .map(|data| PublicAuxInfo {
                 el_gamal_pk: data.el_gamal_pk,
                 paillier_pk: data.paillier_pk,
                 rp_generator: data.rp_generator,
@@ -474,16 +470,17 @@ impl<P: SchemeParams> Round for Round3<P> {
             })
             .collect();
 
-        let secret = KeyShareChangeSecret {
-            share_sk: share_change,
+        let secret_aux = SecretAuxInfo {
             paillier_sk: self.context.paillier_sk,
             el_gamal_sk: self.context.el_gamal_sk,
         };
 
         let key_share_change = KeyShareChange {
             index: self.context.party_idx,
-            secret,
-            public,
+            secret_share_change,
+            public_share_changes,
+            secret_aux,
+            public_aux,
         };
 
         Ok(FinalizeSuccess::Result(key_share_change))
@@ -543,19 +540,22 @@ mod tests {
         for (idx, change) in results.iter().enumerate() {
             for other_change in results.iter() {
                 assert_eq!(
-                    change.secret.share_sk.mul_by_generator(),
-                    other_change.public[idx].share_pk
+                    change.secret_share_change.mul_by_generator(),
+                    other_change.public_share_changes[idx]
                 );
                 assert_eq!(
-                    change.secret.el_gamal_sk.mul_by_generator(),
-                    other_change.public[idx].el_gamal_pk
+                    change.secret_aux.el_gamal_sk.mul_by_generator(),
+                    other_change.public_aux[idx].el_gamal_pk
                 );
             }
         }
 
         // The resulting sum of masks should be zero, since the combined secret key
         // should not change after applying the masks at each node.
-        let mask_sum: Scalar = results.iter().map(|change| change.secret.share_sk).sum();
+        let mask_sum: Scalar = results
+            .iter()
+            .map(|change| change.secret_share_change)
+            .sum();
         assert_eq!(mask_sum, Scalar::ZERO);
     }
 }

@@ -1,49 +1,38 @@
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
 
-use crate::curve::{Point, Scalar};
+use crate::curve::Scalar;
 use crate::paillier::uint::Zero;
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
-use crate::protocols::common::{KeyShare, KeySharePublic, KeyShareSecret, SchemeParams};
+use crate::protocols::common::{KeyShare, PublicAuxInfo, SchemeParams, SecretAuxInfo};
 use crate::protocols::threshold::ThresholdKeyShare;
 use crate::tools::sss::{shamir_evaluation_points, shamir_split};
 use crate::PartyIdx;
 
 #[allow(clippy::type_complexity)]
-fn make_key_shares_from_secrets<P: SchemeParams>(
+fn make_aux_info<P: SchemeParams>(
     rng: &mut impl CryptoRngCore,
-    secrets: &[Scalar],
-) -> (Box<[KeyShareSecret<P>]>, Box<[KeySharePublic<P>]>) {
-    let paillier_sks = secrets
-        .iter()
-        .map(|_| SecretKeyPaillier::<P::Paillier>::random(rng))
-        .collect::<Vec<_>>();
+    num_parties: usize,
+) -> (Box<[SecretAuxInfo<P>]>, Box<[PublicAuxInfo<P>]>) {
+    let secret_aux = (0..num_parties)
+        .map(|_| SecretAuxInfo {
+            paillier_sk: SecretKeyPaillier::<P::Paillier>::random(rng),
+            el_gamal_sk: Scalar::random(rng),
+        })
+        .collect::<Box<_>>();
 
-    let public = secrets
+    let public_aux = secret_aux
         .iter()
-        .zip(paillier_sks.iter())
-        .map(|(share_sk, sk)| KeySharePublic {
-            share_pk: share_sk.mul_by_generator(),
-            el_gamal_pk: Point::GENERATOR, // TODO: currently unused in the protocol
+        .map(|secret| PublicAuxInfo {
+            paillier_pk: secret.paillier_sk.public_key(),
+            el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
             rp_generator: <P::Paillier as PaillierParams>::DoubleUint::ZERO, // TODO: currently unused in the protocol
             rp_power: <P::Paillier as PaillierParams>::DoubleUint::ZERO, // TODO: currently unused in the protocol
-            paillier_pk: sk.public_key(),
         })
         .collect();
 
-    let secret = secrets
-        .iter()
-        .zip(paillier_sks.iter())
-        .map(|(share_sk, paillier_sk)| KeyShareSecret {
-            share_sk: *share_sk,
-            paillier_sk: (*paillier_sk).clone(),
-            el_gamal_sk: Scalar::random(rng), // TODO: currently unused in the protocol
-        })
-        .collect();
-
-    (secret, public)
+    (secret_aux, public_aux)
 }
 
 /// Returns `num_parties` of random self-consistent key shares
@@ -58,18 +47,24 @@ pub fn make_key_shares<P: SchemeParams>(
         Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
     };
 
-    let secrets = secret.split(rng, num_parties);
+    let secret_shares = secret.split(rng, num_parties);
+    let public_shares = secret_shares
+        .iter()
+        .map(|s| s.mul_by_generator())
+        .collect::<Box<_>>();
 
-    let (secret_shares, public_shares) = make_key_shares_from_secrets(rng, &secrets);
+    let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
 
-    secret_shares
+    secret_aux
         .into_vec()
         .into_iter()
         .enumerate()
-        .map(|(idx, secret)| KeyShare {
+        .map(|(idx, secret_aux)| KeyShare {
             index: PartyIdx::from_usize(idx),
-            secret,
-            public: public_shares.clone(),
+            secret_share: secret_shares[idx],
+            public_shares: public_shares.clone(),
+            secret_aux,
+            public_aux: public_aux.clone(),
         })
         .collect()
 }
@@ -87,24 +82,30 @@ pub fn make_threshold_key_shares<P: SchemeParams>(
         Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
     };
 
-    let secrets = shamir_split(
+    let secret_shares = shamir_split(
         rng,
         &secret,
         threshold,
         &shamir_evaluation_points(num_parties),
     );
+    let public_shares = secret_shares
+        .iter()
+        .map(|s| s.mul_by_generator())
+        .collect::<Box<_>>();
 
-    let (secret_shares, public_shares) = make_key_shares_from_secrets(rng, &secrets);
+    let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
 
-    secret_shares
+    secret_aux
         .into_vec()
         .into_iter()
         .enumerate()
-        .map(|(idx, secret)| ThresholdKeyShare {
+        .map(|(idx, secret_aux)| ThresholdKeyShare {
             index: PartyIdx::from_usize(idx),
             threshold: threshold as u32, // TODO: fallible conversion?
-            secret,
-            public: public_shares.clone(),
+            secret_share: secret_shares[idx],
+            public_shares: public_shares.clone(),
+            secret_aux,
+            public_aux: public_aux.clone(),
         })
         .collect()
 }
@@ -137,7 +138,7 @@ mod tests {
         assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
         assert_eq!(&nt_share1.verifying_key(), sk.verifying_key());
         assert_eq!(
-            nt_share0.secret.share_sk + nt_share1.secret.share_sk,
+            nt_share0.secret_share + nt_share1.secret_share,
             Scalar::from(sk.as_nonzero_scalar())
         );
     }
