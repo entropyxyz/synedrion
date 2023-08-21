@@ -5,8 +5,9 @@ use rand_core::CryptoRngCore;
 use crate::curve::Scalar;
 use crate::paillier::uint::Zero;
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
-use crate::protocols::common::{KeyShare, PublicAuxInfo, SchemeParams, SecretAuxInfo};
+use crate::protocols::common::{KeyShare, PublicAuxInfo, SecretAuxInfo};
 use crate::protocols::threshold::ThresholdKeyShare;
+use crate::sigma::params::SchemeParams;
 use crate::tools::sss::{shamir_evaluation_points, shamir_split};
 use crate::PartyIdx;
 

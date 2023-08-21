@@ -18,6 +18,7 @@ pub use signature;
 pub use centralized_keygen::{make_key_shares, make_threshold_key_shares};
 pub use curve::RecoverableSignature;
 pub use protocols::{
-    common::{KeyShare, PartyIdx, SchemeParams, TestSchemeParams},
+    common::{KeyShare, PartyIdx},
     threshold::ThresholdKeyShare,
 };
+pub use sigma::params::{SchemeParams, TestSchemeParams};

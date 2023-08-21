@@ -1,7 +1,6 @@
 use core::ops::{Add, BitAnd, Div, Mul, Neg, Rem, Shl, Shr, Sub};
 
-use crypto_bigint::subtle::{ConstantTimeLess, CtOption};
-use crypto_bigint::Bounded;
+use crypto_bigint::subtle::{Choice, ConstantTimeLess, CtOption};
 use crypto_bigint::{
     modular::runtime_mod::{DynResidue, DynResidueParams},
     nlimbs, Encoding, Limb, Uint, Word,
@@ -13,10 +12,21 @@ use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::jacobi::JacobiSymbolTrait;
 
 pub use crypto_bigint::{
-    modular::Retrieve, CheckedAdd, CheckedMul, CheckedSub, Integer, Invert, NonZero, Pow,
-    RandomMod, Square, Zero, U1280, U320, U640,
+    modular::Retrieve, subtle, Bounded, CheckedAdd, CheckedMul, CheckedSub, Integer, Invert,
+    NonZero, Pow, RandomMod, Square, Zero, U1280, U320, U640,
 };
 pub use crypto_primes::RandomPrimeWithRng;
+
+pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
+    debug_assert!(N2 >= N1);
+    let mut result_words = [0; N2];
+    let mut i = 0;
+    while i < N1 {
+        result_words[i] = value.as_words()[i];
+        i += 1;
+    }
+    Uint::from_words(result_words)
+}
 
 // TODO: currently in Rust bounds on `&Self` are not propagated,
 // so we can't say "an UintLike x, y support &x + &y" -
@@ -31,6 +41,7 @@ pub trait UintLike:
     + Integer
     + JacobiSymbolTrait
     + core::fmt::Debug
+    + core::fmt::Display
     + Clone
     + Copy
     + Bounded
@@ -48,6 +59,7 @@ pub trait UintLike:
     + for<'a> CheckedMul<&'a Self>
     + Rem<NonZero<Self>, Output = Self>
     + Div<NonZero<Self>, Output = Self>
+    + subtle::ConditionallySelectable
 {
     // TODO: do we really need this? Or can we just use a simple RNG and `random_mod()`?
     fn hash_into_mod(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self;
@@ -57,11 +69,15 @@ pub trait UintLike:
     fn inv_mod2k(&self, k: usize) -> Self;
     fn wrapping_sub(&self, other: &Self) -> Self;
     fn wrapping_mul(&self, other: &Self) -> Self;
+    fn wrapping_add(&self, other: &Self) -> Self;
     fn bits(&self) -> usize;
+    fn bit(&self, index: usize) -> Choice;
+    fn neg(&self) -> Self;
+    fn neg_mod(&self, modulus: &Self) -> Self;
 }
 
 pub trait HasWide: Sized {
-    type Wide;
+    type Wide: Zero + Rem<NonZero<Self::Wide>, Output = Self::Wide>;
     fn mul_wide(&self, other: &Self) -> Self::Wide;
     fn square_wide(&self) -> Self::Wide;
     fn into_wide(self) -> Self::Wide;
@@ -119,9 +135,38 @@ impl<const L: usize> UintLike for Uint<L> {
         self.wrapping_mul(other)
     }
 
+    fn wrapping_add(&self, other: &Self) -> Self {
+        self.wrapping_add(other)
+    }
+
     fn bits(&self) -> usize {
         (*self).bits()
     }
+
+    fn bit(&self, index: usize) -> Choice {
+        (*self).bit(index).into()
+    }
+
+    fn neg(&self) -> Self {
+        Self::ZERO.wrapping_sub(self)
+    }
+
+    fn neg_mod(&self, modulus: &Self) -> Self {
+        self.neg_mod(modulus)
+    }
+}
+
+pub(crate) fn mul_mod<T>(lhs: &T, rhs: &T, modulus: &NonZero<T>) -> T
+where
+    T: UintLike + HasWide,
+{
+    // TODO: move to crypto-bigint, and make more efficient (e.g. Barrett reduction)
+    // CHECK: check the constraints on rhs: do we need rhs < modulus,
+    // or will it be reduced all the same?
+    // Note that modulus here may be even, so we can't use Montgomery representation
+    let wide_product = lhs.mul_wide(rhs);
+    let wide_modulus = modulus.as_ref().into_wide();
+    T::try_from_wide(wide_product.rem(NonZero::new(wide_modulus).unwrap())).unwrap()
 }
 
 impl<const L: usize> Hashable for Uint<L> {

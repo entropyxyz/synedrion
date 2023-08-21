@@ -14,6 +14,7 @@ use k256::elliptic_curve::{
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::CtOption,
+    Curve,
     Field,
     FieldBytesSize,
     NonZeroScalar,
@@ -29,6 +30,8 @@ pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub(crate) type CompressedPointSize =
     <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
+
+pub(crate) const ORDER: U256 = k256::Secp256k1::ORDER;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Scalar(BackendScalar);
@@ -60,6 +63,10 @@ impl Scalar {
             result = &result * self;
         }
         result
+    }
+
+    pub fn negate(&self) -> Self {
+        Self(self.0.negate())
     }
 
     pub fn invert(&self) -> CtOption<Self> {

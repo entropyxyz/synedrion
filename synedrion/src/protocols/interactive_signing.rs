@@ -2,12 +2,13 @@ use alloc::boxed::Box;
 
 use rand_core::CryptoRngCore;
 
-use super::common::{KeyShare, PartyIdx, SchemeParams};
+use super::common::{KeyShare, PartyIdx};
 use super::generic::{FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, Round};
 use super::merged::BaseRoundWrapper;
 use super::presigning;
 use super::signing;
 use crate::curve::{RecoverableSignature, Scalar};
+use crate::sigma::params::SchemeParams;
 use crate::tools::collections::HoleVec;
 
 struct RoundContext<P: SchemeParams> {

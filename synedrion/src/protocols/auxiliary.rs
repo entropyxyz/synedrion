@@ -5,7 +5,7 @@ use crypto_bigint::Pow;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShareChange, PartyIdx, PublicAuxInfo, SchemeParams, SecretAuxInfo};
+use super::common::{KeyShareChange, PartyIdx, PublicAuxInfo, SecretAuxInfo};
 use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
@@ -15,16 +15,23 @@ use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
     params::PaillierParams,
-    uint::{Retrieve, UintLike},
+    uint::{FromScalar, Retrieve, UintLike},
 };
 use crate::sigma::fac::FacProof;
 use crate::sigma::mod_::ModProof;
+use crate::sigma::params::SchemeParams;
 use crate::sigma::prm::PrmProof;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
+
+fn uint_from_scalar<P: SchemeParams>(
+    x: &Scalar,
+) -> <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint {
+    <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint::from_scalar(x)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData<P: SchemeParams> {
@@ -362,7 +369,8 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
 
             let x_secret = self.context.xs_secret[party_idx];
             let x_public = self.context.data.xs_public[party_idx];
-            let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &x_secret);
+            let ciphertext =
+                Ciphertext::new(rng, &data.paillier_pk, &uint_from_scalar::<P>(&x_secret));
 
             let sch_proof_x = SchProof::new(
                 &self.context.sch_secrets_x[party_idx],
@@ -393,7 +401,11 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     ) -> Result<Self::Payload, ReceiveError> {
         let sender_data = &self.datas.get(from.as_usize()).unwrap();
 
-        let x_secret = msg.data2.paillier_enc_x.decrypt(&self.context.paillier_sk);
+        let x_secret = msg
+            .data2
+            .paillier_enc_x
+            .decrypt(&self.context.paillier_sk)
+            .to_scalar();
 
         if x_secret.mul_by_generator() != sender_data.xs_public[self.context.party_idx.as_usize()] {
             // TODO: paper has `\mu` calculation here.
@@ -494,11 +506,12 @@ mod tests {
 
     use super::Round1;
     use crate::curve::Scalar;
-    use crate::protocols::common::{PartyIdx, TestSchemeParams};
+    use crate::protocols::common::PartyIdx;
     use crate::protocols::generic::{
         tests::{assert_next_round, assert_result, step},
         FirstRound,
     };
+    use crate::sigma::params::TestSchemeParams;
 
     #[test]
     fn execute_auxiliary() {

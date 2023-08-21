@@ -102,12 +102,13 @@ mod tests {
     use super::{Context, Round1};
     use crate::centralized_keygen::make_key_shares;
     use crate::curve::Scalar;
-    use crate::protocols::common::{PartyIdx, TestSchemeParams};
+    use crate::protocols::common::PartyIdx;
     use crate::protocols::generic::{
         tests::{assert_next_round, assert_result, step},
         FirstRound,
     };
     use crate::protocols::presigning;
+    use crate::sigma::params::TestSchemeParams;
 
     #[test]
     fn execute_signing() {

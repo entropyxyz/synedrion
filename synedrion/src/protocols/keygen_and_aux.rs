@@ -2,12 +2,13 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::auxiliary;
-use super::common::{KeyShare, PartyIdx, SchemeParams};
+use super::common::{KeyShare, PartyIdx};
 use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
 };
 use super::keygen;
+use crate::sigma::params::SchemeParams;
 use crate::tools::collections::HoleVec;
 
 pub(crate) struct Round1<P: SchemeParams> {

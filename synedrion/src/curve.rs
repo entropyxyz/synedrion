@@ -6,5 +6,7 @@
 mod arithmetic;
 mod ecdsa;
 
+pub(crate) use arithmetic::ORDER;
+
 pub use self::ecdsa::RecoverableSignature;
 pub use arithmetic::{Point, Scalar};

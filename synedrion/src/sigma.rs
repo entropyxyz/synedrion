@@ -17,5 +17,6 @@ pub(crate) mod enc;
 pub(crate) mod fac;
 pub(crate) mod log_star;
 pub(crate) mod mod_;
+pub(crate) mod params;
 pub(crate) mod prm;
 pub(crate) mod sch;

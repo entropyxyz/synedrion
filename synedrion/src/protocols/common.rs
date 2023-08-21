@@ -4,23 +4,9 @@ use k256::ecdsa::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
 use crate::curve::{Point, Scalar};
-use crate::paillier::{PaillierParams, PaillierTest, PublicKeyPaillier, SecretKeyPaillier};
+use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
+use crate::sigma::params::SchemeParams;
 use crate::tools::hashing::{Chain, Hashable};
-
-// TODO (#27): this trait can include curve scalar/point types as well,
-// but for now they are hardcoded to `k256`.
-pub trait SchemeParams: Clone + Send {
-    const SECURITY_PARAMETER: usize;
-    type Paillier: PaillierParams;
-}
-
-#[derive(Clone)]
-pub struct TestSchemeParams;
-
-impl SchemeParams for TestSchemeParams {
-    const SECURITY_PARAMETER: usize = 10;
-    type Paillier = PaillierTest;
-}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PartyIdx(u32);

@@ -6,12 +6,13 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShareSeed, PartyIdx, SchemeParams};
+use super::common::{KeyShareSeed, PartyIdx};
 use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
+use crate::sigma::params::SchemeParams;
 use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
@@ -297,11 +298,12 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::Round1;
-    use crate::protocols::common::{PartyIdx, TestSchemeParams};
+    use crate::protocols::common::PartyIdx;
     use crate::protocols::generic::{
         tests::{assert_next_round, assert_result, step},
         FirstRound,
     };
+    use crate::sigma::params::TestSchemeParams;
 
     #[test]
     fn execute_keygen() {

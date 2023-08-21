@@ -3,6 +3,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use digest::{Digest, ExtendableOutput, Update, XofReader};
+use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::Shake256;
@@ -79,9 +80,15 @@ impl Hash {
     pub fn finalize_to_scalar(self) -> Scalar {
         Scalar::from_digest(self.0)
     }
+
+    pub fn finalize_to_rng(self) -> rand_chacha::ChaCha8Rng {
+        rand_chacha::ChaCha8Rng::from_seed(self.0.finalize().into())
+    }
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
+// TODO: should we just hash to an RNG with `Hash`, and then use that RNG to produce whatever
+// extensible output we need?
 pub struct XofHash(Shake256);
 
 impl Chain for XofHash {

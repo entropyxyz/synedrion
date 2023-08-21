@@ -4,18 +4,25 @@ use alloc::vec::Vec;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, PartyIdx, PresigningData, SchemeParams};
+use super::common::{KeyShare, PartyIdx, PresigningData};
 use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
-use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::Retrieve};
+use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::FromScalar};
 use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;
+use crate::sigma::params::SchemeParams;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
+
+fn uint_from_scalar<P: SchemeParams>(
+    x: &Scalar,
+) -> <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint {
+    <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint::from_scalar(x)
+}
 
 pub struct Context<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
@@ -52,17 +59,23 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
     ) -> Result<Self, InitError> {
         let key_share = context;
 
-        // TODO: checl that KeyShare is consistent with num_parties/party_idx
+        // TODO: check that KeyShare is consistent with num_parties/party_idx
 
         let ephemeral_scalar_share = Scalar::random(rng);
         let gamma = Scalar::random(rng);
 
         let pk = key_share.secret_aux.paillier_sk.public_key();
-        let rho = pk.random_invertible_group_elem(rng).retrieve();
-        let nu = pk.random_invertible_group_elem(rng).retrieve();
 
-        let g_ciphertext = Ciphertext::new_with_randomizer(&pk, &gamma, &nu);
-        let k_ciphertext = Ciphertext::new_with_randomizer(&pk, &ephemeral_scalar_share, &rho);
+        let rho = Ciphertext::<P::Paillier>::randomizer(rng, &pk);
+        let nu = Ciphertext::<P::Paillier>::randomizer(rng, &pk);
+
+        let g_ciphertext =
+            Ciphertext::new_with_randomizer(&pk, &uint_from_scalar::<P>(&gamma), &nu);
+        let k_ciphertext = Ciphertext::new_with_randomizer(
+            &pk,
+            &uint_from_scalar::<P>(&ephemeral_scalar_share),
+            &rho,
+        );
 
         Ok(Self {
             context: Context {
@@ -151,28 +164,28 @@ pub struct Round1Part2<P: SchemeParams> {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "EncProof<P>: Serialize"))]
 #[serde(bound(deserialize = "EncProof<P>: for<'x> Deserialize<'x>"))]
-pub struct Round1Direct<P: PaillierParams>(EncProof<P>);
+pub struct Round1Direct<P: SchemeParams>(EncProof<P>);
 
 impl<P: SchemeParams> BaseRound for Round1Part2<P> {
     type Payload = ();
-    type Message = Round1Direct<P::Paillier>;
+    type Message = Round1Direct<P>;
 
     const ROUND_NUM: u8 = 2;
     const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
-        let aux = (&self.context.shared_randomness, &self.context.party_idx);
-        let k_ciphertext = &self.k_ciphertexts[self.context.party_idx.as_usize()];
-        let pk = self.context.key_share.secret_aux.paillier_sk.public_key();
         let messages = range
             .map(|idx| {
+                // CHECK: what is the point in creating a separate EncProof for each recipient
+                // if the only difference is `aux` which consists of public info anyway?
+                // If we create one proof we can just broadcast it in Round1Part1.
+                let aux = (&self.context.shared_randomness, &PartyIdx::from_usize(idx));
                 let proof = EncProof::random(
                     rng,
-                    &self.context.ephemeral_scalar_share,
+                    &uint_from_scalar::<P>(&self.context.ephemeral_scalar_share),
                     &self.context.rho,
-                    &pk,
-                    k_ciphertext,
+                    &self.context.key_share.secret_aux.paillier_sk,
                     &aux,
                 );
                 (PartyIdx::from_usize(idx), Round1Direct(proof))
@@ -314,20 +327,32 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                 let beta_hat = self.betas_hat.get(idx).unwrap();
 
                 let d = self.k_ciphertexts[idx]
-                    .homomorphic_mul(target_pk, &self.context.gamma)
+                    .homomorphic_mul(target_pk, &uint_from_scalar::<P>(&self.context.gamma))
                     .homomorphic_add(
                         target_pk,
-                        &Ciphertext::new_with_randomizer(target_pk, &-beta, &s),
+                        &Ciphertext::new_with_randomizer(
+                            target_pk,
+                            &uint_from_scalar::<P>(&-beta),
+                            &s,
+                        ),
                     );
-                let f = Ciphertext::new_with_randomizer(pk, beta, &r);
+                let f = Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(beta), &r);
 
                 let d_hat = self.k_ciphertexts[idx]
-                    .homomorphic_mul(target_pk, &self.context.key_share.secret_share)
+                    .homomorphic_mul(
+                        target_pk,
+                        &uint_from_scalar::<P>(&self.context.key_share.secret_share),
+                    )
                     .homomorphic_add(
                         target_pk,
-                        &Ciphertext::new_with_randomizer(target_pk, &-beta_hat, &s_hat),
+                        &Ciphertext::new_with_randomizer(
+                            target_pk,
+                            &uint_from_scalar::<P>(&-beta_hat),
+                            &s_hat,
+                        ),
                     );
-                let f_hat = Ciphertext::new_with_randomizer(pk, beta_hat, &r_hat);
+                let f_hat =
+                    Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(beta_hat), &r_hat);
 
                 let psi = AffGProof::random(
                     rng,
@@ -441,10 +466,12 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let alpha = msg
             .d
-            .decrypt(&self.context.key_share.secret_aux.paillier_sk);
+            .decrypt(&self.context.key_share.secret_aux.paillier_sk)
+            .to_scalar();
         let alpha_hat = msg
             .d_hat
-            .decrypt(&self.context.key_share.secret_aux.paillier_sk);
+            .decrypt(&self.context.key_share.secret_aux.paillier_sk)
+            .to_scalar();
 
         Ok(Round2Payload {
             gamma: msg.gamma,
@@ -621,11 +648,12 @@ mod tests {
     use super::Round1Part1;
     use crate::centralized_keygen::make_key_shares;
     use crate::curve::Scalar;
-    use crate::protocols::common::{PartyIdx, TestSchemeParams};
+    use crate::protocols::common::PartyIdx;
     use crate::protocols::generic::{
         tests::{assert_next_round, assert_result, step},
         FirstRound,
     };
+    use crate::sigma::params::TestSchemeParams;
 
     #[test]
     fn execute_presigning() {
