@@ -10,7 +10,7 @@ use super::generic::{
     Round, ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
-use crate::paillier::{encryption::Ciphertext, params::PaillierParams};
+use crate::paillier::{Ciphertext, PaillierParams};
 use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;

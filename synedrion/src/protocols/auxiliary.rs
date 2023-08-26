@@ -11,11 +11,7 @@ use super::generic::{
     Round, ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
-use crate::paillier::{
-    encryption::Ciphertext,
-    keys::{PublicKeyPaillier, SecretKeyPaillier},
-    params::PaillierParams,
-};
+use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
 use crate::sigma::fac::FacProof;
 use crate::sigma::mod_::ModProof;
 use crate::sigma::params::SchemeParams;

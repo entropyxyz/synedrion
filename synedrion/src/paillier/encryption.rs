@@ -199,10 +199,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Ciphertext;
-    use crate::paillier::{
-        keys::SecretKeyPaillier,
-        params::{PaillierParams, PaillierTest},
-    };
+    use crate::paillier::{PaillierParams, PaillierTest, SecretKeyPaillier};
     use crate::uint::{mul_mod, RandomMod};
 
     #[test]
