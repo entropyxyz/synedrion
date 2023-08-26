@@ -1,21 +1,21 @@
 use core::ops::{Add, BitAnd, Div, Mul, Neg, Rem, Shl, Shr, Sub};
 
-use crypto_bigint::subtle::{Choice, ConstantTimeLess, CtOption};
 use crypto_bigint::{
-    modular::runtime_mod::{DynResidue, DynResidueParams},
-    nlimbs, Encoding, Limb, Uint, Word,
+    modular::{
+        runtime_mod::{DynResidue, DynResidueParams},
+        Retrieve,
+    },
+    nlimbs,
+    subtle::{self, Choice, ConstantTimeLess, CtOption},
+    Bounded, CheckedAdd, CheckedMul, CheckedSub, Encoding, Integer, Invert, Limb, NonZero, Pow,
+    RandomMod, Uint, Word, Zero, U1280, U320, U640,
 };
+use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 
 use crate::curve::Scalar;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::jacobi::JacobiSymbolTrait;
-
-pub use crypto_bigint::{
-    modular::Retrieve, subtle, Bounded, CheckedAdd, CheckedMul, CheckedSub, Integer, Invert,
-    NonZero, Pow, RandomMod, Square, Zero, U1280, U320, U640,
-};
-pub use crypto_primes::RandomPrimeWithRng;
 
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
     debug_assert!(N2 >= N1);

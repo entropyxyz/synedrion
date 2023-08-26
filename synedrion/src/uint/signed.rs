@@ -3,7 +3,7 @@ use core::ops::{BitAnd, BitXor, Not};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::uint::{
+use super::{
     subtle::{Choice, ConstantTimeEq, CtOption},
     Bounded, CheckedAdd, CheckedMul, NonZero, UintLike,
 };

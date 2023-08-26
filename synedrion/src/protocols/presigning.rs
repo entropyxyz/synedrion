@@ -10,13 +10,14 @@ use super::generic::{
     Round, ToSendTyped,
 };
 use crate::curve::{Point, Scalar};
-use crate::paillier::{encryption::Ciphertext, params::PaillierParams, uint::FromScalar};
+use crate::paillier::{encryption::Ciphertext, params::PaillierParams};
 use crate::sigma::aff_g::AffGProof;
 use crate::sigma::enc::EncProof;
 use crate::sigma::log_star::LogStarProof;
 use crate::sigma::params::SchemeParams;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
+use crate::uint::FromScalar;
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,

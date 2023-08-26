@@ -9,9 +9,9 @@ use rand_core::CryptoRngCore;
 
 use serde::{Deserialize, Serialize};
 
-use crate::paillier::uint::{Pow, Retrieve, UintLike, UintModLike, Zero};
 use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::uint::{Pow, Retrieve, UintLike, UintModLike, Zero};
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]

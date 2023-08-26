@@ -2,11 +2,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::params::PaillierParams;
-use super::uint::{
+use crate::tools::hashing::{Chain, Hashable};
+use crate::uint::{
     CheckedAdd, CheckedMul, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, RandomMod,
     RandomPrimeWithRng, Retrieve, UintLike, UintModLike,
 };
-use crate::tools::hashing::{Chain, Hashable};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecretKeyPaillier<P: PaillierParams> {

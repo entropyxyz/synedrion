@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::uint::{
+use crate::tools::hashing::Hashable;
+use crate::uint::{
     FromScalar, HasWide, U1280Mod, U320Mod, U640Mod, UintLike, UintModLike, U1280, U320, U640,
 };
-use crate::tools::hashing::Hashable;
 
 pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     const PRIME_BITS: usize;

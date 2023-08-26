@@ -5,12 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use super::keys::{PublicKeyPaillier, SecretKeyPaillier};
 use super::params::PaillierParams;
-use super::signed::Signed;
-use super::uint::{
-    subtle::Choice, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, Retrieve,
-    UintModLike,
-};
 use crate::tools::hashing::{Chain, Hashable};
+use crate::uint::{
+    subtle::Choice, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, Retrieve,
+    Signed, UintModLike,
+};
 
 /// Paillier ciphertext.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -200,9 +199,11 @@ mod tests {
     use rand_core::OsRng;
 
     use super::Ciphertext;
-    use crate::paillier::keys::SecretKeyPaillier;
-    use crate::paillier::params::{PaillierParams, PaillierTest};
-    use crate::paillier::uint::{mul_mod, RandomMod};
+    use crate::paillier::{
+        keys::SecretKeyPaillier,
+        params::{PaillierParams, PaillierTest},
+    };
+    use crate::uint::{mul_mod, RandomMod};
 
     #[test]
     fn roundtrip() {

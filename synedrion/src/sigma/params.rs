@@ -1,5 +1,6 @@
 use crate::curve::ORDER;
-use crate::paillier::{uint::upcast_uint, PaillierParams, PaillierTest};
+use crate::paillier::{PaillierParams, PaillierTest};
+use crate::uint::upcast_uint;
 
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.

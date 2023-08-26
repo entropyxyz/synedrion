@@ -9,6 +9,7 @@ mod protocols;
 pub mod sessions;
 mod sigma;
 mod tools;
+mod uint;
 
 // Some re-exports to avoid the need for version-matching
 pub use k256;

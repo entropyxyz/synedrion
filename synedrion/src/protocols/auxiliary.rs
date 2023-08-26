@@ -15,7 +15,6 @@ use crate::paillier::{
     encryption::Ciphertext,
     keys::{PublicKeyPaillier, SecretKeyPaillier},
     params::PaillierParams,
-    uint::{FromScalar, Retrieve, UintLike},
 };
 use crate::sigma::fac::FacProof;
 use crate::sigma::mod_::ModProof;
@@ -26,6 +25,7 @@ use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
+use crate::uint::{FromScalar, Retrieve, UintLike};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
