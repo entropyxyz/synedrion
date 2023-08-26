@@ -6,11 +6,10 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
-use crate::tools::{
-    hashing::{Chain, Hashable, XofHash},
-    jacobi::{JacobiSymbol, JacobiSymbolTrait},
+use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::uint::{
+    JacobiSymbol, JacobiSymbolTrait, Pow, RandomMod, Retrieve, UintLike, UintModLike,
 };
-use crate::uint::{Pow, RandomMod, Retrieve, UintLike, UintModLike};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModCommitment<P: PaillierParams>(P::DoubleUint);

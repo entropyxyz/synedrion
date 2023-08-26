@@ -1,3 +1,4 @@
+mod jacobi;
 mod signed;
 mod traits;
 
@@ -7,6 +8,7 @@ pub(crate) use crypto_bigint::{
 };
 pub(crate) use crypto_primes::RandomPrimeWithRng;
 
+pub(crate) use jacobi::{JacobiSymbol, JacobiSymbolTrait};
 pub(crate) use signed::Signed;
 pub(crate) use traits::{
     mul_mod, upcast_uint, FromScalar, HasWide, U1280Mod, U320Mod, U640Mod, UintLike, UintModLike,

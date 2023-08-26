@@ -13,9 +13,9 @@ use crypto_bigint::{
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 
+use super::jacobi::JacobiSymbolTrait;
 use crate::curve::Scalar;
 use crate::tools::hashing::{Chain, Hashable};
-use crate::tools::jacobi::JacobiSymbolTrait;
 
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
     debug_assert!(N2 >= N1);
