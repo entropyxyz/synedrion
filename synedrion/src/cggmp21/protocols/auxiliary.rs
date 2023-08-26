@@ -10,13 +10,12 @@ use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
 };
+use crate::cggmp21::{
+    sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
+    SchemeParams,
+};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
-use crate::sigma::fac::FacProof;
-use crate::sigma::mod_::ModProof;
-use crate::sigma::params::SchemeParams;
-use crate::sigma::prm::PrmProof;
-use crate::sigma::sch::{SchCommitment, SchProof, SchSecret};
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
@@ -500,14 +499,13 @@ mod tests {
 
     use rand_core::{OsRng, RngCore};
 
-    use super::Round1;
-    use crate::curve::Scalar;
-    use crate::protocols::common::PartyIdx;
-    use crate::protocols::generic::{
-        tests::{assert_next_round, assert_result, step},
+    use super::super::{
+        test_utils::{assert_next_round, assert_result, step},
         FirstRound,
     };
-    use crate::sigma::params::TestSchemeParams;
+    use super::Round1;
+    use crate::cggmp21::{PartyIdx, TestSchemeParams};
+    use crate::curve::Scalar;
 
     #[test]
     fn execute_auxiliary() {

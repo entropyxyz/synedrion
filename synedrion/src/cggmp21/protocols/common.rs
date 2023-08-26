@@ -3,9 +3,9 @@ use alloc::boxed::Box;
 use k256::ecdsa::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
+use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
-use crate::sigma::params::SchemeParams;
 use crate::tools::hashing::{Chain, Hashable};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

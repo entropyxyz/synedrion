@@ -13,7 +13,7 @@ use super::signed_message::{SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
     self, ReceiveOutcome, ToSendSerialized, TypeErasedReceivingRound, TypeErasedRound,
 };
-use crate::protocols::generic::{FirstRound, InitError, Round};
+use crate::cggmp21::{FirstRound, InitError, Round};
 use crate::PartyIdx;
 
 pub enum ToSend<Sig> {

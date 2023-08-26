@@ -2,14 +2,13 @@ use alloc::boxed::Box;
 
 use rand_core::CryptoRngCore;
 
+use crate::cggmp21::{
+    KeyShare, PartyIdx, PublicAuxInfo, SchemeParams, SecretAuxInfo, ThresholdKeyShare,
+};
 use crate::curve::Scalar;
 use crate::paillier::{PaillierParams, SecretKeyPaillier};
-use crate::protocols::common::{KeyShare, PublicAuxInfo, SecretAuxInfo};
-use crate::protocols::threshold::ThresholdKeyShare;
-use crate::sigma::params::SchemeParams;
 use crate::tools::sss::{shamir_evaluation_points, shamir_split};
 use crate::uint::Zero;
-use crate::PartyIdx;
 
 #[allow(clippy::type_complexity)]
 fn make_aux_info<P: SchemeParams>(

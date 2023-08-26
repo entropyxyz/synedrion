@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::protocols::{FinalizeError, FinalizeSuccess, ReceiveError, Round, ToSendTyped};
+use crate::cggmp21::{FinalizeError, FinalizeSuccess, ReceiveError, Round, ToSendTyped};
 use crate::tools::collections::HoleVecAccum;
 use crate::PartyIdx;
 

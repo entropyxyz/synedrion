@@ -10,15 +10,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
-use crate::curve::{RecoverableSignature, Scalar};
-use crate::protocols::{
-    auxiliary,
-    common::{KeyShare, KeyShareChange, PartyIdx},
-    interactive_signing, keygen_and_aux,
+use crate::cggmp21::{
+    auxiliary, interactive_signing, keygen_and_aux, InitError, KeyShare, KeyShareChange, PartyIdx,
+    SchemeParams,
 };
-use crate::SchemeParams;
-
-pub use crate::protocols::generic::InitError;
+use crate::curve::{RecoverableSignature, Scalar};
 pub use error::Error;
 pub use signed_message::SignedMessage;
 pub use states::{FinalizeOutcome, SendingState, ToSend};

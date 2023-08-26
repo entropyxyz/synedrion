@@ -12,11 +12,18 @@ may not seem necessary from the security perspective, but it provides a quick wa
 to detect an invalid message at the cost of an increased message size.
 */
 
-pub(crate) mod aff_g;
-pub(crate) mod enc;
-pub(crate) mod fac;
-pub(crate) mod log_star;
-pub(crate) mod mod_;
-pub(crate) mod params;
-pub(crate) mod prm;
-pub(crate) mod sch;
+mod aff_g;
+mod enc;
+mod fac;
+mod log_star;
+mod mod_;
+mod prm;
+mod sch;
+
+pub(crate) use aff_g::AffGProof;
+pub(crate) use enc::EncProof;
+pub(crate) use fac::FacProof;
+pub(crate) use log_star::LogStarProof;
+pub(crate) use mod_::ModProof;
+pub(crate) use prm::PrmProof;
+pub(crate) use sch::{SchCommitment, SchProof, SchSecret};

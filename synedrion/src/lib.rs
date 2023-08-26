@@ -3,11 +3,10 @@
 extern crate alloc;
 
 mod centralized_keygen;
+mod cggmp21;
 mod curve;
 mod paillier;
-mod protocols;
 pub mod sessions;
-mod sigma;
 mod tools;
 mod uint;
 
@@ -17,9 +16,5 @@ pub use k256::ecdsa;
 pub use signature;
 
 pub use centralized_keygen::{make_key_shares, make_threshold_key_shares};
+pub use cggmp21::{KeyShare, PartyIdx, SchemeParams, TestSchemeParams, ThresholdKeyShare};
 pub use curve::RecoverableSignature;
-pub use protocols::{
-    common::{KeyShare, PartyIdx},
-    threshold::ThresholdKeyShare,
-};
-pub use sigma::params::{SchemeParams, TestSchemeParams};

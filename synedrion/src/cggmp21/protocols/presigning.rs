@@ -9,12 +9,12 @@ use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
 };
+use crate::cggmp21::{
+    sigma::{AffGProof, EncProof, LogStarProof},
+    SchemeParams,
+};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams};
-use crate::sigma::aff_g::AffGProof;
-use crate::sigma::enc::EncProof;
-use crate::sigma::log_star::LogStarProof;
-use crate::sigma::params::SchemeParams;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::FromScalar;
@@ -646,15 +646,14 @@ impl<P: SchemeParams> Round for Round3<P> {
 mod tests {
     use rand_core::{OsRng, RngCore};
 
-    use super::Round1Part1;
-    use crate::centralized_keygen::make_key_shares;
-    use crate::curve::Scalar;
-    use crate::protocols::common::PartyIdx;
-    use crate::protocols::generic::{
-        tests::{assert_next_round, assert_result, step},
+    use super::super::{
+        test_utils::{assert_next_round, assert_result, step},
         FirstRound,
     };
-    use crate::sigma::params::TestSchemeParams;
+    use super::Round1Part1;
+    use crate::centralized_keygen::make_key_shares;
+    use crate::cggmp21::{PartyIdx, TestSchemeParams};
+    use crate::curve::Scalar;
 
     #[test]
     fn execute_presigning() {

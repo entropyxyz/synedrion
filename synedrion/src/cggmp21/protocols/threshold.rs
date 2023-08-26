@@ -5,8 +5,8 @@ use k256::ecdsa::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, PartyIdx, PublicAuxInfo, SecretAuxInfo};
+use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
-use crate::sigma::params::SchemeParams;
 use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points};
 
 #[derive(Clone, Serialize, Deserialize)]

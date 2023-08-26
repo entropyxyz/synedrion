@@ -8,7 +8,7 @@ use super::generic::{
     Round, ToSendTyped,
 };
 use super::keygen;
-use crate::sigma::params::SchemeParams;
+use crate::cggmp21::SchemeParams;
 use crate::tools::collections::HoleVec;
 
 pub(crate) struct Round1<P: SchemeParams> {

@@ -2,8 +2,8 @@ use crypto_bigint::Pow;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+use super::super::SchemeParams;
 use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
-use crate::sigma::params::SchemeParams;
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{
     mul_mod, CheckedAdd, CheckedMul, NonZero, Retrieve, Signed, UintLike, UintModLike,
@@ -187,8 +187,8 @@ mod tests {
     use rand_core::OsRng;
 
     use super::EncProof;
+    use crate::cggmp21::{SchemeParams, TestSchemeParams};
     use crate::paillier::{Ciphertext, PaillierParams, SecretKeyPaillier};
-    use crate::sigma::params::{SchemeParams, TestSchemeParams};
     use crate::uint::{NonZero, RandomMod};
 
     #[test]

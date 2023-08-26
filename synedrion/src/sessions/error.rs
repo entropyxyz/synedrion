@@ -1,7 +1,7 @@
 use alloc::string::String;
 use core::fmt;
 
-use crate::protocols::common::PartyIdx;
+use crate::cggmp21::PartyIdx;
 
 #[derive(Clone, Debug)]
 pub enum Error {

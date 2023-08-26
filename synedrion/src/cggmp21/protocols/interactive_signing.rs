@@ -7,8 +7,8 @@ use super::generic::{FinalizeError, FinalizeSuccess, FirstRound, InitError, NonE
 use super::merged::BaseRoundWrapper;
 use super::presigning;
 use super::signing;
+use crate::cggmp21::params::SchemeParams;
 use crate::curve::{RecoverableSignature, Scalar};
-use crate::sigma::params::SchemeParams;
 use crate::tools::collections::HoleVec;
 
 struct RoundContext<P: SchemeParams> {

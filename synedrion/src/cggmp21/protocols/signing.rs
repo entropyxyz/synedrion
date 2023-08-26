@@ -1,13 +1,12 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::PartyIdx;
+use super::common::{PartyIdx, PresigningData};
 use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
 };
 use crate::curve::{Point, RecoverableSignature, Scalar};
-use crate::protocols::common::PresigningData;
 use crate::tools::collections::HoleVec;
 
 pub struct Round1 {
@@ -99,16 +98,15 @@ mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::{OsRng, RngCore};
 
-    use super::{Context, Round1};
-    use crate::centralized_keygen::make_key_shares;
-    use crate::curve::Scalar;
-    use crate::protocols::common::PartyIdx;
-    use crate::protocols::generic::{
-        tests::{assert_next_round, assert_result, step},
+    use super::super::{
+        presigning,
+        test_utils::{assert_next_round, assert_result, step},
         FirstRound,
     };
-    use crate::protocols::presigning;
-    use crate::sigma::params::TestSchemeParams;
+    use super::{Context, Round1};
+    use crate::centralized_keygen::make_key_shares;
+    use crate::cggmp21::{PartyIdx, TestSchemeParams};
+    use crate::curve::Scalar;
 
     #[test]
     fn execute_signing() {
