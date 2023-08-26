@@ -104,8 +104,7 @@ mod tests {
         FirstRound,
     };
     use super::{Context, Round1};
-    use crate::centralized_keygen::make_key_shares;
-    use crate::cggmp21::{PartyIdx, TestSchemeParams};
+    use crate::cggmp21::{KeyShare, PartyIdx, TestSchemeParams};
     use crate::curve::Scalar;
 
     #[test]
@@ -113,7 +112,7 @@ mod tests {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
-        let key_shares = make_key_shares(&mut OsRng, 3, None);
+        let key_shares = KeyShare::new_centralized(&mut OsRng, 3, None);
 
         let r1 = vec![
             presigning::Round1Part1::<TestSchemeParams>::new(

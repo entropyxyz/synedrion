@@ -2,12 +2,13 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use k256::ecdsa::VerifyingKey;
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, PartyIdx, PublicAuxInfo, SecretAuxInfo};
+use super::common::{make_aux_info, KeyShare, PartyIdx, PublicAuxInfo, SecretAuxInfo};
 use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
-use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points};
+use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points, shamir_split};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretAuxInfo<P>: Serialize,
@@ -24,6 +25,47 @@ pub struct ThresholdKeyShare<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> ThresholdKeyShare<P> {
+    pub fn new_centralized(
+        rng: &mut impl CryptoRngCore,
+        threshold: usize,
+        num_parties: usize,
+        signing_key: Option<&k256::ecdsa::SigningKey>,
+    ) -> Box<[Self]> {
+        debug_assert!(threshold <= num_parties);
+
+        let secret = match signing_key {
+            None => Scalar::random(rng),
+            Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
+        };
+
+        let secret_shares = shamir_split(
+            rng,
+            &secret,
+            threshold,
+            &shamir_evaluation_points(num_parties),
+        );
+        let public_shares = secret_shares
+            .iter()
+            .map(|s| s.mul_by_generator())
+            .collect::<Box<_>>();
+
+        let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
+
+        secret_aux
+            .into_vec()
+            .into_iter()
+            .enumerate()
+            .map(|(idx, secret_aux)| ThresholdKeyShare {
+                index: PartyIdx::from_usize(idx),
+                threshold: threshold as u32, // TODO: fallible conversion?
+                secret_share: secret_shares[idx],
+                public_shares: public_shares.clone(),
+                secret_aux,
+                public_aux: public_aux.clone(),
+            })
+            .collect()
+    }
+
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         let points = shamir_evaluation_points(self.num_parties());
         self.public_shares[0..self.threshold as usize]
@@ -85,5 +127,33 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             secret_aux: self.secret_aux.clone(),
             public_aux: self.public_aux.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use k256::ecdsa::SigningKey;
+    use rand_core::OsRng;
+
+    use super::ThresholdKeyShare;
+    use crate::curve::Scalar;
+    use crate::{PartyIdx, TestSchemeParams};
+
+    #[test]
+    fn threshold_key_share_centralized() {
+        let sk = SigningKey::random(&mut OsRng);
+        let shares =
+            ThresholdKeyShare::<TestSchemeParams>::new_centralized(&mut OsRng, 2, 3, Some(&sk));
+        assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
+
+        let nt_share0 = shares[0].to_key_share(&[PartyIdx::from_usize(2), PartyIdx::from_usize(0)]);
+        let nt_share1 = shares[2].to_key_share(&[PartyIdx::from_usize(2), PartyIdx::from_usize(0)]);
+
+        assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
+        assert_eq!(&nt_share1.verifying_key(), sk.verifying_key());
+        assert_eq!(
+            nt_share0.secret_share + nt_share1.secret_share,
+            Scalar::from(sk.as_nonzero_scalar())
+        );
     }
 }

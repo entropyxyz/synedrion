@@ -7,12 +7,11 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_key_shares,
     sessions::{
         make_interactive_signing_session, make_keygen_and_aux_session, FinalizeOutcome,
         SendingState, SignedMessage, ToSend,
     },
-    PartyIdx, TestSchemeParams,
+    KeyShare, PartyIdx, TestSchemeParams,
 };
 
 type MessageOut = (PartyIdx, PartyIdx, SignedMessage<Signature>);
@@ -194,7 +193,7 @@ async fn interactive_signing() {
     let num_parties = 3;
     let (signers, verifiers) = make_signers(num_parties);
 
-    let key_shares = make_key_shares::<TestSchemeParams>(&mut OsRng, num_parties, None);
+    let key_shares = KeyShare::<TestSchemeParams>::new_centralized(&mut OsRng, num_parties, None);
     let shared_randomness = b"1234567890";
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 

@@ -13,7 +13,6 @@ pub(crate) mod threshold;
 pub(crate) mod test_utils;
 
 pub use common::{KeyShare, KeyShareChange, PartyIdx};
-pub(crate) use common::{PublicAuxInfo, SecretAuxInfo};
 pub(crate) use generic::{
     FinalizeError, FinalizeSuccess, FirstRound, InitError, ReceiveError, Round, ToSendTyped,
 };
