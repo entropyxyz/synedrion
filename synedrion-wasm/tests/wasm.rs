@@ -1,7 +1,7 @@
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::wasm_bindgen_test;
 
-use synedrion_wasm::{make_key_shares, KeyShare, SigningKey};
+use synedrion_wasm::{KeyShare, SigningKey};
 
 fn try_from_js_array<T>(val: impl Into<JsValue>) -> Vec<T>
 where
@@ -30,7 +30,7 @@ where
 #[wasm_bindgen_test]
 fn test_make_key_shares() {
     let sk: Option<SigningKey> = None;
-    let shares_js = make_key_shares(3, &into_js_option(sk)).unwrap();
+    let shares_js = KeyShare::new_centralized(3, &into_js_option(sk)).unwrap();
     let shares = try_from_js_array::<KeyShare>(shares_js);
     let _shares_serialized = shares
         .iter()

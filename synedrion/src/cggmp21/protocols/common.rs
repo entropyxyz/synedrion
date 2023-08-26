@@ -101,7 +101,7 @@ impl<P: SchemeParams> KeyShare<P> {
         let public_shares = seed
             .public_shares
             .iter()
-            .zip(change.public_share_changes.into_vec().into_iter())
+            .zip(change.public_share_changes.into_vec())
             .map(|(public_share, public_share_change)| public_share + &public_share_change)
             .collect();
         Self {
@@ -153,7 +153,7 @@ impl<P: SchemeParams> KeyShare<P> {
         let public_shares = self
             .public_shares
             .iter()
-            .zip(change.public_share_changes.into_vec().into_iter())
+            .zip(change.public_share_changes.into_vec())
             .map(|(public_share, public_share_change)| public_share + &public_share_change)
             .collect();
         Self {

@@ -1,8 +1,8 @@
 # Wasm bindings for Synedrion
 
-Currently only `synedrion::make_key_shares` is exposed.
+Currently only `KeyShare` is exposed.
 
-`make_key_shares`, if successful, returns an array of Uint8Arrays containing `bincode` encoded shares.
+`KeyShare::new_centralized()`, if successful, returns an array of Uint8Arrays containing `bincode` encoded shares.
 
 The package is built using [`wasm-pack`](https://github.com/rustwasm/wasm-pack).
 Instead of running `wasm-build` directly, use the included `Makefile`, since it has to do some additional actions that `wasm-build` currently does not support:

@@ -1,5 +1,6 @@
 [workspace]
-members=[
+members = [
     'synedrion',
     'synedrion-wasm'
 ]
+resolver = "2"

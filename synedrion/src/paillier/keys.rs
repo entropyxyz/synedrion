@@ -149,6 +149,10 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
         P::DoubleUint::random_mod(rng, &self.modulus())
     }
 
+    // TODO: clippy started marking this as unused starting from Rust 1.72
+    // It is used in one of the presigning rounds. Is it a bug, or are the presigning rounds
+    // somehow not considered publicly visible? Figure it out later.
+    #[allow(dead_code)]
     pub fn random_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUintMod {
         let r = P::DoubleUint::random_mod(rng, &self.modulus());
         P::DoubleUintMod::new(&r, &self.modulus())

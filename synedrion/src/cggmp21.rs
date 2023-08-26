@@ -5,7 +5,7 @@
 //! DOI: 10.1145/3372297.3423367)
 //!
 //! The equation and figure numbers in the comments, and the notation used
-//! refers to the version of the paper published at https://eprint.iacr.org/2021/060.pdf
+//! refers to the version of the paper published at <https://eprint.iacr.org/2021/060.pdf>
 
 mod params;
 mod protocols;

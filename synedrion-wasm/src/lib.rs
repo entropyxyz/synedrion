@@ -60,35 +60,35 @@ impl KeyShare {
             .serialize(&self.0)
             .map_err(|err| Error::new(&format!("{}", err)))
     }
-}
 
-/// Creates a set of key shares.
-#[wasm_bindgen(js_name = makeKeyShares)]
-pub fn make_key_shares(
-    num_parties: usize,
-    signing_key: &OptionalSigningKey,
-) -> Result<KeyShareArray, Error> {
-    let sk_js: &JsValue = signing_key.as_ref();
-    let typed_sk: Option<SigningKey> = if sk_js.is_undefined() {
-        None
-    } else {
-        Some(SigningKey::try_from(sk_js).map_err(|err| Error::new(&err))?)
-    };
+    /// Creates a set of key shares.
+    #[wasm_bindgen(js_name = newCentralized)]
+    pub fn new_centralized(
+        num_parties: usize,
+        signing_key: &OptionalSigningKey,
+    ) -> Result<KeyShareArray, Error> {
+        let sk_js: &JsValue = signing_key.as_ref();
+        let typed_sk: Option<SigningKey> = if sk_js.is_undefined() {
+            None
+        } else {
+            Some(SigningKey::try_from(sk_js).map_err(|err| Error::new(&err))?)
+        };
 
-    let backend_sk = typed_sk.map(|sk| sk.0);
+        let backend_sk = typed_sk.map(|sk| sk.0);
 
-    let shares = synedrion::make_key_shares::<TestSchemeParams>(
-        &mut OsRng,
-        num_parties,
-        backend_sk.as_ref(),
-    );
-    Ok(shares
-        .into_vec()
-        .into_iter()
-        .map(KeyShare)
-        .map(JsValue::from)
-        .collect::<js_sys::Array>()
-        .unchecked_into::<KeyShareArray>())
+        let shares = synedrion::KeyShare::<TestSchemeParams>::new_centralized(
+            &mut OsRng,
+            num_parties,
+            backend_sk.as_ref(),
+        );
+        Ok(shares
+            .into_vec()
+            .into_iter()
+            .map(KeyShare)
+            .map(JsValue::from)
+            .collect::<js_sys::Array>()
+            .unchecked_into::<KeyShareArray>())
+    }
 }
 
 /// Prepares a `bincode` serde backend with our preferred config
