@@ -9,7 +9,7 @@
 
 mod params;
 mod protocols;
-pub(crate) mod sigma;
+mod sigma;
 
 pub use params::{ProductionParams, SchemeParams, TestParams};
 pub(crate) use protocols::{
