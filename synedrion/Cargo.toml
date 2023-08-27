@@ -21,7 +21,7 @@ base64 = { version = "0.21", default-features = false, features = ["alloc"] }
 rand_chacha = { version = "0.3", default-features = false }
 
 crypto-bigint = { version = "0.5", features = ["serde"] }
-crypto-primes = "0.4.1"
+crypto-primes = "0.5"
 
 serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"
