@@ -10,14 +10,16 @@ use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::Zero;
 
+/// A typed integer denoting the index of a party in the group.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PartyIdx(u32);
 
 impl PartyIdx {
-    pub fn as_usize(self) -> usize {
+    pub(crate) fn as_usize(self) -> usize {
         self.0.try_into().unwrap()
     }
 
+    /// Wraps an integers into the party index.
     pub fn from_usize(val: usize) -> Self {
         Self(val.try_into().unwrap())
     }
@@ -30,14 +32,19 @@ impl Hashable for PartyIdx {
 }
 
 /// The result of the Keygen protocol.
+// TODO: Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
+// or in a `SecretBox`-type wrapper.
 #[derive(Clone)]
 pub struct KeyShareSeed {
     /// Secret key share of this node.
-    pub secret_share: Scalar, // `x_i`
+    pub(crate) secret_share: Scalar, // `x_i`
     /// Public key shares of all nodes (including this one).
-    pub public_shares: Box<[Point]>, // `X_j`
+    pub(crate) public_shares: Box<[Point]>, // `X_j`
 }
 
+/// The full key share with auxiliary parameters.
+// TODO: Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
+// or in a `SecretBox`-type wrapper.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretAuxInfo<P>: Serialize,
         PublicAuxInfo<P>: Serialize"))]
@@ -51,6 +58,8 @@ pub struct KeyShare<P: SchemeParams> {
     pub(crate) public_aux: Box<[PublicAuxInfo<P>]>,
 }
 
+// TODO: Debug can be derived automatically here if `el_gamal_sk` is wrapped in its own struct,
+// or in a `SecretBox`-type wrapper.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
@@ -59,7 +68,7 @@ pub(crate) struct SecretAuxInfo<P: SchemeParams> {
     pub(crate) el_gamal_sk: Scalar, // `y_i`
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicKeyPaillier<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "PublicKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct PublicAuxInfo<P: SchemeParams> {
@@ -73,7 +82,7 @@ pub(crate) struct PublicAuxInfo<P: SchemeParams> {
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct KeyShareChange<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     /// The value to be added to the secret share.
@@ -85,7 +94,7 @@ pub struct KeyShareChange<P: SchemeParams> {
 }
 
 /// The result of the Presigning protocol.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PresigningData {
     pub(crate) nonce: Point, // `R`
     /// An additive share of the ephemeral scalar `k`.
@@ -95,6 +104,8 @@ pub struct PresigningData {
 }
 
 impl<P: SchemeParams> KeyShare<P> {
+    /// Creates a key share out of the seed (obtained from the KeyGen protocol)
+    /// and the share change (obtained from the KeyRefresh+Auxiliary protocol).
     pub fn new(seed: KeyShareSeed, change: KeyShareChange<P>) -> Self {
         // TODO: check that party_idx is the same for both, and the number of parties is the same
         let secret_share = seed.secret_share + change.secret_share_change;
@@ -147,6 +158,8 @@ impl<P: SchemeParams> KeyShare<P> {
             .collect()
     }
 
+    /// Return the updated key share using the share change
+    /// obtained from the KeyRefresh+Auxiliary protocol).
     pub fn update(self, change: KeyShareChange<P>) -> Self {
         // TODO: check that party_idx is the same for both, and the number of parties is the same
         let secret_share = self.secret_share + change.secret_share_change;
@@ -169,18 +182,21 @@ impl<P: SchemeParams> KeyShare<P> {
         self.public_shares.iter().sum()
     }
 
+    /// Return the verifying key to which this set of shares corresponds.
     pub fn verifying_key(&self) -> VerifyingKey {
         // TODO: need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
+    /// Returns the number of parties in this set of shares.
     pub fn num_parties(&self) -> usize {
         // TODO: technically it is `num_shares`, but for now we are equating the two,
         // since we assume that one party has one share.
         self.public_shares.len()
     }
 
+    /// Returns the index of this share's party.
     pub fn party_index(&self) -> PartyIdx {
         // TODO: technically it is the share index, but for now we are equating the two,
         // since we assume that one party has one share.
@@ -188,7 +204,44 @@ impl<P: SchemeParams> KeyShare<P> {
     }
 }
 
-impl<P: SchemeParams> core::fmt::Debug for KeyShare<P> {
+// A custom Debug impl that skips the secret value
+impl core::fmt::Debug for KeyShareSeed {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        write!(
+            f,
+            "KeySeed {{ secret_share: <...>, public_shares: {:?} }}",
+            self.public_shares,
+        )
+    }
+}
+
+// A custom Debug impl that skips the secret value
+impl<P: SchemeParams> core::fmt::Debug for SecretAuxInfo<P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        write!(f, "SecretAuxInfo {{ <...> }}",)
+    }
+}
+
+// A custom Debug impl that skips the secret values
+impl<P: SchemeParams + core::fmt::Debug> core::fmt::Debug for KeyShare<P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        write!(
+            f,
+            concat![
+                "KeyShare {{",
+                "index: {:?}, ",
+                "secret_share: <...>, ",
+                "public_shares: {:?}, ",
+                "secret_aux: {:?}, ",
+                "public_aux: {:?} ",
+                "}}"
+            ],
+            self.index, self.public_shares, self.secret_aux, self.public_aux
+        )
+    }
+}
+
+impl<P: SchemeParams> core::fmt::Display for KeyShare<P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         write!(
             f,
@@ -230,12 +283,12 @@ mod tests {
     use rand_core::OsRng;
 
     use super::KeyShare;
-    use crate::TestSchemeParams;
+    use crate::TestParams;
 
     #[test]
     fn key_share_centralized() {
         let sk = SigningKey::random(&mut OsRng);
-        let shares = KeyShare::<TestSchemeParams>::new_centralized(&mut OsRng, 3, Some(&sk));
+        let shares = KeyShare::<TestParams>::new_centralized(&mut OsRng, 3, Some(&sk));
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
     }
 }

@@ -31,7 +31,7 @@ pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub(crate) type CompressedPointSize =
     <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
 
-pub(crate) const ORDER: U256 = k256::Secp256k1::ORDER;
+pub(crate) const ORDER: U256 = Secp256k1::ORDER;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Scalar(BackendScalar);
@@ -45,7 +45,7 @@ impl Scalar {
     }
 
     pub fn random_nonzero(rng: &mut impl CryptoRngCore) -> Self {
-        Self(*NonZeroScalar::<k256::Secp256k1>::random(rng).as_ref())
+        Self(*NonZeroScalar::<Secp256k1>::random(rng).as_ref())
     }
 
     pub fn random_in_range_j(rng: &mut impl CryptoRngCore) -> Self {
@@ -73,7 +73,7 @@ impl Scalar {
         self.0.invert().map(Self)
     }
 
-    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
+    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<Secp256k1>>) -> Self {
         // There's currently no way to make the required digest output size
         // depend on the target scalar size, so we are hardcoding it to 256 bit
         // (that is, equal to the scalar size).
@@ -136,8 +136,8 @@ impl<'a> TryFrom<&'a [u8]> for Scalar {
     }
 }
 
-impl From<&NonZeroScalar<k256::Secp256k1>> for Scalar {
-    fn from(val: &NonZeroScalar<k256::Secp256k1>) -> Self {
+impl From<&NonZeroScalar<Secp256k1>> for Scalar {
+    fn from(val: &NonZeroScalar<Secp256k1>) -> Self {
         Self(*val.as_ref())
     }
 }

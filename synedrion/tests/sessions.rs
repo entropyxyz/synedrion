@@ -11,7 +11,7 @@ use synedrion::{
         make_interactive_signing_session, make_keygen_and_aux_session, FinalizeOutcome,
         SendingState, SignedMessage, ToSend,
     },
-    KeyShare, PartyIdx, TestSchemeParams,
+    KeyShare, PartyIdx, TestParams,
 };
 
 type MessageOut = (PartyIdx, PartyIdx, SignedMessage<Signature>);
@@ -168,7 +168,7 @@ async fn keygen_and_aux() {
         .into_iter()
         .enumerate()
         .map(|(idx, signer)| {
-            make_keygen_and_aux_session::<TestSchemeParams, Signature, _, _>(
+            make_keygen_and_aux_session::<TestParams, Signature, _, _>(
                 &mut OsRng,
                 shared_randomness,
                 signer,
@@ -193,7 +193,7 @@ async fn interactive_signing() {
     let num_parties = 3;
     let (signers, verifiers) = make_signers(num_parties);
 
-    let key_shares = KeyShare::<TestSchemeParams>::new_centralized(&mut OsRng, num_parties, None);
+    let key_shares = KeyShare::<TestParams>::new_centralized(&mut OsRng, num_parties, None);
     let shared_randomness = b"1234567890";
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 

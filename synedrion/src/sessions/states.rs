@@ -16,8 +16,12 @@ use super::type_erased::{
 use crate::cggmp21::{FirstRound, InitError, Round};
 use crate::PartyIdx;
 
+/// Messages to send to another parties.
+#[derive(Debug, Clone)]
 pub enum ToSend<Sig> {
+    /// This messages needs to be broadcasted to all parties.
     Broadcast(SignedMessage<Sig>),
+    /// These messages need to be sent directly to the corresponding parties.
     // TODO: return an iterator instead, since preparing one message can take some time
     Direct(Vec<(PartyIdx, SignedMessage<Sig>)>),
 }
@@ -40,6 +44,7 @@ enum SendingType<Res, Sig, Verifier> {
     },
 }
 
+/// The session state where it is ready to send messages.
 pub struct SendingState<Res, Sig, Signer, Verifier> {
     tp: SendingType<Res, Sig, Verifier>,
     context: Context<Sig, Signer, Verifier>,
@@ -53,6 +58,7 @@ enum ReceivingType<Res, Sig, Verifier> {
     },
 }
 
+/// The session state where it is ready to receive messages.
 pub struct ReceivingState<Res, Sig, Signer, Verifier> {
     tp: ReceivingType<Res, Sig, Verifier>,
     context: Context<Sig, Signer, Verifier>,
@@ -135,6 +141,8 @@ where
         })
     }
 
+    /// Returns the messages to send and the receiving state
+    /// ready to accept messages from other parties.
     #[allow(clippy::type_complexity)]
     pub fn start_receiving(
         self,
@@ -235,8 +243,11 @@ fn route_message_bc<Sig, Res>(
     MessageFor::OutOfOrder
 }
 
+/// Possible outcomes of successfully finalizing a round.
 pub enum FinalizeOutcome<Res, Sig, Signer, Verifier> {
+    /// The protocol result is available.
     Result(Res),
+    /// Starting the next round.
     AnotherRound(SendingState<Res, Sig, Signer, Verifier>),
 }
 

@@ -2,7 +2,8 @@ use k256::ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
 
 use super::arithmetic::{Point, Scalar};
 
-#[derive(Clone, Debug)]
+/// A wrapper for a signature and public key recovery info.
+#[derive(Debug, Clone, Copy)]
 pub struct RecoverableSignature {
     signature: BackendSignature,
     recovery_id: RecoveryId,
@@ -32,6 +33,7 @@ impl RecoverableSignature {
         })
     }
 
+    /// Unwraps into the signature and recovery info objects from the backend crate.
     pub fn to_backend(self) -> (BackendSignature, RecoveryId) {
         (self.signature, self.recovery_id)
     }

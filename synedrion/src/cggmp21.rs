@@ -11,7 +11,7 @@ mod params;
 mod protocols;
 pub(crate) mod sigma;
 
-pub use params::{SchemeParams, TestSchemeParams};
+pub use params::{ProductionParams, SchemeParams, TestParams};
 pub(crate) use protocols::{
     auxiliary, interactive_signing, keygen_and_aux, FinalizeError, FinalizeSuccess, FirstRound,
     InitError, ReceiveError, Round, ToSendTyped,

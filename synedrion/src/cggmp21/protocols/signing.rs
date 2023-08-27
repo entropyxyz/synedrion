@@ -104,7 +104,7 @@ mod tests {
         FirstRound,
     };
     use super::{Context, Round1};
-    use crate::cggmp21::{KeyShare, PartyIdx, TestSchemeParams};
+    use crate::cggmp21::{KeyShare, PartyIdx, TestParams};
     use crate::curve::Scalar;
 
     #[test]
@@ -115,7 +115,7 @@ mod tests {
         let key_shares = KeyShare::new_centralized(&mut OsRng, 3, None);
 
         let r1 = vec![
-            presigning::Round1Part1::<TestSchemeParams>::new(
+            presigning::Round1Part1::<TestParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
@@ -123,7 +123,7 @@ mod tests {
                 key_shares[0].clone(),
             )
             .unwrap(),
-            presigning::Round1Part1::<TestSchemeParams>::new(
+            presigning::Round1Part1::<TestParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
@@ -131,7 +131,7 @@ mod tests {
                 key_shares[1].clone(),
             )
             .unwrap(),
-            presigning::Round1Part1::<TestSchemeParams>::new(
+            presigning::Round1Part1::<TestParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,

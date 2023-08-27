@@ -187,13 +187,13 @@ mod tests {
     use rand_core::OsRng;
 
     use super::EncProof;
-    use crate::cggmp21::{SchemeParams, TestSchemeParams};
+    use crate::cggmp21::{SchemeParams, TestParams};
     use crate::paillier::{Ciphertext, PaillierParams, SecretKeyPaillier};
     use crate::uint::{NonZero, RandomMod};
 
     #[test]
     fn prove_and_verify() {
-        type Params = TestSchemeParams;
+        type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
         let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);

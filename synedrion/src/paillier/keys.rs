@@ -131,8 +131,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicKeyPaillier<P: PaillierParams> {
-    /// N
-    modulus: P::DoubleUint,
+    modulus: P::DoubleUint, // $N$
 }
 
 impl<P: PaillierParams> PublicKeyPaillier<P> {

@@ -38,7 +38,8 @@ fn message_hash(
         .finalize()
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+/// A (yet) unverified message from a round that includes the payload signature.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct SignedMessage<Sig> {
     session_id: SessionId,
     round: u8,
@@ -69,7 +70,7 @@ impl<Sig> SignedMessage<Sig> {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct VerifiedMessage<Sig>(SignedMessage<Sig>);
 
 impl<Sig> VerifiedMessage<Sig> {

@@ -3,13 +3,30 @@ use core::fmt;
 
 use crate::cggmp21::PartyIdx;
 
+/// Possible errors returned by session methods.
 #[derive(Clone, Debug)]
 pub enum Error {
+    /// Indicates an error on this party's side:
+    /// incorrect implementation, or some environment error.
     MyFault(MyFault),
+    /// Not enough messages received to finalize the round.
     NotEnoughMessages,
+    /// Failed to finalize the round.
     Finalize,
-    TheirFault { party: PartyIdx, error: TheirFault },
-    TheirFaultUnprovable { party: PartyIdx, error: TheirFault },
+    /// A provable fault of another party.
+    TheirFault {
+        /// The index of the failed party.
+        party: PartyIdx,
+        /// The error that occurred.
+        error: TheirFault,
+    },
+    /// An unprovable fault of another party.
+    TheirFaultUnprovable {
+        /// The index of the failed party.
+        party: PartyIdx,
+        /// The error that occurred.
+        error: TheirFault,
+    },
 }
 
 impl fmt::Display for Error {

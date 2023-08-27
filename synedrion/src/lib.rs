@@ -1,4 +1,18 @@
 #![cfg_attr(not(test), no_std)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![doc = include_str!("../../README.md")]
+#![deny(unsafe_code)]
+#![warn(
+    clippy::mod_module_files,
+    // TODO: handle unwraps gracefully and enable this lint
+    // clippy::unwrap_used,
+    missing_docs,
+    missing_copy_implementations,
+    rust_2018_idioms,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_qualifications
+)]
 
 extern crate alloc;
 
@@ -14,5 +28,7 @@ pub use k256;
 pub use k256::ecdsa;
 pub use signature;
 
-pub use cggmp21::{KeyShare, PartyIdx, SchemeParams, TestSchemeParams, ThresholdKeyShare};
+pub use cggmp21::{
+    KeyShare, PartyIdx, ProductionParams, SchemeParams, TestParams, ThresholdKeyShare,
+};
 pub use curve::RecoverableSignature;

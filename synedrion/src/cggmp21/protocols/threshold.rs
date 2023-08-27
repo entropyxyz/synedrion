@@ -10,6 +10,10 @@ use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points, shamir_split};
 
+/// A threshold variant of the key share, where any `threshold` shares our of the total number
+/// is enough to perform signing.
+// TODO: Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
+// or in a `SecretBox`-type wrapper.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretAuxInfo<P>: Serialize,
         PublicAuxInfo<P>: Serialize"))]
@@ -25,6 +29,8 @@ pub struct ThresholdKeyShare<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> ThresholdKeyShare<P> {
+    /// Returns `num_parties` of random self-consistent key shares
+    /// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         threshold: usize,
@@ -75,18 +81,21 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .sum()
     }
 
+    /// Return the verifying key to which this set of shares corresponds.
     pub fn verifying_key(&self) -> VerifyingKey {
         // TODO: need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
+    /// Returns the number of parties in this set of shares.
     pub fn num_parties(&self) -> usize {
         // TODO: technically it is `num_shares`, but for now we are equating the two,
         // since we assume that one party has one share.
         self.public_shares.len()
     }
 
+    /// Returns the index of this share's party.
     pub fn party_index(&self) -> PartyIdx {
         // TODO: technically it is the share index, but for now we are equating the two,
         // since we assume that one party has one share.
@@ -130,6 +139,26 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     }
 }
 
+// A custom Debug impl that skips the secret values
+impl<P: SchemeParams + core::fmt::Debug> core::fmt::Debug for ThresholdKeyShare<P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        write!(
+            f,
+            concat![
+                "KeyShare {{",
+                "index: {:?}, ",
+                "threshold: {:?} ",
+                "secret_share: <...>, ",
+                "public_shares: {:?}, ",
+                "secret_aux: {:?}, ",
+                "public_aux: {:?} ",
+                "}}"
+            ],
+            self.index, self.threshold, self.public_shares, self.secret_aux, self.public_aux
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use k256::ecdsa::SigningKey;
@@ -137,13 +166,12 @@ mod tests {
 
     use super::ThresholdKeyShare;
     use crate::curve::Scalar;
-    use crate::{PartyIdx, TestSchemeParams};
+    use crate::{PartyIdx, TestParams};
 
     #[test]
     fn threshold_key_share_centralized() {
         let sk = SigningKey::random(&mut OsRng);
-        let shares =
-            ThresholdKeyShare::<TestSchemeParams>::new_centralized(&mut OsRng, 2, 3, Some(&sk));
+        let shares = ThresholdKeyShare::<TestParams>::new_centralized(&mut OsRng, 2, 3, Some(&sk));
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
 
         let nt_share0 = shares[0].to_key_share(&[PartyIdx::from_usize(2), PartyIdx::from_usize(0)]);

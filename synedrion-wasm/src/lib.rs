@@ -10,7 +10,7 @@ use rand_core::OsRng;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_derive::TryFromJsValue;
 
-use synedrion::TestSchemeParams;
+use synedrion::TestParams;
 
 extern crate alloc;
 
@@ -47,7 +47,7 @@ impl SigningKey {
 #[derive(TryFromJsValue)]
 #[wasm_bindgen]
 #[derive(Clone)]
-pub struct KeyShare(synedrion::KeyShare<TestSchemeParams>);
+pub struct KeyShare(synedrion::KeyShare<TestParams>);
 
 #[wasm_bindgen]
 impl KeyShare {
@@ -76,7 +76,7 @@ impl KeyShare {
 
         let backend_sk = typed_sk.map(|sk| sk.0);
 
-        let shares = synedrion::KeyShare::<TestSchemeParams>::new_centralized(
+        let shares = synedrion::KeyShare::<TestParams>::new_centralized(
             &mut OsRng,
             num_parties,
             backend_sk.as_ref(),

@@ -141,7 +141,7 @@ impl<T> HoleVec<T> {
         self.elems.get(index)
     }
 
-    pub fn iter(&self) -> core::slice::Iter<T> {
+    pub fn iter(&self) -> core::slice::Iter<'_, T> {
         self.elems.iter()
     }
 

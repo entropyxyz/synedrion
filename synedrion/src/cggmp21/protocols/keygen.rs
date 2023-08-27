@@ -304,7 +304,7 @@ mod tests {
         FirstRound,
     };
     use super::Round1;
-    use crate::cggmp21::{PartyIdx, TestSchemeParams};
+    use crate::cggmp21::{PartyIdx, TestParams};
 
     #[test]
     fn execute_keygen() {
@@ -312,7 +312,7 @@ mod tests {
         OsRng.fill_bytes(&mut shared_randomness);
 
         let r1 = vec![
-            Round1::<TestSchemeParams>::new(
+            Round1::<TestParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
@@ -320,7 +320,7 @@ mod tests {
                 (),
             )
             .unwrap(),
-            Round1::<TestSchemeParams>::new(
+            Round1::<TestParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
@@ -328,7 +328,7 @@ mod tests {
                 (),
             )
             .unwrap(),
-            Round1::<TestSchemeParams>::new(
+            Round1::<TestParams>::new(
                 &mut OsRng,
                 &shared_randomness,
                 3,
