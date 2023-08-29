@@ -6,9 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
-use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
+use crate::paillier::{PublicKeyPaillier, RPParams, RPParamsMod, SecretKeyPaillier};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::Zero;
 
 /// A typed integer denoting the index of a party in the group.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -75,10 +74,8 @@ pub(crate) struct PublicAuxInfo<P: SchemeParams> {
     pub(crate) el_gamal_pk: Point, // `Y_i`
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
-    /// The ring-Pedersen generator.
-    pub(crate) rp_generator: <P::Paillier as PaillierParams>::DoubleUint, // `t_i`
-    /// The ring-Pedersen power (a number belonging to the group produced by the generator).
-    pub(crate) rp_power: <P::Paillier as PaillierParams>::DoubleUint, // `s_i`
+    /// The ring-Pedersen parameters.
+    pub(crate) rp_params: RPParams<P::Paillier>, // `s_i` and `t_i`
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
@@ -269,8 +266,7 @@ pub(crate) fn make_aux_info<P: SchemeParams>(
         .map(|secret| PublicAuxInfo {
             paillier_pk: secret.paillier_sk.public_key(),
             el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
-            rp_generator: <P::Paillier as PaillierParams>::DoubleUint::ZERO, // TODO: currently unused in the protocol
-            rp_power: <P::Paillier as PaillierParams>::DoubleUint::ZERO, // TODO: currently unused in the protocol
+            rp_params: RPParamsMod::random(rng, &secret.paillier_sk).retrieve(),
         })
         .collect();
 

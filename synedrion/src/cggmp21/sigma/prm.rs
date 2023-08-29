@@ -9,7 +9,9 @@ use rand_core::CryptoRngCore;
 
 use serde::{Deserialize, Serialize};
 
-use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
+use crate::paillier::{
+    PaillierParams, PublicKeyPaillier, RPParamsMod, RPSecret, SecretKeyPaillier,
+};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{Pow, Retrieve, UintLike, UintModLike, Zero};
 
@@ -65,16 +67,11 @@ impl<P: PaillierParams> Hashable for PrmCommitment<P> {
 struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
-    fn new<P: PaillierParams>(
-        aux: &impl Hashable,
-        public: &P::DoubleUintMod,
-        commitment: &PrmCommitment<P>,
-    ) -> Self {
+    fn new<P: PaillierParams>(aux: &impl Hashable, commitment: &PrmCommitment<P>) -> Self {
         // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
         // CHECK: should we use an actual RNG here instead of variable-sized hash?
         let bytes = XofHash::new_with_dst(b"prm-challenge")
             .chain(aux)
-            .chain(public)
             .chain(commitment)
             .finalize_boxed(commitment.security_parameter());
         Self(bytes.as_ref().iter().map(|b| b & 1 == 1).collect())
@@ -97,28 +94,27 @@ pub(crate) struct PrmProof<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> PrmProof<P> {
-    /// Create a proof that we know the `secret`.
-    // TODO: should it take `public` and `base` as non-mod uints too, to match verify()?
+    /// Create a proof that we know the `secret`
+    /// (the power that was used to create RP parameters).
     pub(crate) fn random(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillier<P>,
-        secret: &P::DoubleUint,
-        base: &P::DoubleUintMod,
-        public: &P::DoubleUintMod,
+        rp_secret: &RPSecret<P>,
+        rp: &RPParamsMod<P>,
         aux: &impl Hashable,
         security_parameter: usize,
     ) -> Self {
         let proof_secret = PrmSecret::random(rng, sk, security_parameter);
-        let commitment = PrmCommitment::new(&proof_secret, base);
+        let commitment = PrmCommitment::new(&proof_secret, &rp.base);
 
         let totient = sk.totient();
         let zero = P::DoubleUint::ZERO;
-        let challenge = PrmChallenge::new(aux, public, &commitment);
+        let challenge = PrmChallenge::new(aux, &commitment);
         let proof = proof_secret
             .secret
             .iter()
             .zip(challenge.0.iter())
-            .map(|(a, e)| a.add_mod(if *e { secret } else { &zero }, &totient))
+            .map(|(a, e)| a.add_mod(if *e { rp_secret.as_ref() } else { &zero }, &totient))
             .collect();
         Self {
             commitment,
@@ -127,19 +123,16 @@ impl<P: PaillierParams> PrmProof<P> {
         }
     }
 
-    /// Verify that the proof is correct for a secret corresponding to the given `public`.
+    /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
     pub(crate) fn verify(
         &self,
         pk: &PublicKeyPaillier<P>,
-        base: &P::DoubleUint,
-        public: &P::DoubleUint,
+        rp: &RPParamsMod<P>,
         aux: &impl Hashable,
     ) -> bool {
         let modulus = pk.modulus();
-        let base_mod = P::DoubleUintMod::new(base, &modulus);
-        let public_mod = P::DoubleUintMod::new(public, &modulus);
 
-        let challenge = PrmChallenge::new(aux, &public_mod, &self.commitment);
+        let challenge = PrmChallenge::new(aux, &self.commitment);
         if challenge != self.challenge {
             return false;
         }
@@ -149,9 +142,9 @@ impl<P: PaillierParams> PrmProof<P> {
             let e = challenge.0[i];
             let a = P::DoubleUintMod::new(&self.commitment.0[i], &modulus);
             let test = if e {
-                base_mod.pow(&z) == a * public_mod
+                rp.base.pow(&z) == a * rp.power
             } else {
-                base_mod.pow(&z) == a
+                rp.base.pow(&z) == a
             };
             if !test {
                 return false;
@@ -172,7 +165,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::PrmProof;
-    use crate::paillier::{PaillierTest, SecretKeyPaillier};
+    use crate::paillier::{PaillierTest, RPParamsMod, RPSecret, SecretKeyPaillier};
 
     #[test]
     fn protocol() {
@@ -180,24 +173,12 @@ mod tests {
         let pk = sk.public_key();
         let security_parameter = 10;
 
-        let base = pk.random_group_elem(&mut OsRng);
-        let secret = sk.random_field_elem(&mut OsRng);
-        // TODO: find a way to express it better; for some reason Rust
-        // does not pick the right `Pow` impl otherwise.
-        // Do we have to wrap DynResidue in our own type too?
-        let public = base.pow(&secret);
+        let rp_secret = RPSecret::random(&mut OsRng, &sk);
+        let rp = RPParamsMod::random_with_secret(&mut OsRng, &rp_secret, &pk);
 
         let aux: &[u8] = b"abcde";
 
-        let proof = PrmProof::random(
-            &mut OsRng,
-            &sk,
-            &secret,
-            &base,
-            &public,
-            &aux,
-            security_parameter,
-        );
-        assert!(proof.verify(&pk, &base.retrieve(), &public.retrieve(), &aux));
+        let proof = PrmProof::random(&mut OsRng, &sk, &rp_secret, &rp, &aux, security_parameter);
+        assert!(proof.verify(&pk, &rp, &aux));
     }
 }

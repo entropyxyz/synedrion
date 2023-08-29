@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use crypto_bigint::Pow;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -15,12 +14,15 @@ use crate::cggmp21::{
     SchemeParams,
 };
 use crate::curve::{Point, Scalar};
-use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
+use crate::paillier::{
+    Ciphertext, PaillierParams, PublicKeyPaillier, RPParams, RPParamsMod, RPSecret,
+    SecretKeyPaillier,
+};
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
-use crate::uint::{FromScalar, Retrieve, UintLike};
+use crate::uint::{FromScalar, UintLike};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
@@ -30,14 +32,13 @@ fn uint_from_scalar<P: SchemeParams>(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData<P: SchemeParams> {
-    xs_public: Vec<Point>,                                     // $\bm{X}_i$
-    sch_commitments_x: Vec<SchCommitment>,                     // $\bm{A}_i$
-    el_gamal_pk: Point,                                        // $Y_i$,
-    el_gamal_commitment: SchCommitment,                        // $B_i$
-    paillier_pk: PublicKeyPaillier<P::Paillier>,               // $N_i$
-    rp_power: <P::Paillier as PaillierParams>::DoubleUint,     // $s_i$
-    rp_generator: <P::Paillier as PaillierParams>::DoubleUint, // $t_i$
-    prm_proof: PrmProof<P::Paillier>,                          // $\hat{\psi}_i$
+    xs_public: Vec<Point>,                       // $\bm{X}_i$
+    sch_commitments_x: Vec<SchCommitment>,       // $\bm{A}_i$
+    el_gamal_pk: Point,                          // $Y_i$,
+    el_gamal_commitment: SchCommitment,          // $B_i$
+    paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
+    rp_params: RPParams<P::Paillier>,            // $s_i$ and $t_i$
+    prm_proof: PrmProof<P::Paillier>,            // $\hat{\psi}_i$
     #[serde(with = "serde_bytes::as_base64")]
     rho_bits: Box<[u8]>, // $\rho_i$
     #[serde(with = "serde_bytes::as_base64")]
@@ -63,8 +64,7 @@ impl<P: SchemeParams> Hashable for FullData<P> {
             .chain(&self.el_gamal_pk)
             .chain(&self.el_gamal_commitment)
             .chain(&self.paillier_pk)
-            .chain(&self.rp_power)
-            .chain(&self.rp_generator)
+            .chain(&self.rp_params)
             .chain(&self.prm_proof)
             .chain(&self.rho_bits)
             .chain(&self.u_bits)
@@ -109,18 +109,15 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             .map(|x| x.mul_by_generator())
             .collect();
 
-        let r = paillier_pk.random_invertible_group_elem(rng);
-        let lambda = paillier_sk.random_field_elem(rng);
-        let rp_generator = r * r; // TODO: use `square()` when it's available
-        let rp_power = rp_generator.pow(&lambda);
+        let rp_secret = RPSecret::random(rng, &paillier_sk);
+        let rp_params = RPParamsMod::random_with_secret(rng, &rp_secret, &paillier_pk);
 
         let aux = (&shared_randomness, &party_idx);
         let prm_proof = PrmProof::random(
             rng,
             &paillier_sk,
-            &lambda,
-            &rp_generator,
-            &rp_power,
+            &rp_secret,
+            &rp_params,
             &aux,
             P::SECURITY_PARAMETER,
         );
@@ -141,8 +138,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             el_gamal_pk,
             el_gamal_commitment,
             paillier_pk,
-            rp_power: rp_power.retrieve(),
-            rp_generator: rp_generator.retrieve(),
+            rp_params: rp_params.retrieve(),
             prm_proof,
             rho_bits,
             u_bits,
@@ -265,12 +261,12 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         }
 
         let aux = (&self.context.shared_randomness, &from);
-        if !msg.data.prm_proof.verify(
-            &msg.data.paillier_pk,
-            &msg.data.rp_generator,
-            &msg.data.rp_power,
-            &aux,
-        ) {
+        let rp_params_mod = msg.data.rp_params.to_mod(&msg.data.paillier_pk);
+        if !msg
+            .data
+            .prm_proof
+            .verify(&msg.data.paillier_pk, &rp_params_mod, &aux)
+        {
             return Err(ReceiveError::VerificationFail(
                 "PRM verification failed".into(),
             ));
@@ -472,8 +468,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             .map(|data| PublicAuxInfo {
                 el_gamal_pk: data.el_gamal_pk,
                 paillier_pk: data.paillier_pk,
-                rp_generator: data.rp_generator,
-                rp_power: data.rp_power,
+                rp_params: data.rp_params,
             })
             .collect();
 
