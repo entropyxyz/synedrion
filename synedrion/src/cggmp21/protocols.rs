@@ -13,7 +13,8 @@ mod threshold;
 pub(crate) mod test_utils;
 
 pub use common::{KeyShare, KeyShareChange, PartyIdx};
+pub use generic::InitError;
 pub(crate) use generic::{
-    FinalizeError, FinalizeSuccess, FirstRound, InitError, ReceiveError, Round, ToSendTyped,
+    FinalizeError, FinalizeSuccess, FirstRound, ReceiveError, Round, ToSendTyped,
 };
 pub use threshold::ThresholdKeyShare;

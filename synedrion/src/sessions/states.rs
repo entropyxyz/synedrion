@@ -257,6 +257,7 @@ where
     Verifier: Clone + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
+    /// Returns a pair of the current stage index and whether it is a broadcast consensus stage.
     pub fn current_stage(&self) -> (u8, bool) {
         match &self.tp {
             ReceivingType::Normal(round) => (round.round_num(), false),
@@ -264,6 +265,7 @@ where
         }
     }
 
+    /// Process a received message from another party.
     pub fn receive(&mut self, from: PartyIdx, message: SignedMessage<Sig>) -> Result<(), Error> {
         // TODO: should we check the session ID and round number before verification, to save time?
 
@@ -395,6 +397,7 @@ where
         })
     }
 
+    /// Try to finalize the stage.
     pub fn finalize(
         self,
         rng: &mut impl CryptoRngCore,
@@ -407,10 +410,15 @@ where
         }
     }
 
+    /// Returns `true` if the session has cached messages for this stage
+    /// received during the previous stage.
     pub fn has_cached_messages(&self) -> bool {
         !self.context.message_cache.is_empty()
     }
 
+    /// Attempt to process one message from the cache.
+    ///
+    /// The message is removed on success.
     pub fn receive_cached_message(&mut self) -> Result<(), Error> {
         let (from, verified_message) = self.context.message_cache.pop().ok_or_else(|| {
             Error::MyFault(MyFault::InvalidState("No more cached messages left".into()))
@@ -418,6 +426,7 @@ where
         self.receive_verified(from, verified_message)
     }
 
+    /// Returns `true` if the stage has processed enough messages to be finalized.
     pub fn can_finalize(&self) -> bool {
         match &self.tp {
             ReceivingType::Normal(round) => round.can_finalize(),

@@ -14,7 +14,8 @@ use crate::tools::hashing::{Chain, Hashable};
 pub struct PartyIdx(u32);
 
 impl PartyIdx {
-    pub(crate) fn as_usize(self) -> usize {
+    /// Converts the party index to a regular integer.
+    pub fn as_usize(self) -> usize {
         self.0.try_into().unwrap()
     }
 

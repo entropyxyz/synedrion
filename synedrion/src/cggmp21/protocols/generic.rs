@@ -62,6 +62,7 @@ pub(crate) trait Round: BaseRound {
     const NEXT_ROUND_NUM: Option<u8>;
 }
 
+/// An error that can occur when initializing a protocol.
 #[derive(Debug)]
 pub struct InitError(pub(crate) String);
 

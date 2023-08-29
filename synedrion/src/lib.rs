@@ -29,6 +29,6 @@ pub use k256::ecdsa;
 pub use signature;
 
 pub use cggmp21::{
-    KeyShare, PartyIdx, ProductionParams, SchemeParams, TestParams, ThresholdKeyShare,
+    InitError, KeyShare, PartyIdx, ProductionParams, SchemeParams, TestParams, ThresholdKeyShare,
 };
 pub use curve::RecoverableSignature;

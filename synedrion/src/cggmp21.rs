@@ -14,6 +14,6 @@ mod sigma;
 pub use params::{ProductionParams, SchemeParams, TestParams};
 pub(crate) use protocols::{
     auxiliary, interactive_signing, keygen_and_aux, FinalizeError, FinalizeSuccess, FirstRound,
-    InitError, ReceiveError, Round, ToSendTyped,
+    ReceiveError, Round, ToSendTyped,
 };
-pub use protocols::{KeyShare, KeyShareChange, PartyIdx, ThresholdKeyShare};
+pub use protocols::{InitError, KeyShare, KeyShareChange, PartyIdx, ThresholdKeyShare};
