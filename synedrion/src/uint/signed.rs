@@ -72,7 +72,9 @@ impl<T: UintLike> CheckedAdd for Signed<T> {
             result,
             lhs_neg
                 .ct_eq(&rhs_neg)
-                .bitand(lhs_neg.ct_ne(&res_neg))
+                // TODO: `ct_ne()` only supported starting from subtle 2.5.
+                // update when we bump its version.
+                .bitand(lhs_neg.ct_eq(&res_neg).not())
                 .not(),
         )
     }
