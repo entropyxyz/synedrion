@@ -1,4 +1,4 @@
-use core::ops::{Add, BitAnd, Div, Mul, Neg, Rem, Shl, Shr, Sub};
+use core::ops::{Add, Mul, Neg, Rem, Sub};
 
 use crypto_bigint::{
     modular::{
@@ -6,14 +6,14 @@ use crypto_bigint::{
         Retrieve,
     },
     nlimbs,
-    subtle::{self, Choice, ConstantTimeLess, CtOption},
-    Bounded, CheckedAdd, CheckedMul, CheckedSub, Encoding, Integer, Invert, Limb, NonZero, Pow,
-    RandomMod, Uint, Word, Zero, U1280, U320, U640,
+    subtle::{Choice, ConstantTimeLess, CtOption},
+    Encoding, Integer, Invert, Limb, NonZero, Pow, RandomMod, Uint, Word, Zero, U1280, U320, U640,
 };
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 
 use super::jacobi::JacobiSymbolTrait;
+use super::signed::Signed;
 use crate::curve::Scalar;
 use crate::tools::hashing::{Chain, Hashable};
 
@@ -37,29 +37,7 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1
 // involves a slight overhead, but it's better than monstrous trait bounds everywhere.
 
 pub trait UintLike:
-    Sized
-    + Integer
-    + JacobiSymbolTrait
-    + core::fmt::Debug
-    + core::fmt::Display
-    + Clone
-    + Copy
-    + Bounded
-    + Hashable
-    + Shr<usize, Output = Self>
-    + Shl<usize, Output = Self>
-    + BitAnd<Output = Self>
-    + Zero
-    + PartialEq
-    + Eq
-    + RandomPrimeWithRng
-    + RandomMod
-    + for<'a> CheckedAdd<&'a Self>
-    + for<'a> CheckedSub<&'a Self>
-    + for<'a> CheckedMul<&'a Self>
-    + Rem<NonZero<Self>, Output = Self>
-    + Div<NonZero<Self>, Output = Self>
-    + subtle::ConditionallySelectable
+    Integer + JacobiSymbolTrait + Hashable + RandomPrimeWithRng + RandomMod
 {
     // TODO: do we really need this? Or can we just use a simple RNG and `random_mod()`?
     fn hash_into_mod(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self;
@@ -76,12 +54,19 @@ pub trait UintLike:
     fn neg_mod(&self, modulus: &Self) -> Self;
 }
 
-pub trait HasWide: Sized {
-    type Wide: Zero + Rem<NonZero<Self::Wide>, Output = Self::Wide>;
+pub trait HasWide: Sized + Zero {
+    type Wide: UintLike;
     fn mul_wide(&self, other: &Self) -> Self::Wide;
     fn square_wide(&self) -> Self::Wide;
     fn into_wide(self) -> Self::Wide;
-    fn try_from_wide(value: Self::Wide) -> Option<Self>;
+    fn from_wide(value: Self::Wide) -> (Self, Self);
+    fn try_from_wide(value: Self::Wide) -> Option<Self> {
+        let (hi, lo) = Self::from_wide(value);
+        if hi.is_zero().into() {
+            return Some(lo);
+        }
+        None
+    }
 }
 
 impl<const L: usize> UintLike for Uint<L> {
@@ -156,17 +141,33 @@ impl<const L: usize> UintLike for Uint<L> {
     }
 }
 
-pub(crate) fn mul_mod<T>(lhs: &T, rhs: &T, modulus: &NonZero<T>) -> T
+// TODO: can it be made a method in UintModLike?
+pub(crate) fn pow_wide_signed<T>(base: &T, exponent: &Signed<<T::RawUint as HasWide>::Wide>) -> T
 where
-    T: UintLike + HasWide,
+    T: UintModLike,
+    T::RawUint: HasWide,
+    <T::RawUint as HasWide>::Wide: UintLike,
 {
-    // TODO: move to crypto-bigint, and make more efficient (e.g. Barrett reduction)
-    // CHECK: check the constraints on rhs: do we need rhs < modulus,
-    // or will it be reduced all the same?
-    // Note that modulus here may be even, so we can't use Montgomery representation
-    let wide_product = lhs.mul_wide(rhs);
-    let wide_modulus = modulus.as_ref().into_wide();
-    T::try_from_wide(wide_product.rem(NonZero::new(wide_modulus).unwrap())).unwrap()
+    let abs_exponent = exponent.abs();
+    let (hi, lo) = T::RawUint::from_wide(abs_exponent);
+
+    // TODO: replace with the regular `pow()` when crypto-biging 0.5.3 is released,
+    // since it will be able to work with arbitrary-sized exponents.
+    let mut abs_result = base.pow(&hi);
+    for _ in 0..<T::RawUint as Integer>::BITS {
+        abs_result = abs_result * abs_result;
+    }
+    abs_result = abs_result * base.pow(&lo);
+    let inv_result = abs_result.invert().unwrap();
+
+    // TODO: this should be constant-time, but ConditionallySelectable for DynResidue
+    // is only supported since crypto-bigint 0.5.3 (unreleased).
+    // Use `conditionally_select()` when available.
+    if exponent.is_negative().into() {
+        inv_result
+    } else {
+        abs_result
+    }
 }
 
 impl<const L: usize> Hashable for Uint<L> {
@@ -204,12 +205,30 @@ pub trait UintModLike:
 {
     type RawUint: UintLike;
     fn new(value: &Self::RawUint, modulus: &NonZero<Self::RawUint>) -> Self;
+    fn one(modulus: &NonZero<Self::RawUint>) -> Self;
+    fn pow_signed(&self, exponent: &Signed<Self::RawUint>) -> Self {
+        let abs_exponent = exponent.abs();
+        let abs_result = self.pow(&abs_exponent);
+        let inv_result = abs_result.invert().unwrap();
+
+        // TODO: this should be constant-time, but ConditionallySelectable for DynResidue
+        // is only supported since crypto-bigint 0.5.3 (unreleased).
+        // Use `conditionally_select()` when available.
+        if exponent.is_negative().into() {
+            inv_result
+        } else {
+            abs_result
+        }
+    }
 }
 
 impl<const L: usize> UintModLike for DynResidue<L> {
     type RawUint = Uint<L>;
     fn new(value: &Self::RawUint, modulus: &NonZero<Self::RawUint>) -> Self {
         Self::new(value, DynResidueParams::<L>::new(modulus))
+    }
+    fn one(modulus: &NonZero<Self::RawUint>) -> Self {
+        Self::one(DynResidueParams::<L>::new(modulus))
     }
 }
 
@@ -232,12 +251,8 @@ impl HasWide for U320 {
     fn into_wide(self) -> Self::Wide {
         (self, Self::ZERO).into()
     }
-    fn try_from_wide(value: Self::Wide) -> Option<Self> {
-        let (hi, lo): (Self, Self) = value.into();
-        if hi.is_zero().into() {
-            return Some(lo);
-        }
-        None
+    fn from_wide(value: Self::Wide) -> (Self, Self) {
+        value.into()
     }
 }
 
@@ -252,12 +267,8 @@ impl HasWide for U640 {
     fn into_wide(self) -> Self::Wide {
         (self, Self::ZERO).into()
     }
-    fn try_from_wide(value: Self::Wide) -> Option<Self> {
-        let (hi, lo): (Self, Self) = value.into();
-        if hi.is_zero().into() {
-            return Some(lo);
-        }
-        None
+    fn from_wide(value: Self::Wide) -> (Self, Self) {
+        value.into()
     }
 }
 

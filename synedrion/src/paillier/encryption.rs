@@ -7,8 +7,8 @@ use super::keys::{PublicKeyPaillier, SecretKeyPaillier};
 use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
-    subtle::Choice, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, Retrieve,
-    Signed, UintModLike,
+    subtle::Choice, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, Retrieve, Signed,
+    UintModLike,
 };
 
 /// Paillier ciphertext.
@@ -28,11 +28,14 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Encrypts the plaintext with the provided randomizer.
-    pub fn new_with_randomizer(
+    fn new_with_randomizer_inner(
         pk: &PublicKeyPaillier<P>,
-        plaintext: &P::DoubleUint,
+        abs_plaintext: &P::DoubleUint,
         randomzier: &P::DoubleUint,
+        plaintext_is_negative: Choice,
     ) -> Self {
+        // TODO: check that `abs_plaintext` is in range (< N)
+
         // `N` as a quad uint
         let modulus_quad = pk.modulus_raw().into_wide();
 
@@ -46,12 +49,17 @@ impl<P: PaillierParams> Ciphertext<P> {
         // and `rho` is the randomizer.
 
         // Simplify `(N + 1)^m mod N^2 == 1 + m * N mod N^2`.
-        // Also the sum will never overflow since `m < N`.
-        let factor1 = plaintext
-            .mul_wide(&pk.modulus_raw())
-            .checked_add(&P::QuadUint::ONE)
-            .unwrap();
-        let factor1 = P::QuadUintMod::new(&factor1, &modulus_squared);
+        // Since `m` can be negative, we calculate `m * N +- 1` (never overflows since `m < N`),
+        // then conditionally negate modulo N^2
+        let prod = abs_plaintext.mul_wide(&pk.modulus_raw());
+        let mut prod_mod = P::QuadUintMod::new(&prod, &modulus_squared);
+
+        // TODO: use conditionally_negate() after crypto_bigint 0.5.3 is released
+        if plaintext_is_negative.into() {
+            prod_mod = -prod_mod;
+        }
+
+        let factor1 = prod_mod + P::QuadUintMod::one(&modulus_squared);
 
         // TODO: `modulus_quad` is bounded, use `pow_bounded_exp()`
         let factor2 = P::QuadUintMod::new(&randomizer, &modulus_squared).pow(&modulus_quad);
@@ -62,6 +70,23 @@ impl<P: PaillierParams> Ciphertext<P> {
             ciphertext,
             phantom: PhantomData,
         }
+    }
+
+    /// Encrypts the plaintext with the provided randomizer.
+    pub fn new_with_randomizer(
+        pk: &PublicKeyPaillier<P>,
+        plaintext: &P::DoubleUint,
+        randomzier: &P::DoubleUint,
+    ) -> Self {
+        Self::new_with_randomizer_inner(pk, plaintext, randomzier, Choice::from(0))
+    }
+
+    pub fn new_with_randomizer_signed(
+        pk: &PublicKeyPaillier<P>,
+        plaintext: &Signed<P::DoubleUint>,
+        randomzier: &P::DoubleUint,
+    ) -> Self {
+        Self::new_with_randomizer_inner(pk, &plaintext.abs(), randomzier, plaintext.is_negative())
     }
 
     /// Encrypts the plaintext with a random randomizer.
@@ -200,7 +225,20 @@ mod tests {
 
     use super::Ciphertext;
     use crate::paillier::{PaillierParams, PaillierTest, SecretKeyPaillier};
-    use crate::uint::{mul_mod, RandomMod};
+    use crate::uint::{HasWide, NonZero, RandomMod, UintLike};
+
+    fn mul_mod<T>(lhs: &T, rhs: &T, modulus: &NonZero<T>) -> T
+    where
+        T: UintLike + HasWide,
+    {
+        // TODO: move to crypto-bigint, and make more efficient (e.g. Barrett reduction)
+        // CHECK: check the constraints on rhs: do we need rhs < modulus,
+        // or will it be reduced all the same?
+        // Note that modulus here may be even, so we can't use Montgomery representation
+        let wide_product = lhs.mul_wide(rhs);
+        let wide_modulus = modulus.as_ref().into_wide();
+        T::try_from_wide(wide_product % NonZero::new(wide_modulus).unwrap()).unwrap()
+    }
 
     #[test]
     fn roundtrip() {

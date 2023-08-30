@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{Pow, Retrieve, UintModLike};
+use crate::uint::{pow_wide_signed, Pow, Retrieve, Signed, UintModLike};
 
 pub(crate) struct RPSecret<P: PaillierParams>(P::DoubleUint);
 
@@ -57,9 +57,13 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ///
     /// Both will be effectively reduced modulo `totient(N)`
     /// (that is, commitments produced for `x` and `x + totient(N)` are equal).
-    pub fn commit(&self, randomizer: &P::DoubleUint, secret: &P::DoubleUint) -> RPCommitmentMod<P> {
+    pub fn commit(
+        &self,
+        randomizer: &Signed<P::QuadUint>,
+        secret: &Signed<P::DoubleUint>,
+    ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(self.base.pow(randomizer) * self.power.pow(secret))
+        RPCommitmentMod(pow_wide_signed(&self.base, randomizer) * self.power.pow_signed(secret))
     }
 
     pub fn retrieve(&self) -> RPParams<P> {
@@ -107,8 +111,8 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     /// Raise to the power of `exponent`.
     ///
     /// `exponent` will be effectively reduced modulo `totient(N)`.
-    pub fn pow(&self, exponent: &P::DoubleUint) -> Self {
-        Self(self.0.pow(exponent))
+    pub fn pow_signed(&self, exponent: &Signed<P::DoubleUint>) -> Self {
+        Self(self.0.pow_signed(exponent))
     }
 }
 

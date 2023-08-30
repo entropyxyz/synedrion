@@ -1,4 +1,3 @@
-use crypto_bigint::Pow;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -7,9 +6,7 @@ use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod, SecretKeyPaillier,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{
-    mul_mod, CheckedAdd, CheckedMul, NonZero, Retrieve, Signed, UintLike, UintModLike,
-};
+use crate::uint::{NonZero, Retrieve, Signed, UintModLike};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct EncProof<P: SchemeParams> {
@@ -18,7 +15,7 @@ pub(crate) struct EncProof<P: SchemeParams> {
     cap_c: RPCommitment<P::Paillier>,
     z1: Signed<<P::Paillier as PaillierParams>::DoubleUint>,
     z2: <P::Paillier as PaillierParams>::DoubleUint,
-    z3: <P::Paillier as PaillierParams>::DoubleUint,
+    z3: Signed<<P::Paillier as PaillierParams>::QuadUint>,
 }
 
 impl<P: SchemeParams> EncProof<P> {
@@ -44,9 +41,7 @@ impl<P: SchemeParams> EncProof<P> {
         // TODO: check that `bound` and `bound_eps` do not overflow the DoubleUint
         // TODO: check that `secret` is within `+- 2^bound`
 
-        let hat_phi = aux_sk.totient();
-        let hat_modulus_mod_phi =
-            <P::Paillier as PaillierParams>::DoubleUintMod::new(&aux_pk.modulus(), &hat_phi);
+        let secret_signed = Signed::new_positive(*secret).unwrap();
 
         // \alpha <-- +- 2^{\ell + \eps}
         // CHECK: should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
@@ -54,52 +49,40 @@ impl<P: SchemeParams> EncProof<P> {
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
 
         // \mu <-- (+- 2^\ell) * \hat{N}
-        // It will be used only as an exponent mod \hat{N} so we can pre-reduce it mod \hat{\phi}
-        let mu_random_part = Signed::random_bounded_bits(rng, P::L_BOUND).extract_mod(&hat_phi);
-        let mu_mod = hat_modulus_mod_phi
-            * <P::Paillier as PaillierParams>::DoubleUintMod::new(&mu_random_part, &hat_phi);
-        let mu = mu_mod.retrieve();
+        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
 
-        // TODO: use `Ciphertext::randomizer()`
+        // TODO: use `Ciphertext::randomizer()` - but we will need a variation returning a modulo
+        // representation.
         // r <-- Z^*_N (N is the modulus of `pk`)
         let r = pk.random_invertible_group_elem(rng);
 
         // \gamma <-- (+- 2^{\ell + \eps}) * \hat{N}
-        // It will be used only as an exponent mod \hat{N} so we can pre-reduce it mod \hat{\phi}
-        let gamma_random_part =
-            Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND).extract_mod(&hat_phi);
-        let gamma_mod = hat_modulus_mod_phi
-            * <P::Paillier as PaillierParams>::DoubleUintMod::new(&gamma_random_part, &hat_phi);
-        let gamma = gamma_mod.retrieve();
+        let gamma =
+            Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
 
         // S = s^k * t^\mu \mod \hat{N}
-        let cap_s = rp.commit(&mu, secret).retrieve();
+        let cap_s = rp.commit(&mu, &secret_signed).retrieve();
 
         // A = (1 + N_0)^\alpha * r^N_0 == encrypt(\alpha, r)
-        let cap_a =
-            Ciphertext::new_with_randomizer(&pk, &alpha.extract_mod(&pk.modulus()), &r.retrieve());
+        let cap_a = Ciphertext::new_with_randomizer_signed(&pk, &alpha, &r.retrieve());
 
         // C = s^\alpha * t^\gamma \mod \hat{N}
-        let cap_c = rp.commit(&gamma, &alpha.extract_mod(&hat_phi)).retrieve();
+        let cap_c = rp.commit(&gamma, &alpha).retrieve();
 
         // z_1 = \alpha + e k
         // In the proof it will be checked that $z1 \in +- 2^{\ell + \eps}$,
         // so it should fit into DoubleUint.
-        let secret_signed = Signed::new_positive(*secret).unwrap();
-        let z1 = alpha
-            .checked_add(challenge.checked_mul(secret_signed).unwrap())
-            .unwrap();
+        let z1 = alpha + challenge * secret_signed;
 
         // z_2 = r * \rho^e mod N_0
         let randomizer_mod =
             <P::Paillier as PaillierParams>::DoubleUintMod::new(randomizer, &pk.modulus());
-        let z2 = (r * randomizer_mod.pow(&challenge.extract_mod(&sk.totient()))).retrieve();
+        let z2 = (r * randomizer_mod.pow_signed(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu
-        let z3 = gamma.add_mod(
-            &mul_mod(&mu, &challenge.extract_mod(&hat_phi), &hat_phi),
-            &hat_phi,
-        );
+        let challenge_wide: Signed<<P::Paillier as PaillierParams>::QuadUint> =
+            challenge.into_wide();
+        let z3 = gamma + mu * challenge_wide;
 
         Self {
             cap_s,
@@ -135,7 +118,7 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // Check that $encrypt_{N_0}(z1, z2) == A (+) K (*) e$
-        let c = Ciphertext::new_with_randomizer(pk, &self.z1.extract_mod(&pk.modulus()), &self.z2);
+        let c = Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.z2);
 
         if c != self
             .cap_a
@@ -147,9 +130,7 @@ impl<P: SchemeParams> EncProof<P> {
         // Check that $s^{z_1} t^{z_3} == C S^e \mod \hat{N}$
         let cap_c_mod = self.cap_c.to_mod(&aux_pk);
         let cap_s_mod = self.cap_s.to_mod(&aux_pk);
-        if rp.commit(&self.z3, &self.z1.extract_mod(&aux_sk.totient()))
-            != &cap_c_mod * &cap_s_mod.pow(&challenge.extract_mod(&aux_sk.totient()))
-        {
+        if rp.commit(&self.z3, &self.z1) != &cap_c_mod * &cap_s_mod.pow_signed(&challenge) {
             return false;
         }
 
