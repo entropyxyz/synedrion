@@ -32,16 +32,14 @@ impl<P: SchemeParams> EncProof<P> {
         let pk = sk.public_key();
 
         let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::<P::Paillier>::random(&mut aux_rng);
+        let aux_sk = SecretKeyPaillier::random(&mut aux_rng);
         let aux_pk = aux_sk.public_key(); // `\hat{N}`
 
         let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         // Non-interactive challenge ($e$)
-        let challenge = Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded(
-            &mut aux_rng,
-            &NonZero::new(P::CURVE_ORDER).unwrap(),
-        );
+        let challenge =
+            Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // TODO: check that `bound` and `bound_eps` do not overflow the DoubleUint
         // TODO: check that `secret` is within `+- 2^bound`
@@ -53,34 +51,23 @@ impl<P: SchemeParams> EncProof<P> {
         // \alpha <-- +- 2^{\ell + \eps}
         // CHECK: should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
         // This will ensure that the range check on the prover side will pass.
-        let alpha = Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded_bits(
-            rng,
-            P::L_BOUND + P::EPS_BOUND,
-        );
+        let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
 
         // \mu <-- (+- 2^\ell) * \hat{N}
         // It will be used only as an exponent mod \hat{N} so we can pre-reduce it mod \hat{\phi}
-        let mu_random_part =
-            Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded_bits(
-                rng,
-                P::L_BOUND,
-            )
-            .extract_mod(&hat_phi);
+        let mu_random_part = Signed::random_bounded_bits(rng, P::L_BOUND).extract_mod(&hat_phi);
         let mu_mod = hat_modulus_mod_phi
             * <P::Paillier as PaillierParams>::DoubleUintMod::new(&mu_random_part, &hat_phi);
         let mu = mu_mod.retrieve();
 
+        // TODO: use `Ciphertext::randomizer()`
         // r <-- Z^*_N (N is the modulus of `pk`)
         let r = pk.random_invertible_group_elem(rng);
 
         // \gamma <-- (+- 2^{\ell + \eps}) * \hat{N}
         // It will be used only as an exponent mod \hat{N} so we can pre-reduce it mod \hat{\phi}
         let gamma_random_part =
-            Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded_bits(
-                rng,
-                P::L_BOUND + P::EPS_BOUND,
-            )
-            .extract_mod(&hat_phi);
+            Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND).extract_mod(&hat_phi);
         let gamma_mod = hat_modulus_mod_phi
             * <P::Paillier as PaillierParams>::DoubleUintMod::new(&gamma_random_part, &hat_phi);
         let gamma = gamma_mod.retrieve();
