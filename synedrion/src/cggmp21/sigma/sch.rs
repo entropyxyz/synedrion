@@ -1,4 +1,4 @@
-//! Schnorr proof of knowledge ($\Pi_{sch}$, Section C.1, Fig. 22).
+//! Schnorr proof of knowledge ($\Pi^{sch}$, Section C.1, Fig. 22).
 //!
 //! Publish $X$ and prove that we know a secret $x$ such that $g^x = X$,
 //! where $g$ is a EC generator.

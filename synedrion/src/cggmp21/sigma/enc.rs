@@ -1,3 +1,5 @@
+//! Paillier encryption in range ($\Pi^{enc}$, Section 6.1, Fig. 14)
+
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 

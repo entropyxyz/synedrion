@@ -1,4 +1,4 @@
-//! Proof of Paillier-Blum modulus ($\Pi_{mod}$, Fig. 16)
+//! Proof of Paillier-Blum modulus ($\Pi^{mod}$, Fig. 16)
 
 use alloc::vec::Vec;
 

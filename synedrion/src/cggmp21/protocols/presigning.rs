@@ -382,12 +382,10 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi_hat_prime = LogStarProof::random(
                     rng,
-                    &self.context.gamma,
+                    &Signed::new_positive(uint_from_scalar::<P>(&self.context.gamma)).unwrap(),
                     &self.context.nu,
                     pk,
-                    &self.k_ciphertexts[self.context.party_idx.as_usize()],
                     &Point::GENERATOR,
-                    &gamma,
                     &aux,
                 );
 
@@ -554,12 +552,13 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             .map(|idx| {
                 let psi_hat_pprime = LogStarProof::random(
                     rng,
-                    &self.context.ephemeral_scalar_share,
+                    &Signed::new_positive(uint_from_scalar::<P>(
+                        &self.context.ephemeral_scalar_share,
+                    ))
+                    .unwrap(),
                     &self.context.rho,
                     pk,
-                    &self.k_ciphertexts[self.context.party_idx.as_usize()],
                     &self.big_gamma,
-                    &self.big_delta,
                     &aux,
                 );
                 let message = Round3Bcast {
@@ -579,7 +578,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
-        let aux = (&self.context.shared_randomness, &self.context.party_idx);
+        let aux = (&self.context.shared_randomness, &from);
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
         if !msg.psi_hat_pprime.verify(
             from_pk,

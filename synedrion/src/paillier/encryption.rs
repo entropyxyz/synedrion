@@ -114,6 +114,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Attempts to decrypt this ciphertext.
+    // TODO: should we decrypt into Signed?
     pub fn decrypt(&self, sk: &SecretKeyPaillier<P>) -> P::DoubleUint {
         // TODO: these can be precalculated
         let pk = sk.public_key();

@@ -1,3 +1,5 @@
+//! Paillier Affine Operation with Group Commitment in Range ($\Pi^{aff-g}$, Section 6.2, Fig. 15)
+
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -35,8 +37,6 @@ pub fn mul_by_generator<P: SchemeParams>(
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicKeyPaillier<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "PublicKeyPaillier<P::Paillier>: for<'x> Deserialize<'x>"))]
 pub(crate) struct AffGProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,                          // $A$
     cap_b_x: Point,                                          // $B_x$
@@ -110,8 +110,8 @@ impl<P: SchemeParams> AffGProof<P> {
         // \mu <-- (+- 2^\ell) \hat{N}
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
 
-        // A = C^\alpha (1 + N_0)^\alpha r^N_0 \mod N_0^2
-        //   = C (*) \alpha (+) encrypt_0(\alpha, r)
+        // A = C^\alpha (1 + N_0)^\beta r^N_0 \mod N_0^2
+        //   = C (*) \alpha (+) encrypt_0(\beta, r)
         let cap_a = cap_c.homomorphic_mul_signed(pk0, &alpha).homomorphic_add(
             pk0,
             &Ciphertext::new_with_randomizer_signed(pk0, &beta, &r.retrieve()),

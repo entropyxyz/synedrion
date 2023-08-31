@@ -1,4 +1,4 @@
-//! ZKP of Ring-Pedersen parameters ($\Pi_{prm}$, Section 6.4, Fig. 17).
+//! ZKP of Ring-Pedersen parameters ($\Pi^{prm}$, Section 6.4, Fig. 17).
 //!
 //! Publish $(N, s, t)$ and prove that we know a secret $\lambda$ such that
 //! $s = t^\lambda \mod N$.
