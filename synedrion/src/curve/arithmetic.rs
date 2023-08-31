@@ -2,7 +2,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::{vec, vec::Vec};
 use core::default::Default;
-use core::ops::{Add, Mul, Sub};
+use core::ops::{Add, Mul, Neg, Sub};
 
 use digest::Digest;
 use k256::elliptic_curve::group::ff::PrimeField;
@@ -234,14 +234,14 @@ impl From<usize> for Scalar {
     }
 }
 
-impl core::ops::Neg for Scalar {
+impl Neg for Scalar {
     type Output = Self;
     fn neg(self) -> Self::Output {
         Self(-self.0)
     }
 }
 
-impl<'a> core::ops::Neg for &'a Scalar {
+impl<'a> Neg for &'a Scalar {
     type Output = Scalar;
     fn neg(self) -> Self::Output {
         Scalar(-self.0)

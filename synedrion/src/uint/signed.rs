@@ -77,6 +77,13 @@ impl<T: UintLike> ConditionallySelectable for Signed<T> {
     }
 }
 
+impl<T: UintLike> Neg for Signed<T> {
+    type Output = Signed<T>;
+    fn neg(self) -> Self::Output {
+        Signed(self.0.neg())
+    }
+}
+
 impl<'a, T: UintLike> Neg for &'a Signed<T> {
     type Output = Signed<T>;
     fn neg(self) -> Self::Output {

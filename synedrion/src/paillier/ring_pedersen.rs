@@ -57,6 +57,9 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ///
     /// Both will be effectively reduced modulo `totient(N)`
     /// (that is, commitments produced for `x` and `x + totient(N)` are equal).
+    // TODO: swap randomizer and secret?
+    // - this will match the order for Ciphertext,
+    // - this will match the order in the paper
     pub fn commit(
         &self,
         randomizer: &Signed<P::QuadUint>,

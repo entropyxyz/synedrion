@@ -74,6 +74,7 @@ impl<P: SchemeParams> EncProof<P> {
         // so it should fit into DoubleUint.
         let z1 = alpha + challenge * secret_signed;
 
+        // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
         let randomizer_mod =
             <P::Paillier as PaillierParams>::DoubleUintMod::new(randomizer, &pk.modulus());

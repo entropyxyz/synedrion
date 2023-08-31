@@ -101,6 +101,18 @@ impl<P: PaillierParams> Ciphertext<P> {
         Self::new_with_randomizer(pk, plaintext, &randomizer)
     }
 
+    #[cfg(test)]
+    pub fn new_signed(
+        rng: &mut impl CryptoRngCore,
+        pk: &PublicKeyPaillier<P>,
+        plaintext: &Signed<P::DoubleUint>,
+    ) -> Self {
+        // TODO: use an explicit RNG parameter
+        // TODO: this is an ephemeral secret, use a SecretBox
+        let randomizer = Self::randomizer(rng, pk);
+        Self::new_with_randomizer_signed(pk, plaintext, &randomizer)
+    }
+
     /// Attempts to decrypt this ciphertext.
     pub fn decrypt(&self, sk: &SecretKeyPaillier<P>) -> P::DoubleUint {
         // TODO: these can be precalculated

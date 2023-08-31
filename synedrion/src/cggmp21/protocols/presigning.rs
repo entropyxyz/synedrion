@@ -17,7 +17,7 @@ use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams};
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::FromScalar;
+use crate::uint::{FromScalar, Signed};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
@@ -231,18 +231,18 @@ impl<P: SchemeParams> Round for Round1Part2<P> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "Ciphertext<P>: Serialize,
+#[serde(bound(serialize = "Ciphertext<P::Paillier>: Serialize,
     AffGProof<P>: Serialize,
     LogStarProof<P>: Serialize"))]
-#[serde(bound(deserialize = "Ciphertext<P>: for<'x> Deserialize<'x>,
+#[serde(bound(deserialize = "Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
     AffGProof<P>: for<'x> Deserialize<'x>,
     LogStarProof<P>: for<'x> Deserialize<'x>"))]
-pub struct Round2Direct<P: PaillierParams> {
+pub struct Round2Direct<P: SchemeParams> {
     gamma: Point,
-    d: Ciphertext<P>,
-    d_hat: Ciphertext<P>,
-    f: Ciphertext<P>,
-    f_hat: Ciphertext<P>,
+    d: Ciphertext<P::Paillier>,
+    d_hat: Ciphertext<P::Paillier>,
+    f: Ciphertext<P::Paillier>,
+    f_hat: Ciphertext<P::Paillier>,
     psi: AffGProof<P>,
     psi_hat: AffGProof<P>,
     psi_hat_prime: LogStarProof<P>,
@@ -301,7 +301,7 @@ pub struct Round2Payload {
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
     type Payload = Round2Payload;
-    type Message = Round2Direct<P::Paillier>;
+    type Message = Round2Direct<P>;
 
     const ROUND_NUM: u8 = 3;
     const REQUIRES_BROADCAST_CONSENSUS: bool = false;
@@ -311,8 +311,6 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
 
         let gamma = self.context.gamma.mul_by_generator();
-        // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.context.key_share.secret_share.mul_by_generator();
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
 
         let messages = range
@@ -331,9 +329,9 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     .homomorphic_mul(target_pk, &uint_from_scalar::<P>(&self.context.gamma))
                     .homomorphic_add(
                         target_pk,
-                        &Ciphertext::new_with_randomizer(
+                        &Ciphertext::new_with_randomizer_signed(
                             target_pk,
-                            &uint_from_scalar::<P>(&-beta),
+                            &-Signed::new_positive(uint_from_scalar::<P>(beta)).unwrap(),
                             &s,
                         ),
                     );
@@ -346,9 +344,9 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     )
                     .homomorphic_add(
                         target_pk,
-                        &Ciphertext::new_with_randomizer(
+                        &Ciphertext::new_with_randomizer_signed(
                             target_pk,
-                            &uint_from_scalar::<P>(&-beta_hat),
+                            &-Signed::new_positive(uint_from_scalar::<P>(beta_hat)).unwrap(),
                             &s_hat,
                         ),
                     );
@@ -357,31 +355,28 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi = AffGProof::random(
                     rng,
-                    &self.context.gamma,
-                    beta,
+                    &Signed::new_positive(uint_from_scalar::<P>(&self.context.gamma)).unwrap(),
+                    &Signed::new_positive(uint_from_scalar::<P>(beta)).unwrap(),
                     &s,
                     &r,
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
-                    &d,
-                    &f,
-                    &gamma,
                     &aux,
                 );
 
                 let psi_hat = AffGProof::random(
                     rng,
-                    &self.context.key_share.secret_share,
-                    beta_hat,
+                    &Signed::new_positive(uint_from_scalar::<P>(
+                        &self.context.key_share.secret_share,
+                    ))
+                    .unwrap(),
+                    &Signed::new_positive(uint_from_scalar::<P>(beta_hat)).unwrap(),
                     &s_hat,
                     &r_hat,
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
-                    &d_hat,
-                    &f_hat,
-                    &big_x,
                     &aux,
                 );
 
@@ -418,12 +413,11 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
-        let aux = (&self.context.shared_randomness, &self.context.party_idx);
+        let aux = (&self.context.shared_randomness, &from);
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
-        // TODO: technically it's already been precalculated somewhere earlier
-        let big_x = self.context.key_share.secret_share.mul_by_generator();
+        let big_x = self.context.key_share.public_shares[from.as_usize()];
 
         if !msg.psi.verify(
             pk,
@@ -435,7 +429,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
-                "Failed to verify EncProof".into(),
+                "Failed to verify AffGProof (psi)".into(),
             ));
         }
 
@@ -449,7 +443,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
-                "Failed to verify EncProof".into(),
+                "Failed to verify AffGProof (psi_hat)".into(),
             ));
         }
 
@@ -461,7 +455,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
-                "Failed to verify EncProof".into(),
+                "Failed to verify LogStarProof".into(),
             ));
         }
 
@@ -524,7 +518,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "LogStarProof<P>: Serialize"))]
 #[serde(bound(deserialize = "LogStarProof<P>: for<'x> Deserialize<'x>"))]
-pub struct Round3Bcast<P: PaillierParams> {
+pub struct Round3Bcast<P: SchemeParams> {
     delta: Scalar,
     big_delta: Point,
     psi_hat_pprime: LogStarProof<P>,
@@ -546,7 +540,7 @@ pub struct Round3Payload {
 
 impl<P: SchemeParams> BaseRound for Round3<P> {
     type Payload = Round3Payload;
-    type Message = Round3Bcast<P::Paillier>;
+    type Message = Round3Bcast<P>;
 
     const ROUND_NUM: u8 = 4;
     const REQUIRES_BROADCAST_CONSENSUS: bool = false;
