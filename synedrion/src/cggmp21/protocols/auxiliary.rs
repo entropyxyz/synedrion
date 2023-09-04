@@ -310,14 +310,14 @@ pub struct Round3<P: SchemeParams> {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "ModProof<P::Paillier>: Serialize,
-    FacProof<P::Paillier>: Serialize,
+    FacProof<P>: Serialize,
     Ciphertext<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "ModProof<P::Paillier>: for<'x> Deserialize<'x>,
-    FacProof<P::Paillier>: for<'x> Deserialize<'x>,
+    FacProof<P>: for<'x> Deserialize<'x>,
     Ciphertext<P::Paillier>: for<'x> Deserialize<'x>"))]
 pub struct FullData2<P: SchemeParams> {
     mod_proof: ModProof<P::Paillier>,        // `psi_j`
-    fac_proof: FacProof<P::Paillier>,        // `phi_j,i`
+    fac_proof: FacProof<P>,                  // `phi_j,i`
     sch_proof_y: SchProof,                   // `pi_i`
     paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
     sch_proof_x: SchProof,                   // `psi_i,j`
@@ -411,7 +411,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             ));
         }
 
-        if !msg.data2.fac_proof.verify() {
+        if !msg.data2.fac_proof.verify(&sender_data.paillier_pk, &aux) {
             return Err(ReceiveError::VerificationFail(
                 "Fac proof verification failed".into(),
             ));

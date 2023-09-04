@@ -1,4 +1,4 @@
-use core::ops::{Add, BitAnd, BitXor, Mul, Neg, Not};
+use core::ops::{Add, Mul, Neg, Not, Sub};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -35,10 +35,26 @@ impl<T: UintLike> Signed<T> {
     }
 
     pub fn extract_mod(&self, modulus: &NonZero<T>) -> T {
+        let reduced = self.abs() % *modulus;
         if self.is_negative().into() {
-            (self.0.neg() % *modulus).neg_mod(modulus)
+            modulus.as_ref().wrapping_sub(&reduced)
         } else {
-            self.0 % *modulus
+            reduced
+        }
+    }
+
+    pub fn extract_mod_half<S>(&self, modulus: &NonZero<S>) -> S
+    where
+        S: UintLike + HasWide<Wide = T> + Clone + core::fmt::Debug,
+    {
+        let m: S = *modulus.as_ref();
+        let wide_reduced = self.abs() % NonZero::new(m.into_wide()).unwrap();
+        let reduced = S::try_from_wide(wide_reduced).unwrap();
+
+        if self.is_negative().into() {
+            modulus.as_ref().wrapping_sub(&reduced)
+        } else {
+            reduced
         }
     }
 
@@ -61,7 +77,7 @@ impl<T: UintLike> Signed<T> {
 
     pub fn in_range_bits(&self, bound_bits: usize) -> bool {
         let bound = T::ONE << (bound_bits + 1);
-        self.0 <= bound || self.0.neg() <= bound
+        self.abs() <= bound
     }
 }
 
@@ -97,6 +113,7 @@ impl<T: UintLike + HasWide> Signed<T> {
         bound_bits: usize,
         scale: &NonZero<T>,
     ) -> Signed<T::Wide> {
+        // TODO: adjust the size check to include the scale
         debug_assert!(bound_bits < <T as Integer>::BITS - 1);
         let bound = NonZero::new(T::ONE << bound_bits).unwrap();
         let positive_bound = (*bound.as_ref() << 1).checked_add(&T::ONE).unwrap();
@@ -105,6 +122,14 @@ impl<T: UintLike + HasWide> Signed<T> {
         let scaled_positive_result = positive_result.mul_wide(scale.as_ref());
         // TODO: use vartime shift left
         let scaled_bound = scale.as_ref().into_wide() << bound_bits;
+
+        /*extern crate std;
+        std::println!("bound = {:?}", bound);
+        std::println!("positive_bound = {:?}", positive_bound);
+        std::println!("positive_result = {:?}", positive_result);
+        std::println!("scaled_positive_result = {:?}", scaled_positive_result);
+        std::println!("scaled_bound = {:?}", scaled_bound);
+        std::println!("result = {:?}", scaled_positive_result.wrapping_sub(&scaled_bound));*/
 
         Signed(scaled_positive_result.wrapping_sub(&scaled_bound))
     }
@@ -128,12 +153,7 @@ impl<T: UintLike> CheckedAdd for Signed<T> {
         // it means there was no overflow.
         CtOption::new(
             result,
-            lhs_neg
-                .ct_eq(&rhs_neg)
-                // TODO: `ct_ne()` only supported starting from subtle 2.5.
-                // update when we bump its version.
-                .bitand(lhs_neg.ct_eq(&res_neg).not())
-                .not(),
+            !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)),
         )
     }
 }
@@ -146,7 +166,7 @@ impl<T: UintLike> CheckedMul for Signed<T> {
         let lhs = T::conditional_select(&self.0, &self.0.neg(), lhs_neg);
         let rhs = T::conditional_select(&rhs.0, &rhs.0.neg(), rhs_neg);
         let result = lhs.checked_mul(&rhs);
-        let result_neg = lhs_neg.bitxor(rhs_neg);
+        let result_neg = lhs_neg ^ rhs_neg;
         result.and_then(|val| {
             let out_of_range: Choice = val.bit(<T as Integer>::BITS - 1);
             let signed_val = T::conditional_select(&val, &val.neg(), result_neg);
@@ -159,6 +179,13 @@ impl<T: UintLike> Add<Signed<T>> for Signed<T> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         self.checked_add(rhs).unwrap()
+    }
+}
+
+impl<T: UintLike> Sub<Signed<T>> for Signed<T> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.checked_add(-rhs).unwrap()
     }
 }
 

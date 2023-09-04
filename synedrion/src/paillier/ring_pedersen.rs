@@ -69,6 +69,31 @@ impl<P: PaillierParams> RPParamsMod<P> {
         RPCommitmentMod(pow_wide_signed(&self.base, randomizer) * self.power.pow_signed(secret))
     }
 
+    pub fn commit_positive(
+        &self,
+        randomizer: &Signed<P::QuadUint>,
+        secret: &P::DoubleUint,
+    ) -> RPCommitmentMod<P> {
+        // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
+        RPCommitmentMod(pow_wide_signed(&self.base, randomizer) * self.power.pow(secret))
+    }
+
+    pub fn commit_wide(
+        &self,
+        randomizer: &Signed<P::QuadUint>,
+        secret: &Signed<P::QuadUint>,
+    ) -> RPCommitmentMod<P> {
+        // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
+        RPCommitmentMod(
+            pow_wide_signed(&self.base, randomizer) * pow_wide_signed(&self.power, secret),
+        )
+    }
+
+    pub fn commit_base(&self, randomizer: &P::DoubleUint) -> RPCommitmentMod<P> {
+        // $t^\rho mod N$ where $\rho$ is the randomizer.
+        RPCommitmentMod(self.base.pow(randomizer))
+    }
+
     pub fn retrieve(&self) -> RPParams<P> {
         RPParams {
             base: self.base.retrieve(),
@@ -116,6 +141,10 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     /// `exponent` will be effectively reduced modulo `totient(N)`.
     pub fn pow_signed(&self, exponent: &Signed<P::DoubleUint>) -> Self {
         Self(self.0.pow_signed(exponent))
+    }
+
+    pub fn pow_signed_wide(&self, exponent: &Signed<P::QuadUint>) -> Self {
+        Self(pow_wide_signed(&self.0, exponent))
     }
 }
 

@@ -22,6 +22,10 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         Self { p, q }
     }
 
+    pub fn primes(&self) -> (P::DoubleUint, P::DoubleUint) {
+        (self.p.into_wide(), self.q.into_wide())
+    }
+
     /// Euler's totient function of `p * q` - the number of positive integers up to `p * q`
     /// that are relatively prime to it.
     /// Since `p` and `q` are primes, returns `(p - 1) * (q - 1)`.
