@@ -507,32 +507,19 @@ mod tests {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
-        let r1 = vec![
-            Round1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(0),
-                (),
-            )
-            .unwrap(),
-            Round1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(1),
-                (),
-            )
-            .unwrap(),
-            Round1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(2),
-                (),
-            )
-            .unwrap(),
-        ];
+        let num_parties = 3;
+        let r1 = (0..num_parties)
+            .map(|idx| {
+                Round1::<TestParams>::new(
+                    &mut OsRng,
+                    &shared_randomness,
+                    num_parties,
+                    PartyIdx::from_usize(idx),
+                    (),
+                )
+                .unwrap()
+            })
+            .collect();
 
         let r2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
         let r3 = assert_next_round(step(&mut OsRng, r2).unwrap()).unwrap();

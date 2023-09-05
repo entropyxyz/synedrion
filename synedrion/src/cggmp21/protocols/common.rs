@@ -202,6 +202,34 @@ impl<P: SchemeParams> KeyShare<P> {
     }
 }
 
+impl PresigningData {
+    /// Creates a consistent set of presigning data for testing purposes.
+    #[cfg(any(test, feature = "bench-internals"))]
+    pub(crate) fn new_centralized<P: SchemeParams>(
+        rng: &mut impl CryptoRngCore,
+        key_shares: &[KeyShare<P>],
+    ) -> Box<[Self]> {
+        let ephemeral_scalar = Scalar::random(rng);
+        let nonce = &Point::GENERATOR * &ephemeral_scalar.invert().unwrap();
+        let ephemeral_scalar_shares = ephemeral_scalar.split(rng, key_shares.len());
+        let secret: Scalar = key_shares
+            .iter()
+            .map(|key_share| key_share.secret_share)
+            .sum();
+        let product_shares = (ephemeral_scalar * secret).split(rng, key_shares.len());
+
+        ephemeral_scalar_shares
+            .into_iter()
+            .zip(product_shares)
+            .map(|(ephemeral_scalar_share, product_share)| PresigningData {
+                nonce,
+                ephemeral_scalar_share,
+                product_share,
+            })
+            .collect()
+    }
+}
+
 // A custom Debug impl that skips the secret value
 impl core::fmt::Debug for KeyShareSeed {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {

@@ -11,6 +11,9 @@ mod params;
 mod protocols;
 mod sigma;
 
+#[cfg(feature = "bench-internals")]
+pub mod benches;
+
 pub use params::{ProductionParams, SchemeParams, TestParams};
 pub(crate) use protocols::{
     auxiliary, interactive_signing, keygen_and_aux, FinalizeError, FinalizeSuccess, FirstRound,

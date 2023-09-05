@@ -99,8 +99,8 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::super::{
-        presigning,
-        test_utils::{assert_next_round, assert_result, step},
+        common::PresigningData,
+        test_utils::{assert_result, step},
         FirstRound,
     };
     use super::{Context, Round1};
@@ -112,81 +112,31 @@ mod tests {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
-        let key_shares = KeyShare::new_centralized(&mut OsRng, 3, None);
+        let num_parties = 3;
+        let key_shares = KeyShare::<TestParams>::new_centralized(&mut OsRng, num_parties, None);
 
-        let r1 = vec![
-            presigning::Round1Part1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(0),
-                key_shares[0].clone(),
-            )
-            .unwrap(),
-            presigning::Round1Part1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(1),
-                key_shares[1].clone(),
-            )
-            .unwrap(),
-            presigning::Round1Part1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(2),
-                key_shares[2].clone(),
-            )
-            .unwrap(),
-        ];
-
-        let r1p2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
-        let r2 = assert_next_round(step(&mut OsRng, r1p2).unwrap()).unwrap();
-        let r3 = assert_next_round(step(&mut OsRng, r2).unwrap()).unwrap();
-        let presigning_datas = assert_result(step(&mut OsRng, r3).unwrap()).unwrap();
+        let presigning_datas = PresigningData::new_centralized(&mut OsRng, &key_shares);
 
         let message = Scalar::random(&mut OsRng);
         let verifying_key = key_shares[0].verifying_key_as_point();
 
-        let r1 = vec![
-            Round1::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(0),
-                Context {
-                    presigning: presigning_datas[0].clone(),
-                    message,
-                    verifying_key,
-                },
-            )
-            .unwrap(),
-            Round1::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(1),
-                Context {
-                    presigning: presigning_datas[1].clone(),
-                    message,
-                    verifying_key,
-                },
-            )
-            .unwrap(),
-            Round1::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(2),
-                Context {
-                    presigning: presigning_datas[2].clone(),
-                    message,
-                    verifying_key,
-                },
-            )
-            .unwrap(),
-        ];
+        let r1 = (0..num_parties)
+            .map(|idx| {
+                Round1::new(
+                    &mut OsRng,
+                    &shared_randomness,
+                    num_parties,
+                    PartyIdx::from_usize(idx),
+                    Context {
+                        presigning: presigning_datas[idx].clone(),
+                        message,
+                        verifying_key,
+                    },
+                )
+                .unwrap()
+            })
+            .collect();
+
         let signatures = assert_result(step(&mut OsRng, r1).unwrap()).unwrap();
 
         for signature in signatures {

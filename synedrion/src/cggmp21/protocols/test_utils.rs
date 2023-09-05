@@ -1,3 +1,6 @@
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use rand_core::CryptoRngCore;
 
 use super::{FinalizeError, FinalizeSuccess, PartyIdx, ReceiveError, Round, ToSendTyped};

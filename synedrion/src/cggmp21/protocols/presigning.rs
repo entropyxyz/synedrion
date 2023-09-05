@@ -645,41 +645,27 @@ mod tests {
     };
     use super::Round1Part1;
     use crate::cggmp21::{KeyShare, PartyIdx, TestParams};
-    use crate::curve::Scalar;
+    use crate::curve::{Point, Scalar};
 
     #[test]
     fn execute_presigning() {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
-        let key_shares = KeyShare::new_centralized(&mut OsRng, 3, None);
-
-        let r1 = vec![
-            Round1Part1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(0),
-                key_shares[0].clone(),
-            )
-            .unwrap(),
-            Round1Part1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(1),
-                key_shares[1].clone(),
-            )
-            .unwrap(),
-            Round1Part1::<TestParams>::new(
-                &mut OsRng,
-                &shared_randomness,
-                3,
-                PartyIdx::from_usize(2),
-                key_shares[2].clone(),
-            )
-            .unwrap(),
-        ];
+        let num_parties = 3;
+        let key_shares = KeyShare::new_centralized(&mut OsRng, num_parties, None);
+        let r1 = (0..num_parties)
+            .map(|idx| {
+                Round1Part1::<TestParams>::new(
+                    &mut OsRng,
+                    &shared_randomness,
+                    num_parties,
+                    PartyIdx::from_usize(idx),
+                    key_shares[idx].clone(),
+                )
+                .unwrap()
+            })
+            .collect();
 
         let r1p2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
         let r2 = assert_next_round(step(&mut OsRng, r1p2).unwrap()).unwrap();
@@ -698,5 +684,9 @@ mod tests {
         let k_times_x: Scalar = presigning_datas.iter().map(|data| data.product_share).sum();
         let x: Scalar = key_shares.iter().map(|share| share.secret_share).sum();
         assert_eq!(x * k, k_times_x);
+        assert_eq!(
+            &Point::GENERATOR * &k.invert().unwrap(),
+            presigning_datas[0].nonce
+        );
     }
 }

@@ -16,7 +16,15 @@
 
 extern crate alloc;
 
-mod cggmp21;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "bench-internals")] {
+        pub mod cggmp21;
+    }
+    else {
+        mod cggmp21;
+    }
+}
+
 mod curve;
 mod paillier;
 pub mod sessions;

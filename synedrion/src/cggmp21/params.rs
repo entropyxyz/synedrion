@@ -49,7 +49,7 @@ impl SchemeParams for TestParams {
 pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {
-    const SECURITY_PARAMETER: usize = 10;
+    const SECURITY_PARAMETER: usize = 80;
     const L_BOUND: usize = 256;
     const LP_BOUND: usize = Self::L_BOUND * 5;
     const EPS_BOUND: usize = Self::L_BOUND * 2;
