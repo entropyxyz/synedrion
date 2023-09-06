@@ -60,7 +60,7 @@ impl<const L: usize> SmallMod for Uint<L> {
         self.as_limbs()[0].0 & 3
     }
     fn trailing_zeros(&self) -> usize {
-        Uint::<L>::trailing_zeros(*self)
+        Uint::<L>::trailing_zeros(self)
     }
 }
 

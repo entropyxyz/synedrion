@@ -7,8 +7,8 @@ use super::keys::{PublicKeyPaillier, SecretKeyPaillier};
 use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
-    subtle::Choice, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, Retrieve, Signed,
-    UintModLike,
+    subtle::{Choice, ConditionallyNegatable},
+    CheckedSub, HasWide, Integer, Invert, NonZero, Pow, Retrieve, Signed, UintModLike,
 };
 
 /// Paillier ciphertext.
@@ -53,11 +53,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // then conditionally negate modulo N^2
         let prod = abs_plaintext.mul_wide(&pk.modulus_raw());
         let mut prod_mod = P::QuadUintMod::new(&prod, &modulus_squared);
-
-        // TODO: use conditionally_negate() after crypto_bigint 0.5.3 is released
-        if plaintext_is_negative.into() {
-            prod_mod = -prod_mod;
-        }
+        prod_mod.conditional_negate(plaintext_is_negative);
 
         let factor1 = prod_mod + P::QuadUintMod::one(&modulus_squared);
 

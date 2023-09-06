@@ -6,7 +6,7 @@ use crypto_bigint::{
         Retrieve,
     },
     nlimbs,
-    subtle::{Choice, ConstantTimeLess, CtOption},
+    subtle::{self, Choice, ConstantTimeLess, CtOption},
     Encoding, Integer, Invert, Limb, NonZero, Pow, RandomMod, Uint, Word, Zero, U1024, U1280,
     U2048, U320, U4096, U640,
 };
@@ -45,8 +45,7 @@ pub trait UintLike:
     fn add_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self;
     fn sub_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self;
     fn trailing_zeros(&self) -> usize;
-    fn inv_odd_mod(&self, modulus: &Self) -> CtOption<Self>;
-    fn inv_mod2k(&self, k: usize) -> Self;
+    fn inv_mod(&self, modulus: &Self) -> CtOption<Self>;
     fn wrapping_sub(&self, other: &Self) -> Self;
     fn wrapping_mul(&self, other: &Self) -> Self;
     fn wrapping_add(&self, other: &Self) -> Self;
@@ -109,13 +108,9 @@ impl<const L: usize> UintLike for Uint<L> {
         (*self).trailing_zeros()
     }
 
-    fn inv_odd_mod(&self, modulus: &Self) -> CtOption<Self> {
-        let (res, choice) = self.inv_odd_mod(modulus);
+    fn inv_mod(&self, modulus: &Self) -> CtOption<Self> {
+        let (res, choice) = self.inv_mod(modulus);
         CtOption::new(res, choice.into())
-    }
-
-    fn inv_mod2k(&self, k: usize) -> Self {
-        self.inv_mod2k(k)
     }
 
     fn wrapping_sub(&self, other: &Self) -> Self {
@@ -157,8 +152,6 @@ where
     let abs_exponent = exponent.abs();
     let (hi, lo) = T::RawUint::from_wide(abs_exponent);
 
-    // TODO: replace with the regular `pow()` when crypto-biging 0.5.3 is released,
-    // since it will be able to work with arbitrary-sized exponents.
     let mut abs_result = base.pow(&hi);
     for _ in 0..<T::RawUint as Integer>::BITS {
         abs_result = abs_result * abs_result;
@@ -166,14 +159,7 @@ where
     abs_result = abs_result * base.pow(&lo);
     let inv_result = abs_result.invert().unwrap();
 
-    // TODO: this should be constant-time, but ConditionallySelectable for DynResidue
-    // is only supported since crypto-bigint 0.5.3 (unreleased).
-    // Use `conditionally_select()` when available.
-    if exponent.is_negative().into() {
-        inv_result
-    } else {
-        abs_result
-    }
+    T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
 
 impl<const L: usize> Hashable for Uint<L> {
@@ -208,6 +194,8 @@ pub trait UintModLike:
     + Mul<Output = Self>
     + Sub<Output = Self>
     + for<'a> Mul<&'a Self, Output = Self>
+    + subtle::ConditionallyNegatable
+    + subtle::ConditionallySelectable
 {
     type RawUint: UintLike;
     fn new(value: &Self::RawUint, modulus: &NonZero<Self::RawUint>) -> Self;
@@ -216,15 +204,7 @@ pub trait UintModLike:
         let abs_exponent = exponent.abs();
         let abs_result = self.pow(&abs_exponent);
         let inv_result = abs_result.invert().unwrap();
-
-        // TODO: this should be constant-time, but ConditionallySelectable for DynResidue
-        // is only supported since crypto-bigint 0.5.3 (unreleased).
-        // Use `conditionally_select()` when available.
-        if exponent.is_negative().into() {
-            inv_result
-        } else {
-            abs_result
-        }
+        Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
 }
 

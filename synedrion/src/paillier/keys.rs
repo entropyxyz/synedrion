@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
-    CheckedAdd, CheckedMul, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, RandomMod,
-    RandomPrimeWithRng, Retrieve, UintLike, UintModLike,
+    CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, RandomMod, RandomPrimeWithRng,
+    Retrieve, UintLike, UintModLike,
 };
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -105,27 +105,12 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         (inv * (p_part_m * q_big_m + q_part_m * p_big_m)).retrieve()
     }
 
+    /// Returns `N^{-1} mod \phi(N)`
     pub fn inv_modulus(&self) -> P::DoubleUint {
-        let m_nz = self.totient();
-        let m = m_nz.as_ref();
-        let k = m.trailing_zeros();
-        let m_odd = *m >> k;
-        let x = self.public_key().modulus();
-
-        let a = x.as_ref().inv_odd_mod(&m_odd).unwrap();
-        let b = x.as_ref().inv_mod2k(k);
-
-        // Restore from RNS:
-        // x = a mod m_odd = b mod 2^k
-        // => x = a + m_odd * ((b - a) * m_odd^(-1) mod 2^k)
-        let m_odd_inv = m_odd.inv_mod2k(k);
-
-        // This part is mod 2^k
-        let mask = (P::DoubleUint::ONE << k)
-            .checked_sub(&P::DoubleUint::ONE)
-            .unwrap();
-        let t = (b.wrapping_sub(&a).wrapping_mul(&m_odd_inv)) & mask;
-        a.checked_add(&m_odd.checked_mul(&t).unwrap()).unwrap()
+        self.public_key()
+            .modulus()
+            .inv_mod(&self.totient())
+            .unwrap()
     }
 
     pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUint {
