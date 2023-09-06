@@ -6,9 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use super::aff_g::mul_by_point;
 use crate::curve::Point;
-use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod, SecretKeyPaillier,
-};
+use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{NonZero, Retrieve, Signed, UintModLike};
 
@@ -31,15 +29,13 @@ impl<P: SchemeParams> LogStarProof<P> {
         rho: &<P::Paillier as PaillierParams>::DoubleUint,       // $\rho$
         pk: &PublicKeyPaillier<P::Paillier>,                     // $N_0$
         g: &Point,                                               // $g$
-        aux: &impl Hashable, // CHECK: used to derive $\hat{N}, s, t$
+        aux_pk: &PublicKeyPaillier<P::Paillier>,                 // $\hat{N}$
+        aux_rp: &RPParamsMod<P::Paillier>,                       // $s$, $t$
+        aux: &impl Hashable,
     ) -> Self {
         // TODO: check ranges of input values
 
         let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::<P::Paillier>::random(&mut aux_rng);
-        let aux_pk = aux_sk.public_key(); // `\hat{N}`
-
-        let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         // \alpha <-- +- 2^{\ell + \eps}
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
@@ -55,7 +51,7 @@ impl<P: SchemeParams> LogStarProof<P> {
             Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
 
         // S = s^x t^m  \mod \hat{N}
-        let cap_s = rp.commit(&mu, x).retrieve();
+        let cap_s = aux_rp.commit(&mu, x).retrieve();
 
         // A = (1 + N_0)^\alpha r^N_0 \mod N_0^2
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
@@ -64,7 +60,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         let cap_y = mul_by_point::<P>(g, &alpha);
 
         // D = s^\alpha t^\gamma \mod \hat{N}
-        let cap_d = rp.commit(&gamma, &alpha).retrieve();
+        let cap_d = aux_rp.commit(&gamma, &alpha).retrieve();
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -94,19 +90,18 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
         pk: &PublicKeyPaillier<P::Paillier>,
         cap_c: &Ciphertext<P::Paillier>, // $C = encrypt(x, \rho)$
         g: &Point,                       // $g$
         cap_x: &Point,                   // $X = g^x$
+        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
+        aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::<P::Paillier>::random(&mut aux_rng);
-        let aux_pk = aux_sk.public_key(); // `\hat{N}`
-
-        let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         let challenge =
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
@@ -127,9 +122,9 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // Check that $s^{z_1} t^{z_3} == D S^e \mod \hat{N}$
-        let cap_d_mod = self.cap_d.to_mod(&aux_pk);
-        let cap_s_mod = self.cap_s.to_mod(&aux_pk);
-        if rp.commit(&self.z3, &self.z1) != &cap_d_mod * &cap_s_mod.pow_signed(&challenge) {
+        let cap_d_mod = self.cap_d.to_mod(aux_pk);
+        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        if aux_rp.commit(&self.z3, &self.z1) != &cap_d_mod * &cap_s_mod.pow_signed(&challenge) {
             return false;
         }
 
@@ -145,7 +140,7 @@ mod tests {
     use super::LogStarProof;
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::{Point, Scalar};
-    use crate::paillier::{Ciphertext, SecretKeyPaillier};
+    use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
     #[test]
@@ -156,6 +151,10 @@ mod tests {
         let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
         let pk = sk.public_key();
 
+        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let aux_pk = aux_sk.public_key();
+        let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
+
         let aux: &[u8] = b"abcde";
 
         let g = &Point::GENERATOR * &Scalar::random(&mut OsRng);
@@ -164,7 +163,8 @@ mod tests {
         let cap_c = Ciphertext::new_with_randomizer_signed(&pk, &x, &rho);
         let cap_x = mul_by_point::<Params>(&g, &x);
 
-        let proof = LogStarProof::<Params>::random(&mut OsRng, &x, &rho, &pk, &g, &aux);
-        assert!(proof.verify(&pk, &cap_c, &g, &cap_x, &aux));
+        let proof =
+            LogStarProof::<Params>::random(&mut OsRng, &x, &rho, &pk, &g, &aux_pk, &aux_rp, &aux);
+        assert!(proof.verify(&pk, &cap_c, &g, &cap_x, &aux_pk, &aux_rp, &aux));
     }
 }

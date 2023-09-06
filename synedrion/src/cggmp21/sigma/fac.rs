@@ -27,13 +27,11 @@ impl<P: SchemeParams> FacProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillier<P::Paillier>,
+        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
+        aux_rp: &RPParamsMod<P::Paillier>,       // $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::<P::Paillier>::random(&mut aux_rng);
-        let aux_pk = aux_sk.public_key(); // `\hat{N}`
-
-        let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         let pk = sk.public_key();
 
@@ -90,22 +88,22 @@ impl<P: SchemeParams> FacProof<P> {
         let q_signed = Signed::new_positive(q).unwrap();
 
         // P = s^p t^\mu \mod \hat{N}
-        let cap_p = rp.commit(&mu, &p_signed).retrieve();
+        let cap_p = aux_rp.commit(&mu, &p_signed).retrieve();
 
         // Q = s^q t^\nu \mod \hat{N}
-        let cap_q = rp.commit(&nu, &q_signed);
+        let cap_q = aux_rp.commit(&nu, &q_signed);
 
         // A = s^\alpha t^x \mod \hat{N}
-        let cap_a = rp.commit_wide(&x, &alpha).retrieve();
+        let cap_a = aux_rp.commit_wide(&x, &alpha).retrieve();
 
         // B = s^\beta t^y \mod \hat{N}
-        let cap_b = rp.commit_wide(&y, &beta).retrieve();
+        let cap_b = aux_rp.commit_wide(&y, &beta).retrieve();
 
         // T = Q^\alpha t^r \mod \hat{N}
         // Another way is to rewrite it as
         //   s^{\alpha * q} t^{\alpha \nu + r} \mod \hat{N}
         // This may or may not be faster.
-        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &rp.commit_base_octo(&r)).retrieve();
+        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &aux_rp.commit_base_octo(&r)).retrieve();
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -155,39 +153,41 @@ impl<P: SchemeParams> FacProof<P> {
         }
     }
 
-    pub fn verify(&self, pk: &PublicKeyPaillier<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(
+        &self,
+        pk: &PublicKeyPaillier<P::Paillier>,
+        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
+        aux_rp: &RPParamsMod<P::Paillier>,       // $s$, $t$
+        aux: &impl Hashable,
+    ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::<P::Paillier>::random(&mut aux_rng);
-        let aux_pk = aux_sk.public_key(); // `\hat{N}`
-
-        let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         // Non-interactive challenge ($e$)
         let challenge =
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &rp.commit_octo(&self.sigma, pk.modulus().as_ref());
+        let cap_r = &aux_rp.commit_octo(&self.sigma, pk.modulus().as_ref());
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
-        if rp.commit_wide(&self.omega1, &self.z1)
-            != &self.cap_a.to_mod(&aux_pk) * &self.cap_p.to_mod(&aux_pk).pow_signed(&challenge)
+        if aux_rp.commit_wide(&self.omega1, &self.z1)
+            != &self.cap_a.to_mod(aux_pk) * &self.cap_p.to_mod(aux_pk).pow_signed(&challenge)
         {
             return false;
         }
 
-        let cap_q_mod = self.cap_q.to_mod(&aux_pk);
+        let cap_q_mod = self.cap_q.to_mod(aux_pk);
 
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
-        if rp.commit_wide(&self.omega2, &self.z2)
-            != &self.cap_b.to_mod(&aux_pk) * &cap_q_mod.pow_signed(&challenge)
+        if aux_rp.commit_wide(&self.omega2, &self.z2)
+            != &self.cap_b.to_mod(aux_pk) * &cap_q_mod.pow_signed(&challenge)
         {
             return false;
         }
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
-        if &cap_q_mod.pow_signed_wide(&self.z1) * &rp.commit_base_octo(&self.v)
-            != &self.cap_t.to_mod(&aux_pk) * &cap_r.pow_signed(&challenge)
+        if &cap_q_mod.pow_signed_wide(&self.z1) * &aux_rp.commit_base_octo(&self.v)
+            != &self.cap_t.to_mod(aux_pk) * &cap_r.pow_signed(&challenge)
         {
             return false;
         }
@@ -216,7 +216,7 @@ mod tests {
 
     use super::FacProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::SecretKeyPaillier;
+    use crate::paillier::{RPParamsMod, SecretKeyPaillier};
 
     #[test]
     fn prove_and_verify() {
@@ -226,9 +226,13 @@ mod tests {
         let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
         let pk = sk.public_key();
 
+        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let aux_pk = aux_sk.public_key();
+        let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
+
         let aux: &[u8] = b"abcde";
 
-        let proof = FacProof::<Params>::random(&mut OsRng, &sk, &aux);
-        assert!(proof.verify(&pk, &aux));
+        let proof = FacProof::<Params>::random(&mut OsRng, &sk, &aux_pk, &aux_rp, &aux);
+        assert!(proof.verify(&pk, &aux_pk, &aux_rp, &aux));
     }
 }

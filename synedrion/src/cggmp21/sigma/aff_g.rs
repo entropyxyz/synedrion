@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::curve::Point;
-use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod, SecretKeyPaillier,
-};
+use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
 
@@ -68,15 +66,13 @@ impl<P: SchemeParams> AffGProof<P> {
         // - `|s \alpha + \beta| < N_0 / 2
         // - `|s (\alpha + e x) + \beta + e y| < N_0 / 2
         cap_c: &Ciphertext<P::Paillier>, // a ciphertext encrypted with `pk0`
+        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
+        aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,             // CHECK: used to derive `\hat{N}, s, t`
     ) -> Self {
         // TODO: check ranges of input values
 
         let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::<P::Paillier>::random(&mut aux_rng);
-        let aux_pk = aux_sk.public_key(); // `\hat{N}`
-
-        let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -124,18 +120,18 @@ impl<P: SchemeParams> AffGProof<P> {
         let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y.retrieve());
 
         // E = s^\alpha t^\gamma \mod \hat{N}
-        let cap_e = rp.commit(&gamma, &alpha).retrieve();
+        let cap_e = aux_rp.commit(&gamma, &alpha).retrieve();
 
         // S = s^x t^m  \mod \hat{N}
-        let cap_s = rp.commit(&m, x).retrieve();
+        let cap_s = aux_rp.commit(&m, x).retrieve();
 
         // F = s^\beta t^\delta \mod \hat{N}
-        let cap_f = rp.commit(&delta, &beta).retrieve();
+        let cap_f = aux_rp.commit(&delta, &beta).retrieve();
 
         // CHECK: deviation from the paper to support a different `D`
         // Original: `s^y`. Modified: `s^{-y}`
         // T = s^{-y} t^\mu \mod \hat{N}
-        let cap_t = rp.commit(&mu, &-y).retrieve();
+        let cap_t = aux_rp.commit(&mu, &-y).retrieve();
 
         // z_1 = \alpha + e x
         let z1 = alpha + challenge * *x;
@@ -192,13 +188,11 @@ impl<P: SchemeParams> AffGProof<P> {
         cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x (+) enc_0(-y, \rho)$
         cap_y: &Ciphertext<P::Paillier>, // $Y = enc_1(y, \rho_y)$
         cap_x: &Point,                   // $X = g * x$, where `g` is the curve generator
+        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
+        aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,             // CHECK: used to derive `\hat{N}, s, t`
     ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::<P::Paillier>::random(&mut aux_rng);
-        let aux_pk = aux_sk.public_key(); // `\hat{N}`
-
-        let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -234,15 +228,15 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
-        if rp.commit(&self.z3, &self.z1)
-            != &self.cap_e.to_mod(&aux_pk) * &self.cap_s.to_mod(&aux_pk).pow_signed(&challenge)
+        if aux_rp.commit(&self.z3, &self.z1)
+            != &self.cap_e.to_mod(aux_pk) * &self.cap_s.to_mod(aux_pk).pow_signed(&challenge)
         {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
-        if rp.commit(&self.z4, &self.z2)
-            != &self.cap_f.to_mod(&aux_pk) * &self.cap_t.to_mod(&aux_pk).pow_signed(&challenge)
+        if aux_rp.commit(&self.z4, &self.z2)
+            != &self.cap_f.to_mod(aux_pk) * &self.cap_t.to_mod(aux_pk).pow_signed(&challenge)
         {
             return false;
         }
@@ -257,7 +251,7 @@ mod tests {
 
     use super::{mul_by_generator, AffGProof};
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, SecretKeyPaillier};
+    use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
     #[test]
@@ -270,6 +264,10 @@ mod tests {
 
         let sk1 = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
         let pk1 = sk1.public_key();
+
+        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let aux_pk = aux_sk.public_key();
+        let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
 
@@ -289,8 +287,9 @@ mod tests {
         let cap_y = Ciphertext::new_with_randomizer_signed(&pk1, &y, &rho_y);
         let cap_x = mul_by_generator::<Params>(&x);
 
-        let proof =
-            AffGProof::<Params>::random(&mut OsRng, &x, &y, &rho, &rho_y, &pk0, &pk1, &cap_c, &aux);
-        assert!(proof.verify(&pk0, &pk1, &cap_c, &cap_d, &cap_y, &cap_x, &aux));
+        let proof = AffGProof::<Params>::random(
+            &mut OsRng, &x, &y, &rho, &rho_y, &pk0, &pk1, &cap_c, &aux_pk, &aux_rp, &aux,
+        );
+        assert!(proof.verify(&pk0, &pk1, &cap_c, &cap_d, &cap_y, &cap_x, &aux_pk, &aux_rp, &aux));
     }
 }

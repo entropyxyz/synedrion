@@ -75,6 +75,9 @@ pub(crate) struct PublicAuxInfo<P: SchemeParams> {
     pub(crate) el_gamal_pk: Point, // `Y_i`
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
+    /// Auxiliary public key and ring-Pedersen parameters (for ZK proofs).
+    pub(crate) aux_paillier_pk: PublicKeyPaillier<P::Paillier>,
+    pub(crate) aux_rp_params: RPParams<P::Paillier>,
     /// The ring-Pedersen parameters.
     pub(crate) rp_params: RPParams<P::Paillier>, // `s_i` and `t_i`
 }
@@ -290,10 +293,14 @@ pub(crate) fn make_aux_info<P: SchemeParams>(
         })
         .collect::<Box<_>>();
 
+    let aux_paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
+
     let public_aux = secret_aux
         .iter()
         .map(|secret| PublicAuxInfo {
             paillier_pk: secret.paillier_sk.public_key(),
+            aux_paillier_pk: aux_paillier_sk.public_key(),
+            aux_rp_params: RPParamsMod::random(rng, &aux_paillier_sk).retrieve(),
             el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
             rp_params: RPParamsMod::random(rng, &secret.paillier_sk).retrieve(),
         })

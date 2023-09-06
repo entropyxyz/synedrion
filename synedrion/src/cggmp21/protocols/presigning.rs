@@ -187,6 +187,10 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
                     &uint_from_scalar::<P>(&self.context.ephemeral_scalar_share),
                     &self.context.rho,
                     &self.context.key_share.secret_aux.paillier_sk,
+                    &self.context.key_share.public_aux[idx].aux_paillier_pk,
+                    &self.context.key_share.public_aux[idx]
+                        .aux_rp_params
+                        .to_mod(&self.context.key_share.public_aux[idx].aux_paillier_pk),
                     &aux,
                 );
                 (PartyIdx::from_usize(idx), Round1Direct(proof))
@@ -201,9 +205,17 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.shared_randomness, &self.context.party_idx);
+
+        let public_aux =
+            self.context.key_share.public_aux[self.context.party_idx.as_usize()].clone();
+        let aux_pk = public_aux.aux_paillier_pk;
+        let aux_rp = public_aux.aux_rp_params.to_mod(&aux_pk);
+
         if msg.0.verify(
             &self.context.key_share.public_aux[from.as_usize()].paillier_pk,
             &self.k_ciphertexts[from.as_usize()],
+            &aux_pk,
+            &aux_rp,
             &aux,
         ) {
             Ok(())
@@ -353,6 +365,10 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                 let f_hat =
                     Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(beta_hat), &r_hat);
 
+                let public_aux = &self.context.key_share.public_aux[idx];
+                let aux_pk = &public_aux.aux_paillier_pk;
+                let aux_rp = public_aux.aux_rp_params.to_mod(aux_pk);
+
                 let psi = AffGProof::random(
                     rng,
                     &Signed::new_positive(uint_from_scalar::<P>(&self.context.gamma)).unwrap(),
@@ -362,6 +378,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
+                    aux_pk,
+                    &aux_rp,
                     &aux,
                 );
 
@@ -377,6 +395,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
+                    aux_pk,
+                    &aux_rp,
                     &aux,
                 );
 
@@ -386,6 +406,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     &self.context.nu,
                     pk,
                     &Point::GENERATOR,
+                    aux_pk,
+                    &aux_rp,
                     &aux,
                 );
 
@@ -417,6 +439,10 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let big_x = self.context.key_share.public_shares[from.as_usize()];
 
+        let public_aux = &self.context.key_share.public_aux[self.context.party_idx.as_usize()];
+        let aux_pk = &public_aux.aux_paillier_pk;
+        let aux_rp = public_aux.aux_rp_params.to_mod(aux_pk);
+
         if !msg.psi.verify(
             pk,
             from_pk,
@@ -424,6 +450,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &msg.d,
             &msg.f,
             &msg.gamma,
+            aux_pk,
+            &aux_rp,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
@@ -438,6 +466,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &msg.d_hat,
             &msg.f_hat,
             &big_x,
+            aux_pk,
+            &aux_rp,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
@@ -450,6 +480,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &self.g_ciphertexts[from.as_usize()],
             &Point::GENERATOR,
             &msg.gamma,
+            aux_pk,
+            &aux_rp,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
@@ -550,6 +582,10 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
 
         let messages = range
             .map(|idx| {
+                let public_aux = &self.context.key_share.public_aux[idx];
+                let aux_pk = &public_aux.aux_paillier_pk;
+                let aux_rp = public_aux.aux_rp_params.to_mod(aux_pk);
+
                 let psi_hat_pprime = LogStarProof::random(
                     rng,
                     &Signed::new_positive(uint_from_scalar::<P>(
@@ -559,6 +595,8 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
                     &self.context.rho,
                     pk,
                     &self.big_gamma,
+                    aux_pk,
+                    &aux_rp,
                     &aux,
                 );
                 let message = Round3Bcast {
@@ -580,11 +618,18 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     ) -> Result<Self::Payload, ReceiveError> {
         let aux = (&self.context.shared_randomness, &from);
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
+
+        let public_aux = &self.context.key_share.public_aux[self.context.party_idx.as_usize()];
+        let aux_pk = &public_aux.aux_paillier_pk;
+        let aux_rp = public_aux.aux_rp_params.to_mod(aux_pk);
+
         if !msg.psi_hat_pprime.verify(
             from_pk,
             &self.k_ciphertexts[from.as_usize()],
             &self.big_gamma,
             &msg.big_delta,
+            aux_pk,
+            &aux_rp,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(

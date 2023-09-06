@@ -26,15 +26,13 @@ impl<P: SchemeParams> EncProof<P> {
         secret: &<P::Paillier as PaillierParams>::DoubleUint, // `k`
         randomizer: &<P::Paillier as PaillierParams>::DoubleUint, // `\rho`
         sk: &SecretKeyPaillier<P::Paillier>,                  // `N_0`
+        aux_pk: &PublicKeyPaillier<P::Paillier>,              // $\hat{N}$
+        aux_rp: &RPParamsMod<P::Paillier>,                    // $s$, $t$
         aux: &impl Hashable, // CHECK: used to derive `\hat{N}, s, t`
     ) -> Self {
         let pk = sk.public_key();
 
         let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::random(&mut aux_rng);
-        let aux_pk = aux_sk.public_key(); // `\hat{N}`
-
-        let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -63,13 +61,13 @@ impl<P: SchemeParams> EncProof<P> {
             Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
 
         // S = s^k * t^\mu \mod \hat{N}
-        let cap_s = rp.commit(&mu, &secret_signed).retrieve();
+        let cap_s = aux_rp.commit(&mu, &secret_signed).retrieve();
 
         // A = (1 + N_0)^\alpha * r^N_0 == encrypt(\alpha, r)
         let cap_a = Ciphertext::new_with_randomizer_signed(&pk, &alpha, &r.retrieve());
 
         // C = s^\alpha * t^\gamma \mod \hat{N}
-        let cap_c = rp.commit(&gamma, &alpha).retrieve();
+        let cap_c = aux_rp.commit(&gamma, &alpha).retrieve();
 
         // z_1 = \alpha + e k
         // In the proof it will be checked that $z1 \in +- 2^{\ell + \eps}$,
@@ -99,15 +97,13 @@ impl<P: SchemeParams> EncProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillier<P::Paillier>,  // `N_0`
-        ciphertext: &Ciphertext<P::Paillier>, // `K`
-        aux: &impl Hashable,                  // CHECK: used to derive `\hat{N}, s, t`
+        pk: &PublicKeyPaillier<P::Paillier>,     // `N_0`
+        ciphertext: &Ciphertext<P::Paillier>,    // `K`
+        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
+        aux_rp: &RPParamsMod<P::Paillier>,       // $s$, $t$
+        aux: &impl Hashable,                     // CHECK: used to derive `\hat{N}, s, t`
     ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
-        let aux_sk = SecretKeyPaillier::<P::Paillier>::random(&mut aux_rng);
-        let aux_pk = aux_sk.public_key(); // `\hat{N}`
-
-        let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         // Non-interactive challenge ($e$)
         let challenge = Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded(
@@ -131,9 +127,9 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // Check that $s^{z_1} t^{z_3} == C S^e \mod \hat{N}$
-        let cap_c_mod = self.cap_c.to_mod(&aux_pk);
-        let cap_s_mod = self.cap_s.to_mod(&aux_pk);
-        if rp.commit(&self.z3, &self.z1) != &cap_c_mod * &cap_s_mod.pow_signed(&challenge) {
+        let cap_c_mod = self.cap_c.to_mod(aux_pk);
+        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        if aux_rp.commit(&self.z3, &self.z1) != &cap_c_mod * &cap_s_mod.pow_signed(&challenge) {
             return false;
         }
 
@@ -147,7 +143,7 @@ mod tests {
 
     use super::EncProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, PaillierParams, SecretKeyPaillier};
+    use crate::paillier::{Ciphertext, PaillierParams, RPParamsMod, SecretKeyPaillier};
     use crate::uint::{NonZero, RandomMod};
 
     #[test]
@@ -157,6 +153,10 @@ mod tests {
 
         let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
         let pk = sk.public_key();
+
+        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let aux_pk = aux_sk.public_key();
+        let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
 
@@ -168,7 +168,15 @@ mod tests {
         let randomizer = Ciphertext::<Paillier>::randomizer(&mut OsRng, &pk);
         let ciphertext = Ciphertext::new_with_randomizer(&pk, &secret, &randomizer);
 
-        let proof = EncProof::<Params>::random(&mut OsRng, &secret, &randomizer, &sk, &aux);
-        assert!(proof.verify(&pk, &ciphertext, &aux));
+        let proof = EncProof::<Params>::random(
+            &mut OsRng,
+            &secret,
+            &randomizer,
+            &sk,
+            &aux_pk,
+            &aux_rp,
+            &aux,
+        );
+        assert!(proof.verify(&pk, &ciphertext, &aux_pk, &aux_rp, &aux));
     }
 }
