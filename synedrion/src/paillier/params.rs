@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::tools::hashing::Hashable;
 use crate::uint::{
-    FromScalar, HasWide, U1024Mod, U1280Mod, U2048Mod, U320Mod, U4096Mod, U640Mod, UintLike,
-    UintModLike, U1024, U1280, U2048, U320, U4096, U640,
+    FromScalar, HasWide, U1024Mod, U2048Mod, U4096Mod, U512Mod, UintLike, UintModLike, U1024,
+    U2048, U4096, U512, U8192,
 };
 
 pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
@@ -16,8 +16,9 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
         + Serialize
         + for<'de> Deserialize<'de>;
     type DoubleUintMod: Hashable + UintModLike<RawUint = Self::DoubleUint>;
-    type QuadUint: UintLike + Serialize + for<'de> Deserialize<'de>;
+    type QuadUint: UintLike + Serialize + for<'de> Deserialize<'de> + HasWide<Wide = Self::OctoUint>;
     type QuadUintMod: Hashable + UintModLike<RawUint = Self::QuadUint>;
+    type OctoUint: UintLike + Serialize + for<'de> Deserialize<'de>;
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -27,12 +28,13 @@ impl PaillierParams for PaillierTest {
     // We need 257-bit primes because we need DoubleUint to accommodate all the possible
     // values of curve scalar squared, which is 512 bits.
     const PRIME_BITS: usize = 257;
-    type SingleUint = U320;
-    type SingleUintMod = U320Mod;
-    type DoubleUint = U640;
-    type DoubleUintMod = U640Mod;
-    type QuadUint = U1280;
-    type QuadUintMod = U1280Mod;
+    type SingleUint = U512;
+    type SingleUintMod = U512Mod;
+    type DoubleUint = U1024;
+    type DoubleUintMod = U1024Mod;
+    type QuadUint = U2048;
+    type QuadUintMod = U2048Mod;
+    type OctoUint = U4096;
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -48,4 +50,5 @@ impl PaillierParams for PaillierProduction {
     type DoubleUintMod = U2048Mod;
     type QuadUint = U4096;
     type QuadUintMod = U4096Mod;
+    type OctoUint = U8192;
 }

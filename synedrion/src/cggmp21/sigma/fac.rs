@@ -6,45 +6,7 @@ use crate::paillier::{
     PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod, SecretKeyPaillier,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{CheckedAdd, HasWide, Integer, NonZero, RandomMod, Signed, UintLike};
-
-pub fn mul_mod<P: PaillierParams>(
-    x: &P::DoubleUint,
-    y: &P::DoubleUint,
-    modulus: &NonZero<P::DoubleUint>,
-) -> P::DoubleUint {
-    let prod_wide = x.mul_wide(y);
-    // TODO: note that currently `rem()` isn't constant-time
-    // (to be made constant-time in future releases of crypto-bigint).
-    // Our modulus is phi(\hat{N}) which technically isn't secret.
-    let rem_wide = prod_wide % NonZero::new(modulus.as_ref().into_wide()).unwrap();
-    P::DoubleUint::try_from_wide(rem_wide).unwrap()
-}
-
-// CHECK: since bound_bits + bits(scale1) + bits(scale2) would overflow QuadUint,
-// we temporarily generate the result modulo phi(\hat{N}).
-// Is it safe to send over the wire? If not, we will have to use something
-// even larger than QuadUint.
-pub fn random_bounded_bits_double_scaled<P: PaillierParams>(
-    rng: &mut impl CryptoRngCore,
-    bound_bits: usize,
-    scale1: &NonZero<P::DoubleUint>,
-    scale2: &NonZero<P::DoubleUint>,
-    modulus: &NonZero<P::DoubleUint>,
-) -> P::DoubleUint {
-    // TODO: check the ranges
-    let bound = NonZero::new(P::DoubleUint::ONE << bound_bits).unwrap();
-    let positive_bound = (*bound.as_ref() << 1)
-        .checked_add(&P::DoubleUint::ONE)
-        .unwrap();
-    let positive_result = P::DoubleUint::random_mod(rng, &NonZero::new(positive_bound).unwrap());
-
-    mul_mod::<P>(
-        &mul_mod::<P>(&positive_result, scale1, modulus),
-        scale2,
-        modulus,
-    )
-}
+use crate::uint::{HasWide, Integer, NonZero, Signed};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
@@ -53,12 +15,12 @@ pub(crate) struct FacProof<P: SchemeParams> {
     cap_a: RPCommitment<P::Paillier>,
     cap_b: RPCommitment<P::Paillier>,
     cap_t: RPCommitment<P::Paillier>,
-    sigma: Signed<<P::Paillier as PaillierParams>::QuadUint>,
+    sigma: Signed<<P::Paillier as PaillierParams>::OctoUint>,
     z1: Signed<<P::Paillier as PaillierParams>::QuadUint>,
     z2: Signed<<P::Paillier as PaillierParams>::QuadUint>,
     omega1: Signed<<P::Paillier as PaillierParams>::QuadUint>,
     omega2: Signed<<P::Paillier as PaillierParams>::QuadUint>,
-    v: <P::Paillier as PaillierParams>::DoubleUint,
+    v: Signed<<P::Paillier as PaillierParams>::OctoUint>,
 }
 
 impl<P: SchemeParams> FacProof<P> {
@@ -74,7 +36,6 @@ impl<P: SchemeParams> FacProof<P> {
         let rp = RPParamsMod::random(&mut aux_rng, &aux_sk);
 
         let pk = sk.public_key();
-        let hat_phi = aux_sk.totient();
 
         // CHECK: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
         let sqrt_cap_n = NonZero::new(
@@ -95,25 +56,25 @@ impl<P: SchemeParams> FacProof<P> {
         // \nu <-- (+- 2^\ell) \hat{N}
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
 
+        // N_0 \hat{N}
+        let scale =
+            NonZero::new(pk.modulus().as_ref().mul_wide(aux_pk.modulus().as_ref())).unwrap();
+
         // \sigma <-- (+- 2^\ell) N_0 \hat{N}
-        let sigma_mod = random_bounded_bits_double_scaled::<P::Paillier>(
-            rng,
-            P::L_BOUND,
-            &pk.modulus(),
-            &aux_pk.modulus(),
-            &hat_phi,
-        );
-        let sigma = sigma_mod.into_wide();
-        let sigma = Signed::new_positive(sigma).unwrap();
+        let sigma =
+            Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded_bits_scaled_wide(
+                rng,
+                P::L_BOUND,
+                &scale,
+            );
 
         // r <-- (+- 2^{\ell + \eps}) N_0 \hat{N}
-        let r = random_bounded_bits_double_scaled::<P::Paillier>(
-            rng,
-            P::L_BOUND + P::EPS_BOUND,
-            &pk.modulus(),
-            &aux_pk.modulus(),
-            &hat_phi,
-        );
+        let r =
+            Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded_bits_scaled_wide(
+                rng,
+                P::L_BOUND + P::EPS_BOUND,
+                &scale,
+            );
 
         // x <-- (+- 2^{\ell + \eps}) \hat{N}
         let x =
@@ -144,14 +105,14 @@ impl<P: SchemeParams> FacProof<P> {
         // Another way is to rewrite it as
         //   s^{\alpha * q} t^{\alpha \nu + r} \mod \hat{N}
         // This may or may not be faster.
-        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &rp.commit_base(&r)).retrieve();
+        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &rp.commit_base_octo(&r)).retrieve();
 
         // Non-interactive challenge ($e$)
         let challenge =
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // \hat{\sigma} = \sigma - \nu p
-        //let hat_sigma = sigma - nu * p_signed_wide;
+        let hat_sigma = sigma - (nu * p_signed.into_wide()).into_wide();
 
         // z_1 = \alpha + e p
         let z1 = alpha + (challenge * p_signed).into_wide();
@@ -166,16 +127,18 @@ impl<P: SchemeParams> FacProof<P> {
         let omega2 = y + challenge.into_wide() * nu;
 
         // v = r + e \hat{\sigma}
+        let v = r + (challenge.into_wide().into_wide() * hat_sigma);
+
         // CHECK: calculating modulo \phi(\hat{N}) so that it fits into the variable
         // for the uint sizes in test parameters.
-        let nu_times_p = mul_mod::<P::Paillier>(&nu.extract_mod_half(&hat_phi), &p, &hat_phi);
+        /*let nu_times_p = mul_mod::<P::Paillier>(&nu.extract_mod_half(&hat_phi), &p, &hat_phi);
         let hat_sigma = sigma
             .extract_mod_half(&hat_phi)
             .sub_mod(&nu_times_p, &hat_phi);
         let v = r.add_mod(
             &mul_mod::<P::Paillier>(&hat_sigma, &challenge.extract_mod(&hat_phi), &hat_phi),
             &hat_phi,
-        );
+        );*/
 
         Self {
             cap_p,
@@ -204,7 +167,7 @@ impl<P: SchemeParams> FacProof<P> {
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &rp.commit_positive(&self.sigma, pk.modulus().as_ref());
+        let cap_r = &rp.commit_octo(&self.sigma, pk.modulus().as_ref());
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         if rp.commit_wide(&self.omega1, &self.z1)
@@ -223,7 +186,7 @@ impl<P: SchemeParams> FacProof<P> {
         }
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
-        if &cap_q_mod.pow_signed_wide(&self.z1) * &rp.commit_base(&self.v)
+        if &cap_q_mod.pow_signed_wide(&self.z1) * &rp.commit_base_octo(&self.v)
             != &self.cap_t.to_mod(&aux_pk) * &cap_r.pow_signed(&challenge)
         {
             return false;

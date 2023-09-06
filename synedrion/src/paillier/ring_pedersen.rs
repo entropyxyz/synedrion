@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{pow_wide_signed, Pow, Retrieve, Signed, UintModLike};
+use crate::uint::{pow_octo_signed, pow_wide_signed, Pow, Retrieve, Signed, UintModLike};
 
 pub(crate) struct RPSecret<P: PaillierParams>(P::DoubleUint);
 
@@ -69,15 +69,6 @@ impl<P: PaillierParams> RPParamsMod<P> {
         RPCommitmentMod(pow_wide_signed(&self.base, randomizer) * self.power.pow_signed(secret))
     }
 
-    pub fn commit_positive(
-        &self,
-        randomizer: &Signed<P::QuadUint>,
-        secret: &P::DoubleUint,
-    ) -> RPCommitmentMod<P> {
-        // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(pow_wide_signed(&self.base, randomizer) * self.power.pow(secret))
-    }
-
     pub fn commit_wide(
         &self,
         randomizer: &Signed<P::QuadUint>,
@@ -89,9 +80,18 @@ impl<P: PaillierParams> RPParamsMod<P> {
         )
     }
 
-    pub fn commit_base(&self, randomizer: &P::DoubleUint) -> RPCommitmentMod<P> {
+    pub fn commit_octo(
+        &self,
+        randomizer: &Signed<P::OctoUint>,
+        secret: &P::DoubleUint,
+    ) -> RPCommitmentMod<P> {
+        // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
+        RPCommitmentMod(pow_octo_signed(&self.base, randomizer) * self.power.pow(secret))
+    }
+
+    pub fn commit_base_octo(&self, randomizer: &Signed<P::OctoUint>) -> RPCommitmentMod<P> {
         // $t^\rho mod N$ where $\rho$ is the randomizer.
-        RPCommitmentMod(self.base.pow(randomizer))
+        RPCommitmentMod(pow_octo_signed(&self.base, randomizer))
     }
 
     pub fn retrieve(&self) -> RPParams<P> {

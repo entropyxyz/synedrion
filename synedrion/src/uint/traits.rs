@@ -7,8 +7,8 @@ use crypto_bigint::{
     },
     nlimbs,
     subtle::{self, Choice, ConstantTimeLess, CtOption},
-    Encoding, Integer, Invert, Limb, NonZero, Pow, RandomMod, Uint, Word, Zero, U1024, U1280,
-    U2048, U320, U4096, U640,
+    Encoding, Integer, Invert, Limb, NonZero, Pow, RandomMod, Uint, Word, Zero, U1024, U2048,
+    U4096, U512, U8192,
 };
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
@@ -142,26 +142,6 @@ impl<const L: usize> UintLike for Uint<L> {
     }
 }
 
-// TODO: can it be made a method in UintModLike?
-pub(crate) fn pow_wide_signed<T>(base: &T, exponent: &Signed<<T::RawUint as HasWide>::Wide>) -> T
-where
-    T: UintModLike,
-    T::RawUint: HasWide,
-    <T::RawUint as HasWide>::Wide: UintLike,
-{
-    let abs_exponent = exponent.abs();
-    let (hi, lo) = T::RawUint::from_wide(abs_exponent);
-
-    let mut abs_result = base.pow(&hi);
-    for _ in 0..<T::RawUint as Integer>::BITS {
-        abs_result = abs_result * abs_result;
-    }
-    abs_result = abs_result * base.pow(&lo);
-    let inv_result = abs_result.invert().unwrap();
-
-    T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
-}
-
 impl<const L: usize> Hashable for Uint<L> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         // NOTE: This relies on the fact that `as_words()` returns words
@@ -206,12 +186,15 @@ pub trait UintModLike:
         let inv_result = abs_result.invert().unwrap();
         Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
-}
-
-// TODO: use regular From?
-pub trait FromScalar {
-    fn from_scalar(value: &Scalar) -> Self;
-    fn to_scalar(&self) -> Scalar;
+    /// Calculates `self^{2^k}`
+    fn pow_2k(&self, k: usize) -> Self {
+        let mut result = *self;
+        for _ in 0..k {
+            // TODO: use square()
+            result = result * result;
+        }
+        result
+    }
 }
 
 impl<const L: usize> UintModLike for DynResidue<L> {
@@ -224,6 +207,44 @@ impl<const L: usize> UintModLike for DynResidue<L> {
     }
 }
 
+pub(crate) fn pow_wide<T>(base: &T, exponent: &<T::RawUint as HasWide>::Wide) -> T
+where
+    T: UintModLike,
+    T::RawUint: HasWide,
+{
+    let (hi, lo) = T::RawUint::from_wide(*exponent);
+    base.pow(&hi).pow_2k(<T::RawUint as Integer>::BITS) * base.pow(&lo)
+}
+
+// TODO: can it be made a method in UintModLike?
+pub(crate) fn pow_wide_signed<T>(base: &T, exponent: &Signed<<T::RawUint as HasWide>::Wide>) -> T
+where
+    T: UintModLike,
+    T::RawUint: HasWide,
+{
+    let abs_exponent = exponent.abs();
+    let abs_result = pow_wide(base, &abs_exponent);
+    let inv_result = abs_result.invert().unwrap();
+    T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+}
+
+pub(crate) fn pow_octo_signed<T>(
+    base: &T,
+    exponent: &Signed<<<T::RawUint as HasWide>::Wide as HasWide>::Wide>,
+) -> T
+where
+    T: UintModLike,
+    T::RawUint: HasWide,
+    <T::RawUint as HasWide>::Wide: HasWide,
+{
+    let abs_exponent = exponent.abs();
+    let (whi, wlo) = <T::RawUint as HasWide>::Wide::from_wide(abs_exponent);
+    let abs_result =
+        pow_wide(base, &whi).pow_2k(<T::RawUint as Integer>::BITS * 2) * pow_wide(base, &wlo);
+    let inv_result = abs_result.invert().unwrap();
+    T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+}
+
 impl<const L: usize> Hashable for DynResidue<L> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         // TODO: I don't think we really need `retrieve()` here,
@@ -232,8 +253,8 @@ impl<const L: usize> Hashable for DynResidue<L> {
     }
 }
 
-impl HasWide for U320 {
-    type Wide = U640;
+impl HasWide for U512 {
+    type Wide = U1024;
     fn mul_wide(&self, other: &Self) -> Self::Wide {
         self.mul_wide(other).into()
     }
@@ -245,59 +266,6 @@ impl HasWide for U320 {
     }
     fn from_wide(value: Self::Wide) -> (Self, Self) {
         value.into()
-    }
-}
-
-impl HasWide for U640 {
-    type Wide = U1280;
-    fn mul_wide(&self, other: &Self) -> Self::Wide {
-        self.mul_wide(other).into()
-    }
-    fn square_wide(&self) -> Self::Wide {
-        self.square_wide().into()
-    }
-    fn into_wide(self) -> Self::Wide {
-        (self, Self::ZERO).into()
-    }
-    fn from_wide(value: Self::Wide) -> (Self, Self) {
-        value.into()
-    }
-}
-
-// TODO: can we generalize it? Or put it in a macro?
-impl FromScalar for U640 {
-    fn from_scalar(value: &Scalar) -> Self {
-        // TODO: can we cast Scalar to Uint and use to_words()?
-        let scalar_bytes = value.to_be_bytes();
-        let mut repr = Self::ZERO.to_be_bytes();
-
-        let uint_len = repr.as_ref().len();
-        let scalar_len = scalar_bytes.len();
-
-        debug_assert!(uint_len >= scalar_len);
-        repr.as_mut()[uint_len - scalar_len..].copy_from_slice(&scalar_bytes);
-        Self::from_be_bytes(repr)
-    }
-
-    fn to_scalar(&self) -> Scalar {
-        // TODO: better as a method of Signed?
-        // TODO: can be precomputed
-        let p = NonZero::new(Self::from_scalar(&-Scalar::ONE).wrapping_add(&Self::ONE)).unwrap();
-        let mut r = self.rem(&p);
-
-        // Treating the values over Self::MAX / 2 as negative ones.
-        // TODO: is this necessary?
-        if self.bit(Self::BITS - 1).into() {
-            // TODO: can be precomputed
-            let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);
-            r = r.add_mod(&n_mod_p, &p);
-        }
-
-        let repr = r.to_be_bytes();
-        let scalar_len = Scalar::repr_len();
-
-        // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).unwrap()
     }
 }
 
@@ -330,6 +298,65 @@ impl HasWide for U2048 {
     }
     fn from_wide(value: Self::Wide) -> (Self, Self) {
         value.into()
+    }
+}
+
+impl HasWide for U4096 {
+    type Wide = U8192;
+    fn mul_wide(&self, other: &Self) -> Self::Wide {
+        self.mul_wide(other).into()
+    }
+    fn square_wide(&self) -> Self::Wide {
+        self.square_wide().into()
+    }
+    fn into_wide(self) -> Self::Wide {
+        (self, Self::ZERO).into()
+    }
+    fn from_wide(value: Self::Wide) -> (Self, Self) {
+        value.into()
+    }
+}
+
+// TODO: use regular From?
+pub trait FromScalar {
+    fn from_scalar(value: &Scalar) -> Self;
+    fn to_scalar(&self) -> Scalar;
+}
+
+// TODO: can we generalize it? Or put it in a macro?
+impl FromScalar for U1024 {
+    fn from_scalar(value: &Scalar) -> Self {
+        // TODO: can we cast Scalar to Uint and use to_words()?
+        let scalar_bytes = value.to_be_bytes();
+        let mut repr = Self::ZERO.to_be_bytes();
+
+        let uint_len = repr.as_ref().len();
+        let scalar_len = scalar_bytes.len();
+
+        debug_assert!(uint_len >= scalar_len);
+        repr.as_mut()[uint_len - scalar_len..].copy_from_slice(&scalar_bytes);
+        Self::from_be_bytes(repr)
+    }
+
+    fn to_scalar(&self) -> Scalar {
+        // TODO: better as a method of Signed?
+        // TODO: can be precomputed
+        let p = NonZero::new(Self::from_scalar(&-Scalar::ONE).wrapping_add(&Self::ONE)).unwrap();
+        let mut r = self.rem(&p);
+
+        // Treating the values over Self::MAX / 2 as negative ones.
+        // TODO: is this necessary?
+        if self.bit(Self::BITS - 1).into() {
+            // TODO: can be precomputed
+            let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);
+            r = r.add_mod(&n_mod_p, &p);
+        }
+
+        let repr = r.to_be_bytes();
+        let scalar_len = Scalar::repr_len();
+
+        // Can unwrap here since the value is within the Scalar range
+        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).unwrap()
     }
 }
 
@@ -370,10 +397,7 @@ impl FromScalar for U2048 {
     }
 }
 
-pub type U320Mod = DynResidue<{ nlimbs!(320) }>;
-pub type U640Mod = DynResidue<{ nlimbs!(640) }>;
-pub type U1280Mod = DynResidue<{ nlimbs!(1280) }>;
-
+pub type U512Mod = DynResidue<{ nlimbs!(512) }>;
 pub type U1024Mod = DynResidue<{ nlimbs!(1024) }>;
 pub type U2048Mod = DynResidue<{ nlimbs!(2048) }>;
 pub type U4096Mod = DynResidue<{ nlimbs!(4096) }>;

@@ -123,20 +123,37 @@ impl<T: UintLike + HasWide> Signed<T> {
         // TODO: use vartime shift left
         let scaled_bound = scale.as_ref().into_wide() << bound_bits;
 
-        /*extern crate std;
-        std::println!("bound = {:?}", bound);
-        std::println!("positive_bound = {:?}", positive_bound);
-        std::println!("positive_result = {:?}", positive_result);
-        std::println!("scaled_positive_result = {:?}", scaled_positive_result);
-        std::println!("scaled_bound = {:?}", scaled_bound);
-        std::println!("result = {:?}", scaled_positive_result.wrapping_sub(&scaled_bound));*/
-
         Signed(scaled_positive_result.wrapping_sub(&scaled_bound))
     }
 
     pub fn into_wide(self) -> Signed<T::Wide> {
         let abs_result = self.abs().into_wide();
         Signed::new(abs_result, self.is_negative()).unwrap()
+    }
+}
+
+impl<T: UintLike + HasWide> Signed<T>
+where
+    <T as HasWide>::Wide: HasWide,
+{
+    pub fn random_bounded_bits_scaled_wide(
+        rng: &mut impl CryptoRngCore,
+        bound_bits: usize,
+        scale: &NonZero<<T as HasWide>::Wide>,
+    ) -> Signed<<<T as HasWide>::Wide as HasWide>::Wide> {
+        // TODO: adjust the size check to include the scale
+        debug_assert!(bound_bits < <T as Integer>::BITS - 1);
+        let bound = NonZero::new(T::ONE << bound_bits).unwrap();
+        let positive_bound = (*bound.as_ref() << 1).checked_add(&T::ONE).unwrap();
+        let positive_result = T::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+
+        let positive_result = positive_result.into_wide();
+
+        let scaled_positive_result = positive_result.mul_wide(scale);
+        // TODO: use vartime shift left
+        let scaled_bound = scale.as_ref().into_wide() << bound_bits;
+
+        Signed(scaled_positive_result.wrapping_sub(&scaled_bound))
     }
 }
 
