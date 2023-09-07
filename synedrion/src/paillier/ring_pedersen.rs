@@ -27,6 +27,7 @@ impl<P: PaillierParams> AsRef<P::DoubleUint> for RPSecret<P> {
 
 // TODO: should this struct have Paillier public key bundled?
 pub(crate) struct RPParamsMod<P: PaillierParams> {
+    pub(crate) pk: PublicKeyPaillier<P>,
     /// The ring-Pedersen base.
     pub(crate) base: P::DoubleUintMod, // $t$
     /// The ring-Pedersen power (a number belonging to the group produced by the base).
@@ -37,6 +38,10 @@ impl<P: PaillierParams> RPParamsMod<P> {
     pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P>) -> Self {
         let secret = RPSecret::random(rng, sk);
         Self::random_with_secret(rng, &secret, &sk.public_key())
+    }
+
+    pub fn public_key(&self) -> &PublicKeyPaillier<P> {
+        &self.pk
     }
 
     pub fn random_with_secret(
@@ -50,7 +55,11 @@ impl<P: PaillierParams> RPParamsMod<P> {
         let base = r * r;
         let power = base.pow(&secret.0);
 
-        Self { base, power }
+        Self {
+            pk: pk.clone(),
+            base,
+            power,
+        }
     }
 
     /// Creates a commitment for `secret` with the randomizer `randomizer`.
@@ -115,6 +124,7 @@ impl<P: PaillierParams> RPParams<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillier<P>) -> RPParamsMod<P> {
         // TODO: check that the base and the power are within the modulus?
         RPParamsMod {
+            pk: pk.clone(),
             base: P::DoubleUintMod::new(&self.base, &pk.modulus()),
             power: P::DoubleUintMod::new(&self.power, &pk.modulus()),
         }

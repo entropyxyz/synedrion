@@ -118,7 +118,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicKeyPaillier<P: PaillierParams> {
     modulus: P::DoubleUint, // $N$
 }

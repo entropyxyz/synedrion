@@ -66,13 +66,14 @@ impl<P: SchemeParams> AffGProof<P> {
         // - `|s \alpha + \beta| < N_0 / 2
         // - `|s (\alpha + e x) + \beta + e y| < N_0 / 2
         cap_c: &Ciphertext<P::Paillier>, // a ciphertext encrypted with `pk0`
-        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
-        aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
-        aux: &impl Hashable,             // CHECK: used to derive `\hat{N}, s, t`
+        aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        aux: &impl Hashable,
     ) -> Self {
         // TODO: check ranges of input values
 
         let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
+
+        let hat_cap_n = &aux_rp.public_key().modulus(); // $\hat{N}$
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -93,18 +94,16 @@ impl<P: SchemeParams> AffGProof<P> {
         let r_y = pk1.random_invertible_group_elem(rng);
 
         // \gamma <-- (+- 2^{\ell + \eps}) \hat{N}
-        let gamma =
-            Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
+        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         // m <-- (+- 2^\ell) \hat{N}
-        let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
+        let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // \delta <-- (+- 2^{\ell + \eps}) \hat{N}
-        let delta =
-            Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
+        let delta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         // \mu <-- (+- 2^\ell) \hat{N}
-        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
+        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // A = C^\alpha (1 + N_0)^\beta r^N_0 \mod N_0^2
         //   = C (*) \alpha (+) encrypt_0(\beta, r)
@@ -188,11 +187,12 @@ impl<P: SchemeParams> AffGProof<P> {
         cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x (+) enc_0(-y, \rho)$
         cap_y: &Ciphertext<P::Paillier>, // $Y = enc_1(y, \rho_y)$
         cap_x: &Point,                   // $X = g * x$, where `g` is the curve generator
-        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
-        aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
+        aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,             // CHECK: used to derive `\hat{N}, s, t`
     ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
+
+        let aux_pk = aux_rp.public_key();
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -266,7 +266,6 @@ mod tests {
         let pk1 = sk1.public_key();
 
         let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
-        let aux_pk = aux_sk.public_key();
         let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
@@ -288,8 +287,8 @@ mod tests {
         let cap_x = mul_by_generator::<Params>(&x);
 
         let proof = AffGProof::<Params>::random(
-            &mut OsRng, &x, &y, &rho, &rho_y, &pk0, &pk1, &cap_c, &aux_pk, &aux_rp, &aux,
+            &mut OsRng, &x, &y, &rho, &rho_y, &pk0, &pk1, &cap_c, &aux_rp, &aux,
         );
-        assert!(proof.verify(&pk0, &pk1, &cap_c, &cap_d, &cap_y, &cap_x, &aux_pk, &aux_rp, &aux));
+        assert!(proof.verify(&pk0, &pk1, &cap_c, &cap_d, &cap_y, &cap_x, &aux_rp, &aux));
     }
 }

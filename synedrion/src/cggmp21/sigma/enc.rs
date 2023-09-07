@@ -26,13 +26,14 @@ impl<P: SchemeParams> EncProof<P> {
         secret: &<P::Paillier as PaillierParams>::DoubleUint, // `k`
         randomizer: &<P::Paillier as PaillierParams>::DoubleUint, // `\rho`
         sk: &SecretKeyPaillier<P::Paillier>,                  // `N_0`
-        aux_pk: &PublicKeyPaillier<P::Paillier>,              // $\hat{N}$
-        aux_rp: &RPParamsMod<P::Paillier>,                    // $s$, $t$
+        aux_rp: &RPParamsMod<P::Paillier>,                    // $\hat{N}$, $s$, $t$
         aux: &impl Hashable, // CHECK: used to derive `\hat{N}, s, t`
     ) -> Self {
         let pk = sk.public_key();
 
         let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
+
+        let hat_cap_n = &aux_rp.public_key().modulus(); // $\hat{N}$
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -49,7 +50,7 @@ impl<P: SchemeParams> EncProof<P> {
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
 
         // \mu <-- (+- 2^\ell) * \hat{N}
-        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
+        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // TODO: use `Ciphertext::randomizer()` - but we will need a variation returning a modulo
         // representation.
@@ -57,8 +58,7 @@ impl<P: SchemeParams> EncProof<P> {
         let r = pk.random_invertible_group_elem(rng);
 
         // \gamma <-- (+- 2^{\ell + \eps}) * \hat{N}
-        let gamma =
-            Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
+        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         // S = s^k * t^\mu \mod \hat{N}
         let cap_s = aux_rp.commit(&mu, &secret_signed).retrieve();
@@ -97,11 +97,10 @@ impl<P: SchemeParams> EncProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillier<P::Paillier>,     // `N_0`
-        ciphertext: &Ciphertext<P::Paillier>,    // `K`
-        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
-        aux_rp: &RPParamsMod<P::Paillier>,       // $s$, $t$
-        aux: &impl Hashable,                     // CHECK: used to derive `\hat{N}, s, t`
+        pk: &PublicKeyPaillier<P::Paillier>,  // `N_0`
+        ciphertext: &Ciphertext<P::Paillier>, // `K`
+        aux_rp: &RPParamsMod<P::Paillier>,    // $s$, $t$
+        aux: &impl Hashable,                  // CHECK: used to derive `\hat{N}, s, t`
     ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
 
@@ -127,8 +126,8 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // Check that $s^{z_1} t^{z_3} == C S^e \mod \hat{N}$
-        let cap_c_mod = self.cap_c.to_mod(aux_pk);
-        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        let cap_c_mod = self.cap_c.to_mod(aux_rp.public_key());
+        let cap_s_mod = self.cap_s.to_mod(aux_rp.public_key());
         if aux_rp.commit(&self.z3, &self.z1) != &cap_c_mod * &cap_s_mod.pow_signed(&challenge) {
             return false;
         }
@@ -155,7 +154,6 @@ mod tests {
         let pk = sk.public_key();
 
         let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
-        let aux_pk = aux_sk.public_key();
         let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
@@ -168,15 +166,8 @@ mod tests {
         let randomizer = Ciphertext::<Paillier>::randomizer(&mut OsRng, &pk);
         let ciphertext = Ciphertext::new_with_randomizer(&pk, &secret, &randomizer);
 
-        let proof = EncProof::<Params>::random(
-            &mut OsRng,
-            &secret,
-            &randomizer,
-            &sk,
-            &aux_pk,
-            &aux_rp,
-            &aux,
-        );
-        assert!(proof.verify(&pk, &ciphertext, &aux_pk, &aux_rp, &aux));
+        let proof =
+            EncProof::<Params>::random(&mut OsRng, &secret, &randomizer, &sk, &aux_rp, &aux);
+        assert!(proof.verify(&pk, &ciphertext, &aux_rp, &aux));
     }
 }

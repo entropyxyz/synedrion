@@ -411,7 +411,6 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             let fac_proof = FacProof::random(
                 rng,
                 &self.context.paillier_sk,
-                &aux_pk,
                 &self
                     .datas
                     .get(party_idx)
@@ -487,7 +486,6 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
 
         if !msg.data2.fac_proof.verify(
             &sender_data.paillier_pk,
-            &self.context.aux_paillier_sk.public_key(),
             &self
                 .context
                 .aux_rp_params

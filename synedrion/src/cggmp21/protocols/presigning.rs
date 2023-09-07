@@ -187,7 +187,6 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
                     &uint_from_scalar::<P>(&self.context.ephemeral_scalar_share),
                     &self.context.rho,
                     &self.context.key_share.secret_aux.paillier_sk,
-                    &self.context.key_share.public_aux[idx].aux_paillier_pk,
                     &self.context.key_share.public_aux[idx]
                         .aux_rp_params
                         .to_mod(&self.context.key_share.public_aux[idx].aux_paillier_pk),
@@ -214,7 +213,6 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
         if msg.0.verify(
             &self.context.key_share.public_aux[from.as_usize()].paillier_pk,
             &self.k_ciphertexts[from.as_usize()],
-            &aux_pk,
             &aux_rp,
             &aux,
         ) {
@@ -378,7 +376,6 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
-                    aux_pk,
                     &aux_rp,
                     &aux,
                 );
@@ -395,7 +392,6 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
-                    aux_pk,
                     &aux_rp,
                     &aux,
                 );
@@ -406,7 +402,6 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     &self.context.nu,
                     pk,
                     &Point::GENERATOR,
-                    aux_pk,
                     &aux_rp,
                     &aux,
                 );
@@ -450,7 +445,6 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &msg.d,
             &msg.f,
             &msg.gamma,
-            aux_pk,
             &aux_rp,
             &aux,
         ) {
@@ -466,7 +460,6 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &msg.d_hat,
             &msg.f_hat,
             &big_x,
-            aux_pk,
             &aux_rp,
             &aux,
         ) {
@@ -480,7 +473,6 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &self.g_ciphertexts[from.as_usize()],
             &Point::GENERATOR,
             &msg.gamma,
-            aux_pk,
             &aux_rp,
             &aux,
         ) {
@@ -595,7 +587,6 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
                     &self.context.rho,
                     pk,
                     &self.big_gamma,
-                    aux_pk,
                     &aux_rp,
                     &aux,
                 );
@@ -628,7 +619,6 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             &self.k_ciphertexts[from.as_usize()],
             &self.big_gamma,
             &msg.big_delta,
-            aux_pk,
             &aux_rp,
             &aux,
         ) {

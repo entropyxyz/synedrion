@@ -27,13 +27,13 @@ impl<P: SchemeParams> FacProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillier<P::Paillier>,
-        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
-        aux_rp: &RPParamsMod<P::Paillier>,       // $s$, $t$
+        aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
 
         let pk = sk.public_key();
+        let hat_cap_n = &aux_rp.public_key().modulus(); // $\hat{N}$
 
         // CHECK: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
         let sqrt_cap_n = NonZero::new(
@@ -49,14 +49,13 @@ impl<P: SchemeParams> FacProof<P> {
         let beta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
 
         // \mu <-- (+- 2^\ell) \hat{N}
-        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
+        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // \nu <-- (+- 2^\ell) \hat{N}
-        let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
+        let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // N_0 \hat{N}
-        let scale =
-            NonZero::new(pk.modulus().as_ref().mul_wide(aux_pk.modulus().as_ref())).unwrap();
+        let scale = NonZero::new(pk.modulus().as_ref().mul_wide(hat_cap_n.as_ref())).unwrap();
 
         // \sigma <-- (+- 2^\ell) N_0 \hat{N}
         let sigma =
@@ -75,12 +74,10 @@ impl<P: SchemeParams> FacProof<P> {
             );
 
         // x <-- (+- 2^{\ell + \eps}) \hat{N}
-        let x =
-            Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
+        let x = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         // y <-- (+- 2^{\ell + \eps}) \hat{N}
-        let y =
-            Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
+        let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let (p, q) = sk.primes();
         let p_signed = Signed::new_positive(p).unwrap();
@@ -156,11 +153,12 @@ impl<P: SchemeParams> FacProof<P> {
     pub fn verify(
         &self,
         pk: &PublicKeyPaillier<P::Paillier>,
-        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
-        aux_rp: &RPParamsMod<P::Paillier>,       // $s$, $t$
+        aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
+
+        let aux_pk = aux_rp.public_key();
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -227,12 +225,11 @@ mod tests {
         let pk = sk.public_key();
 
         let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
-        let aux_pk = aux_sk.public_key();
         let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
 
-        let proof = FacProof::<Params>::random(&mut OsRng, &sk, &aux_pk, &aux_rp, &aux);
-        assert!(proof.verify(&pk, &aux_pk, &aux_rp, &aux));
+        let proof = FacProof::<Params>::random(&mut OsRng, &sk, &aux_rp, &aux);
+        assert!(proof.verify(&pk, &aux_rp, &aux));
     }
 }

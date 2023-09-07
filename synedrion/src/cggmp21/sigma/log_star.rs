@@ -29,26 +29,26 @@ impl<P: SchemeParams> LogStarProof<P> {
         rho: &<P::Paillier as PaillierParams>::DoubleUint,       // $\rho$
         pk: &PublicKeyPaillier<P::Paillier>,                     // $N_0$
         g: &Point,                                               // $g$
-        aux_pk: &PublicKeyPaillier<P::Paillier>,                 // $\hat{N}$
-        aux_rp: &RPParamsMod<P::Paillier>,                       // $s$, $t$
+        aux_rp: &RPParamsMod<P::Paillier>,                       // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         // TODO: check ranges of input values
 
         let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
 
+        let hat_cap_n = &aux_rp.public_key().modulus(); // $\hat{N}$
+
         // \alpha <-- +- 2^{\ell + \eps}
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
 
         // \mu <-- (+- 2^\ell) \hat{N}
-        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, &aux_pk.modulus());
+        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // r <-- Z^*_{N_0}
         let r = pk.random_invertible_group_elem(rng);
 
         // \gamma <-- (+- 2^{\ell + \eps}) \hat{N}
-        let gamma =
-            Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &aux_pk.modulus());
+        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         // S = s^x t^m  \mod \hat{N}
         let cap_s = aux_rp.commit(&mu, x).retrieve();
@@ -94,10 +94,9 @@ impl<P: SchemeParams> LogStarProof<P> {
     pub fn verify(
         &self,
         pk: &PublicKeyPaillier<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>, // $C = encrypt(x, \rho)$
-        g: &Point,                       // $g$
-        cap_x: &Point,                   // $X = g^x$
-        aux_pk: &PublicKeyPaillier<P::Paillier>, // $\hat{N}$
+        cap_c: &Ciphertext<P::Paillier>,   // $C = encrypt(x, \rho)$
+        g: &Point,                         // $g$
+        cap_x: &Point,                     // $X = g^x$
         aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
@@ -122,8 +121,8 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // Check that $s^{z_1} t^{z_3} == D S^e \mod \hat{N}$
-        let cap_d_mod = self.cap_d.to_mod(aux_pk);
-        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        let cap_d_mod = self.cap_d.to_mod(aux_rp.public_key());
+        let cap_s_mod = self.cap_s.to_mod(aux_rp.public_key());
         if aux_rp.commit(&self.z3, &self.z1) != &cap_d_mod * &cap_s_mod.pow_signed(&challenge) {
             return false;
         }
@@ -152,7 +151,6 @@ mod tests {
         let pk = sk.public_key();
 
         let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
-        let aux_pk = aux_sk.public_key();
         let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
@@ -163,8 +161,7 @@ mod tests {
         let cap_c = Ciphertext::new_with_randomizer_signed(&pk, &x, &rho);
         let cap_x = mul_by_point::<Params>(&g, &x);
 
-        let proof =
-            LogStarProof::<Params>::random(&mut OsRng, &x, &rho, &pk, &g, &aux_pk, &aux_rp, &aux);
-        assert!(proof.verify(&pk, &cap_c, &g, &cap_x, &aux_pk, &aux_rp, &aux));
+        let proof = LogStarProof::<Params>::random(&mut OsRng, &x, &rho, &pk, &g, &aux_rp, &aux);
+        assert!(proof.verify(&pk, &cap_c, &g, &cap_x, &aux_rp, &aux));
     }
 }
