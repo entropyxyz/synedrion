@@ -31,6 +31,8 @@ fn uint_from_scalar<P: SchemeParams>(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "PrmProof<P>: Serialize"))]
+#[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
 pub struct FullData<P: SchemeParams> {
     xs_public: Vec<Point>,                           // $\bm{X}_i$
     sch_commitments_x: Vec<SchCommitment>,           // $\bm{A}_i$
@@ -39,9 +41,9 @@ pub struct FullData<P: SchemeParams> {
     paillier_pk: PublicKeyPaillier<P::Paillier>,     // $N_i$
     aux_paillier_pk: PublicKeyPaillier<P::Paillier>, // $\hat{N}_i$
     rp_params: RPParams<P::Paillier>,                // $s_i$ and $t_i$
-    prm_proof: PrmProof<P::Paillier>,                // $\hat{\psi}_i$
+    prm_proof: PrmProof<P>,                          // $\hat{\psi}_i$
     aux_rp_params: RPParams<P::Paillier>, // setup parameters($s_i$ and $t_i$ for $\hat{N}$)
-    aux_prm_proof: PrmProof<P::Paillier>, // a proof for the setup parameters
+    aux_prm_proof: PrmProof<P>,           // a proof for the setup parameters
     #[serde(with = "serde_bytes::as_base64")]
     rho_bits: Box<[u8]>, // $\rho_i$
     #[serde(with = "serde_bytes::as_base64")]
@@ -130,23 +132,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let aux_rp_params = RPParamsMod::random_with_secret(rng, &aux_rp_secret, &aux_paillier_pk);
 
         let aux = (&shared_randomness, &party_idx);
-        let prm_proof = PrmProof::random(
-            rng,
-            &paillier_sk,
-            &rp_secret,
-            &rp_params,
-            &aux,
-            P::SECURITY_PARAMETER,
-        );
+        let prm_proof = PrmProof::<P>::random(rng, &paillier_sk, &rp_secret, &rp_params, &aux);
 
-        let aux_prm_proof = PrmProof::random(
-            rng,
-            &aux_paillier_sk,
-            &aux_rp_secret,
-            &aux_rp_params,
-            &aux,
-            P::SECURITY_PARAMETER,
-        );
+        let aux_prm_proof =
+            PrmProof::<P>::random(rng, &aux_paillier_sk, &aux_rp_secret, &aux_rp_params, &aux);
 
         // $\tau_j$
         let sch_secrets_x: Vec<SchSecret> =
@@ -294,22 +283,14 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         let aux = (&self.context.shared_randomness, &from);
 
         let rp_params_mod = msg.data.rp_params.to_mod(&msg.data.paillier_pk);
-        if !msg
-            .data
-            .prm_proof
-            .verify(&msg.data.paillier_pk, &rp_params_mod, &aux)
-        {
+        if !msg.data.prm_proof.verify(&rp_params_mod, &aux) {
             return Err(ReceiveError::VerificationFail(
                 "PRM verification failed".into(),
             ));
         }
 
         let aux_rp_params_mod = msg.data.aux_rp_params.to_mod(&msg.data.aux_paillier_pk);
-        if !msg
-            .data
-            .aux_prm_proof
-            .verify(&msg.data.aux_paillier_pk, &aux_rp_params_mod, &aux)
-        {
+        if !msg.data.aux_prm_proof.verify(&aux_rp_params_mod, &aux) {
             return Err(ReceiveError::VerificationFail(
                 "PRM verification (setup parameters) failed".into(),
             ));
@@ -352,15 +333,15 @@ pub struct Round3<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "ModProof<P::Paillier>: Serialize,
+#[serde(bound(serialize = "ModProof<P>: Serialize,
     FacProof<P>: Serialize,
     Ciphertext<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "ModProof<P::Paillier>: for<'x> Deserialize<'x>,
+#[serde(bound(deserialize = "ModProof<P>: for<'x> Deserialize<'x>,
     FacProof<P>: for<'x> Deserialize<'x>,
     Ciphertext<P::Paillier>: for<'x> Deserialize<'x>"))]
 pub struct FullData2<P: SchemeParams> {
-    mod_proof: ModProof<P::Paillier>,        // `psi_j`
-    aux_mod_proof: ModProof<P::Paillier>,    // $P^{mod}$ for the setup parameters
+    mod_proof: ModProof<P>,                  // `psi_j`
+    aux_mod_proof: ModProof<P>,              // $P^{mod}$ for the setup parameters
     fac_proof: FacProof<P>,                  // `phi_j,i`
     sch_proof_y: SchProof,                   // `pi_i`
     paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
@@ -387,15 +368,9 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             &self.rho,
             &self.context.party_idx,
         );
-        let mod_proof =
-            ModProof::random(rng, &self.context.paillier_sk, &aux, P::SECURITY_PARAMETER);
+        let mod_proof = ModProof::random(rng, &self.context.paillier_sk, &aux);
 
-        let aux_mod_proof = ModProof::random(
-            rng,
-            &self.context.aux_paillier_sk,
-            &aux,
-            P::SECURITY_PARAMETER,
-        );
+        let aux_mod_proof = ModProof::random(rng, &self.context.aux_paillier_sk, &aux);
 
         let sch_proof_y = SchProof::new(
             &self.context.el_gamal_proof_secret,

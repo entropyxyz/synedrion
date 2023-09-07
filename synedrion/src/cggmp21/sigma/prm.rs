@@ -9,6 +9,7 @@ use rand_core::CryptoRngCore;
 
 use serde::{Deserialize, Serialize};
 
+use super::super::SchemeParams;
 use crate::paillier::{
     PaillierParams, PublicKeyPaillier, RPParamsMod, RPSecret, SecretKeyPaillier,
 };
@@ -17,19 +18,18 @@ use crate::uint::{Pow, Retrieve, UintLike, UintModLike, Zero};
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PrmSecret<P: PaillierParams> {
-    public_key: PublicKeyPaillier<P>,
+struct PrmSecret<P: SchemeParams> {
+    public_key: PublicKeyPaillier<P::Paillier>,
     /// `a_i`
-    secret: Vec<P::DoubleUint>,
+    secret: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
 }
 
-impl<P: PaillierParams> PrmSecret<P> {
+impl<P: SchemeParams> PrmSecret<P> {
     pub(crate) fn random(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillier<P>,
-        security_parameter: usize,
+        sk: &SecretKeyPaillier<P::Paillier>,
     ) -> Self {
-        let secret = (0..security_parameter)
+        let secret = (0..P::SECURITY_PARAMETER)
             .map(|_| sk.random_field_elem(rng))
             .collect();
         Self {
@@ -40,10 +40,13 @@ impl<P: PaillierParams> PrmSecret<P> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct PrmCommitment<P: PaillierParams>(Vec<P::DoubleUint>);
+struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::DoubleUint>);
 
-impl<P: PaillierParams> PrmCommitment<P> {
-    pub(crate) fn new(secret: &PrmSecret<P>, base: &P::DoubleUintMod) -> Self {
+impl<P: SchemeParams> PrmCommitment<P> {
+    pub(crate) fn new(
+        secret: &PrmSecret<P>,
+        base: &<P::Paillier as PaillierParams>::DoubleUintMod,
+    ) -> Self {
         let commitment = secret
             .secret
             .iter()
@@ -51,13 +54,9 @@ impl<P: PaillierParams> PrmCommitment<P> {
             .collect();
         Self(commitment)
     }
-
-    fn security_parameter(&self) -> usize {
-        self.0.len()
-    }
 }
 
-impl<P: PaillierParams> Hashable for PrmCommitment<P> {
+impl<P: SchemeParams> Hashable for PrmCommitment<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.0)
     }
@@ -67,13 +66,13 @@ impl<P: PaillierParams> Hashable for PrmCommitment<P> {
 struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
-    fn new<P: PaillierParams>(aux: &impl Hashable, commitment: &PrmCommitment<P>) -> Self {
+    fn new<P: SchemeParams>(aux: &impl Hashable, commitment: &PrmCommitment<P>) -> Self {
         // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
         // CHECK: should we use an actual RNG here instead of variable-sized hash?
         let bytes = XofHash::new_with_dst(b"prm-challenge")
             .chain(aux)
             .chain(commitment)
-            .finalize_boxed(commitment.security_parameter());
+            .finalize_boxed(P::SECURITY_PARAMETER);
         Self(bytes.as_ref().iter().map(|b| b & 1 == 1).collect())
     }
 }
@@ -87,28 +86,27 @@ impl Hashable for PrmChallenge {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "PrmCommitment<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmCommitment<P>: for<'x> Deserialize<'x>"))]
-pub(crate) struct PrmProof<P: PaillierParams> {
+pub(crate) struct PrmProof<P: SchemeParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
-    proof: Vec<P::DoubleUint>,
+    proof: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
 }
 
-impl<P: PaillierParams> PrmProof<P> {
+impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
     /// (the power that was used to create RP parameters).
     pub(crate) fn random(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillier<P>,
-        rp_secret: &RPSecret<P>,
-        rp: &RPParamsMod<P>,
+        sk: &SecretKeyPaillier<P::Paillier>,
+        rp_secret: &RPSecret<P::Paillier>,
+        rp: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
-        security_parameter: usize,
     ) -> Self {
-        let proof_secret = PrmSecret::random(rng, sk, security_parameter);
+        let proof_secret = PrmSecret::<P>::random(rng, sk);
         let commitment = PrmCommitment::new(&proof_secret, &rp.base);
 
         let totient = sk.totient();
-        let zero = P::DoubleUint::ZERO;
+        let zero = <P::Paillier as PaillierParams>::DoubleUint::ZERO;
         let challenge = PrmChallenge::new(aux, &commitment);
         let proof = proof_secret
             .secret
@@ -124,13 +122,8 @@ impl<P: PaillierParams> PrmProof<P> {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
-    pub(crate) fn verify(
-        &self,
-        pk: &PublicKeyPaillier<P>,
-        rp: &RPParamsMod<P>,
-        aux: &impl Hashable,
-    ) -> bool {
-        let modulus = pk.modulus();
+    pub(crate) fn verify(&self, rp: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
+        let modulus = rp.public_key().modulus();
 
         let challenge = PrmChallenge::new(aux, &self.commitment);
         if challenge != self.challenge {
@@ -140,7 +133,10 @@ impl<P: PaillierParams> PrmProof<P> {
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a = P::DoubleUintMod::new(&self.commitment.0[i], &modulus);
+            let a = <P::Paillier as PaillierParams>::DoubleUintMod::new(
+                &self.commitment.0[i],
+                &modulus,
+            );
             let test = if e {
                 rp.base.pow(&z) == a * rp.power
             } else {
@@ -154,7 +150,7 @@ impl<P: PaillierParams> PrmProof<P> {
     }
 }
 
-impl<P: PaillierParams> Hashable for PrmProof<P> {
+impl<P: SchemeParams> Hashable for PrmProof<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.challenge).chain(&self.proof)
     }
@@ -165,20 +161,23 @@ mod tests {
     use rand_core::OsRng;
 
     use super::PrmProof;
-    use crate::paillier::{PaillierTest, RPParamsMod, RPSecret, SecretKeyPaillier};
+    use crate::cggmp21::{SchemeParams, TestParams};
+    use crate::paillier::{RPParamsMod, RPSecret, SecretKeyPaillier};
 
     #[test]
     fn prove_and_verify() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
+        type Params = TestParams;
+        type Paillier = <Params as SchemeParams>::Paillier;
+
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
         let pk = sk.public_key();
-        let security_parameter = 10;
 
         let rp_secret = RPSecret::random(&mut OsRng, &sk);
         let rp = RPParamsMod::random_with_secret(&mut OsRng, &rp_secret, &pk);
 
         let aux: &[u8] = b"abcde";
 
-        let proof = PrmProof::random(&mut OsRng, &sk, &rp_secret, &rp, &aux, security_parameter);
-        assert!(proof.verify(&pk, &rp, &aux));
+        let proof = PrmProof::<Params>::random(&mut OsRng, &sk, &rp_secret, &rp, &aux);
+        assert!(proof.verify(&rp, &aux));
     }
 }
