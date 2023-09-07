@@ -168,7 +168,7 @@ mod tests {
     use crate::paillier::{PaillierTest, RPParamsMod, RPSecret, SecretKeyPaillier};
 
     #[test]
-    fn protocol() {
+    fn prove_and_verify() {
         let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
         let pk = sk.public_key();
         let security_parameter = 10;

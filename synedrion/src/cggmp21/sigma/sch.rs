@@ -95,7 +95,7 @@ mod tests {
     use crate::curve::Scalar;
 
     #[test]
-    fn protocol() {
+    fn prove_and_verify() {
         let secret = Scalar::random(&mut OsRng);
         let public = secret.mul_by_generator();
         let aux: &[u8] = b"abcde";
