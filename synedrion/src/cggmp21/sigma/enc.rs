@@ -76,8 +76,10 @@ impl<P: SchemeParams> EncProof<P> {
 
         // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
-        let randomizer_mod =
-            <P::Paillier as PaillierParams>::DoubleUintMod::new(randomizer, &pk.modulus());
+        let randomizer_mod = <P::Paillier as PaillierParams>::DoubleUintMod::new(
+            randomizer,
+            &pk.precomputed_modulus(),
+        );
         let z2 = (r * randomizer_mod.pow_signed(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu

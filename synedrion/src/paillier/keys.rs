@@ -36,6 +36,16 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         NonZero::new(p_minus_one.mul_wide(&q_minus_one)).unwrap()
     }
 
+    fn precomputed_mod_p(&self) -> <P::SingleUintMod as UintModLike>::Precomputed {
+        // TODO: return a reference when we precompute it
+        P::SingleUintMod::new_precomputed(&NonZero::new(self.p).unwrap())
+    }
+
+    fn precomputed_mod_q(&self) -> <P::SingleUintMod as UintModLike>::Precomputed {
+        // TODO: return a reference when we precompute it
+        P::SingleUintMod::new_precomputed(&NonZero::new(self.q).unwrap())
+    }
+
     pub fn public_key(&self) -> PublicKeyPaillier<P> {
         PublicKeyPaillier {
             modulus: self.p.mul_wide(&self.q),
@@ -52,8 +62,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let p_rem = P::SingleUint::try_from_wide(p_rem_big).unwrap();
         let q_rem = P::SingleUint::try_from_wide(q_rem_big).unwrap();
 
-        let p_rem_mod = P::SingleUintMod::new(&p_rem, &NonZero::new(self.p).unwrap());
-        let q_rem_mod = P::SingleUintMod::new(&q_rem, &NonZero::new(self.q).unwrap());
+        let p_rem_mod = P::SingleUintMod::new(&p_rem, &self.precomputed_mod_p());
+        let q_rem_mod = P::SingleUintMod::new(&q_rem, &self.precomputed_mod_q());
         (p_rem_mod, q_rem_mod)
     }
 
@@ -91,16 +101,16 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let p_big: P::DoubleUint = self.p.into_wide();
         let q_big: P::DoubleUint = self.q.into_wide();
         let pq_big = p_big.checked_add(&q_big).unwrap();
-        let pq_m = P::DoubleUintMod::new(&pq_big, &pk.modulus());
+        let pq_m = P::DoubleUintMod::new(&pq_big, &pk.precomputed_modulus());
         let inv = pq_m.invert().unwrap();
 
         let p_part_big: P::DoubleUint = p_part.retrieve().into_wide();
         let q_part_big: P::DoubleUint = q_part.retrieve().into_wide();
 
-        let p_big_m = P::DoubleUintMod::new(&p_big, &pk.modulus());
-        let q_big_m = P::DoubleUintMod::new(&q_big, &pk.modulus());
-        let p_part_m = P::DoubleUintMod::new(&p_part_big, &pk.modulus());
-        let q_part_m = P::DoubleUintMod::new(&q_part_big, &pk.modulus());
+        let p_big_m = P::DoubleUintMod::new(&p_big, &pk.precomputed_modulus());
+        let q_big_m = P::DoubleUintMod::new(&q_big, &pk.precomputed_modulus());
+        let p_part_m = P::DoubleUintMod::new(&p_part_big, &pk.precomputed_modulus());
+        let q_part_m = P::DoubleUintMod::new(&q_part_big, &pk.precomputed_modulus());
 
         (inv * (p_part_m * q_big_m + q_part_m * p_big_m)).retrieve()
     }
@@ -133,6 +143,17 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
         NonZero::new(self.modulus).unwrap()
     }
 
+    /// Returns precomputed parameters for integers modulo N
+    pub fn precomputed_modulus(&self) -> <P::DoubleUintMod as UintModLike>::Precomputed {
+        // TODO: can return a reference when we actually precompute it
+        P::DoubleUintMod::new_precomputed(&self.modulus())
+    }
+
+    /// Returns precomputed parameters for integers modulo N^2
+    pub fn precomputed_modulus_squared(&self) -> <P::QuadUintMod as UintModLike>::Precomputed {
+        P::QuadUintMod::new_precomputed(&NonZero::new(self.modulus.square_wide()).unwrap())
+    }
+
     pub fn random_group_elem_raw(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUint {
         P::DoubleUint::random_mod(rng, &self.modulus())
     }
@@ -143,14 +164,14 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     #[allow(dead_code)]
     pub fn random_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUintMod {
         let r = P::DoubleUint::random_mod(rng, &self.modulus());
-        P::DoubleUintMod::new(&r, &self.modulus())
+        P::DoubleUintMod::new(&r, &self.precomputed_modulus())
     }
 
     pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUintMod {
         // TODO: is there a faster way? How many loops on average does it take?
         loop {
             let r = P::DoubleUint::random_mod(rng, &NonZero::new(self.modulus).unwrap());
-            let r_m = P::DoubleUintMod::new(&r, &self.modulus());
+            let r_m = P::DoubleUintMod::new(&r, &self.precomputed_modulus());
             if r_m.invert().is_some().into() {
                 return r_m;
             }

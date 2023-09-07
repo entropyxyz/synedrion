@@ -123,7 +123,7 @@ impl<P: SchemeParams> PrmProof<P> {
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
     pub(crate) fn verify(&self, rp: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
-        let modulus = rp.public_key().modulus();
+        let modulus = rp.public_key().precomputed_modulus();
 
         let challenge = PrmChallenge::new(aux, &self.commitment);
         if challenge != self.challenge {

@@ -147,13 +147,15 @@ impl<P: SchemeParams> AffGProof<P> {
         let z4 = delta + challenge_wide * mu;
 
         // \omega = r \rho^e \mod N_0
-        let rho_mod = <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, &pk0.modulus());
+        let rho_mod =
+            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, &pk0.precomputed_modulus());
         let omega = (r * rho_mod.pow_signed(&challenge)).retrieve();
 
         // CHECK: deviation from the paper to support a different `D`
         // Original: `\rho_y^e`. Modified: `\rho_y^{-e}`.
         // \omega_y = r_y \rho_y^{-e} \mod N_1
-        let rho_y_mod = <P::Paillier as PaillierParams>::DoubleUintMod::new(rho_y, &pk1.modulus());
+        let rho_y_mod =
+            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho_y, &pk1.precomputed_modulus());
         let omega_y = (r_y * rho_y_mod.pow_signed(&-challenge)).retrieve();
 
         Self {

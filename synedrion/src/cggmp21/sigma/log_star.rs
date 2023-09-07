@@ -71,7 +71,8 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
-        let rho_mod = <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, &pk.modulus());
+        let rho_mod =
+            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, &pk.precomputed_modulus());
         let z2 = (r * rho_mod.pow_signed(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu

@@ -109,7 +109,7 @@ impl<P: SchemeParams> ModProof<P> {
 
                 let y = <P::Paillier as PaillierParams>::DoubleUintMod::new(
                     &challenge.0[i],
-                    &pk.modulus(),
+                    &pk.precomputed_modulus(),
                 );
                 let z = y.pow(&sk.inv_modulus());
 
@@ -136,12 +136,12 @@ impl<P: SchemeParams> ModProof<P> {
             return false;
         }
 
-        let modulus = pk.modulus();
+        let modulus = pk.precomputed_modulus();
         let w = <P::Paillier as PaillierParams>::DoubleUintMod::new(&self.commitment.0, &modulus);
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
             let z_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.z, &modulus);
             let mut y_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(y, &modulus);
-            if z_m.pow(modulus.as_ref()) != y_m {
+            if z_m.pow(pk.modulus().as_ref()) != y_m {
                 return false;
             }
 

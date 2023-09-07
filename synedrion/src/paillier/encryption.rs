@@ -14,6 +14,8 @@ use crate::uint::{
 /// Paillier ciphertext.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Ciphertext<P: PaillierParams> {
+    // TODO: should we have CiphertextMod, to streamline multiple operations on the ciphertext?
+    // How much performance will that gain us?
     ciphertext: P::QuadUint,
     phantom: PhantomData<P>,
 }
@@ -39,9 +41,6 @@ impl<P: PaillierParams> Ciphertext<P> {
         // `N` as a quad uint
         let modulus_quad = pk.modulus_raw().into_wide();
 
-        // `N^2` as a quad uint
-        let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
-
         let randomizer = randomzier.into_wide();
 
         // Calculate the ciphertext `C = (N + 1)^m * rho^N mod N^2`
@@ -52,13 +51,14 @@ impl<P: PaillierParams> Ciphertext<P> {
         // Since `m` can be negative, we calculate `m * N +- 1` (never overflows since `m < N`),
         // then conditionally negate modulo N^2
         let prod = abs_plaintext.mul_wide(&pk.modulus_raw());
-        let mut prod_mod = P::QuadUintMod::new(&prod, &modulus_squared);
+        let mut prod_mod = P::QuadUintMod::new(&prod, &pk.precomputed_modulus_squared());
         prod_mod.conditional_negate(plaintext_is_negative);
 
-        let factor1 = prod_mod + P::QuadUintMod::one(&modulus_squared);
+        let factor1 = prod_mod + P::QuadUintMod::one(&pk.precomputed_modulus_squared());
 
         // TODO: `modulus_quad` is bounded, use `pow_bounded_exp()`
-        let factor2 = P::QuadUintMod::new(&randomizer, &modulus_squared).pow(&modulus_quad);
+        let factor2 =
+            P::QuadUintMod::new(&randomizer, &pk.precomputed_modulus_squared()).pow(&modulus_quad);
 
         let ciphertext = (factor1 * factor2).retrieve();
 
@@ -114,10 +114,9 @@ impl<P: PaillierParams> Ciphertext<P> {
     pub fn decrypt(&self, sk: &SecretKeyPaillier<P>) -> P::DoubleUint {
         // TODO: these can be precalculated
         let pk = sk.public_key();
-        let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
         let totient_quad = NonZero::new(sk.totient().as_ref().into_wide()).unwrap();
         let modulus_quad = NonZero::new(pk.modulus().as_ref().into_wide()).unwrap();
-        let mu = P::DoubleUintMod::new(sk.totient().as_ref(), &pk.modulus())
+        let mu = P::DoubleUintMod::new(sk.totient().as_ref(), &pk.precomputed_modulus())
             .invert()
             .unwrap();
 
@@ -126,7 +125,8 @@ impl<P: PaillierParams> Ciphertext<P> {
         // `N` is the Paillier composite modulus,
         // `phi` is the Euler totient of `N`, and `mu = phi^(-1) mod N`.
 
-        let ciphertext_mod = P::QuadUintMod::new(&self.ciphertext, &modulus_squared);
+        let ciphertext_mod =
+            P::QuadUintMod::new(&self.ciphertext, &pk.precomputed_modulus_squared());
 
         // TODO: subtract 1 from the `C^phi` while still in the modulo representation.
         // we need access to DynResidueParams for that.
@@ -140,7 +140,7 @@ impl<P: PaillierParams> Ciphertext<P> {
                 / modulus_quad,
         )
         .unwrap();
-        let x_mod = P::DoubleUintMod::new(&x, &pk.modulus());
+        let x_mod = P::DoubleUintMod::new(&x, &pk.precomputed_modulus());
 
         (x_mod * mu).retrieve()
     }
@@ -162,7 +162,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // Therefore `C mod N = rho^N mod N`.
         let ciphertext_mod_n =
             P::DoubleUint::try_from_wide(self.ciphertext % modulus_quad).unwrap();
-        let ciphertext_mod_n = P::DoubleUintMod::new(&ciphertext_mod_n, &pk.modulus());
+        let ciphertext_mod_n = P::DoubleUintMod::new(&ciphertext_mod_n, &pk.precomputed_modulus());
 
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
@@ -175,8 +175,8 @@ impl<P: PaillierParams> Ciphertext<P> {
         rhs: &P::DoubleUint,
         is_negative: Choice,
     ) -> Self {
-        let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
-        let mut ciphertext_mod = P::QuadUintMod::new(&self.ciphertext, &modulus_squared);
+        let mut ciphertext_mod =
+            P::QuadUintMod::new(&self.ciphertext, &pk.precomputed_modulus_squared());
         let plaintext_uint = rhs.into_wide();
 
         // TODO: an alternative way would be to reduce the signed `rhs`
@@ -212,9 +212,8 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     pub fn homomorphic_add(&self, pk: &PublicKeyPaillier<P>, rhs: &Self) -> Self {
-        let modulus_squared = NonZero::new(pk.modulus_raw().square_wide()).unwrap();
-        let lhs_mod = P::QuadUintMod::new(&self.ciphertext, &modulus_squared);
-        let rhs_mod = P::QuadUintMod::new(&rhs.ciphertext, &modulus_squared);
+        let lhs_mod = P::QuadUintMod::new(&self.ciphertext, &pk.precomputed_modulus_squared());
+        let rhs_mod = P::QuadUintMod::new(&rhs.ciphertext, &pk.precomputed_modulus_squared());
         Self {
             ciphertext: (lhs_mod * rhs_mod).retrieve(),
             phantom: PhantomData,

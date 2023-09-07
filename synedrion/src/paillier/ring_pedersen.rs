@@ -125,8 +125,8 @@ impl<P: PaillierParams> RPParams<P> {
         // TODO: check that the base and the power are within the modulus?
         RPParamsMod {
             pk: pk.clone(),
-            base: P::DoubleUintMod::new(&self.base, &pk.modulus()),
-            power: P::DoubleUintMod::new(&self.power, &pk.modulus()),
+            base: P::DoubleUintMod::new(&self.base, &pk.precomputed_modulus()),
+            power: P::DoubleUintMod::new(&self.power, &pk.precomputed_modulus()),
         }
     }
 }
@@ -171,6 +171,6 @@ pub(crate) struct RPCommitment<P: PaillierParams>(P::DoubleUint);
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillier<P>) -> RPCommitmentMod<P> {
         // TODO: check that `self.0` is within the modulus?
-        RPCommitmentMod(P::DoubleUintMod::new(&self.0, &pk.modulus()))
+        RPCommitmentMod(P::DoubleUintMod::new(&self.0, &pk.precomputed_modulus()))
     }
 }

@@ -160,6 +160,7 @@ impl<const L: usize> Hashable for Uint<L> {
     }
 }
 
+/// Integers in an efficient representation for modulo operations.
 pub trait UintModLike:
     Pow<Self::RawUint>
     + core::fmt::Debug
@@ -177,9 +178,15 @@ pub trait UintModLike:
     + subtle::ConditionallyNegatable
     + subtle::ConditionallySelectable
 {
+    /// The corresponding regular integer type.
     type RawUint: UintLike;
-    fn new(value: &Self::RawUint, modulus: &NonZero<Self::RawUint>) -> Self;
-    fn one(modulus: &NonZero<Self::RawUint>) -> Self;
+
+    /// Precomputed data for converting a regular integer to the modulo representation.
+    type Precomputed: Clone + Copy;
+
+    fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed;
+    fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self;
+    fn one(precomputed: &Self::Precomputed) -> Self;
     fn pow_signed(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow(&abs_exponent);
@@ -199,11 +206,16 @@ pub trait UintModLike:
 
 impl<const L: usize> UintModLike for DynResidue<L> {
     type RawUint = Uint<L>;
-    fn new(value: &Self::RawUint, modulus: &NonZero<Self::RawUint>) -> Self {
-        Self::new(value, DynResidueParams::<L>::new(modulus))
+    type Precomputed = DynResidueParams<L>;
+
+    fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed {
+        DynResidueParams::<L>::new(modulus)
     }
-    fn one(modulus: &NonZero<Self::RawUint>) -> Self {
-        Self::one(DynResidueParams::<L>::new(modulus))
+    fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self {
+        Self::new(value, *precomputed)
+    }
+    fn one(precomputed: &Self::Precomputed) -> Self {
+        Self::one(*precomputed)
     }
 }
 
