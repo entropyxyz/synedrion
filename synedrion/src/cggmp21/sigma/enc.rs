@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod, SecretKeyPaillier,
+    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
+    SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{NonZero, Retrieve, Signed, UintModLike};
@@ -25,7 +26,7 @@ impl<P: SchemeParams> EncProof<P> {
         rng: &mut impl CryptoRngCore,
         secret: &<P::Paillier as PaillierParams>::DoubleUint, // `k`
         randomizer: &<P::Paillier as PaillierParams>::DoubleUint, // `\rho`
-        sk: &SecretKeyPaillier<P::Paillier>,                  // `N_0`
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,       // `N_0`
         aux_rp: &RPParamsMod<P::Paillier>,                    // $\hat{N}$, $s$, $t$
         aux: &impl Hashable, // CHECK: used to derive `\hat{N}, s, t`
     ) -> Self {
@@ -33,7 +34,7 @@ impl<P: SchemeParams> EncProof<P> {
 
         let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
 
-        let hat_cap_n = &aux_rp.public_key().modulus(); // $\hat{N}$
+        let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -64,7 +65,7 @@ impl<P: SchemeParams> EncProof<P> {
         let cap_s = aux_rp.commit(&mu, &secret_signed).retrieve();
 
         // A = (1 + N_0)^\alpha * r^N_0 == encrypt(\alpha, r)
-        let cap_a = Ciphertext::new_with_randomizer_signed(&pk, &alpha, &r.retrieve());
+        let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
 
         // C = s^\alpha * t^\gamma \mod \hat{N}
         let cap_c = aux_rp.commit(&gamma, &alpha).retrieve();
@@ -78,7 +79,7 @@ impl<P: SchemeParams> EncProof<P> {
         // z_2 = r * \rho^e mod N_0
         let randomizer_mod = <P::Paillier as PaillierParams>::DoubleUintMod::new(
             randomizer,
-            &pk.precomputed_modulus(),
+            pk.precomputed_modulus(),
         );
         let z2 = (r * randomizer_mod.pow_signed(&challenge)).retrieve();
 
@@ -99,10 +100,10 @@ impl<P: SchemeParams> EncProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillier<P::Paillier>,  // `N_0`
-        ciphertext: &Ciphertext<P::Paillier>, // `K`
-        aux_rp: &RPParamsMod<P::Paillier>,    // $s$, $t$
-        aux: &impl Hashable,                  // CHECK: used to derive `\hat{N}, s, t`
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // `N_0`
+        ciphertext: &Ciphertext<P::Paillier>,           // `K`
+        aux_rp: &RPParamsMod<P::Paillier>,              // $s$, $t$
+        aux: &impl Hashable,                            // CHECK: used to derive `\hat{N}, s, t`
     ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
 
@@ -152,10 +153,10 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk = sk.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
@@ -165,11 +166,11 @@ mod tests {
             &NonZero::new(<Paillier as PaillierParams>::DoubleUint::ONE << Params::L_BOUND)
                 .unwrap(),
         );
-        let randomizer = Ciphertext::<Paillier>::randomizer(&mut OsRng, &pk);
-        let ciphertext = Ciphertext::new_with_randomizer(&pk, &secret, &randomizer);
+        let randomizer = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
+        let ciphertext = Ciphertext::new_with_randomizer(pk, &secret, &randomizer);
 
         let proof =
             EncProof::<Params>::random(&mut OsRng, &secret, &randomizer, &sk, &aux_rp, &aux);
-        assert!(proof.verify(&pk, &ciphertext, &aux_rp, &aux));
+        assert!(proof.verify(pk, &ciphertext, &aux_rp, &aux));
     }
 }

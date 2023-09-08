@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
-use crate::paillier::{PublicKeyPaillier, RPParams, RPParamsMod, SecretKeyPaillier};
+use crate::paillier::{
+    PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod, SecretKeyPaillier,
+    SecretKeyPaillierPrecomputed,
+};
 use crate::tools::hashing::{Chain, Hashable};
 
 /// A typed integer denoting the index of a party in the group.
@@ -82,6 +85,32 @@ pub(crate) struct PublicAuxInfo<P: SchemeParams> {
     pub(crate) rp_params: RPParams<P::Paillier>, // `s_i` and `t_i`
 }
 
+#[derive(Clone)]
+pub(crate) struct KeySharePrecomputed<P: SchemeParams> {
+    pub(crate) index: PartyIdx,
+    pub(crate) secret_share: Scalar,
+    pub(crate) public_shares: Box<[Point]>,
+    pub(crate) secret_aux: SecretAuxInfoPrecomputed<P>,
+    pub(crate) public_aux: Box<[PublicAuxInfoPrecomputed<P>]>,
+}
+
+#[derive(Clone)]
+pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
+    pub(crate) paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
+    #[allow(dead_code)]
+    pub(crate) el_gamal_sk: Scalar,
+}
+
+#[derive(Clone)]
+pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
+    #[allow(dead_code)]
+    pub(crate) el_gamal_pk: Point,
+    pub(crate) paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
+    pub(crate) aux_rp_params: RPParamsMod<P::Paillier>,
+    #[allow(dead_code)]
+    pub(crate) rp_params: RPParamsMod<P::Paillier>,
+}
+
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
 #[derive(Debug, Clone)]
 pub struct KeyShareChange<P: SchemeParams> {
@@ -97,6 +126,7 @@ pub struct KeyShareChange<P: SchemeParams> {
 /// The result of the Presigning protocol.
 #[derive(Debug, Clone)]
 pub struct PresigningData {
+    // CHECK: can we store nonce as a scalar?
     pub(crate) nonce: Point, // `R`
     /// An additive share of the ephemeral scalar `k`.
     pub(crate) ephemeral_scalar_share: Scalar, // `k_i`
@@ -176,6 +206,32 @@ impl<P: SchemeParams> KeyShare<P> {
             public_shares,
             secret_aux: change.secret_aux,
             public_aux: change.public_aux,
+        }
+    }
+
+    pub(crate) fn to_precomputed(&self) -> KeySharePrecomputed<P> {
+        KeySharePrecomputed {
+            index: self.index,
+            secret_share: self.secret_share,
+            public_shares: self.public_shares.clone(),
+            secret_aux: SecretAuxInfoPrecomputed {
+                paillier_sk: self.secret_aux.paillier_sk.to_precomputed(),
+                el_gamal_sk: self.secret_aux.el_gamal_sk,
+            },
+            public_aux: self
+                .public_aux
+                .iter()
+                .map(|public_aux| {
+                    let paillier_pk = public_aux.paillier_pk.to_precomputed();
+                    let aux_paillier_pk = public_aux.aux_paillier_pk.to_precomputed();
+                    PublicAuxInfoPrecomputed {
+                        el_gamal_pk: public_aux.el_gamal_pk,
+                        paillier_pk: paillier_pk.clone(),
+                        rp_params: public_aux.rp_params.to_mod(&paillier_pk),
+                        aux_rp_params: public_aux.aux_rp_params.to_mod(&aux_paillier_pk),
+                    }
+                })
+                .collect(),
         }
     }
 
@@ -293,16 +349,18 @@ pub(crate) fn make_aux_info<P: SchemeParams>(
         })
         .collect::<Box<_>>();
 
-    let aux_paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
-
     let public_aux = secret_aux
         .iter()
-        .map(|secret| PublicAuxInfo {
-            paillier_pk: secret.paillier_sk.public_key(),
-            aux_paillier_pk: aux_paillier_sk.public_key(),
-            aux_rp_params: RPParamsMod::random(rng, &aux_paillier_sk).retrieve(),
-            el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
-            rp_params: RPParamsMod::random(rng, &secret.paillier_sk).retrieve(),
+        .map(|secret| {
+            let sk = secret.paillier_sk.to_precomputed();
+            let aux_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
+            PublicAuxInfo {
+                paillier_pk: sk.public_key().to_minimal(),
+                aux_paillier_pk: aux_sk.public_key().to_minimal(),
+                aux_rp_params: RPParamsMod::random(rng, &aux_sk).retrieve(),
+                el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
+                rp_params: RPParamsMod::random(rng, &sk).retrieve(),
+            }
         })
         .collect();
 

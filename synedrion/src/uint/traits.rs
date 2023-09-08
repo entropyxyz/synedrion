@@ -163,6 +163,7 @@ impl<const L: usize> Hashable for Uint<L> {
 /// Integers in an efficient representation for modulo operations.
 pub trait UintModLike:
     Pow<Self::RawUint>
+    + Send
     + core::fmt::Debug
     + Add<Output = Self>
     + Neg<Output = Self>
@@ -182,7 +183,7 @@ pub trait UintModLike:
     type RawUint: UintLike;
 
     /// Precomputed data for converting a regular integer to the modulo representation.
-    type Precomputed: Clone + Copy;
+    type Precomputed: Clone + Copy + core::fmt::Debug + PartialEq + Eq + Send;
 
     fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed;
     fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self;

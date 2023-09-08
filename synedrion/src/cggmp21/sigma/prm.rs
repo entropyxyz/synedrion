@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{
-    PaillierParams, PublicKeyPaillier, RPParamsMod, RPSecret, SecretKeyPaillier,
+    PaillierParams, PublicKeyPaillierPrecomputed, RPParamsMod, RPSecret,
+    SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{Pow, Retrieve, UintLike, UintModLike, Zero};
@@ -19,7 +20,7 @@ use crate::uint::{Pow, Retrieve, UintLike, UintModLike, Zero};
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PrmSecret<P: SchemeParams> {
-    public_key: PublicKeyPaillier<P::Paillier>,
+    public_key: PublicKeyPaillierPrecomputed<P::Paillier>,
     /// `a_i`
     secret: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
 }
@@ -27,13 +28,13 @@ struct PrmSecret<P: SchemeParams> {
 impl<P: SchemeParams> PrmSecret<P> {
     pub(crate) fn random(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillier<P::Paillier>,
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
     ) -> Self {
         let secret = (0..P::SECURITY_PARAMETER)
             .map(|_| sk.random_field_elem(rng))
             .collect();
         Self {
-            public_key: sk.public_key(),
+            public_key: sk.public_key().clone(),
             secret,
         }
     }
@@ -97,7 +98,7 @@ impl<P: SchemeParams> PrmProof<P> {
     /// (the power that was used to create RP parameters).
     pub(crate) fn random(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillier<P::Paillier>,
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
         rp_secret: &RPSecret<P::Paillier>,
         rp: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
@@ -105,7 +106,7 @@ impl<P: SchemeParams> PrmProof<P> {
         let proof_secret = PrmSecret::<P>::random(rng, sk);
         let commitment = PrmCommitment::new(&proof_secret, &rp.base);
 
-        let totient = sk.totient();
+        let totient = sk.totient_nonzero();
         let zero = <P::Paillier as PaillierParams>::DoubleUint::ZERO;
         let challenge = PrmChallenge::new(aux, &commitment);
         let proof = proof_secret
@@ -133,10 +134,8 @@ impl<P: SchemeParams> PrmProof<P> {
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a = <P::Paillier as PaillierParams>::DoubleUintMod::new(
-                &self.commitment.0[i],
-                &modulus,
-            );
+            let a =
+                <P::Paillier as PaillierParams>::DoubleUintMod::new(&self.commitment.0[i], modulus);
             let test = if e {
                 rp.base.pow(&z) == a * rp.power
             } else {
@@ -169,11 +168,11 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk = sk.public_key();
 
         let rp_secret = RPSecret::random(&mut OsRng, &sk);
-        let rp = RPParamsMod::random_with_secret(&mut OsRng, &rp_secret, &pk);
+        let rp = RPParamsMod::random_with_secret(&mut OsRng, &rp_secret, pk);
 
         let aux: &[u8] = b"abcde";
 

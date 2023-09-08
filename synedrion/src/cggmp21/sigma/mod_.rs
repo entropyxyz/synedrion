@@ -6,7 +6,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
+use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{
     JacobiSymbol, JacobiSymbolTrait, Pow, RandomMod, Retrieve, UintLike, UintModLike,
@@ -16,10 +16,14 @@ use crate::uint::{
 struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::DoubleUint);
 
 impl<P: SchemeParams> ModCommitment<P> {
-    pub fn random(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillier<P::Paillier>) -> Self {
+    pub fn random(
+        rng: &mut impl CryptoRngCore,
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+    ) -> Self {
         let w = loop {
-            let w = <P::Paillier as PaillierParams>::DoubleUint::random_mod(rng, &pk.modulus());
-            if w.jacobi_symbol(&pk.modulus()) == JacobiSymbol::MinusOne {
+            let w =
+                <P::Paillier as PaillierParams>::DoubleUint::random_mod(rng, &pk.modulus_nonzero());
+            if w.jacobi_symbol(pk.modulus()) == JacobiSymbol::MinusOne {
                 break w;
             }
         };
@@ -31,12 +35,12 @@ impl<P: SchemeParams> ModCommitment<P> {
 struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::DoubleUint>);
 
 impl<P: SchemeParams> ModChallenge<P> {
-    fn new(aux: &impl Hashable, pk: &PublicKeyPaillier<P::Paillier>) -> Self {
+    fn new(aux: &impl Hashable, pk: &PublicKeyPaillierPrecomputed<P::Paillier>) -> Self {
         // CHECK: should we hash the modulus (N) here too?
         let mut reader = XofHash::new_with_dst(b"mod-challenge")
             .chain(aux)
             .finalize_reader();
-        let modulus = pk.modulus();
+        let modulus = pk.modulus_nonzero();
         let ys = (0..P::SECURITY_PARAMETER)
             .map(|_| {
                 <P::Paillier as PaillierParams>::DoubleUint::hash_into_mod(&mut reader, &modulus)
@@ -68,13 +72,13 @@ pub(crate) struct ModProof<P: SchemeParams> {
 impl<P: SchemeParams> ModProof<P> {
     pub(crate) fn random(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillier<P::Paillier>,
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let pk = sk.public_key();
-        let challenge = ModChallenge::<P>::new(aux, &pk);
+        let challenge = ModChallenge::<P>::new(aux, pk);
 
-        let commitment = ModCommitment::<P>::random(rng, &pk);
+        let commitment = ModCommitment::<P>::random(rng, pk);
 
         let (c_mod_p, c_mod_q) = sk.rns_split(&commitment.0);
 
@@ -109,7 +113,7 @@ impl<P: SchemeParams> ModProof<P> {
 
                 let y = <P::Paillier as PaillierParams>::DoubleUintMod::new(
                     &challenge.0[i],
-                    &pk.precomputed_modulus(),
+                    pk.precomputed_modulus(),
                 );
                 let z = y.pow(&sk.inv_modulus());
 
@@ -130,18 +134,22 @@ impl<P: SchemeParams> ModProof<P> {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given `public`.
-    pub(crate) fn verify(&self, pk: &PublicKeyPaillier<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub(crate) fn verify(
+        &self,
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        aux: &impl Hashable,
+    ) -> bool {
         let challenge = ModChallenge::new(aux, pk);
         if challenge != self.challenge {
             return false;
         }
 
         let modulus = pk.precomputed_modulus();
-        let w = <P::Paillier as PaillierParams>::DoubleUintMod::new(&self.commitment.0, &modulus);
+        let w = <P::Paillier as PaillierParams>::DoubleUintMod::new(&self.commitment.0, modulus);
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
-            let z_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.z, &modulus);
-            let mut y_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(y, &modulus);
-            if z_m.pow(pk.modulus().as_ref()) != y_m {
+            let z_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.z, modulus);
+            let mut y_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(y, modulus);
+            if z_m.pow(pk.modulus()) != y_m {
                 return false;
             }
 
@@ -151,7 +159,7 @@ impl<P: SchemeParams> ModProof<P> {
             if elem.b {
                 y_m = y_m * w;
             }
-            let x = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.x, &modulus);
+            let x = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.x, modulus);
             let x_sq = x * x; // TODO: use `square()` when available
             let x_4 = x_sq * x_sq; // TODO: use `square()` when available
             if y_m != x_4 {
@@ -175,12 +183,12 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk = sk.public_key();
 
         let aux: &[u8] = b"abcde";
 
         let proof = ModProof::<Params>::random(&mut OsRng, &sk, &aux);
-        assert!(proof.verify(&pk, &aux));
+        assert!(proof.verify(pk, &aux));
     }
 }

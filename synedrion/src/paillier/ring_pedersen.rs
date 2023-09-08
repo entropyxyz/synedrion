@@ -3,14 +3,14 @@ use core::ops::Mul;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier};
+use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{pow_octo_signed, pow_wide_signed, Pow, Retrieve, Signed, UintModLike};
 
 pub(crate) struct RPSecret<P: PaillierParams>(P::DoubleUint);
 
 impl<P: PaillierParams> RPSecret<P> {
-    pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P>) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P>) -> Self {
         // CHECK: `lambda` will be reduced modulo phi(N) implicitly
         // when used as an exponent modulo N later.
         // So can we just sample a random modulo N, or modulo the whole size of Uint instead?
@@ -26,8 +26,9 @@ impl<P: PaillierParams> AsRef<P::DoubleUint> for RPSecret<P> {
 }
 
 // TODO: should this struct have Paillier public key bundled?
+#[derive(Debug, Clone)]
 pub(crate) struct RPParamsMod<P: PaillierParams> {
-    pub(crate) pk: PublicKeyPaillier<P>,
+    pub(crate) pk: PublicKeyPaillierPrecomputed<P>,
     /// The ring-Pedersen base.
     pub(crate) base: P::DoubleUintMod, // $t$
     /// The ring-Pedersen power (a number belonging to the group produced by the base).
@@ -35,19 +36,19 @@ pub(crate) struct RPParamsMod<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> RPParamsMod<P> {
-    pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P>) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P>) -> Self {
         let secret = RPSecret::random(rng, sk);
-        Self::random_with_secret(rng, &secret, &sk.public_key())
+        Self::random_with_secret(rng, &secret, sk.public_key())
     }
 
-    pub fn public_key(&self) -> &PublicKeyPaillier<P> {
+    pub fn public_key(&self) -> &PublicKeyPaillierPrecomputed<P> {
         &self.pk
     }
 
     pub fn random_with_secret(
         rng: &mut impl CryptoRngCore,
         secret: &RPSecret<P>,
-        pk: &PublicKeyPaillier<P>,
+        pk: &PublicKeyPaillierPrecomputed<P>,
     ) -> Self {
         let r = pk.random_invertible_group_elem(rng);
 
@@ -121,12 +122,12 @@ pub(crate) struct RPParams<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> RPParams<P> {
-    pub fn to_mod(&self, pk: &PublicKeyPaillier<P>) -> RPParamsMod<P> {
+    pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPParamsMod<P> {
         // TODO: check that the base and the power are within the modulus?
         RPParamsMod {
             pk: pk.clone(),
-            base: P::DoubleUintMod::new(&self.base, &pk.precomputed_modulus()),
-            power: P::DoubleUintMod::new(&self.power, &pk.precomputed_modulus()),
+            base: P::DoubleUintMod::new(&self.base, pk.precomputed_modulus()),
+            power: P::DoubleUintMod::new(&self.power, pk.precomputed_modulus()),
         }
     }
 }
@@ -169,8 +170,8 @@ impl<'a, P: PaillierParams> Mul<&'a RPCommitmentMod<P>> for &'a RPCommitmentMod<
 pub(crate) struct RPCommitment<P: PaillierParams>(P::DoubleUint);
 
 impl<P: PaillierParams> RPCommitment<P> {
-    pub fn to_mod(&self, pk: &PublicKeyPaillier<P>) -> RPCommitmentMod<P> {
+    pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
         // TODO: check that `self.0` is within the modulus?
-        RPCommitmentMod(P::DoubleUintMod::new(&self.0, &pk.precomputed_modulus()))
+        RPCommitmentMod(P::DoubleUintMod::new(&self.0, pk.precomputed_modulus()))
     }
 }

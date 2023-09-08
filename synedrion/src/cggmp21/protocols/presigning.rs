@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, PartyIdx, PresigningData};
+use super::common::{KeyShare, KeySharePrecomputed, PartyIdx, PresigningData};
 use super::generic::{
     BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
     Round, ToSendTyped,
@@ -28,8 +28,7 @@ fn uint_from_scalar<P: SchemeParams>(
 pub struct Context<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
     num_parties: usize,
-    party_idx: PartyIdx,
-    key_share: KeyShare<P>,
+    key_share: KeySharePrecomputed<P>,
     ephemeral_scalar_share: Scalar,
     gamma: Scalar,
     rho: <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint,
@@ -55,10 +54,10 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         num_parties: usize,
-        party_idx: PartyIdx,
+        _party_idx: PartyIdx,
         context: Self::Context,
     ) -> Result<Self, InitError> {
-        let key_share = context;
+        let key_share = context.to_precomputed();
 
         // TODO: check that KeyShare is consistent with num_parties/party_idx
 
@@ -67,13 +66,12 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
 
         let pk = key_share.secret_aux.paillier_sk.public_key();
 
-        let rho = Ciphertext::<P::Paillier>::randomizer(rng, &pk);
-        let nu = Ciphertext::<P::Paillier>::randomizer(rng, &pk);
+        let rho = Ciphertext::<P::Paillier>::randomizer(rng, pk);
+        let nu = Ciphertext::<P::Paillier>::randomizer(rng, pk);
 
-        let g_ciphertext =
-            Ciphertext::new_with_randomizer(&pk, &uint_from_scalar::<P>(&gamma), &nu);
+        let g_ciphertext = Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(&gamma), &nu);
         let k_ciphertext = Ciphertext::new_with_randomizer(
-            &pk,
+            pk,
             &uint_from_scalar::<P>(&ephemeral_scalar_share),
             &rho,
         );
@@ -82,7 +80,6 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
             context: Context {
                 shared_randomness: shared_randomness.into(),
                 num_parties,
-                party_idx,
                 key_share,
                 ephemeral_scalar_share,
                 gamma,
@@ -175,21 +172,19 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
     const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
+        let range = HoleRange::new(
+            self.context.num_parties,
+            self.context.key_share.index.as_usize(),
+        );
         let messages = range
             .map(|idx| {
-                // CHECK: what is the point in creating a separate EncProof for each recipient
-                // if the only difference is `aux` which consists of public info anyway?
-                // If we create one proof we can just broadcast it in Round1Part1.
                 let aux = (&self.context.shared_randomness, &PartyIdx::from_usize(idx));
                 let proof = EncProof::random(
                     rng,
                     &uint_from_scalar::<P>(&self.context.ephemeral_scalar_share),
                     &self.context.rho,
                     &self.context.key_share.secret_aux.paillier_sk,
-                    &self.context.key_share.public_aux[idx]
-                        .aux_rp_params
-                        .to_mod(&self.context.key_share.public_aux[idx].aux_paillier_pk),
+                    &self.context.key_share.public_aux[idx].aux_rp_params,
                     &aux,
                 );
                 (PartyIdx::from_usize(idx), Round1Direct(proof))
@@ -203,17 +198,18 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
-        let aux = (&self.context.shared_randomness, &self.context.party_idx);
+        let aux = (
+            &self.context.shared_randomness,
+            &self.context.key_share.index,
+        );
 
         let public_aux =
-            self.context.key_share.public_aux[self.context.party_idx.as_usize()].clone();
-        let aux_pk = public_aux.aux_paillier_pk;
-        let aux_rp = public_aux.aux_rp_params.to_mod(&aux_pk);
+            self.context.key_share.public_aux[self.context.key_share.index.as_usize()].clone();
 
         if msg.0.verify(
             &self.context.key_share.public_aux[from.as_usize()].paillier_pk,
             &self.k_ciphertexts[from.as_usize()],
-            &aux_rp,
+            &public_aux.aux_rp_params,
             &aux,
         ) {
             Ok(())
@@ -271,16 +267,16 @@ impl<P: SchemeParams> Round2<P> {
     fn new(rng: &mut impl CryptoRngCore, round1: Round1Part2<P>) -> Self {
         let mut betas = HoleVecAccum::new(
             round1.context.num_parties,
-            round1.context.party_idx.as_usize(),
+            round1.context.key_share.index.as_usize(),
         );
         let mut betas_hat = HoleVecAccum::new(
             round1.context.num_parties,
-            round1.context.party_idx.as_usize(),
+            round1.context.key_share.index.as_usize(),
         );
 
         let range = HoleRange::new(
             round1.context.num_parties,
-            round1.context.party_idx.as_usize(),
+            round1.context.key_share.index.as_usize(),
         );
 
         range.for_each(|idx| {
@@ -317,8 +313,14 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
-        let aux = (&self.context.shared_randomness, &self.context.party_idx);
+        let range = HoleRange::new(
+            self.context.num_parties,
+            self.context.key_share.index.as_usize(),
+        );
+        let aux = (
+            &self.context.shared_randomness,
+            &self.context.key_share.index,
+        );
 
         let gamma = self.context.gamma.mul_by_generator();
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
@@ -364,8 +366,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(beta_hat), &r_hat);
 
                 let public_aux = &self.context.key_share.public_aux[idx];
-                let aux_pk = &public_aux.aux_paillier_pk;
-                let aux_rp = public_aux.aux_rp_params.to_mod(aux_pk);
+                let aux_rp = &public_aux.aux_rp_params;
 
                 let psi = AffGProof::random(
                     rng,
@@ -376,7 +377,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
-                    &aux_rp,
+                    aux_rp,
                     &aux,
                 );
 
@@ -392,7 +393,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
-                    &aux_rp,
+                    aux_rp,
                     &aux,
                 );
 
@@ -402,7 +403,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     &self.context.nu,
                     pk,
                     &Point::GENERATOR,
-                    &aux_rp,
+                    aux_rp,
                     &aux,
                 );
 
@@ -434,18 +435,18 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let big_x = self.context.key_share.public_shares[from.as_usize()];
 
-        let public_aux = &self.context.key_share.public_aux[self.context.party_idx.as_usize()];
-        let aux_pk = &public_aux.aux_paillier_pk;
-        let aux_rp = public_aux.aux_rp_params.to_mod(aux_pk);
+        let public_aux =
+            &self.context.key_share.public_aux[self.context.key_share.index.as_usize()];
+        let aux_rp = &public_aux.aux_rp_params;
 
         if !msg.psi.verify(
             pk,
             from_pk,
-            &self.k_ciphertexts[self.context.party_idx.as_usize()],
+            &self.k_ciphertexts[self.context.key_share.index.as_usize()],
             &msg.d,
             &msg.f,
             &msg.gamma,
-            &aux_rp,
+            aux_rp,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
@@ -456,11 +457,11 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         if !msg.psi_hat.verify(
             pk,
             from_pk,
-            &self.k_ciphertexts[self.context.party_idx.as_usize()],
+            &self.k_ciphertexts[self.context.key_share.index.as_usize()],
             &msg.d_hat,
             &msg.f_hat,
             &big_x,
-            &aux_rp,
+            aux_rp,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
@@ -473,7 +474,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             &self.g_ciphertexts[from.as_usize()],
             &Point::GENERATOR,
             &msg.gamma,
-            &aux_rp,
+            aux_rp,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
@@ -568,15 +569,20 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     const REQUIRES_BROADCAST_CONSENSUS: bool = false;
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(self.context.num_parties, self.context.party_idx.as_usize());
-        let aux = (&self.context.shared_randomness, &self.context.party_idx);
+        let range = HoleRange::new(
+            self.context.num_parties,
+            self.context.key_share.index.as_usize(),
+        );
+        let aux = (
+            &self.context.shared_randomness,
+            &self.context.key_share.index,
+        );
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
 
         let messages = range
             .map(|idx| {
                 let public_aux = &self.context.key_share.public_aux[idx];
-                let aux_pk = &public_aux.aux_paillier_pk;
-                let aux_rp = public_aux.aux_rp_params.to_mod(aux_pk);
+                let aux_rp = &public_aux.aux_rp_params;
 
                 let psi_hat_pprime = LogStarProof::random(
                     rng,
@@ -587,7 +593,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
                     &self.context.rho,
                     pk,
                     &self.big_gamma,
-                    &aux_rp,
+                    aux_rp,
                     &aux,
                 );
                 let message = Round3Bcast {
@@ -610,16 +616,16 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
         let aux = (&self.context.shared_randomness, &from);
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
-        let public_aux = &self.context.key_share.public_aux[self.context.party_idx.as_usize()];
-        let aux_pk = &public_aux.aux_paillier_pk;
-        let aux_rp = public_aux.aux_rp_params.to_mod(aux_pk);
+        let public_aux =
+            &self.context.key_share.public_aux[self.context.key_share.index.as_usize()];
+        let aux_rp = &public_aux.aux_rp_params;
 
         if !msg.psi_hat_pprime.verify(
             from_pk,
             &self.k_ciphertexts[from.as_usize()],
             &self.big_gamma,
             &msg.big_delta,
-            &aux_rp,
+            aux_rp,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(

@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use super::aff_g::mul_by_point;
 use crate::curve::Point;
-use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod};
+use crate::paillier::{
+    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
+};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{NonZero, Retrieve, Signed, UintModLike};
 
@@ -27,7 +29,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::DoubleUint>, // $x \in +- 2^\ell$                                 // `x`
         rho: &<P::Paillier as PaillierParams>::DoubleUint,       // $\rho$
-        pk: &PublicKeyPaillier<P::Paillier>,                     // $N_0$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,          // $N_0$
         g: &Point,                                               // $g$
         aux_rp: &RPParamsMod<P::Paillier>,                       // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
@@ -36,7 +38,7 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
 
-        let hat_cap_n = &aux_rp.public_key().modulus(); // $\hat{N}$
+        let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
 
         // \alpha <-- +- 2^{\ell + \eps}
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
@@ -72,7 +74,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
         let rho_mod =
-            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, &pk.precomputed_modulus());
+            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, pk.precomputed_modulus());
         let z2 = (r * rho_mod.pow_signed(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu
@@ -94,7 +96,7 @@ impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillier<P::Paillier>,
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
         cap_c: &Ciphertext<P::Paillier>,   // $C = encrypt(x, \rho)$
         g: &Point,                         // $g$
         cap_x: &Point,                     // $X = g^x$
@@ -148,21 +150,21 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk = sk.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
 
         let g = &Point::GENERATOR * &Scalar::random(&mut OsRng);
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, &pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(&pk, &x, &rho);
+        let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
+        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho);
         let cap_x = mul_by_point::<Params>(&g, &x);
 
-        let proof = LogStarProof::<Params>::random(&mut OsRng, &x, &rho, &pk, &g, &aux_rp, &aux);
-        assert!(proof.verify(&pk, &cap_c, &g, &cap_x, &aux_rp, &aux));
+        let proof = LogStarProof::<Params>::random(&mut OsRng, &x, &rho, pk, &g, &aux_rp, &aux);
+        assert!(proof.verify(pk, &cap_c, &g, &cap_x, &aux_rp, &aux));
     }
 }

@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::curve::Point;
-use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, RPCommitment, RPParamsMod};
+use crate::paillier::{
+    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
+};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
 
@@ -59,8 +61,8 @@ impl<P: SchemeParams> AffGProof<P> {
         y: &Signed<<P::Paillier as PaillierParams>::DoubleUint>, // $y \in +- 2^{\ell^\prime}$
         rho: &<P::Paillier as PaillierParams>::DoubleUint,       // $\rho \in \mathbb{Z}_{N_0}$
         rho_y: &<P::Paillier as PaillierParams>::DoubleUint,     // $\rho_y \in \mathbb{Z}_{N_1}$
-        pk0: &PublicKeyPaillier<P::Paillier>,                    // $N_0$
-        pk1: &PublicKeyPaillier<P::Paillier>,                    // $N_1$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,         // $N_0$
+        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,         // $N_1$
         // CHECK: while the paper does not impose any restrictions on it,
         // if `cap_c = encrypt(s)`, then we should have
         // - `|s \alpha + \beta| < N_0 / 2
@@ -73,7 +75,7 @@ impl<P: SchemeParams> AffGProof<P> {
 
         let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
 
-        let hat_cap_n = &aux_rp.public_key().modulus(); // $\hat{N}$
+        let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -148,14 +150,14 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // \omega = r \rho^e \mod N_0
         let rho_mod =
-            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, &pk0.precomputed_modulus());
+            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, pk0.precomputed_modulus());
         let omega = (r * rho_mod.pow_signed(&challenge)).retrieve();
 
         // CHECK: deviation from the paper to support a different `D`
         // Original: `\rho_y^e`. Modified: `\rho_y^{-e}`.
         // \omega_y = r_y \rho_y^{-e} \mod N_1
         let rho_y_mod =
-            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho_y, &pk1.precomputed_modulus());
+            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho_y, pk1.precomputed_modulus());
         let omega_y = (r_y * rho_y_mod.pow_signed(&-challenge)).retrieve();
 
         Self {
@@ -178,8 +180,8 @@ impl<P: SchemeParams> AffGProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        pk0: &PublicKeyPaillier<P::Paillier>,
-        pk1: &PublicKeyPaillier<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
         cap_c: &Ciphertext<P::Paillier>,
         // CHECK: deviation from the paper here.
         // The proof in the paper assumes $D = C (*) x (+) enc_0(y, \rho)$.
@@ -261,13 +263,13 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk0 = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let sk0 = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk0 = sk0.public_key();
 
-        let sk1 = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let sk1 = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk1 = sk1.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng);
+        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
@@ -275,22 +277,21 @@ mod tests {
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let y = Signed::random_bounded_bits(&mut OsRng, Params::LP_BOUND);
 
-        let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, &pk0);
-        let rho_y = Ciphertext::<Paillier>::randomizer(&mut OsRng, &pk1);
+        let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk0);
+        let rho_y = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk1);
 
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let cap_c = Ciphertext::new_signed(&mut OsRng, &pk0, &secret);
+        let cap_c = Ciphertext::new_signed(&mut OsRng, pk0, &secret);
 
-        let cap_d = cap_c.homomorphic_mul_signed(&pk0, &x).homomorphic_add(
-            &pk0,
-            &Ciphertext::new_with_randomizer_signed(&pk0, &-y, &rho),
-        );
-        let cap_y = Ciphertext::new_with_randomizer_signed(&pk1, &y, &rho_y);
+        let cap_d = cap_c
+            .homomorphic_mul_signed(pk0, &x)
+            .homomorphic_add(pk0, &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho));
+        let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y);
         let cap_x = mul_by_generator::<Params>(&x);
 
         let proof = AffGProof::<Params>::random(
-            &mut OsRng, &x, &y, &rho, &rho_y, &pk0, &pk1, &cap_c, &aux_rp, &aux,
+            &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &aux_rp, &aux,
         );
-        assert!(proof.verify(&pk0, &pk1, &cap_c, &cap_d, &cap_y, &cap_x, &aux_rp, &aux));
+        assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &aux_rp, &aux));
     }
 }

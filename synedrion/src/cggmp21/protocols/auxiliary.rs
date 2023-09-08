@@ -15,8 +15,8 @@ use crate::cggmp21::{
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillier, RPParams, RPParamsMod, RPSecret,
-    SecretKeyPaillier,
+    Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
+    RPParamsMod, RPSecret, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
@@ -50,15 +50,24 @@ pub struct FullData<P: SchemeParams> {
     u_bits: Box<[u8]>, // $u_i$
 }
 
+// TODO: some of the fields may be unused
+#[derive(Debug, Clone)]
+pub struct FullDataPrecomp<P: SchemeParams> {
+    data: FullData<P>,
+    paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>, // $N_i$
+    aux_paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>, // $\hat{N}_i$
+    rp_params: RPParamsMod<P::Paillier>,                    // $s_i$ and $t_i$
+    aux_rp_params: RPParamsMod<P::Paillier>, // setup parameters($s_i$ and $t_i$ for $\hat{N}$)
+}
+
 struct Context<P: SchemeParams> {
-    paillier_sk: SecretKeyPaillier<P::Paillier>,
-    aux_paillier_sk: SecretKeyPaillier<P::Paillier>,
-    aux_rp_params: RPParams<P::Paillier>, // setup parameters($s_i$ and $t_i$ for $\hat{N}$)
+    paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
+    aux_paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
     el_gamal_sk: Scalar,
     xs_secret: Vec<Scalar>,
     el_gamal_proof_secret: SchSecret,
     sch_secrets_x: Vec<SchSecret>,
-    data: FullData<P>,
+    data_precomp: FullDataPrecomp<P>,
     party_idx: PartyIdx,
     shared_randomness: Box<[u8]>,
 }
@@ -104,7 +113,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         party_idx: PartyIdx,
         _context: Self::Context,
     ) -> Result<Self, InitError> {
-        let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
+        let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
         let paillier_pk = paillier_sk.public_key();
         let el_gamal_sk = Scalar::random(rng);
         let el_gamal_pk = el_gamal_sk.mul_by_generator();
@@ -117,19 +126,19 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             .iter()
             .cloned()
             .map(|x| x.mul_by_generator())
-            .collect();
+            .collect::<Vec<_>>();
 
         let rp_secret = RPSecret::random(rng, &paillier_sk);
-        let rp_params = RPParamsMod::random_with_secret(rng, &rp_secret, &paillier_pk);
+        let rp_params = RPParamsMod::random_with_secret(rng, &rp_secret, paillier_pk);
 
         // CHECK: This is not a part of the KeyRefresh/Aux protocol in Fig.6, but according to
         // "Generating the Setup Parameter for the Range Proofs" in Section 2.3,
         // the verifier generates the auxiliary RP params (and the corresponding
         // P^{mod} and P^{prm} proofs), so this seems like the right place to do it.
-        let aux_paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
+        let aux_paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
         let aux_paillier_pk = aux_paillier_sk.public_key();
         let aux_rp_secret = RPSecret::random(rng, &aux_paillier_sk);
-        let aux_rp_params = RPParamsMod::random_with_secret(rng, &aux_rp_secret, &aux_paillier_pk);
+        let aux_rp_params = RPParamsMod::random_with_secret(rng, &aux_rp_secret, aux_paillier_pk);
 
         let aux = (&shared_randomness, &party_idx);
         let prm_proof = PrmProof::<P>::random(rng, &paillier_sk, &rp_secret, &rp_params, &aux);
@@ -148,29 +157,36 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let u_bits = random_bits(P::SECURITY_PARAMETER);
 
         let data = FullData {
-            xs_public,
+            xs_public: xs_public.clone(),
             sch_commitments_x,
             el_gamal_pk,
             el_gamal_commitment,
-            paillier_pk,
-            aux_paillier_pk,
+            paillier_pk: paillier_pk.to_minimal(),
+            aux_paillier_pk: aux_paillier_pk.to_minimal(),
             rp_params: rp_params.retrieve(),
             aux_rp_params: aux_rp_params.retrieve(),
             prm_proof,
             aux_prm_proof,
-            rho_bits,
-            u_bits,
+            rho_bits: rho_bits.clone(),
+            u_bits: u_bits.clone(),
+        };
+
+        let data_precomp = FullDataPrecomp {
+            data,
+            paillier_pk: paillier_pk.clone(),
+            aux_paillier_pk: aux_paillier_pk.clone(),
+            rp_params,
+            aux_rp_params,
         };
 
         let context = Context {
             paillier_sk,
             aux_paillier_sk,
-            aux_rp_params: aux_rp_params.retrieve(),
             el_gamal_sk,
             xs_secret,
             sch_secrets_x,
             el_gamal_proof_secret,
-            data,
+            data_precomp,
             party_idx,
             shared_randomness: shared_randomness.into(),
         };
@@ -201,6 +217,7 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
         ToSendTyped::Broadcast(Round1Bcast {
             hash: self
                 .context
+                .data_precomp
                 .data
                 .hash(&self.context.shared_randomness, self.context.party_idx),
         })
@@ -244,7 +261,7 @@ pub struct Round2Bcast<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
-    type Payload = FullData<P>;
+    type Payload = FullDataPrecomp<P>;
     type Message = Round2Bcast<P>;
 
     const ROUND_NUM: u8 = 2;
@@ -252,7 +269,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
     fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         ToSendTyped::Broadcast(Round2Bcast {
-            data: self.context.data.clone(),
+            data: self.context.data_precomp.data.clone(),
         })
     }
 
@@ -267,7 +284,9 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             return Err(ReceiveError::VerificationFail("Invalid hash".into()));
         }
 
-        if msg.data.paillier_pk.modulus().as_ref().bits() < 8 * P::SECURITY_PARAMETER {
+        let paillier_pk = msg.data.paillier_pk.to_precomputed();
+
+        if paillier_pk.modulus().bits() < 8 * P::SECURITY_PARAMETER {
             return Err(ReceiveError::VerificationFail(
                 "Paillier modulus is too small".into(),
             ));
@@ -282,21 +301,28 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let aux = (&self.context.shared_randomness, &from);
 
-        let rp_params_mod = msg.data.rp_params.to_mod(&msg.data.paillier_pk);
-        if !msg.data.prm_proof.verify(&rp_params_mod, &aux) {
+        let rp_params = msg.data.rp_params.to_mod(&paillier_pk);
+        if !msg.data.prm_proof.verify(&rp_params, &aux) {
             return Err(ReceiveError::VerificationFail(
                 "PRM verification failed".into(),
             ));
         }
 
-        let aux_rp_params_mod = msg.data.aux_rp_params.to_mod(&msg.data.aux_paillier_pk);
-        if !msg.data.aux_prm_proof.verify(&aux_rp_params_mod, &aux) {
+        let aux_paillier_pk = msg.data.aux_paillier_pk.to_precomputed();
+        let aux_rp_params = msg.data.aux_rp_params.to_mod(&aux_paillier_pk);
+        if !msg.data.aux_prm_proof.verify(&aux_rp_params, &aux) {
             return Err(ReceiveError::VerificationFail(
                 "PRM verification (setup parameters) failed".into(),
             ));
         }
 
-        Ok(msg.data)
+        Ok(FullDataPrecomp {
+            data: msg.data,
+            paillier_pk,
+            aux_paillier_pk,
+            rp_params,
+            aux_rp_params,
+        })
     }
 }
 
@@ -311,9 +337,9 @@ impl<P: SchemeParams> Round for Round2<P> {
     ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         // XOR the vectors together
         // TODO: is there a better way?
-        let mut rho = self.context.data.rho_bits.clone();
+        let mut rho = self.context.data_precomp.data.rho_bits.clone();
         for data in payloads.iter() {
-            for (i, x) in data.rho_bits.iter().enumerate() {
+            for (i, x) in data.data.rho_bits.iter().enumerate() {
                 rho[i] ^= x;
             }
         }
@@ -329,7 +355,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
     rho: Box<[u8]>,
-    datas: HoleVec<FullData<P>>,
+    datas: HoleVec<FullDataPrecomp<P>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -375,35 +401,29 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
         let sch_proof_y = SchProof::new(
             &self.context.el_gamal_proof_secret,
             &self.context.el_gamal_sk,
-            &self.context.data.el_gamal_commitment,
-            &self.context.data.el_gamal_pk,
+            &self.context.data_precomp.data.el_gamal_commitment,
+            &self.context.data_precomp.data.el_gamal_pk,
             &aux,
         );
 
         let mut dms = Vec::new();
         for (party_idx, data) in self.datas.enumerate() {
-            let aux_pk = self.datas.get(party_idx).unwrap().aux_paillier_pk.clone();
             let fac_proof = FacProof::random(
                 rng,
                 &self.context.paillier_sk,
-                &self
-                    .datas
-                    .get(party_idx)
-                    .unwrap()
-                    .aux_rp_params
-                    .to_mod(&aux_pk),
+                &self.datas.get(party_idx).unwrap().aux_rp_params,
                 &aux,
             );
 
             let x_secret = self.context.xs_secret[party_idx];
-            let x_public = self.context.data.xs_public[party_idx];
+            let x_public = self.context.data_precomp.data.xs_public[party_idx];
             let ciphertext =
                 Ciphertext::new(rng, &data.paillier_pk, &uint_from_scalar::<P>(&x_secret));
 
             let sch_proof_x = SchProof::new(
                 &self.context.sch_secrets_x[party_idx],
                 &x_secret,
-                &self.context.data.sch_commitments_x[party_idx],
+                &self.context.data_precomp.data.sch_commitments_x[party_idx],
                 &x_public,
                 &aux,
             );
@@ -436,7 +456,9 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             .decrypt(&self.context.paillier_sk)
             .to_scalar();
 
-        if x_secret.mul_by_generator() != sender_data.xs_public[self.context.party_idx.as_usize()] {
+        if x_secret.mul_by_generator()
+            != sender_data.data.xs_public[self.context.party_idx.as_usize()]
+        {
             // TODO: paper has `\mu` calculation here.
             return Err(ReceiveError::VerificationFail("Mismatched secret x".into()));
         }
@@ -461,10 +483,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
 
         if !msg.data2.fac_proof.verify(
             &sender_data.paillier_pk,
-            &self
-                .context
-                .aux_rp_params
-                .to_mod(&self.context.aux_paillier_sk.public_key()),
+            &self.context.data_precomp.aux_rp_params,
             &aux,
         ) {
             return Err(ReceiveError::VerificationFail(
@@ -473,8 +492,8 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
         }
 
         if !msg.data2.sch_proof_y.verify(
-            &sender_data.el_gamal_commitment,
-            &sender_data.el_gamal_pk,
+            &sender_data.data.el_gamal_commitment,
+            &sender_data.data.el_gamal_pk,
             &aux,
         ) {
             // CHECK: not sending the commitment the second time in `msg`,
@@ -485,8 +504,8 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
         }
 
         if !msg.data2.sch_proof_x.verify(
-            &sender_data.sch_commitments_x[self.context.party_idx.as_usize()],
-            &sender_data.xs_public[self.context.party_idx.as_usize()],
+            &sender_data.data.sch_commitments_x[self.context.party_idx.as_usize()],
+            &sender_data.data.xs_public[self.context.party_idx.as_usize()],
             &aux,
         ) {
             // CHECK: not sending the commitment the second time in `msg`,
@@ -512,25 +531,25 @@ impl<P: SchemeParams> Round for Round3<P> {
         let secrets = payloads.into_vec(self.context.xs_secret[self.context.party_idx.as_usize()]);
         let secret_share_change = secrets.iter().sum();
 
-        let datas = self.datas.into_vec(self.context.data);
+        let datas = self.datas.into_vec(self.context.data_precomp);
 
         let public_share_changes = (0..datas.len())
-            .map(|idx| datas.iter().map(|data| data.xs_public[idx]).sum())
+            .map(|idx| datas.iter().map(|data| data.data.xs_public[idx]).sum())
             .collect::<Box<_>>();
 
         let public_aux = datas
             .into_iter()
             .map(|data| PublicAuxInfo {
-                el_gamal_pk: data.el_gamal_pk,
-                paillier_pk: data.paillier_pk,
-                aux_paillier_pk: data.aux_paillier_pk,
-                rp_params: data.rp_params,
-                aux_rp_params: data.aux_rp_params,
+                el_gamal_pk: data.data.el_gamal_pk,
+                paillier_pk: data.paillier_pk.to_minimal(),
+                aux_paillier_pk: data.aux_paillier_pk.to_minimal(),
+                rp_params: data.rp_params.retrieve(),
+                aux_rp_params: data.aux_rp_params.retrieve(),
             })
             .collect();
 
         let secret_aux = SecretAuxInfo {
-            paillier_sk: self.context.paillier_sk,
+            paillier_sk: self.context.paillier_sk.to_minimal(),
             el_gamal_sk: self.context.el_gamal_sk,
         };
 
