@@ -160,8 +160,7 @@ impl<P: SchemeParams> ModProof<P> {
                 y_m = y_m * w;
             }
             let x = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.x, modulus);
-            let x_sq = x * x; // TODO: use `square()` when available
-            let x_4 = x_sq * x_sq; // TODO: use `square()` when available
+            let x_4 = x.square().square();
             if y_m != x_4 {
                 return false;
             }

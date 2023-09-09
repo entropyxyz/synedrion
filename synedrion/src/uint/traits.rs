@@ -198,11 +198,11 @@ pub trait UintModLike:
     fn pow_2k(&self, k: usize) -> Self {
         let mut result = *self;
         for _ in 0..k {
-            // TODO: use square()
-            result = result * result;
+            result = result.square();
         }
         result
     }
+    fn square(&self) -> Self;
 }
 
 impl<const L: usize> UintModLike for DynResidue<L> {
@@ -217,6 +217,9 @@ impl<const L: usize> UintModLike for DynResidue<L> {
     }
     fn one(precomputed: &Self::Precomputed) -> Self {
         Self::one(*precomputed)
+    }
+    fn square(&self) -> Self {
+        self.square()
     }
 }
 

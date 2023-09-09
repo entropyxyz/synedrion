@@ -52,8 +52,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ) -> Self {
         let r = pk.random_invertible_group_elem(rng);
 
-        // TODO: use `square()` when it's available
-        let base = r * r;
+        let base = r.square();
         let power = base.pow(&secret.0);
 
         Self {
