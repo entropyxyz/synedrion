@@ -119,6 +119,18 @@ impl<T: UintLike> Signed<T> {
         Some(result)
     }
 
+    /// Returns a random value in the whole available range,
+    /// that is `[-(2^(BITS-1)-1), 2^(BITS-1)-1]`.
+    #[cfg(test)]
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
+        loop {
+            let value = T::random(rng);
+            if value != T::ONE << (T::BITS - 1) {
+                return Self::new_from_unsigned(value, (T::BITS - 1) as u32).unwrap();
+            }
+        }
+    }
+
     /// Returns a random value in range `[-bound, bound]`.
     ///
     /// Note: variable time in bit size of `bound`.

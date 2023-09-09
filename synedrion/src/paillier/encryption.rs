@@ -160,51 +160,34 @@ impl<P: PaillierParams> Ciphertext<P> {
         ciphertext_mod_n.pow(&sk.inv_modulus()).retrieve()
     }
 
-    fn homomorphic_mul_internal(
-        &self,
-        pk: &PublicKeyPaillierPrecomputed<P>,
-        rhs: &P::DoubleUint,
-        is_negative: Choice,
-    ) -> Self {
-        let mut ciphertext_mod =
-            P::QuadUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
-        let plaintext_uint = rhs.into_wide();
-
-        // TODO: an alternative way would be to reduce the signed `rhs`
-        // modulo `phi(N^2) == phi(N) * N`. Check if it is faster.
-        if is_negative.into() {
-            // This will not panic as long as the randomizer was chosen to be invertible.
-            ciphertext_mod = ciphertext_mod.invert().unwrap()
-        }
-
-        let ciphertext = ciphertext_mod
-            .pow_bounded_exp(&plaintext_uint, P::DoubleUint::BITS)
-            .retrieve();
-        Self {
-            ciphertext,
-            phantom: PhantomData,
-        }
-    }
-
-    pub fn homomorphic_mul(
-        &self,
-        pk: &PublicKeyPaillierPrecomputed<P>,
-        rhs: &P::DoubleUint,
-    ) -> Self {
-        self.homomorphic_mul_internal(pk, rhs, Choice::from(0))
-    }
-
     // Note: while it is true that `enc(x) (*) rhs == enc((x * rhs) mod N)`,
     // reducing the signed `rhs` modulo `N` will result in a ciphertext with a different randomizer
     // compared to what we would get if we used the signed `rhs` faithfully in the original formula.
     // So if we want to replicate the Paillier encryption manually and get the same ciphertext
     // (e.g. in the P_enc sigma-protocol), we need to process the sign correctly.
-    pub fn homomorphic_mul_signed(
+    pub fn homomorphic_mul(
         &self,
         pk: &PublicKeyPaillierPrecomputed<P>,
         rhs: &Signed<P::DoubleUint>,
     ) -> Self {
-        self.homomorphic_mul_internal(pk, &rhs.abs(), rhs.is_negative())
+        let mut ciphertext_mod =
+            P::QuadUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
+        let rhs_abs = rhs.abs().into_wide();
+
+        // TODO: an alternative way would be to reduce the signed `rhs`
+        // modulo `phi(N^2) == phi(N) * N`. Check if it is faster.
+        if rhs.is_negative().into() {
+            // This will not panic as long as the randomizer was chosen to be invertible.
+            ciphertext_mod = ciphertext_mod.invert().unwrap()
+        }
+
+        let ciphertext = ciphertext_mod
+            .pow_bounded_exp(&rhs_abs, rhs.bound())
+            .retrieve();
+        Self {
+            ciphertext,
+            phantom: PhantomData,
+        }
     }
 
     pub fn homomorphic_add(&self, pk: &PublicKeyPaillierPrecomputed<P>, rhs: &Self) -> Self {
@@ -229,9 +212,9 @@ mod tests {
 
     use super::Ciphertext;
     use crate::paillier::{PaillierParams, PaillierTest, SecretKeyPaillier};
-    use crate::uint::{HasWide, NonZero, RandomMod, UintLike};
+    use crate::uint::{HasWide, NonZero, RandomMod, Signed, UintLike};
 
-    fn mul_mod<T>(lhs: &T, rhs: &T, modulus: &NonZero<T>) -> T
+    fn mul_mod<T>(lhs: &T, rhs: &Signed<T>, modulus: &NonZero<T>) -> T
     where
         T: UintLike + HasWide,
     {
@@ -239,9 +222,14 @@ mod tests {
         // CHECK: check the constraints on rhs: do we need rhs < modulus,
         // or will it be reduced all the same?
         // Note that modulus here may be even, so we can't use Montgomery representation
-        let wide_product = lhs.mul_wide(rhs);
+        let wide_product = lhs.mul_wide(&rhs.abs());
         let wide_modulus = modulus.as_ref().into_wide();
-        T::try_from_wide(wide_product % NonZero::new(wide_modulus).unwrap()).unwrap()
+        let result = T::try_from_wide(wide_product % NonZero::new(wide_modulus).unwrap()).unwrap();
+        if rhs.is_negative().into() {
+            modulus.as_ref().checked_sub(&result).unwrap()
+        } else {
+            result
+        }
     }
 
     #[test]
@@ -282,10 +270,7 @@ mod tests {
         );
         let ciphertext = Ciphertext::<PaillierTest>::new(&mut OsRng, pk, &plaintext);
 
-        let coeff = <PaillierTest as PaillierParams>::DoubleUint::random_mod(
-            &mut OsRng,
-            &pk.modulus_nonzero(),
-        );
+        let coeff = Signed::random(&mut OsRng);
         let new_ciphertext = ciphertext.homomorphic_mul(pk, &coeff);
         let new_plaintext = new_ciphertext.decrypt(&sk);
 
@@ -327,10 +312,7 @@ mod tests {
             &mut OsRng,
             &pk.modulus_nonzero(),
         );
-        let plaintext2 = <PaillierTest as PaillierParams>::DoubleUint::random_mod(
-            &mut OsRng,
-            &pk.modulus_nonzero(),
-        );
+        let plaintext2 = Signed::random(&mut OsRng);
         let plaintext3 = <PaillierTest as PaillierParams>::DoubleUint::random_mod(
             &mut OsRng,
             &pk.modulus_nonzero(),

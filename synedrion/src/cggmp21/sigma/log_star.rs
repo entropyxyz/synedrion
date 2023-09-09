@@ -113,7 +113,7 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         if c != self
             .cap_a
-            .homomorphic_add(pk, &cap_c.homomorphic_mul_signed(pk, &challenge))
+            .homomorphic_add(pk, &cap_c.homomorphic_mul(pk, &challenge))
         {
             return false;
         }

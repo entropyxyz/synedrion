@@ -346,7 +346,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                 let beta_hat = self.betas_hat.get(idx).unwrap();
 
                 let d = self.k_ciphertexts[idx]
-                    .homomorphic_mul(target_pk, &uint_from_scalar::<P>(&self.context.gamma))
+                    .homomorphic_mul(target_pk, &signed_from_scalar::<P>(&self.context.gamma))
                     .homomorphic_add(
                         target_pk,
                         &Ciphertext::new_with_randomizer_signed(
@@ -360,7 +360,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                 let d_hat = self.k_ciphertexts[idx]
                     .homomorphic_mul(
                         target_pk,
-                        &uint_from_scalar::<P>(&self.context.key_share.secret_share),
+                        &signed_from_scalar::<P>(&self.context.key_share.secret_share),
                     )
                     .homomorphic_add(
                         target_pk,

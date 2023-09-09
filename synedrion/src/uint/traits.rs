@@ -7,8 +7,8 @@ use crypto_bigint::{
     },
     nlimbs,
     subtle::{self, Choice, ConstantTimeLess, CtOption},
-    Encoding, Integer, Invert, Limb, NonZero, Pow, PowBoundedExp, RandomMod, Uint, Word, Zero,
-    U1024, U2048, U4096, U512, U8192,
+    Encoding, Integer, Invert, Limb, NonZero, Pow, PowBoundedExp, Random, RandomMod, Uint, Word,
+    Zero, U1024, U2048, U4096, U512, U8192,
 };
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
@@ -38,7 +38,7 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1
 // involves a slight overhead, but it's better than monstrous trait bounds everywhere.
 
 pub trait UintLike:
-    Integer + JacobiSymbolTrait + Hashable + RandomPrimeWithRng + RandomMod
+    Integer + JacobiSymbolTrait + Hashable + RandomPrimeWithRng + RandomMod + Random
 {
     // TODO: do we really need this? Or can we just use a simple RNG and `random_mod()`?
     fn hash_into_mod(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self;

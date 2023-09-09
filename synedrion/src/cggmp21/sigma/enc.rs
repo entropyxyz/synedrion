@@ -121,7 +121,7 @@ impl<P: SchemeParams> EncProof<P> {
 
         if c != self
             .cap_a
-            .homomorphic_add(pk, &ciphertext.homomorphic_mul_signed(pk, &challenge))
+            .homomorphic_add(pk, &ciphertext.homomorphic_mul(pk, &challenge))
         {
             return false;
         }

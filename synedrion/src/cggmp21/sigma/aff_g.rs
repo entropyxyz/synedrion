@@ -109,7 +109,7 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // A = C^\alpha (1 + N_0)^\beta r^N_0 \mod N_0^2
         //   = C (*) \alpha (+) encrypt_0(\beta, r)
-        let cap_a = cap_c.homomorphic_mul_signed(pk0, &alpha).homomorphic_add(
+        let cap_a = cap_c.homomorphic_mul(pk0, &alpha).homomorphic_add(
             pk0,
             &Ciphertext::new_with_randomizer_signed(pk0, &beta, &r.retrieve()),
         );
@@ -204,11 +204,11 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
-        if cap_c.homomorphic_mul_signed(pk0, &self.z1).homomorphic_add(
+        if cap_c.homomorphic_mul(pk0, &self.z1).homomorphic_add(
             pk0,
             &Ciphertext::new_with_randomizer_signed(pk0, &self.z2, &self.omega),
         ) != cap_d
-            .homomorphic_mul_signed(pk0, &challenge)
+            .homomorphic_mul(pk0, &challenge)
             .homomorphic_add(pk0, &self.cap_a)
         {
             return false;
@@ -225,7 +225,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
         if Ciphertext::new_with_randomizer_signed(pk1, &self.z2, &self.omega_y)
             != cap_y
-                .homomorphic_mul_signed(pk1, &-challenge)
+                .homomorphic_mul(pk1, &-challenge)
                 .homomorphic_add(pk1, &self.cap_b_y)
         {
             return false;
@@ -284,7 +284,7 @@ mod tests {
         let cap_c = Ciphertext::new_signed(&mut OsRng, pk0, &secret);
 
         let cap_d = cap_c
-            .homomorphic_mul_signed(pk0, &x)
+            .homomorphic_mul(pk0, &x)
             .homomorphic_add(pk0, &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho));
         let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y);
         let cap_x = mul_by_generator::<Params>(&x);
