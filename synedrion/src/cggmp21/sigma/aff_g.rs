@@ -151,14 +151,14 @@ impl<P: SchemeParams> AffGProof<P> {
         // \omega = r \rho^e \mod N_0
         let rho_mod =
             <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, pk0.precomputed_modulus());
-        let omega = (r * rho_mod.pow_signed(&challenge)).retrieve();
+        let omega = (r * rho_mod.pow_signed_vartime(&challenge)).retrieve();
 
         // CHECK: deviation from the paper to support a different `D`
         // Original: `\rho_y^e`. Modified: `\rho_y^{-e}`.
         // \omega_y = r_y \rho_y^{-e} \mod N_1
         let rho_y_mod =
             <P::Paillier as PaillierParams>::DoubleUintMod::new(rho_y, pk1.precomputed_modulus());
-        let omega_y = (r_y * rho_y_mod.pow_signed(&-challenge)).retrieve();
+        let omega_y = (r_y * rho_y_mod.pow_signed_vartime(&-challenge)).retrieve();
 
         Self {
             cap_a,
@@ -233,14 +233,16 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
         if aux_rp.commit(&self.z3, &self.z1)
-            != &self.cap_e.to_mod(aux_pk) * &self.cap_s.to_mod(aux_pk).pow_signed(&challenge)
+            != &self.cap_e.to_mod(aux_pk)
+                * &self.cap_s.to_mod(aux_pk).pow_signed_vartime(&challenge)
         {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
         if aux_rp.commit(&self.z4, &self.z2)
-            != &self.cap_f.to_mod(aux_pk) * &self.cap_t.to_mod(aux_pk).pow_signed(&challenge)
+            != &self.cap_f.to_mod(aux_pk)
+                * &self.cap_t.to_mod(aux_pk).pow_signed_vartime(&challenge)
         {
             return false;
         }

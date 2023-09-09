@@ -79,7 +79,7 @@ impl<P: SchemeParams> EncProof<P> {
             randomizer,
             pk.precomputed_modulus(),
         );
-        let z2 = (r * randomizer_mod.pow_signed(&challenge)).retrieve();
+        let z2 = (r * randomizer_mod.pow_signed_vartime(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu
         let challenge_wide: Signed<<P::Paillier as PaillierParams>::QuadUint> =

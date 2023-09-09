@@ -75,7 +75,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         // z_2 = r * \rho^e mod N_0
         let rho_mod =
             <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, pk.precomputed_modulus());
-        let z2 = (r * rho_mod.pow_signed(&challenge)).retrieve();
+        let z2 = (r * rho_mod.pow_signed_vartime(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu
         let challenge_wide: Signed<<P::Paillier as PaillierParams>::QuadUint> =
@@ -126,7 +126,9 @@ impl<P: SchemeParams> LogStarProof<P> {
         // Check that $s^{z_1} t^{z_3} == D S^e \mod \hat{N}$
         let cap_d_mod = self.cap_d.to_mod(aux_rp.public_key());
         let cap_s_mod = self.cap_s.to_mod(aux_rp.public_key());
-        if aux_rp.commit(&self.z3, &self.z1) != &cap_d_mod * &cap_s_mod.pow_signed(&challenge) {
+        if aux_rp.commit(&self.z3, &self.z1)
+            != &cap_d_mod * &cap_s_mod.pow_signed_vartime(&challenge)
+        {
             return false;
         }
 

@@ -8,7 +8,7 @@ use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallyNegatable},
-    HasWide, Integer, Invert, NonZero, Pow, PowBoundedExp, Retrieve, Signed, UintModLike,
+    HasWide, NonZero, Pow, PowBoundedExp, Retrieve, Signed, UintModLike,
 };
 
 /// Paillier ciphertext.
@@ -57,7 +57,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         let factor1 = prod_mod + P::QuadUintMod::one(pk.precomputed_modulus_squared());
 
         let factor2 = P::QuadUintMod::new(&randomizer, pk.precomputed_modulus_squared())
-            .pow_bounded_exp(&modulus_quad, P::DoubleUint::BITS);
+            .pow_bounded_exp(&modulus_quad, P::PRIME_BITS * 2);
 
         let ciphertext = (factor1 * factor2).retrieve();
 
@@ -170,20 +170,10 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         rhs: &Signed<P::DoubleUint>,
     ) -> Self {
-        let mut ciphertext_mod =
+        let ciphertext_mod =
             P::QuadUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
-        let rhs_abs = rhs.abs().into_wide();
-
-        // TODO: an alternative way would be to reduce the signed `rhs`
-        // modulo `phi(N^2) == phi(N) * N`. Check if it is faster.
-        if rhs.is_negative().into() {
-            // This will not panic as long as the randomizer was chosen to be invertible.
-            ciphertext_mod = ciphertext_mod.invert().unwrap()
-        }
-
-        let ciphertext = ciphertext_mod
-            .pow_bounded_exp(&rhs_abs, rhs.bound())
-            .retrieve();
+        // This will not panic as long as the randomizer was chosen to be invertible.
+        let ciphertext = ciphertext_mod.pow_signed(&rhs.into_wide()).retrieve();
         Self {
             ciphertext,
             phantom: PhantomData,

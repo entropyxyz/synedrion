@@ -204,6 +204,15 @@ pub trait UintModLike:
     fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed;
     fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self;
     fn one(precomputed: &Self::Precomputed) -> Self;
+    fn pow_signed_vartime(&self, exponent: &Signed<Self::RawUint>) -> Self {
+        let abs_exponent = exponent.abs();
+        let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
+        if exponent.is_negative().into() {
+            abs_result.invert().unwrap()
+        } else {
+            abs_result
+        }
+    }
     fn pow_signed(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
@@ -239,7 +248,7 @@ impl<const L: usize> UintModLike for DynResidue<L> {
     }
 }
 
-pub(crate) fn pow_wide<T>(base: &T, exponent: &<T::RawUint as HasWide>::Wide, bound: usize) -> T
+fn pow_wide<T>(base: &T, exponent: &<T::RawUint as HasWide>::Wide, bound: usize) -> T
 where
     T: UintModLike,
     T::RawUint: HasWide,
@@ -260,7 +269,7 @@ where
 }
 
 // TODO: can it be made a method in UintModLike?
-pub(crate) fn pow_wide_signed<T>(base: &T, exponent: &Signed<<T::RawUint as HasWide>::Wide>) -> T
+pub(crate) fn pow_signed_wide<T>(base: &T, exponent: &Signed<<T::RawUint as HasWide>::Wide>) -> T
 where
     T: UintModLike,
     T::RawUint: HasWide,
@@ -271,7 +280,7 @@ where
     T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
 
-pub(crate) fn pow_octo_signed<T>(
+pub(crate) fn pow_signed_octo<T>(
     base: &T,
     exponent: &Signed<<<T::RawUint as HasWide>::Wide as HasWide>::Wide>,
 ) -> T

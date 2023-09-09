@@ -11,6 +11,6 @@ pub(crate) use crypto_primes::RandomPrimeWithRng;
 pub(crate) use jacobi::{JacobiSymbol, JacobiSymbolTrait};
 pub(crate) use signed::Signed;
 pub(crate) use traits::{
-    pow_octo_signed, pow_wide_signed, upcast_uint, FromScalar, HasWide, U1024Mod, U2048Mod,
+    pow_signed_octo, pow_signed_wide, upcast_uint, FromScalar, HasWide, U1024Mod, U2048Mod,
     U4096Mod, U512Mod, UintLike, UintModLike,
 };

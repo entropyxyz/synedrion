@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{pow_octo_signed, pow_wide_signed, Pow, Retrieve, Signed, UintModLike};
+use crate::uint::{pow_signed_octo, pow_signed_wide, Pow, Retrieve, Signed, UintModLike};
 
 pub(crate) struct RPSecret<P: PaillierParams>(P::DoubleUint);
 
@@ -75,7 +75,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
         secret: &Signed<P::DoubleUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(pow_wide_signed(&self.base, randomizer) * self.power.pow_signed(secret))
+        RPCommitmentMod(pow_signed_wide(&self.base, randomizer) * self.power.pow_signed(secret))
     }
 
     pub fn commit_wide(
@@ -85,7 +85,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            pow_wide_signed(&self.base, randomizer) * pow_wide_signed(&self.power, secret),
+            pow_signed_wide(&self.base, randomizer) * pow_signed_wide(&self.power, secret),
         )
     }
 
@@ -95,12 +95,12 @@ impl<P: PaillierParams> RPParamsMod<P> {
         secret: &P::DoubleUint,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(pow_octo_signed(&self.base, randomizer) * self.power.pow(secret))
+        RPCommitmentMod(pow_signed_octo(&self.base, randomizer) * self.power.pow(secret))
     }
 
     pub fn commit_base_octo(&self, randomizer: &Signed<P::OctoUint>) -> RPCommitmentMod<P> {
         // $t^\rho mod N$ where $\rho$ is the randomizer.
-        RPCommitmentMod(pow_octo_signed(&self.base, randomizer))
+        RPCommitmentMod(pow_signed_octo(&self.base, randomizer))
     }
 
     pub fn retrieve(&self) -> RPParams<P> {
@@ -153,8 +153,16 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
         Self(self.0.pow_signed(exponent))
     }
 
+    /// Raise to the power of `exponent`.
+    ///
+    /// Note: this is variable time in `exponent`.
+    /// `exponent` will be effectively reduced modulo `totient(N)`.
+    pub fn pow_signed_vartime(&self, exponent: &Signed<P::DoubleUint>) -> Self {
+        Self(self.0.pow_signed_vartime(exponent))
+    }
+
     pub fn pow_signed_wide(&self, exponent: &Signed<P::QuadUint>) -> Self {
-        Self(pow_wide_signed(&self.0, exponent))
+        Self(pow_signed_wide(&self.0, exponent))
     }
 }
 

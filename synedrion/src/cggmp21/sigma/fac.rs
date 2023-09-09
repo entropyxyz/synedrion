@@ -161,7 +161,8 @@ impl<P: SchemeParams> FacProof<P> {
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         if aux_rp.commit_wide(&self.omega1, &self.z1)
-            != &self.cap_a.to_mod(aux_pk) * &self.cap_p.to_mod(aux_pk).pow_signed(&challenge)
+            != &self.cap_a.to_mod(aux_pk)
+                * &self.cap_p.to_mod(aux_pk).pow_signed_vartime(&challenge)
         {
             return false;
         }
@@ -170,14 +171,14 @@ impl<P: SchemeParams> FacProof<P> {
 
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
         if aux_rp.commit_wide(&self.omega2, &self.z2)
-            != &self.cap_b.to_mod(aux_pk) * &cap_q_mod.pow_signed(&challenge)
+            != &self.cap_b.to_mod(aux_pk) * &cap_q_mod.pow_signed_vartime(&challenge)
         {
             return false;
         }
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
         if &cap_q_mod.pow_signed_wide(&self.z1) * &aux_rp.commit_base_octo(&self.v)
-            != &self.cap_t.to_mod(aux_pk) * &cap_r.pow_signed(&challenge)
+            != &self.cap_t.to_mod(aux_pk) * &cap_r.pow_signed_vartime(&challenge)
         {
             return false;
         }
