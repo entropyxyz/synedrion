@@ -12,7 +12,7 @@ use crate::curve::Scalar;
 use crate::tools::serde_bytes;
 
 /// Encodes the object into bytes for hashing purposes.
-pub trait HashInto {
+pub(crate) trait HashInto {
     fn from_reader(reader: &mut impl XofReader) -> Self;
 }
 
@@ -42,10 +42,10 @@ pub trait Chain: Sized {
     }
 }
 
-pub type BackendDigest = Sha256;
+pub(crate) type BackendDigest = Sha256;
 
 /// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub struct Hash(BackendDigest);
+pub(crate) struct Hash(BackendDigest);
 
 impl Chain for Hash {
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
@@ -89,7 +89,7 @@ impl Hash {
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
 // TODO: should we just hash to an RNG with `Hash`, and then use that RNG to produce whatever
 // extensible output we need?
-pub struct XofHash(Shake256);
+pub(crate) struct XofHash(Shake256);
 
 impl Chain for XofHash {
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self {

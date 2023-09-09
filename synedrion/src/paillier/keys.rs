@@ -9,7 +9,7 @@ use crate::uint::{
 };
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct SecretKeyPaillier<P: PaillierParams> {
+pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     p: P::SingleUint,
     q: P::SingleUint,
 }
@@ -55,7 +55,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 }
 
 #[derive(Clone)]
-pub struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
+pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     sk: SecretKeyPaillier<P>,
     totient: P::DoubleUint,
     /// \phi(N)^{-1} \mod N
@@ -174,7 +174,7 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PublicKeyPaillier<P: PaillierParams> {
+pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
     modulus: P::DoubleUint, // $N$
 }
 
@@ -197,7 +197,7 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PublicKeyPaillierPrecomputed<P: PaillierParams> {
+pub(crate) struct PublicKeyPaillierPrecomputed<P: PaillierParams> {
     pk: PublicKeyPaillier<P>,
     precomputed_modulus: <P::DoubleUintMod as UintModLike>::Precomputed,
     precomputed_modulus_squared: <P::QuadUintMod as UintModLike>::Precomputed,

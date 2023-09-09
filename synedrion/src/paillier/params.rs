@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::tools::hashing::Hashable;
 use crate::uint::{
     FromScalar, HasWide, U1024Mod, U2048Mod, U4096Mod, U512Mod, UintLike, UintModLike, U1024,
     U2048, U4096, U512, U8192,
@@ -15,9 +14,9 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
         + HasWide<Wide = Self::QuadUint>
         + Serialize
         + for<'de> Deserialize<'de>;
-    type DoubleUintMod: Hashable + UintModLike<RawUint = Self::DoubleUint>;
+    type DoubleUintMod: UintModLike<RawUint = Self::DoubleUint>;
     type QuadUint: UintLike + Serialize + for<'de> Deserialize<'de> + HasWide<Wide = Self::OctoUint>;
-    type QuadUintMod: Hashable + UintModLike<RawUint = Self::QuadUint>;
+    type QuadUintMod: UintModLike<RawUint = Self::QuadUint>;
     type OctoUint: UintLike + Serialize + for<'de> Deserialize<'de>;
 }
 

@@ -13,7 +13,7 @@ use crate::uint::{
 
 /// Paillier ciphertext.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Ciphertext<P: PaillierParams> {
+pub(crate) struct Ciphertext<P: PaillierParams> {
     // TODO: should we have CiphertextMod, to streamline multiple operations on the ciphertext?
     // How much performance will that gain us?
     ciphertext: P::QuadUint,
@@ -22,7 +22,7 @@ pub struct Ciphertext<P: PaillierParams> {
 
 impl<P: PaillierParams> Ciphertext<P> {
     /// Creates a suitable randomizer for encryption.
-    pub(crate) fn randomizer(
+    pub fn randomizer(
         rng: &mut impl CryptoRngCore,
         pk: &PublicKeyPaillierPrecomputed<P>,
     ) -> P::DoubleUint {
