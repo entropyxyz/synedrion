@@ -81,9 +81,11 @@ impl<P: SchemeParams> FacProof<P> {
         let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let (p, q) = sk.primes();
-        let p_signed = Signed::new_positive(p).unwrap();
-        //let p_signed_wide = Signed::new_positive(p.into_wide()).unwrap();
-        let q_signed = Signed::new_positive(q).unwrap();
+        // TODO: return them as Signed already?
+        let p_signed =
+            Signed::new_positive(p, <P::Paillier as PaillierParams>::PRIME_BITS).unwrap();
+        let q_signed =
+            Signed::new_positive(q, <P::Paillier as PaillierParams>::PRIME_BITS).unwrap();
 
         // P = s^p t^\mu \mod \hat{N}
         let cap_p = aux_rp.commit(&mu, &p_signed).retrieve();
@@ -124,17 +126,6 @@ impl<P: SchemeParams> FacProof<P> {
 
         // v = r + e \hat{\sigma}
         let v = r + (challenge.into_wide().into_wide() * hat_sigma);
-
-        // CHECK: calculating modulo \phi(\hat{N}) so that it fits into the variable
-        // for the uint sizes in test parameters.
-        /*let nu_times_p = mul_mod::<P::Paillier>(&nu.extract_mod_half(&hat_phi), &p, &hat_phi);
-        let hat_sigma = sigma
-            .extract_mod_half(&hat_phi)
-            .sub_mod(&nu_times_p, &hat_phi);
-        let v = r.add_mod(
-            &mul_mod::<P::Paillier>(&hat_sigma, &challenge.extract_mod(&hat_phi), &hat_phi),
-            &hat_phi,
-        );*/
 
         Self {
             cap_p,

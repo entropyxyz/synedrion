@@ -13,7 +13,7 @@ use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
 
 // TODO: should it be here? Or in `curve`?
 // Or a separate function so that `uint` and `curve` are agnostic of each other?
-pub fn mul_by_point<P: SchemeParams>(
+pub(crate) fn mul_by_point<P: SchemeParams>(
     p: &Point,
     x: &Signed<<P::Paillier as PaillierParams>::DoubleUint>,
 ) -> Point {
@@ -30,7 +30,7 @@ pub fn mul_by_point<P: SchemeParams>(
     p * &scalar
 }
 
-pub fn mul_by_generator<P: SchemeParams>(
+pub(crate) fn mul_by_generator<P: SchemeParams>(
     x: &Signed<<P::Paillier as PaillierParams>::DoubleUint>,
 ) -> Point {
     mul_by_point::<P>(&Point::GENERATOR, x)

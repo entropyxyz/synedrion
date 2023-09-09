@@ -89,10 +89,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let secret = Scalar::random(rng);
         let public = secret.mul_by_generator();
 
-        let rid = random_bits(P::SECURITY_PARAMETER);
+        let rid = random_bits(rng, P::SECURITY_PARAMETER);
         let proof_secret = SchSecret::random(rng);
         let commitment = SchCommitment::new(&proof_secret);
-        let u = random_bits(P::SECURITY_PARAMETER);
+        let u = random_bits(rng, P::SECURITY_PARAMETER);
 
         let data = FullData {
             rid,

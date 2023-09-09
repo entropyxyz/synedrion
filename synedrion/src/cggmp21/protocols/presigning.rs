@@ -25,6 +25,14 @@ fn uint_from_scalar<P: SchemeParams>(
     <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint::from_scalar(x)
 }
 
+fn signed_from_scalar<P: SchemeParams>(
+    x: &Scalar,
+) -> Signed<<<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint> {
+    // TODO: introduce a special ORDER_BITS const, so that we don't have to assume
+    // that L_BOUND >= ORDER_BITS?
+    Signed::new_positive(uint_from_scalar::<P>(x), P::L_BOUND).unwrap()
+}
+
 pub struct Context<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
     num_parties: usize,
@@ -181,7 +189,7 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
                 let aux = (&self.context.shared_randomness, &PartyIdx::from_usize(idx));
                 let proof = EncProof::random(
                     rng,
-                    &uint_from_scalar::<P>(&self.context.ephemeral_scalar_share),
+                    &signed_from_scalar::<P>(&self.context.ephemeral_scalar_share),
                     &self.context.rho,
                     &self.context.key_share.secret_aux.paillier_sk,
                     &self.context.key_share.public_aux[idx].aux_rp_params,
@@ -343,7 +351,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                         target_pk,
                         &Ciphertext::new_with_randomizer_signed(
                             target_pk,
-                            &-Signed::new_positive(uint_from_scalar::<P>(beta)).unwrap(),
+                            &-signed_from_scalar::<P>(beta),
                             &s,
                         ),
                     );
@@ -358,7 +366,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                         target_pk,
                         &Ciphertext::new_with_randomizer_signed(
                             target_pk,
-                            &-Signed::new_positive(uint_from_scalar::<P>(beta_hat)).unwrap(),
+                            &-signed_from_scalar::<P>(beta_hat),
                             &s_hat,
                         ),
                     );
@@ -370,8 +378,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi = AffGProof::random(
                     rng,
-                    &Signed::new_positive(uint_from_scalar::<P>(&self.context.gamma)).unwrap(),
-                    &Signed::new_positive(uint_from_scalar::<P>(beta)).unwrap(),
+                    &signed_from_scalar::<P>(&self.context.gamma),
+                    &signed_from_scalar::<P>(beta),
                     &s,
                     &r,
                     target_pk,
@@ -383,11 +391,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi_hat = AffGProof::random(
                     rng,
-                    &Signed::new_positive(uint_from_scalar::<P>(
-                        &self.context.key_share.secret_share,
-                    ))
-                    .unwrap(),
-                    &Signed::new_positive(uint_from_scalar::<P>(beta_hat)).unwrap(),
+                    &signed_from_scalar::<P>(&self.context.key_share.secret_share),
+                    &signed_from_scalar::<P>(beta_hat),
                     &s_hat,
                     &r_hat,
                     target_pk,
@@ -399,7 +404,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi_hat_prime = LogStarProof::random(
                     rng,
-                    &Signed::new_positive(uint_from_scalar::<P>(&self.context.gamma)).unwrap(),
+                    &signed_from_scalar::<P>(&self.context.gamma),
                     &self.context.nu,
                     pk,
                     &Point::GENERATOR,
@@ -586,10 +591,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
 
                 let psi_hat_pprime = LogStarProof::random(
                     rng,
-                    &Signed::new_positive(uint_from_scalar::<P>(
-                        &self.context.ephemeral_scalar_share,
-                    ))
-                    .unwrap(),
+                    &signed_from_scalar::<P>(&self.context.ephemeral_scalar_share),
                     &self.context.rho,
                     pk,
                     &self.big_gamma,

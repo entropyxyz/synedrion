@@ -7,8 +7,8 @@ use crypto_bigint::{
     },
     nlimbs,
     subtle::{self, Choice, ConstantTimeLess, CtOption},
-    Encoding, Integer, Invert, Limb, NonZero, Pow, RandomMod, Uint, Word, Zero, U1024, U2048,
-    U4096, U512, U8192,
+    Encoding, Integer, Invert, Limb, NonZero, Pow, PowBoundedExp, RandomMod, Uint, Word, Zero,
+    U1024, U2048, U4096, U512, U8192,
 };
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
@@ -50,9 +50,12 @@ pub trait UintLike:
     fn wrapping_mul(&self, other: &Self) -> Self;
     fn wrapping_add(&self, other: &Self) -> Self;
     fn bits(&self) -> usize;
+    fn bits_vartime(&self) -> usize;
     fn bit(&self, index: usize) -> Choice;
+    fn bit_vartime(&self, index: usize) -> bool;
     fn neg(&self) -> Self;
     fn neg_mod(&self, modulus: &Self) -> Self;
+    fn shl_vartime(&self, shift: usize) -> Self;
 }
 
 pub trait HasWide: Sized + Zero {
@@ -126,11 +129,19 @@ impl<const L: usize> UintLike for Uint<L> {
     }
 
     fn bits(&self) -> usize {
-        (*self).bits()
+        self.bits()
+    }
+
+    fn bits_vartime(&self) -> usize {
+        self.bits_vartime()
     }
 
     fn bit(&self, index: usize) -> Choice {
-        (*self).bit(index).into()
+        self.bit(index).into()
+    }
+
+    fn bit_vartime(&self, index: usize) -> bool {
+        self.bit_vartime(index)
     }
 
     fn neg(&self) -> Self {
@@ -139,6 +150,10 @@ impl<const L: usize> UintLike for Uint<L> {
 
     fn neg_mod(&self, modulus: &Self) -> Self {
         self.neg_mod(modulus)
+    }
+
+    fn shl_vartime(&self, shift: usize) -> Self {
+        self.shl_vartime(shift)
     }
 }
 
@@ -163,6 +178,7 @@ impl<const L: usize> Hashable for Uint<L> {
 /// Integers in an efficient representation for modulo operations.
 pub trait UintModLike:
     Pow<Self::RawUint>
+    + PowBoundedExp<Self::RawUint>
     + Send
     + core::fmt::Debug
     + Add<Output = Self>
@@ -190,7 +206,7 @@ pub trait UintModLike:
     fn one(precomputed: &Self::Precomputed) -> Self;
     fn pow_signed(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
-        let abs_result = self.pow(&abs_exponent);
+        let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
         let inv_result = abs_result.invert().unwrap();
         Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
@@ -223,13 +239,24 @@ impl<const L: usize> UintModLike for DynResidue<L> {
     }
 }
 
-pub(crate) fn pow_wide<T>(base: &T, exponent: &<T::RawUint as HasWide>::Wide) -> T
+pub(crate) fn pow_wide<T>(base: &T, exponent: &<T::RawUint as HasWide>::Wide, bound: usize) -> T
 where
     T: UintModLike,
     T::RawUint: HasWide,
 {
+    let bits = <T::RawUint as Integer>::BITS;
+    let bound = bound % (2 * bits + 1);
+
     let (hi, lo) = T::RawUint::from_wide(*exponent);
-    base.pow(&hi).pow_2k(<T::RawUint as Integer>::BITS) * base.pow(&lo)
+    let lo_res = base.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
+
+    // TODO: this may be faster if we could get access to Uint's pow_bounded_exp() that takes
+    // exponents of any size - it keeps the base^(2^k) already.
+    if bound > bits {
+        base.pow_bounded_exp(&hi, bound - bits).pow_2k(bits) * lo_res
+    } else {
+        lo_res
+    }
 }
 
 // TODO: can it be made a method in UintModLike?
@@ -239,7 +266,7 @@ where
     T::RawUint: HasWide,
 {
     let abs_exponent = exponent.abs();
-    let abs_result = pow_wide(base, &abs_exponent);
+    let abs_result = pow_wide(base, &abs_exponent, exponent.bound());
     let inv_result = abs_result.invert().unwrap();
     T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
@@ -253,10 +280,20 @@ where
     T::RawUint: HasWide,
     <T::RawUint as HasWide>::Wide: HasWide,
 {
+    let bits = <<T::RawUint as HasWide>::Wide as Integer>::BITS;
+    let bound = exponent.bound();
+
     let abs_exponent = exponent.abs();
     let (whi, wlo) = <T::RawUint as HasWide>::Wide::from_wide(abs_exponent);
-    let abs_result =
-        pow_wide(base, &whi).pow_2k(<T::RawUint as Integer>::BITS * 2) * pow_wide(base, &wlo);
+
+    let lo_res = pow_wide(base, &wlo, core::cmp::min(bits, bound));
+
+    let abs_result = if bound > bits {
+        pow_wide(base, &whi, bound - bits).pow_2k(bits) * lo_res
+    } else {
+        lo_res
+    };
+
     let inv_result = abs_result.invert().unwrap();
     T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }

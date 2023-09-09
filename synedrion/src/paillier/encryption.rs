@@ -8,7 +8,7 @@ use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallyNegatable},
-    HasWide, Invert, NonZero, Pow, Retrieve, Signed, UintModLike,
+    HasWide, Integer, Invert, NonZero, Pow, PowBoundedExp, Retrieve, Signed, UintModLike,
 };
 
 /// Paillier ciphertext.
@@ -56,9 +56,8 @@ impl<P: PaillierParams> Ciphertext<P> {
 
         let factor1 = prod_mod + P::QuadUintMod::one(pk.precomputed_modulus_squared());
 
-        // TODO: `modulus_quad` is bounded, use `pow_bounded_exp()`
-        let factor2 =
-            P::QuadUintMod::new(&randomizer, pk.precomputed_modulus_squared()).pow(&modulus_quad);
+        let factor2 = P::QuadUintMod::new(&randomizer, pk.precomputed_modulus_squared())
+            .pow_bounded_exp(&modulus_quad, P::DoubleUint::BITS);
 
         let ciphertext = (factor1 * factor2).retrieve();
 
@@ -178,8 +177,9 @@ impl<P: PaillierParams> Ciphertext<P> {
             ciphertext_mod = ciphertext_mod.invert().unwrap()
         }
 
-        // TODO: use pow_bounded_exp()?
-        let ciphertext = ciphertext_mod.pow(&plaintext_uint).retrieve();
+        let ciphertext = ciphertext_mod
+            .pow_bounded_exp(&plaintext_uint, P::DoubleUint::BITS)
+            .retrieve();
         Self {
             ciphertext,
             phantom: PhantomData,

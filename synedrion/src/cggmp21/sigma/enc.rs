@@ -24,10 +24,10 @@ pub(crate) struct EncProof<P: SchemeParams> {
 impl<P: SchemeParams> EncProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
-        secret: &<P::Paillier as PaillierParams>::DoubleUint, // `k`
-        randomizer: &<P::Paillier as PaillierParams>::DoubleUint, // `\rho`
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,       // `N_0`
-        aux_rp: &RPParamsMod<P::Paillier>,                    // $\hat{N}$, $s$, $t$
+        secret: &Signed<<P::Paillier as PaillierParams>::DoubleUint>, // `k`
+        randomizer: &<P::Paillier as PaillierParams>::DoubleUint,     // `\rho`
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,               // `N_0`
+        aux_rp: &RPParamsMod<P::Paillier>,                            // $\hat{N}$, $s$, $t$
         aux: &impl Hashable, // CHECK: used to derive `\hat{N}, s, t`
     ) -> Self {
         let pk = sk.public_key();
@@ -42,8 +42,6 @@ impl<P: SchemeParams> EncProof<P> {
 
         // TODO: check that `bound` and `bound_eps` do not overflow the DoubleUint
         // TODO: check that `secret` is within `+- 2^bound`
-
-        let secret_signed = Signed::new_positive(*secret).unwrap();
 
         // \alpha <-- +- 2^{\ell + \eps}
         // CHECK: should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
@@ -62,7 +60,7 @@ impl<P: SchemeParams> EncProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         // S = s^k * t^\mu \mod \hat{N}
-        let cap_s = aux_rp.commit(&mu, &secret_signed).retrieve();
+        let cap_s = aux_rp.commit(&mu, secret).retrieve();
 
         // A = (1 + N_0)^\alpha * r^N_0 == encrypt(\alpha, r)
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
@@ -73,7 +71,7 @@ impl<P: SchemeParams> EncProof<P> {
         // z_1 = \alpha + e k
         // In the proof it will be checked that $z1 \in +- 2^{\ell + \eps}$,
         // so it should fit into DoubleUint.
-        let z1 = alpha + challenge * secret_signed;
+        let z1 = alpha + challenge * *secret;
 
         // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
@@ -145,8 +143,8 @@ mod tests {
 
     use super::EncProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, PaillierParams, RPParamsMod, SecretKeyPaillier};
-    use crate::uint::{NonZero, RandomMod};
+    use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
+    use crate::uint::Signed;
 
     #[test]
     fn prove_and_verify() {
@@ -161,13 +159,9 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let secret = <Paillier as PaillierParams>::DoubleUint::random_mod(
-            &mut OsRng,
-            &NonZero::new(<Paillier as PaillierParams>::DoubleUint::ONE << Params::L_BOUND)
-                .unwrap(),
-        );
+        let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let randomizer = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
-        let ciphertext = Ciphertext::new_with_randomizer(pk, &secret, &randomizer);
+        let ciphertext = Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer);
 
         let proof =
             EncProof::<Params>::random(&mut OsRng, &secret, &randomizer, &sk, &aux_rp, &aux);

@@ -153,8 +153,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         // $A_i^j$
         let sch_commitments_x = sch_secrets_x.iter().map(SchCommitment::new).collect();
 
-        let rho_bits = random_bits(P::SECURITY_PARAMETER);
-        let u_bits = random_bits(P::SECURITY_PARAMETER);
+        let rho_bits = random_bits(rng, P::SECURITY_PARAMETER);
+        let u_bits = random_bits(rng, P::SECURITY_PARAMETER);
 
         let data = FullData {
             xs_public: xs_public.clone(),
@@ -286,7 +286,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let paillier_pk = msg.data.paillier_pk.to_precomputed();
 
-        if paillier_pk.modulus().bits() < 8 * P::SECURITY_PARAMETER {
+        if paillier_pk.modulus().bits_vartime() < 8 * P::SECURITY_PARAMETER {
             return Err(ReceiveError::VerificationFail(
                 "Paillier modulus is too small".into(),
             ));

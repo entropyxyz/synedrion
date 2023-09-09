@@ -4,7 +4,7 @@ mod traits;
 
 pub(crate) use crypto_bigint::{
     modular::Retrieve, subtle, CheckedAdd, CheckedMul, CheckedSub, Integer, Invert, NonZero, Pow,
-    RandomMod, Zero, U1024, U2048, U4096, U512, U8192,
+    PowBoundedExp, RandomMod, Zero, U1024, U2048, U4096, U512, U8192,
 };
 pub(crate) use crypto_primes::RandomPrimeWithRng;
 

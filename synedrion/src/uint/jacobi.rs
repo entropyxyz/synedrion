@@ -147,7 +147,7 @@ impl<const L: usize> JacobiSymbolTrait for Uint<L> {
             (result, a, p) = swap(result, a, p);
             a = a.rem(&NonZero::new(p).unwrap());
 
-            if p.bits() <= Word::BITS as usize {
+            if p.bits_vartime() <= Word::BITS as usize {
                 return result * a.as_words()[0].jacobi_symbol(&p.as_words()[0]);
             }
         }
