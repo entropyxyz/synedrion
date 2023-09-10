@@ -7,8 +7,8 @@ use crypto_bigint::{
     },
     nlimbs,
     subtle::{self, Choice, ConstantTimeLess, CtOption},
-    Encoding, Integer, Invert, Limb, NonZero, Pow, PowBoundedExp, Random, RandomMod, Uint, Word,
-    Zero, U1024, U2048, U4096, U512, U8192,
+    Encoding, Integer, Invert, Limb, NonZero, PowBoundedExp, Random, RandomMod, Uint, Word, Zero,
+    U1024, U2048, U4096, U512, U8192,
 };
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
@@ -38,7 +38,13 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1
 // involves a slight overhead, but it's better than monstrous trait bounds everywhere.
 
 pub trait UintLike:
-    Integer + JacobiSymbolTrait + Hashable + RandomPrimeWithRng + RandomMod + Random
+    Integer
+    + JacobiSymbolTrait
+    + Hashable
+    + RandomPrimeWithRng
+    + RandomMod
+    + Random
+    + subtle::ConditionallySelectable
 {
     // TODO: do we really need this? Or can we just use a simple RNG and `random_mod()`?
     fn hash_into_mod(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self;
@@ -56,6 +62,7 @@ pub trait UintLike:
     fn neg(&self) -> Self;
     fn neg_mod(&self, modulus: &Self) -> Self;
     fn shl_vartime(&self, shift: usize) -> Self;
+    fn shr_vartime(&self, shift: usize) -> Self;
 }
 
 pub trait HasWide: Sized + Zero {
@@ -155,6 +162,10 @@ impl<const L: usize> UintLike for Uint<L> {
     fn shl_vartime(&self, shift: usize) -> Self {
         self.shl_vartime(shift)
     }
+
+    fn shr_vartime(&self, shift: usize) -> Self {
+        self.shr_vartime(shift)
+    }
 }
 
 impl<const L: usize> Hashable for Uint<L> {
@@ -177,8 +188,7 @@ impl<const L: usize> Hashable for Uint<L> {
 
 /// Integers in an efficient representation for modulo operations.
 pub trait UintModLike:
-    Pow<Self::RawUint>
-    + PowBoundedExp<Self::RawUint>
+    PowBoundedExp<Self::RawUint>
     + Send
     + core::fmt::Debug
     + Add<Output = Self>
@@ -407,7 +417,6 @@ impl FromScalar for U1024 {
         let mut r = self.rem(&p);
 
         // Treating the values over Self::MAX / 2 as negative ones.
-        // TODO: is this necessary?
         if self.bit(Self::BITS - 1).into() {
             // TODO: can be precomputed
             let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);
@@ -444,7 +453,6 @@ impl FromScalar for U2048 {
         let mut r = self.rem(&p);
 
         // Treating the values over Self::MAX / 2 as negative ones.
-        // TODO: is this necessary?
         if self.bit(Self::BITS - 1).into() {
             // TODO: can be precomputed
             let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);

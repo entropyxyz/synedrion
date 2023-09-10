@@ -7,6 +7,7 @@ use crate::uint::{
 
 pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     const PRIME_BITS: usize;
+    const MODULUS_BITS: usize = Self::PRIME_BITS * 2;
     type SingleUint: UintLike + HasWide<Wide = Self::DoubleUint>;
     type SingleUintMod: UintModLike<RawUint = Self::SingleUint>;
     type DoubleUint: UintLike

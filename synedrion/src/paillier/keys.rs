@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
-    CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, Pow, RandomMod, RandomPrimeWithRng,
-    Retrieve, UintLike, UintModLike,
+    CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
+    RandomPrimeWithRng, Retrieve, UintLike, UintModLike,
 };
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -120,8 +120,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         // This means that if square root exists, it must be of the form `+/- x^((p+1)/4)`,
         // CHECK: can we get an overflow here?
         let modulus_plus_one = modulus.checked_add(&P::SingleUint::ONE).unwrap();
-        let candidate = x.pow(&(modulus_plus_one >> 2));
-        if candidate * candidate == *x {
+        let candidate = x.pow_bounded_exp(&(modulus_plus_one >> 2), P::PRIME_BITS - 1);
+        if candidate.square() == *x {
             Some(candidate)
         } else {
             None

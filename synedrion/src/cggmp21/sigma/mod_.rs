@@ -9,7 +9,7 @@ use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{
-    JacobiSymbol, JacobiSymbolTrait, Pow, RandomMod, Retrieve, UintLike, UintModLike,
+    JacobiSymbol, JacobiSymbolTrait, PowBoundedExp, RandomMod, Retrieve, UintLike, UintModLike,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,7 +115,10 @@ impl<P: SchemeParams> ModProof<P> {
                     &challenge.0[i],
                     pk.precomputed_modulus(),
                 );
-                let z = y.pow(&sk.inv_modulus());
+                let z = y.pow_bounded_exp(
+                    &sk.inv_modulus(),
+                    <P::Paillier as PaillierParams>::MODULUS_BITS,
+                );
 
                 ModProofElem {
                     x: y_4th,
@@ -149,7 +152,9 @@ impl<P: SchemeParams> ModProof<P> {
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
             let z_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.z, modulus);
             let mut y_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(y, modulus);
-            if z_m.pow(pk.modulus()) != y_m {
+            if z_m.pow_bounded_exp(pk.modulus(), <P::Paillier as PaillierParams>::MODULUS_BITS)
+                != y_m
+            {
                 return false;
             }
 

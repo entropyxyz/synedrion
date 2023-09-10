@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{pow_signed_octo, pow_signed_wide, Pow, Retrieve, Signed, UintModLike};
+use crate::uint::{
+    pow_signed_octo, pow_signed_wide, Integer, PowBoundedExp, Retrieve, Signed, UintModLike,
+};
 
 pub(crate) struct RPSecret<P: PaillierParams>(P::DoubleUint);
 
@@ -53,7 +55,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
         let r = pk.random_invertible_group_elem(rng);
 
         let base = r.square();
-        let power = base.pow(&secret.0);
+        let power = base.pow_bounded_exp(&secret.0, P::MODULUS_BITS);
 
         Self {
             pk: pk.clone(),
@@ -95,7 +97,12 @@ impl<P: PaillierParams> RPParamsMod<P> {
         secret: &P::DoubleUint,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(pow_signed_octo(&self.base, randomizer) * self.power.pow(secret))
+        RPCommitmentMod(
+            pow_signed_octo(&self.base, randomizer)
+                * self
+                    .power
+                    .pow_bounded_exp(secret, <P::DoubleUint as Integer>::BITS),
+        )
     }
 
     pub fn commit_base_octo(&self, randomizer: &Signed<P::OctoUint>) -> RPCommitmentMod<P> {

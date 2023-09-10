@@ -15,7 +15,7 @@ use crate::paillier::{
     SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{Pow, Retrieve, UintLike, UintModLike, Zero};
+use crate::uint::{PowBoundedExp, Retrieve, UintLike, UintModLike, Zero};
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +51,10 @@ impl<P: SchemeParams> PrmCommitment<P> {
         let commitment = secret
             .secret
             .iter()
-            .map(|a| base.pow(a).retrieve())
+            .map(|a| {
+                base.pow_bounded_exp(a, <P::Paillier as PaillierParams>::MODULUS_BITS)
+                    .retrieve()
+            })
             .collect();
         Self(commitment)
     }
@@ -136,11 +139,10 @@ impl<P: SchemeParams> PrmProof<P> {
             let e = challenge.0[i];
             let a =
                 <P::Paillier as PaillierParams>::DoubleUintMod::new(&self.commitment.0[i], modulus);
-            let test = if e {
-                rp.base.pow(&z) == a * rp.power
-            } else {
-                rp.base.pow(&z) == a
-            };
+            let pwr = rp
+                .base
+                .pow_bounded_exp(&z, <P::Paillier as PaillierParams>::MODULUS_BITS);
+            let test = if e { pwr == a * rp.power } else { pwr == a };
             if !test {
                 return false;
             }

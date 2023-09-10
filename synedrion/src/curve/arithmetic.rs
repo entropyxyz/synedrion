@@ -13,7 +13,7 @@ use k256::elliptic_curve::{
     ops::Reduce,
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    subtle::CtOption,
+    subtle::{Choice, ConditionallySelectable, CtOption},
     Curve,
     Field,
     FieldBytesSize,
@@ -46,11 +46,6 @@ impl Scalar {
 
     pub fn random_nonzero(rng: &mut impl CryptoRngCore) -> Self {
         Self(*NonZeroScalar::<Secp256k1>::random(rng).as_ref())
-    }
-
-    pub fn random_in_range_j(rng: &mut impl CryptoRngCore) -> Self {
-        // TODO: find out what the range `\mathcal{J}` is.
-        Self(BackendScalar::random(rng))
     }
 
     pub fn mul_by_generator(&self) -> Point {
@@ -139,6 +134,12 @@ impl<'a> TryFrom<&'a [u8]> for Scalar {
 impl From<&NonZeroScalar<Secp256k1>> for Scalar {
     fn from(val: &NonZeroScalar<Secp256k1>) -> Self {
         Self(*val.as_ref())
+    }
+}
+
+impl ConditionallySelectable for Scalar {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        Self(BackendScalar::conditional_select(&a.0, &b.0, choice))
     }
 }
 

@@ -7,8 +7,8 @@ use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
-    subtle::{Choice, ConditionallyNegatable},
-    HasWide, NonZero, Pow, PowBoundedExp, Retrieve, Signed, UintModLike,
+    subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
+    HasWide, NonZero, PowBoundedExp, Retrieve, Signed, UintLike, UintModLike,
 };
 
 /// Paillier ciphertext.
@@ -57,7 +57,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         let factor1 = prod_mod + P::QuadUintMod::one(pk.precomputed_modulus_squared());
 
         let factor2 = P::QuadUintMod::new(&randomizer, pk.precomputed_modulus_squared())
-            .pow_bounded_exp(&modulus_quad, P::PRIME_BITS * 2);
+            .pow_bounded_exp(&modulus_quad, P::MODULUS_BITS);
 
         let ciphertext = (factor1 * factor2).retrieve();
 
@@ -108,8 +108,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         Self::new_with_randomizer_signed(pk, plaintext, &randomizer)
     }
 
-    /// Attempts to decrypt this ciphertext.
-    // TODO: should we decrypt into Signed?
+    /// Decrypts this ciphertext assuming that the plaintext is in range `[0, N)`.
     pub fn decrypt(&self, sk: &SecretKeyPaillierPrecomputed<P>) -> P::DoubleUint {
         let pk = sk.public_key();
         let totient_quad = NonZero::new(sk.totient().into_wide()).unwrap();
@@ -125,7 +124,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
         // `C^phi mod N^2` may be 0 if `C == N`, which is very unlikely for large `N`.
         let x = P::DoubleUint::try_from_wide(
-            (ciphertext_mod.pow(&totient_quad)
+            (ciphertext_mod.pow_bounded_exp(&totient_quad, P::MODULUS_BITS)
                 - P::QuadUintMod::one(pk.precomputed_modulus_squared()))
             .retrieve()
                 / modulus_quad,
@@ -134,6 +133,23 @@ impl<P: PaillierParams> Ciphertext<P> {
         let x_mod = P::DoubleUintMod::new(&x, pk.precomputed_modulus());
 
         (x_mod * sk.inv_totient()).retrieve()
+    }
+
+    /// Decrypts this ciphertext assuming that the plaintext is in range `[-N/2, N/2)`.
+    pub fn decrypt_signed(&self, sk: &SecretKeyPaillierPrecomputed<P>) -> Signed<P::DoubleUint> {
+        let pk = sk.public_key();
+        let positive_result = self.decrypt(sk);
+        let negative_result = pk.modulus().wrapping_sub(&positive_result);
+        let is_negative = Choice::from((positive_result > pk.modulus().shr_vartime(1)) as u8);
+
+        let mut result = Signed::new_from_unsigned(
+            P::DoubleUint::conditional_select(&positive_result, &negative_result, is_negative),
+            P::MODULUS_BITS as u32 - 1,
+        )
+        .unwrap();
+
+        result.conditional_negate(is_negative);
+        result
     }
 
     /// Derive the randomizer used to create this ciphertext.
@@ -157,7 +173,9 @@ impl<P: PaillierParams> Ciphertext<P> {
 
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
-        ciphertext_mod_n.pow(&sk.inv_modulus()).retrieve()
+        ciphertext_mod_n
+            .pow_bounded_exp(&sk.inv_modulus(), P::MODULUS_BITS)
+            .retrieve()
     }
 
     // Note: while it is true that `enc(x) (*) rhs == enc((x * rhs) mod N)`,
@@ -202,7 +220,9 @@ mod tests {
 
     use super::Ciphertext;
     use crate::paillier::{PaillierParams, PaillierTest, SecretKeyPaillier};
-    use crate::uint::{HasWide, NonZero, RandomMod, Signed, UintLike};
+    use crate::uint::{
+        subtle::ConditionallyNegatable, HasWide, NonZero, RandomMod, Signed, UintLike,
+    };
 
     fn mul_mod<T>(lhs: &T, rhs: &Signed<T>, modulus: &NonZero<T>) -> T
     where
@@ -222,6 +242,22 @@ mod tests {
         }
     }
 
+    fn reduce<P: PaillierParams>(
+        val: &Signed<P::DoubleUint>,
+        modulus: &NonZero<P::DoubleUint>,
+    ) -> Signed<P::DoubleUint> {
+        let result = val.abs() % *modulus;
+        let twos_complement_result = if result > modulus.as_ref().shr_vartime(1) {
+            result.wrapping_sub(modulus.as_ref())
+        } else {
+            result
+        };
+        let mut signed_result =
+            Signed::new_from_unsigned(twos_complement_result, P::MODULUS_BITS as u32 - 1).unwrap();
+        signed_result.conditional_negate(val.is_negative());
+        signed_result
+    }
+
     #[test]
     fn roundtrip() {
         let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
@@ -233,6 +269,17 @@ mod tests {
         let ciphertext = Ciphertext::<PaillierTest>::new(&mut OsRng, pk, &plaintext);
         let plaintext_back = ciphertext.decrypt(&sk);
         assert_eq!(plaintext, plaintext_back);
+    }
+
+    #[test]
+    fn signed_roundtrip() {
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
+        let pk = sk.public_key();
+        let plaintext = Signed::random(&mut OsRng);
+        let ciphertext = Ciphertext::new_signed(&mut OsRng, pk, &plaintext);
+        let plaintext_back = ciphertext.decrypt_signed(&sk);
+        let plaintext_reduced = reduce::<PaillierTest>(&plaintext, &pk.modulus_nonzero());
+        assert_eq!(plaintext_reduced, plaintext_back);
     }
 
     #[test]

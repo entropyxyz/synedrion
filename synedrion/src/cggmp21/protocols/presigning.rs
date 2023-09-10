@@ -25,14 +25,6 @@ fn uint_from_scalar<P: SchemeParams>(
     <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint::from_scalar(x)
 }
 
-fn signed_from_scalar<P: SchemeParams>(
-    x: &Scalar,
-) -> Signed<<<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint> {
-    // TODO: introduce a special ORDER_BITS const, so that we don't have to assume
-    // that L_BOUND >= ORDER_BITS?
-    Signed::new_positive(uint_from_scalar::<P>(x), P::L_BOUND).unwrap()
-}
-
 pub struct Context<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
     num_parties: usize,
@@ -189,7 +181,7 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
                 let aux = (&self.context.shared_randomness, &PartyIdx::from_usize(idx));
                 let proof = EncProof::random(
                     rng,
-                    &signed_from_scalar::<P>(&self.context.ephemeral_scalar_share),
+                    &Signed::from_scalar(&self.context.ephemeral_scalar_share),
                     &self.context.rho,
                     &self.context.key_share.secret_aux.paillier_sk,
                     &self.context.key_share.public_aux[idx].aux_rp_params,
@@ -267,8 +259,8 @@ pub struct Round2<P: SchemeParams> {
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     // TODO: these are secret
-    betas: HoleVec<Scalar>,
-    betas_hat: HoleVec<Scalar>,
+    betas: HoleVec<Signed<<P::Paillier as PaillierParams>::DoubleUint>>,
+    betas_hat: HoleVec<Signed<<P::Paillier as PaillierParams>::DoubleUint>>,
 }
 
 impl<P: SchemeParams> Round2<P> {
@@ -288,8 +280,8 @@ impl<P: SchemeParams> Round2<P> {
         );
 
         range.for_each(|idx| {
-            let beta = Scalar::random_in_range_j(rng);
-            let beta_hat = Scalar::random_in_range_j(rng);
+            let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
+            let beta_hat = Signed::random_bounded_bits(rng, P::LP_BOUND);
 
             // TODO: can we do this without mutation?
             // Create the HoleVec with betas first?
@@ -346,40 +338,31 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                 let beta_hat = self.betas_hat.get(idx).unwrap();
 
                 let d = self.k_ciphertexts[idx]
-                    .homomorphic_mul(target_pk, &signed_from_scalar::<P>(&self.context.gamma))
+                    .homomorphic_mul(target_pk, &Signed::from_scalar(&self.context.gamma))
                     .homomorphic_add(
                         target_pk,
-                        &Ciphertext::new_with_randomizer_signed(
-                            target_pk,
-                            &-signed_from_scalar::<P>(beta),
-                            &s,
-                        ),
+                        &Ciphertext::new_with_randomizer_signed(target_pk, &-beta, &s),
                     );
-                let f = Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(beta), &r);
+                let f = Ciphertext::new_with_randomizer_signed(pk, beta, &r);
 
                 let d_hat = self.k_ciphertexts[idx]
                     .homomorphic_mul(
                         target_pk,
-                        &signed_from_scalar::<P>(&self.context.key_share.secret_share),
+                        &Signed::from_scalar(&self.context.key_share.secret_share),
                     )
                     .homomorphic_add(
                         target_pk,
-                        &Ciphertext::new_with_randomizer_signed(
-                            target_pk,
-                            &-signed_from_scalar::<P>(beta_hat),
-                            &s_hat,
-                        ),
+                        &Ciphertext::new_with_randomizer_signed(target_pk, &-beta_hat, &s_hat),
                     );
-                let f_hat =
-                    Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(beta_hat), &r_hat);
+                let f_hat = Ciphertext::new_with_randomizer_signed(pk, beta_hat, &r_hat);
 
                 let public_aux = &self.context.key_share.public_aux[idx];
                 let aux_rp = &public_aux.aux_rp_params;
 
                 let psi = AffGProof::random(
                     rng,
-                    &signed_from_scalar::<P>(&self.context.gamma),
-                    &signed_from_scalar::<P>(beta),
+                    &Signed::from_scalar(&self.context.gamma),
+                    beta,
                     &s,
                     &r,
                     target_pk,
@@ -391,8 +374,8 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi_hat = AffGProof::random(
                     rng,
-                    &signed_from_scalar::<P>(&self.context.key_share.secret_share),
-                    &signed_from_scalar::<P>(beta_hat),
+                    &Signed::from_scalar(&self.context.key_share.secret_share),
+                    beta_hat,
                     &s_hat,
                     &r_hat,
                     target_pk,
@@ -404,7 +387,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let psi_hat_prime = LogStarProof::random(
                     rng,
-                    &signed_from_scalar::<P>(&self.context.gamma),
+                    &Signed::from_scalar(&self.context.gamma),
                     &self.context.nu,
                     pk,
                     &Point::GENERATOR,
@@ -489,11 +472,11 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let alpha = msg
             .d
-            .decrypt(&self.context.key_share.secret_aux.paillier_sk)
+            .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk)
             .to_scalar();
         let alpha_hat = msg
             .d_hat
-            .decrypt(&self.context.key_share.secret_aux.paillier_sk)
+            .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk)
             .to_scalar();
 
         Ok(Round2Payload {
@@ -523,14 +506,16 @@ impl<P: SchemeParams> Round for Round2<P> {
         let alpha_sum: Scalar = payloads.iter().map(|payload| payload.alpha).sum();
         let alpha_hat_sum: Scalar = payloads.iter().map(|payload| payload.alpha_hat).sum();
 
-        let beta_sum: Scalar = self.betas.iter().sum();
-        let beta_hat_sum: Scalar = self.betas_hat.iter().sum();
+        let beta_sum: Signed<_> = self.betas.iter().sum();
+        let beta_hat_sum: Signed<_> = self.betas_hat.iter().sum();
 
-        let delta = self.context.gamma * self.context.ephemeral_scalar_share + alpha_sum + beta_sum;
+        let delta = self.context.gamma * self.context.ephemeral_scalar_share
+            + alpha_sum
+            + beta_sum.to_scalar();
         let product_share = self.context.key_share.secret_share
             * self.context.ephemeral_scalar_share
             + alpha_hat_sum
-            + beta_hat_sum;
+            + beta_hat_sum.to_scalar();
 
         Ok(FinalizeSuccess::AnotherRound(Round3 {
             context: self.context,
@@ -591,7 +576,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
 
                 let psi_hat_pprime = LogStarProof::random(
                     rng,
-                    &signed_from_scalar::<P>(&self.context.ephemeral_scalar_share),
+                    &Signed::from_scalar(&self.context.ephemeral_scalar_share),
                     &self.context.rho,
                     pk,
                     &self.big_gamma,

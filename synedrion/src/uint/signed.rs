@@ -9,8 +9,9 @@ use serde::{
 
 use super::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
-    CheckedAdd, CheckedMul, HasWide, Integer, NonZero, UintLike,
+    CheckedAdd, CheckedMul, FromScalar, HasWide, Integer, NonZero, UintLike,
 };
+use crate::curve::{Scalar, ORDER};
 
 /// A wrapper over unsigned integers that treats two's complement numbers as negative.
 // In principle, Bounded could be separate from Signed, but we only use it internally,
@@ -84,7 +85,7 @@ impl<T: UintLike> Signed<T> {
 
     /// Creates a signed value from an unsigned one,
     /// treating it as if the sign is encoded in the MSB.
-    fn new_from_unsigned(value: T, bound: u32) -> Option<Self> {
+    pub fn new_from_unsigned(value: T, bound: u32) -> Option<Self> {
         let result = Self { value, bound };
         if bound >= <T as Integer>::BITS as u32 || result.abs().bits_vartime() as u32 > bound {
             return None;
@@ -260,6 +261,17 @@ where
     }
 }
 
+impl<T: UintLike + FromScalar> FromScalar for Signed<T> {
+    fn from_scalar(value: &Scalar) -> Self {
+        const ORDER_BITS: usize = ORDER.bits_vartime();
+        Signed::new_positive(T::from_scalar(value), ORDER_BITS).unwrap()
+    }
+    fn to_scalar(&self) -> Scalar {
+        let abs_value = self.abs().to_scalar();
+        Scalar::conditional_select(&abs_value, &-abs_value, self.is_negative())
+    }
+}
+
 impl<T: UintLike> CheckedAdd for Signed<T> {
     type Output = Self;
     fn checked_add(&self, rhs: Self) -> CtOption<Self> {
@@ -324,5 +336,18 @@ impl<T: UintLike> Mul<Signed<T>> for Signed<T> {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
         self.checked_mul(rhs).unwrap()
+    }
+}
+
+impl<T: UintLike> core::iter::Sum for Signed<T> {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(|x, y| x.checked_add(y).unwrap())
+            .unwrap_or(Self::default())
+    }
+}
+
+impl<'a, T: UintLike> core::iter::Sum<&'a Self> for Signed<T> {
+    fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
+        iter.cloned().sum()
     }
 }
