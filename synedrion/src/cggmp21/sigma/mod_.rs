@@ -116,7 +116,7 @@ impl<P: SchemeParams> ModProof<P> {
                     pk.precomputed_modulus(),
                 );
                 let z = y.pow_bounded_exp(
-                    &sk.inv_modulus(),
+                    sk.inv_modulus(),
                     <P::Paillier as PaillierParams>::MODULUS_BITS,
                 );
 

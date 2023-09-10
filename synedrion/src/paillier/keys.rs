@@ -43,10 +43,14 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             .invert()
             .unwrap();
 
+        let modulus: &P::DoubleUint = public_key.modulus();
+        let inv_modulus = modulus.inv_mod(&totient).unwrap();
+
         SecretKeyPaillierPrecomputed {
             sk: self.clone(),
             totient,
             inv_totient,
+            inv_modulus,
             precomputed_mod_p,
             precomputed_mod_q,
             public_key,
@@ -58,8 +62,10 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     sk: SecretKeyPaillier<P>,
     totient: P::DoubleUint,
-    /// \phi(N)^{-1} \mod N
+    /// $\phi(N)^{-1} \mod N$
     inv_totient: P::DoubleUintMod,
+    /// $N^{-1} \mod \phi(N)$
+    inv_modulus: P::DoubleUint,
     precomputed_mod_p: <P::SingleUintMod as UintModLike>::Precomputed,
     precomputed_mod_q: <P::SingleUintMod as UintModLike>::Precomputed,
     public_key: PublicKeyPaillierPrecomputed<P>,
@@ -83,8 +89,14 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         NonZero::new(self.totient).unwrap()
     }
 
+    /// Returns $\phi(N)^{-1} \mod N$
     pub fn inv_totient(&self) -> &P::DoubleUintMod {
         &self.inv_totient
+    }
+
+    /// Returns $N^{-1} \mod \phi(N)$
+    pub fn inv_modulus(&self) -> &P::DoubleUint {
+        &self.inv_modulus
     }
 
     fn precomputed_mod_p(&self) -> &<P::SingleUintMod as UintModLike>::Precomputed {
@@ -161,11 +173,6 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         let q_part_m = P::DoubleUintMod::new(&q_part_big, pk.precomputed_modulus());
 
         (inv * (p_part_m * q_big_m + q_part_m * p_big_m)).retrieve()
-    }
-
-    /// Returns `N^{-1} mod \phi(N)`
-    pub fn inv_modulus(&self) -> P::DoubleUint {
-        self.public_key().modulus().inv_mod(self.totient()).unwrap()
     }
 
     pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> P::DoubleUint {

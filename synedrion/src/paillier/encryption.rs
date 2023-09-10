@@ -174,7 +174,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
         ciphertext_mod_n
-            .pow_bounded_exp(&sk.inv_modulus(), P::MODULUS_BITS)
+            .pow_bounded_exp(sk.inv_modulus(), P::MODULUS_BITS)
             .retrieve()
     }
 
