@@ -46,11 +46,16 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let modulus: &P::Uint = public_key.modulus();
         let inv_modulus = modulus.inv_mod(&totient).unwrap();
 
+        let inv_p_mod_q = P::HalfUintMod::new(&self.p, &precomputed_mod_q)
+            .invert()
+            .unwrap();
+
         SecretKeyPaillierPrecomputed {
             sk: self.clone(),
             totient,
             inv_totient,
             inv_modulus,
+            inv_p_mod_q,
             precomputed_mod_p,
             precomputed_mod_q,
             public_key,
@@ -66,6 +71,7 @@ pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     inv_totient: P::UintMod,
     /// $N^{-1} \mod \phi(N)$
     inv_modulus: P::Uint,
+    inv_p_mod_q: P::HalfUintMod,
     precomputed_mod_p: <P::HalfUintMod as UintModLike>::Precomputed,
     precomputed_mod_q: <P::HalfUintMod as UintModLike>::Precomputed,
     public_key: PublicKeyPaillierPrecomputed<P>,
@@ -156,23 +162,19 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     }
 
     pub fn rns_join(&self, rns: &(P::HalfUintMod, P::HalfUintMod)) -> P::Uint {
-        let (p_part, q_part) = *rns;
-        let pk = self.public_key();
-        let p_big: P::Uint = self.sk.p.into_wide();
-        let q_big: P::Uint = self.sk.q.into_wide();
-        let pq_big = p_big.checked_add(&q_big).unwrap();
-        let pq_m = P::UintMod::new(&pq_big, pk.precomputed_modulus());
-        let inv = pq_m.invert().unwrap();
+        // We have `a = x mod p`, `b = x mod q`; we want to find `x mod (pq)`.
+        // One step of Garner's algorithm:
+        // x = a + p * ((b - a) * p^{-1} mod q)
 
-        let p_part_big: P::Uint = p_part.retrieve().into_wide();
-        let q_part_big: P::Uint = q_part.retrieve().into_wide();
+        let (a_mod_p, b_mod_q) = *rns;
 
-        let p_big_m = P::UintMod::new(&p_big, pk.precomputed_modulus());
-        let q_big_m = P::UintMod::new(&q_big, pk.precomputed_modulus());
-        let p_part_m = P::UintMod::new(&p_part_big, pk.precomputed_modulus());
-        let q_part_m = P::UintMod::new(&q_part_big, pk.precomputed_modulus());
+        let a_half = a_mod_p.retrieve();
+        let a_mod_q = P::HalfUintMod::new(&a_half, &self.precomputed_mod_q);
+        let x = ((b_mod_q - a_mod_q) * self.inv_p_mod_q).retrieve();
+        let a = a_half.into_wide();
 
-        (inv * (p_part_m * q_big_m + q_part_m * p_big_m)).retrieve()
+        // Will not overflow since 0 <= x < q, and 0 <= a < p.
+        a.checked_add(&self.sk.p.mul_wide(&x)).unwrap()
     }
 
     pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
