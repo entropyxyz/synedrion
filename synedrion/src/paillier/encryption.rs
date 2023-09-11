@@ -38,8 +38,8 @@ impl<P: PaillierParams> Ciphertext<P> {
     ) -> Self {
         // TODO: check that `abs_plaintext` is in range (< N)
 
-        // `N` as a quad uint
-        let modulus_quad = pk.modulus().into_wide();
+        // `N` as a wide uint
+        let modulus_wide = pk.modulus().into_wide();
 
         let randomizer = randomzier.into_wide();
 
@@ -57,7 +57,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared());
 
         let factor2 = P::WideUintMod::new(&randomizer, pk.precomputed_modulus_squared())
-            .pow_bounded_exp(&modulus_quad, P::MODULUS_BITS);
+            .pow_bounded_exp(&modulus_wide, P::MODULUS_BITS);
 
         let ciphertext = (factor1 * factor2).retrieve();
 
@@ -90,7 +90,6 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &P::Uint,
     ) -> Self {
-        // TODO: use an explicit RNG parameter
         // TODO: this is an ephemeral secret, use a SecretBox
         let randomizer = Self::randomizer(rng, pk);
         Self::new_with_randomizer(pk, plaintext, &randomizer)
@@ -102,7 +101,6 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
     ) -> Self {
-        // TODO: use an explicit RNG parameter
         // TODO: this is an ephemeral secret, use a SecretBox
         let randomizer = Self::randomizer(rng, pk);
         Self::new_with_randomizer_signed(pk, plaintext, &randomizer)
@@ -111,8 +109,8 @@ impl<P: PaillierParams> Ciphertext<P> {
     /// Decrypts this ciphertext assuming that the plaintext is in range `[0, N)`.
     pub fn decrypt(&self, sk: &SecretKeyPaillierPrecomputed<P>) -> P::Uint {
         let pk = sk.public_key();
-        let totient_quad = NonZero::new(sk.totient().into_wide()).unwrap();
-        let modulus_quad = NonZero::new(pk.modulus().into_wide()).unwrap();
+        let totient_wide = NonZero::new(sk.totient().into_wide()).unwrap();
+        let modulus_wide = NonZero::new(pk.modulus().into_wide()).unwrap();
 
         // Calculate the plaintext `m = ((C^phi mod N^2 - 1) / N) * mu mod N`,
         // where `m` is the plaintext, `C` is the ciphertext,
@@ -124,10 +122,10 @@ impl<P: PaillierParams> Ciphertext<P> {
 
         // `C^phi mod N^2` may be 0 if `C == N`, which is very unlikely for large `N`.
         let x = P::Uint::try_from_wide(
-            (ciphertext_mod.pow_bounded_exp(&totient_quad, P::MODULUS_BITS)
+            (ciphertext_mod.pow_bounded_exp(&totient_wide, P::MODULUS_BITS)
                 - P::WideUintMod::one(pk.precomputed_modulus_squared()))
             .retrieve()
-                / modulus_quad,
+                / modulus_wide,
         )
         .unwrap();
         let x_mod = P::UintMod::new(&x, pk.precomputed_modulus());
@@ -156,7 +154,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     #[allow(dead_code)] // TODO: to be used to create an error report on bad decryption
     pub fn derive_randomizer(&self, sk: &SecretKeyPaillierPrecomputed<P>) -> P::Uint {
         let pk = sk.public_key();
-        let modulus_quad = NonZero::new(pk.modulus().into_wide()).unwrap();
+        let modulus_wide = NonZero::new(pk.modulus().into_wide()).unwrap();
 
         // CHECK: the paper has a more complicated formula,
         // but this one seems to work just as well.
@@ -167,7 +165,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         //     = rho^N + m * N * rho^N + k * N^2,
         // where `k` is some integer.
         // Therefore `C mod N = rho^N mod N`.
-        let ciphertext_mod_n = P::Uint::try_from_wide(self.ciphertext % modulus_quad).unwrap();
+        let ciphertext_mod_n = P::Uint::try_from_wide(self.ciphertext % modulus_wide).unwrap();
         let ciphertext_mod_n = P::UintMod::new(&ciphertext_mod_n, pk.precomputed_modulus());
 
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.

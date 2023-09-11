@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
-    pow_signed_octo, pow_signed_wide, Integer, PowBoundedExp, Retrieve, Signed, UintModLike,
+    pow_signed_extra_wide, pow_signed_wide, Integer, PowBoundedExp, Retrieve, Signed, UintModLike,
 };
 
 pub(crate) struct RPSecret<P: PaillierParams>(P::Uint);
@@ -91,23 +91,23 @@ impl<P: PaillierParams> RPParamsMod<P> {
         )
     }
 
-    pub fn commit_octo(
+    pub fn commit_xwide(
         &self,
         randomizer: &Signed<P::ExtraWideUint>,
         secret: &P::Uint,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            pow_signed_octo(&self.base, randomizer)
+            pow_signed_extra_wide(&self.base, randomizer)
                 * self
                     .power
                     .pow_bounded_exp(secret, <P::Uint as Integer>::BITS),
         )
     }
 
-    pub fn commit_base_octo(&self, randomizer: &Signed<P::ExtraWideUint>) -> RPCommitmentMod<P> {
+    pub fn commit_base_xwide(&self, randomizer: &Signed<P::ExtraWideUint>) -> RPCommitmentMod<P> {
         // $t^\rho mod N$ where $\rho$ is the randomizer.
-        RPCommitmentMod(pow_signed_octo(&self.base, randomizer))
+        RPCommitmentMod(pow_signed_extra_wide(&self.base, randomizer))
     }
 
     pub fn retrieve(&self) -> RPParams<P> {

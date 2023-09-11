@@ -290,7 +290,7 @@ where
     T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
 
-pub(crate) fn pow_signed_octo<T>(
+pub(crate) fn pow_signed_extra_wide<T>(
     base: &T,
     exponent: &Signed<<<T::RawUint as HasWide>::Wide as HasWide>::Wide>,
 ) -> T

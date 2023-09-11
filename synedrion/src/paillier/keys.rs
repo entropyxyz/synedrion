@@ -113,17 +113,17 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
 
     pub fn rns_split(&self, elem: &P::Uint) -> (P::HalfUintMod, P::HalfUintMod) {
         // TODO: the returned values must be zeroized - the moduli are secret
-        let (p_big, q_big) = self.primes();
+        let (p, q) = self.primes();
 
         // TODO: speed up potential here since we know p and q are small
         // TODO: make sure this is constant-time
-        let p_rem_big = *elem % NonZero::new(p_big).unwrap();
-        let q_rem_big = *elem % NonZero::new(q_big).unwrap();
-        let p_rem = P::HalfUint::try_from_wide(p_rem_big).unwrap();
-        let q_rem = P::HalfUint::try_from_wide(q_rem_big).unwrap();
+        let p_rem = *elem % NonZero::new(p).unwrap();
+        let q_rem = *elem % NonZero::new(q).unwrap();
+        let p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
+        let q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
 
-        let p_rem_mod = P::HalfUintMod::new(&p_rem, self.precomputed_mod_p());
-        let q_rem_mod = P::HalfUintMod::new(&q_rem, self.precomputed_mod_q());
+        let p_rem_mod = P::HalfUintMod::new(&p_rem_half, self.precomputed_mod_p());
+        let q_rem_mod = P::HalfUintMod::new(&q_rem_half, self.precomputed_mod_q());
         (p_rem_mod, q_rem_mod)
     }
 

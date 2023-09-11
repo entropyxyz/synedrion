@@ -102,7 +102,7 @@ impl<P: SchemeParams> FacProof<P> {
         // Another way is to rewrite it as
         //   s^{\alpha * q} t^{\alpha \nu + r} \mod \hat{N}
         // This may or may not be faster.
-        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &aux_rp.commit_base_octo(&r)).retrieve();
+        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &aux_rp.commit_base_xwide(&r)).retrieve();
 
         // Non-interactive challenge ($e$)
         let challenge =
@@ -156,7 +156,7 @@ impl<P: SchemeParams> FacProof<P> {
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &aux_rp.commit_octo(&self.sigma, pk.modulus());
+        let cap_r = &aux_rp.commit_xwide(&self.sigma, pk.modulus());
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         if aux_rp.commit_wide(&self.omega1, &self.z1)
@@ -176,7 +176,7 @@ impl<P: SchemeParams> FacProof<P> {
         }
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
-        if &cap_q_mod.pow_signed_wide(&self.z1) * &aux_rp.commit_base_octo(&self.v)
+        if &cap_q_mod.pow_signed_wide(&self.z1) * &aux_rp.commit_base_xwide(&self.v)
             != &self.cap_t.to_mod(aux_pk) * &cap_r.pow_signed_vartime(&challenge)
         {
             return false;
