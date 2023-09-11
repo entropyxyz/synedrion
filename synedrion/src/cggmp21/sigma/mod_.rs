@@ -13,7 +13,7 @@ use crate::uint::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::DoubleUint);
+struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 
 impl<P: SchemeParams> ModCommitment<P> {
     pub fn random(
@@ -21,8 +21,7 @@ impl<P: SchemeParams> ModCommitment<P> {
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
     ) -> Self {
         let w = loop {
-            let w =
-                <P::Paillier as PaillierParams>::DoubleUint::random_mod(rng, &pk.modulus_nonzero());
+            let w = <P::Paillier as PaillierParams>::Uint::random_mod(rng, &pk.modulus_nonzero());
             if w.jacobi_symbol(pk.modulus()) == JacobiSymbol::MinusOne {
                 break w;
             }
@@ -32,7 +31,7 @@ impl<P: SchemeParams> ModCommitment<P> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::DoubleUint>);
+struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> ModChallenge<P> {
     fn new(aux: &impl Hashable, pk: &PublicKeyPaillierPrecomputed<P::Paillier>) -> Self {
@@ -42,9 +41,7 @@ impl<P: SchemeParams> ModChallenge<P> {
             .finalize_reader();
         let modulus = pk.modulus_nonzero();
         let ys = (0..P::SECURITY_PARAMETER)
-            .map(|_| {
-                <P::Paillier as PaillierParams>::DoubleUint::hash_into_mod(&mut reader, &modulus)
-            })
+            .map(|_| <P::Paillier as PaillierParams>::Uint::hash_into_mod(&mut reader, &modulus))
             .collect();
         Self(ys)
     }
@@ -52,10 +49,10 @@ impl<P: SchemeParams> ModChallenge<P> {
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModProofElem<P: PaillierParams> {
-    x: P::DoubleUint,
+    x: P::Uint,
     a: bool,
     b: bool,
-    z: P::DoubleUint,
+    z: P::Uint,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,7 +108,7 @@ impl<P: SchemeParams> ModProof<P> {
                 let y_4th_parts = sk.sqrt(&y_sqrt).unwrap();
                 let y_4th = sk.rns_join(&y_4th_parts);
 
-                let y = <P::Paillier as PaillierParams>::DoubleUintMod::new(
+                let y = <P::Paillier as PaillierParams>::UintMod::new(
                     &challenge.0[i],
                     pk.precomputed_modulus(),
                 );
@@ -148,10 +145,10 @@ impl<P: SchemeParams> ModProof<P> {
         }
 
         let modulus = pk.precomputed_modulus();
-        let w = <P::Paillier as PaillierParams>::DoubleUintMod::new(&self.commitment.0, modulus);
+        let w = <P::Paillier as PaillierParams>::UintMod::new(&self.commitment.0, modulus);
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
-            let z_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.z, modulus);
-            let mut y_m = <P::Paillier as PaillierParams>::DoubleUintMod::new(y, modulus);
+            let z_m = <P::Paillier as PaillierParams>::UintMod::new(&elem.z, modulus);
+            let mut y_m = <P::Paillier as PaillierParams>::UintMod::new(y, modulus);
             if z_m.pow_bounded_exp(pk.modulus(), <P::Paillier as PaillierParams>::MODULUS_BITS)
                 != y_m
             {
@@ -164,7 +161,7 @@ impl<P: SchemeParams> ModProof<P> {
             if elem.b {
                 y_m = y_m * w;
             }
-            let x = <P::Paillier as PaillierParams>::DoubleUintMod::new(&elem.x, modulus);
+            let x = <P::Paillier as PaillierParams>::UintMod::new(&elem.x, modulus);
             let x_4 = x.square().square();
             if y_m != x_4 {
                 return false;

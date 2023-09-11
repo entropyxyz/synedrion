@@ -9,7 +9,7 @@ use crate::uint::{
     pow_signed_octo, pow_signed_wide, Integer, PowBoundedExp, Retrieve, Signed, UintModLike,
 };
 
-pub(crate) struct RPSecret<P: PaillierParams>(P::DoubleUint);
+pub(crate) struct RPSecret<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> RPSecret<P> {
     pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P>) -> Self {
@@ -21,8 +21,8 @@ impl<P: PaillierParams> RPSecret<P> {
     }
 }
 
-impl<P: PaillierParams> AsRef<P::DoubleUint> for RPSecret<P> {
-    fn as_ref(&self) -> &P::DoubleUint {
+impl<P: PaillierParams> AsRef<P::Uint> for RPSecret<P> {
+    fn as_ref(&self) -> &P::Uint {
         &self.0
     }
 }
@@ -32,9 +32,9 @@ impl<P: PaillierParams> AsRef<P::DoubleUint> for RPSecret<P> {
 pub(crate) struct RPParamsMod<P: PaillierParams> {
     pub(crate) pk: PublicKeyPaillierPrecomputed<P>,
     /// The ring-Pedersen base.
-    pub(crate) base: P::DoubleUintMod, // $t$
+    pub(crate) base: P::UintMod, // $t$
     /// The ring-Pedersen power (a number belonging to the group produced by the base).
-    pub(crate) power: P::DoubleUintMod, // $s$
+    pub(crate) power: P::UintMod, // $s$
 }
 
 impl<P: PaillierParams> RPParamsMod<P> {
@@ -73,8 +73,8 @@ impl<P: PaillierParams> RPParamsMod<P> {
     // - this will match the order in the paper
     pub fn commit(
         &self,
-        randomizer: &Signed<P::QuadUint>,
-        secret: &Signed<P::DoubleUint>,
+        randomizer: &Signed<P::WideUint>,
+        secret: &Signed<P::Uint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(pow_signed_wide(&self.base, randomizer) * self.power.pow_signed(secret))
@@ -82,8 +82,8 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn commit_wide(
         &self,
-        randomizer: &Signed<P::QuadUint>,
-        secret: &Signed<P::QuadUint>,
+        randomizer: &Signed<P::WideUint>,
+        secret: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
@@ -93,19 +93,19 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn commit_octo(
         &self,
-        randomizer: &Signed<P::OctoUint>,
-        secret: &P::DoubleUint,
+        randomizer: &Signed<P::ExtraWideUint>,
+        secret: &P::Uint,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
             pow_signed_octo(&self.base, randomizer)
                 * self
                     .power
-                    .pow_bounded_exp(secret, <P::DoubleUint as Integer>::BITS),
+                    .pow_bounded_exp(secret, <P::Uint as Integer>::BITS),
         )
     }
 
-    pub fn commit_base_octo(&self, randomizer: &Signed<P::OctoUint>) -> RPCommitmentMod<P> {
+    pub fn commit_base_octo(&self, randomizer: &Signed<P::ExtraWideUint>) -> RPCommitmentMod<P> {
         // $t^\rho mod N$ where $\rho$ is the randomizer.
         RPCommitmentMod(pow_signed_octo(&self.base, randomizer))
     }
@@ -122,9 +122,9 @@ impl<P: PaillierParams> RPParamsMod<P> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct RPParams<P: PaillierParams> {
     /// The ring-Pedersen base.
-    pub(crate) base: P::DoubleUint, // $t$
+    pub(crate) base: P::Uint, // $t$
     /// The ring-Pedersen power (a number belonging to the group produced by the base).
-    pub(crate) power: P::DoubleUint, // $s$
+    pub(crate) power: P::Uint, // $s$
 }
 
 impl<P: PaillierParams> RPParams<P> {
@@ -132,8 +132,8 @@ impl<P: PaillierParams> RPParams<P> {
         // TODO: check that the base and the power are within the modulus?
         RPParamsMod {
             pk: pk.clone(),
-            base: P::DoubleUintMod::new(&self.base, pk.precomputed_modulus()),
-            power: P::DoubleUintMod::new(&self.power, pk.precomputed_modulus()),
+            base: P::UintMod::new(&self.base, pk.precomputed_modulus()),
+            power: P::UintMod::new(&self.power, pk.precomputed_modulus()),
         }
     }
 }
@@ -146,7 +146,7 @@ impl<P: PaillierParams> Hashable for RPParams<P> {
 
 // TODO: should this struct have Paillier public key bundled?
 #[derive(PartialEq, Eq)]
-pub(crate) struct RPCommitmentMod<P: PaillierParams>(P::DoubleUintMod);
+pub(crate) struct RPCommitmentMod<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> RPCommitmentMod<P> {
     pub fn retrieve(&self) -> RPCommitment<P> {
@@ -156,7 +156,7 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     /// Raise to the power of `exponent`.
     ///
     /// `exponent` will be effectively reduced modulo `totient(N)`.
-    pub fn pow_signed(&self, exponent: &Signed<P::DoubleUint>) -> Self {
+    pub fn pow_signed(&self, exponent: &Signed<P::Uint>) -> Self {
         Self(self.0.pow_signed(exponent))
     }
 
@@ -164,11 +164,11 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     ///
     /// Note: this is variable time in `exponent`.
     /// `exponent` will be effectively reduced modulo `totient(N)`.
-    pub fn pow_signed_vartime(&self, exponent: &Signed<P::DoubleUint>) -> Self {
+    pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
         Self(self.0.pow_signed_vartime(exponent))
     }
 
-    pub fn pow_signed_wide(&self, exponent: &Signed<P::QuadUint>) -> Self {
+    pub fn pow_signed_wide(&self, exponent: &Signed<P::WideUint>) -> Self {
         Self(pow_signed_wide(&self.0, exponent))
     }
 }
@@ -181,11 +181,11 @@ impl<'a, P: PaillierParams> Mul<&'a RPCommitmentMod<P>> for &'a RPCommitmentMod<
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct RPCommitment<P: PaillierParams>(P::DoubleUint);
+pub(crate) struct RPCommitment<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
         // TODO: check that `self.0` is within the modulus?
-        RPCommitmentMod(P::DoubleUintMod::new(&self.0, pk.precomputed_modulus()))
+        RPCommitmentMod(P::UintMod::new(&self.0, pk.precomputed_modulus()))
     }
 }

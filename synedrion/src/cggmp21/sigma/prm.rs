@@ -22,7 +22,7 @@ use crate::uint::{PowBoundedExp, Retrieve, UintLike, UintModLike, Zero};
 struct PrmSecret<P: SchemeParams> {
     public_key: PublicKeyPaillierPrecomputed<P::Paillier>,
     /// `a_i`
-    secret: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
+    secret: Vec<<P::Paillier as PaillierParams>::Uint>,
 }
 
 impl<P: SchemeParams> PrmSecret<P> {
@@ -41,12 +41,12 @@ impl<P: SchemeParams> PrmSecret<P> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::DoubleUint>);
+struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> PrmCommitment<P> {
     pub(crate) fn new(
         secret: &PrmSecret<P>,
-        base: &<P::Paillier as PaillierParams>::DoubleUintMod,
+        base: &<P::Paillier as PaillierParams>::UintMod,
     ) -> Self {
         let commitment = secret
             .secret
@@ -93,7 +93,7 @@ impl Hashable for PrmChallenge {
 pub(crate) struct PrmProof<P: SchemeParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
-    proof: Vec<<P::Paillier as PaillierParams>::DoubleUint>,
+    proof: Vec<<P::Paillier as PaillierParams>::Uint>,
 }
 
 impl<P: SchemeParams> PrmProof<P> {
@@ -110,7 +110,7 @@ impl<P: SchemeParams> PrmProof<P> {
         let commitment = PrmCommitment::new(&proof_secret, &rp.base);
 
         let totient = sk.totient_nonzero();
-        let zero = <P::Paillier as PaillierParams>::DoubleUint::ZERO;
+        let zero = <P::Paillier as PaillierParams>::Uint::ZERO;
         let challenge = PrmChallenge::new(aux, &commitment);
         let proof = proof_secret
             .secret
@@ -137,8 +137,7 @@ impl<P: SchemeParams> PrmProof<P> {
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a =
-                <P::Paillier as PaillierParams>::DoubleUintMod::new(&self.commitment.0[i], modulus);
+            let a = <P::Paillier as PaillierParams>::UintMod::new(&self.commitment.0[i], modulus);
             let pwr = rp
                 .base
                 .pow_bounded_exp(&z, <P::Paillier as PaillierParams>::MODULUS_BITS);

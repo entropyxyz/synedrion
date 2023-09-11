@@ -18,20 +18,20 @@ pub(crate) struct LogStarProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,
     cap_y: Point,
     cap_d: RPCommitment<P::Paillier>,
-    z1: Signed<<P::Paillier as PaillierParams>::DoubleUint>,
-    z2: <P::Paillier as PaillierParams>::DoubleUint,
-    z3: Signed<<P::Paillier as PaillierParams>::QuadUint>,
+    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
+    z2: <P::Paillier as PaillierParams>::Uint,
+    z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
 }
 
 impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn random(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::DoubleUint>, // $x \in +- 2^\ell$                                 // `x`
-        rho: &<P::Paillier as PaillierParams>::DoubleUint,       // $\rho$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,          // $N_0$
-        g: &Point,                                               // $g$
-        aux_rp: &RPParamsMod<P::Paillier>,                       // $\hat{N}$, $s$, $t$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$                                 // `x`
+        rho: &<P::Paillier as PaillierParams>::Uint,       // $\rho$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
+        g: &Point,                                         // $g$
+        aux_rp: &RPParamsMod<P::Paillier>,                 // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         // TODO: check ranges of input values
@@ -73,12 +73,11 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
-        let rho_mod =
-            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, pk.precomputed_modulus());
+        let rho_mod = <P::Paillier as PaillierParams>::UintMod::new(rho, pk.precomputed_modulus());
         let z2 = (r * rho_mod.pow_signed_vartime(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu
-        let challenge_wide: Signed<<P::Paillier as PaillierParams>::QuadUint> =
+        let challenge_wide: Signed<<P::Paillier as PaillierParams>::WideUint> =
             challenge.into_wide();
         let z3 = gamma + mu * challenge_wide;
 

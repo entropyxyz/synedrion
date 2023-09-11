@@ -16,18 +16,18 @@ pub(crate) struct EncProof<P: SchemeParams> {
     cap_s: RPCommitment<P::Paillier>,
     cap_a: Ciphertext<P::Paillier>,
     cap_c: RPCommitment<P::Paillier>,
-    z1: Signed<<P::Paillier as PaillierParams>::DoubleUint>,
-    z2: <P::Paillier as PaillierParams>::DoubleUint,
-    z3: Signed<<P::Paillier as PaillierParams>::QuadUint>,
+    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
+    z2: <P::Paillier as PaillierParams>::Uint,
+    z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
 }
 
 impl<P: SchemeParams> EncProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
-        secret: &Signed<<P::Paillier as PaillierParams>::DoubleUint>, // `k`
-        randomizer: &<P::Paillier as PaillierParams>::DoubleUint,     // `\rho`
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,               // `N_0`
-        aux_rp: &RPParamsMod<P::Paillier>,                            // $\hat{N}$, $s$, $t$
+        secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // `k`
+        randomizer: &<P::Paillier as PaillierParams>::Uint,     // `\rho`
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,         // `N_0`
+        aux_rp: &RPParamsMod<P::Paillier>,                      // $\hat{N}$, $s$, $t$
         aux: &impl Hashable, // CHECK: used to derive `\hat{N}, s, t`
     ) -> Self {
         let pk = sk.public_key();
@@ -40,7 +40,7 @@ impl<P: SchemeParams> EncProof<P> {
         let challenge =
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        // TODO: check that `bound` and `bound_eps` do not overflow the DoubleUint
+        // TODO: check that `bound` and `bound_eps` do not overflow the Uint
         // TODO: check that `secret` is within `+- 2^bound`
 
         // \alpha <-- +- 2^{\ell + \eps}
@@ -70,19 +70,17 @@ impl<P: SchemeParams> EncProof<P> {
 
         // z_1 = \alpha + e k
         // In the proof it will be checked that $z1 \in +- 2^{\ell + \eps}$,
-        // so it should fit into DoubleUint.
+        // so it should fit into Uint.
         let z1 = alpha + challenge * *secret;
 
         // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
-        let randomizer_mod = <P::Paillier as PaillierParams>::DoubleUintMod::new(
-            randomizer,
-            pk.precomputed_modulus(),
-        );
+        let randomizer_mod =
+            <P::Paillier as PaillierParams>::UintMod::new(randomizer, pk.precomputed_modulus());
         let z2 = (r * randomizer_mod.pow_signed_vartime(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu
-        let challenge_wide: Signed<<P::Paillier as PaillierParams>::QuadUint> =
+        let challenge_wide: Signed<<P::Paillier as PaillierParams>::WideUint> =
             challenge.into_wide();
         let z3 = gamma + mu * challenge_wide;
 
@@ -106,7 +104,7 @@ impl<P: SchemeParams> EncProof<P> {
         let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
 
         // Non-interactive challenge ($e$)
-        let challenge = Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded(
+        let challenge = Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded(
             &mut aux_rng,
             &NonZero::new(P::CURVE_ORDER).unwrap(),
         );

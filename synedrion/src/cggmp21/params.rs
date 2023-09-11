@@ -7,15 +7,15 @@ use crate::uint::upcast_uint;
 // but for now they are hardcoded to `k256`.
 // TODO: additional requirements from range proofs etc:
 // - $П_{enc}$, safe two's complement representation of $\alpha$ requires
-//   `L_BOUND + EPS_BOUND + 1 < DoubleUint::BITS - 1`
+//   `L_BOUND + EPS_BOUND + 1 < Uint::BITS - 1`
 // - $П_{enc}$, safe two's complement representation of $z_1$ requires
-//   `L_BOUND + max(EPS_BOUND, log2(q)) + 1 < DoubleUint::BITS - 1`
+//   `L_BOUND + max(EPS_BOUND, log2(q)) + 1 < Uint::BITS - 1`
 //   (where `q` is the curve order)
 // - Range checks will fail with the probability $q / 2^\eps$, so $\eps$ should be large enough.
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 pub trait SchemeParams: Clone + Send + PartialEq + Eq {
     /// The order of the curve.
-    const CURVE_ORDER: <Self::Paillier as PaillierParams>::DoubleUint; // $q$
+    const CURVE_ORDER: <Self::Paillier as PaillierParams>::Uint; // $q$
     /// The sheme's statistical security parameter.
     const SECURITY_PARAMETER: usize; // $\kappa$
                                      // TODO: better names for the bounds?
@@ -41,7 +41,7 @@ impl SchemeParams for TestParams {
     const LP_BOUND: usize = 256;
     const EPS_BOUND: usize = 320;
     type Paillier = PaillierTest;
-    const CURVE_ORDER: <Self::Paillier as PaillierParams>::DoubleUint = upcast_uint(ORDER);
+    const CURVE_ORDER: <Self::Paillier as PaillierParams>::Uint = upcast_uint(ORDER);
 }
 
 /// Production strength parameters.
@@ -54,5 +54,5 @@ impl SchemeParams for ProductionParams {
     const LP_BOUND: usize = Self::L_BOUND * 5;
     const EPS_BOUND: usize = Self::L_BOUND * 2;
     type Paillier = PaillierProduction;
-    const CURVE_ORDER: <Self::Paillier as PaillierParams>::DoubleUint = upcast_uint(ORDER);
+    const CURVE_ORDER: <Self::Paillier as PaillierParams>::Uint = upcast_uint(ORDER);
 }

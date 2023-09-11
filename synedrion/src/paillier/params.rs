@@ -11,28 +11,31 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     /// The size of the RSA modulus (a product of two primes).
     const MODULUS_BITS: usize = Self::PRIME_BITS * 2;
     /// An integer that fits a single RSA prime.
-    type SingleUint: UintLike + HasWide<Wide = Self::DoubleUint>;
-    /// A modulo-residue counterpart of `SingleUint`.
-    type SingleUintMod: UintModLike<RawUint = Self::SingleUint>;
+    type HalfUint: UintLike + HasWide<Wide = Self::Uint>;
+    /// A modulo-residue counterpart of `HalfUint`.
+    type HalfUintMod: UintModLike<RawUint = Self::HalfUint>;
     /// An integer that fits the RSA modulus.
-    type DoubleUint: UintLike
+    type Uint: UintLike
         + FromScalar
-        + HasWide<Wide = Self::QuadUint>
+        + HasWide<Wide = Self::WideUint>
         + Serialize
         + for<'de> Deserialize<'de>;
-    /// A modulo-residue counterpart of `DoubleUint`.
-    type DoubleUintMod: UintModLike<RawUint = Self::DoubleUint>;
+    /// A modulo-residue counterpart of `Uint`.
+    type UintMod: UintModLike<RawUint = Self::Uint>;
     /// An integer that fits the squared RSA modulus.
     /// Used for Paillier ciphertexts.
-    type QuadUint: UintLike + Serialize + for<'de> Deserialize<'de> + HasWide<Wide = Self::OctoUint>;
-    /// A modulo-residue counterpart of `QuadUint`.
-    type QuadUintMod: UintModLike<RawUint = Self::QuadUint>;
+    type WideUint: UintLike
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + HasWide<Wide = Self::ExtraWideUint>;
+    /// A modulo-residue counterpart of `WideUint`.
+    type WideUintMod: UintModLike<RawUint = Self::WideUint>;
     /// An integer that fits the squared RSA modulus times a small factor.
     /// Used in some ZK proofs.
     // Technically, it doesn't have to be that large, but the time spent multiplying these
     // is negligible, and when it is used as an exponent, it is bounded anyway.
-    // So it is easier to keep it as a double of `QuadUint`.
-    type OctoUint: UintLike + Serialize + for<'de> Deserialize<'de>;
+    // So it is easier to keep it as a double of `WideUint`.
+    type ExtraWideUint: UintLike + Serialize + for<'de> Deserialize<'de>;
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -42,13 +45,13 @@ impl PaillierParams for PaillierTest {
     // We need 257-bit primes because we need MODULUS_BITS to accommodate all the possible
     // values of curve scalar squared, which is 512 bits.
     const PRIME_BITS: usize = 257;
-    type SingleUint = U512;
-    type SingleUintMod = U512Mod;
-    type DoubleUint = U1024;
-    type DoubleUintMod = U1024Mod;
-    type QuadUint = U2048;
-    type QuadUintMod = U2048Mod;
-    type OctoUint = U4096;
+    type HalfUint = U512;
+    type HalfUintMod = U512Mod;
+    type Uint = U1024;
+    type UintMod = U1024Mod;
+    type WideUint = U2048;
+    type WideUintMod = U2048Mod;
+    type ExtraWideUint = U4096;
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -56,11 +59,11 @@ pub struct PaillierProduction;
 
 impl PaillierParams for PaillierProduction {
     const PRIME_BITS: usize = 1024;
-    type SingleUint = U1024;
-    type SingleUintMod = U1024Mod;
-    type DoubleUint = U2048;
-    type DoubleUintMod = U2048Mod;
-    type QuadUint = U4096;
-    type QuadUintMod = U4096Mod;
-    type OctoUint = U8192;
+    type HalfUint = U1024;
+    type HalfUintMod = U1024Mod;
+    type Uint = U2048;
+    type UintMod = U2048Mod;
+    type WideUint = U4096;
+    type WideUintMod = U4096Mod;
+    type ExtraWideUint = U8192;
 }

@@ -26,8 +26,8 @@ use crate::uint::{FromScalar, UintLike};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
-) -> <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint {
-    <<P as SchemeParams>::Paillier as PaillierParams>::DoubleUint::from_scalar(x)
+) -> <<P as SchemeParams>::Paillier as PaillierParams>::Uint {
+    <<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(x)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

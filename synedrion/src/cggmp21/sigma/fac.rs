@@ -16,12 +16,12 @@ pub(crate) struct FacProof<P: SchemeParams> {
     cap_a: RPCommitment<P::Paillier>,
     cap_b: RPCommitment<P::Paillier>,
     cap_t: RPCommitment<P::Paillier>,
-    sigma: Signed<<P::Paillier as PaillierParams>::OctoUint>,
-    z1: Signed<<P::Paillier as PaillierParams>::QuadUint>,
-    z2: Signed<<P::Paillier as PaillierParams>::QuadUint>,
-    omega1: Signed<<P::Paillier as PaillierParams>::QuadUint>,
-    omega2: Signed<<P::Paillier as PaillierParams>::QuadUint>,
-    v: Signed<<P::Paillier as PaillierParams>::OctoUint>,
+    sigma: Signed<<P::Paillier as PaillierParams>::ExtraWideUint>,
+    z1: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    omega1: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    omega2: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    v: Signed<<P::Paillier as PaillierParams>::ExtraWideUint>,
 }
 
 impl<P: SchemeParams> FacProof<P> {
@@ -38,7 +38,7 @@ impl<P: SchemeParams> FacProof<P> {
 
         // CHECK: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
         let sqrt_cap_n = NonZero::new(
-            <P::Paillier as PaillierParams>::DoubleUint::ONE
+            <P::Paillier as PaillierParams>::Uint::ONE
                 << (<P::Paillier as PaillierParams>::PRIME_BITS - 1),
         )
         .unwrap();
@@ -60,19 +60,18 @@ impl<P: SchemeParams> FacProof<P> {
 
         // \sigma <-- (+- 2^\ell) N_0 \hat{N}
         let sigma =
-            Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded_bits_scaled_wide(
+            Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
                 rng,
                 P::L_BOUND,
                 &scale,
             );
 
         // r <-- (+- 2^{\ell + \eps}) N_0 \hat{N}
-        let r =
-            Signed::<<P::Paillier as PaillierParams>::DoubleUint>::random_bounded_bits_scaled_wide(
-                rng,
-                P::L_BOUND + P::EPS_BOUND,
-                &scale,
-            );
+        let r = Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
+            rng,
+            P::L_BOUND + P::EPS_BOUND,
+            &scale,
+        );
 
         // x <-- (+- 2^{\ell + \eps}) \hat{N}
         let x = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);

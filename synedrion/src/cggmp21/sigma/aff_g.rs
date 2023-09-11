@@ -15,7 +15,7 @@ use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
 // Or a separate function so that `uint` and `curve` are agnostic of each other?
 pub(crate) fn mul_by_point<P: SchemeParams>(
     p: &Point,
-    x: &Signed<<P::Paillier as PaillierParams>::DoubleUint>,
+    x: &Signed<<P::Paillier as PaillierParams>::Uint>,
 ) -> Point {
     // TODO: should we have a method in `FromScalar` that does the reduction too?
     let scalar = (x.abs() % NonZero::new(P::CURVE_ORDER).unwrap()).to_scalar();
@@ -31,38 +31,38 @@ pub(crate) fn mul_by_point<P: SchemeParams>(
 }
 
 pub(crate) fn mul_by_generator<P: SchemeParams>(
-    x: &Signed<<P::Paillier as PaillierParams>::DoubleUint>,
+    x: &Signed<<P::Paillier as PaillierParams>::Uint>,
 ) -> Point {
     mul_by_point::<P>(&Point::GENERATOR, x)
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
-    cap_a: Ciphertext<P::Paillier>,                          // $A$
-    cap_b_x: Point,                                          // $B_x$
-    cap_b_y: Ciphertext<P::Paillier>,                        // $B_y$
-    cap_e: RPCommitment<P::Paillier>,                        // $E$
-    cap_s: RPCommitment<P::Paillier>,                        // $S$
-    cap_f: RPCommitment<P::Paillier>,                        // $F$
-    cap_t: RPCommitment<P::Paillier>,                        // $T$
-    z1: Signed<<P::Paillier as PaillierParams>::DoubleUint>, // $z_1$
-    z2: Signed<<P::Paillier as PaillierParams>::DoubleUint>, // $z_2$
-    z3: Signed<<P::Paillier as PaillierParams>::QuadUint>,   // $z_3$
-    z4: Signed<<P::Paillier as PaillierParams>::QuadUint>,   // $z_4$
-    omega: <P::Paillier as PaillierParams>::DoubleUint,      // $\omega$
-    omega_y: <P::Paillier as PaillierParams>::DoubleUint,    // $\omega_y$
+    cap_a: Ciphertext<P::Paillier>,                        // $A$
+    cap_b_x: Point,                                        // $B_x$
+    cap_b_y: Ciphertext<P::Paillier>,                      // $B_y$
+    cap_e: RPCommitment<P::Paillier>,                      // $E$
+    cap_s: RPCommitment<P::Paillier>,                      // $S$
+    cap_f: RPCommitment<P::Paillier>,                      // $F$
+    cap_t: RPCommitment<P::Paillier>,                      // $T$
+    z1: Signed<<P::Paillier as PaillierParams>::Uint>,     // $z_1$
+    z2: Signed<<P::Paillier as PaillierParams>::Uint>,     // $z_2$
+    z3: Signed<<P::Paillier as PaillierParams>::WideUint>, // $z_3$
+    z4: Signed<<P::Paillier as PaillierParams>::WideUint>, // $z_4$
+    omega: <P::Paillier as PaillierParams>::Uint,          // $\omega$
+    omega_y: <P::Paillier as PaillierParams>::Uint,        // $\omega_y$
 }
 
 impl<P: SchemeParams> AffGProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn random(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::DoubleUint>, // $x \in +- 2^\ell$
-        y: &Signed<<P::Paillier as PaillierParams>::DoubleUint>, // $y \in +- 2^{\ell^\prime}$
-        rho: &<P::Paillier as PaillierParams>::DoubleUint,       // $\rho \in \mathbb{Z}_{N_0}$
-        rho_y: &<P::Paillier as PaillierParams>::DoubleUint,     // $\rho_y \in \mathbb{Z}_{N_1}$
-        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,         // $N_0$
-        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,         // $N_1$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
+        y: &Signed<<P::Paillier as PaillierParams>::Uint>, // $y \in +- 2^{\ell^\prime}$
+        rho: &<P::Paillier as PaillierParams>::Uint,       // $\rho \in \mathbb{Z}_{N_0}$
+        rho_y: &<P::Paillier as PaillierParams>::Uint,     // $\rho_y \in \mathbb{Z}_{N_1}$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,   // $N_0$
+        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,   // $N_1$
         // CHECK: while the paper does not impose any restrictions on it,
         // if `cap_c = encrypt(s)`, then we should have
         // - `|s \alpha + \beta| < N_0 / 2
@@ -80,7 +80,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // Non-interactive challenge ($e$)
         let challenge =
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
-        let challenge_wide: Signed<<P::Paillier as PaillierParams>::QuadUint> =
+        let challenge_wide: Signed<<P::Paillier as PaillierParams>::WideUint> =
             challenge.into_wide();
 
         // \alpha <-- +- 2^{\ell + \eps}
@@ -149,15 +149,14 @@ impl<P: SchemeParams> AffGProof<P> {
         let z4 = delta + challenge_wide * mu;
 
         // \omega = r \rho^e \mod N_0
-        let rho_mod =
-            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho, pk0.precomputed_modulus());
+        let rho_mod = <P::Paillier as PaillierParams>::UintMod::new(rho, pk0.precomputed_modulus());
         let omega = (r * rho_mod.pow_signed_vartime(&challenge)).retrieve();
 
         // CHECK: deviation from the paper to support a different `D`
         // Original: `\rho_y^e`. Modified: `\rho_y^{-e}`.
         // \omega_y = r_y \rho_y^{-e} \mod N_1
         let rho_y_mod =
-            <P::Paillier as PaillierParams>::DoubleUintMod::new(rho_y, pk1.precomputed_modulus());
+            <P::Paillier as PaillierParams>::UintMod::new(rho_y, pk1.precomputed_modulus());
         let omega_y = (r_y * rho_y_mod.pow_signed_vartime(&-challenge)).retrieve();
 
         Self {
