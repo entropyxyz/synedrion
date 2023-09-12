@@ -44,7 +44,18 @@ pub struct PaillierTest;
 impl PaillierParams for PaillierTest {
     // We need 257-bit primes because we need MODULUS_BITS to accommodate all the possible
     // values of curve scalar squared, which is 512 bits.
-    const PRIME_BITS: usize = 257;
+
+    // The prime size is chosen to be minimal for which the `TestSchemeParams` still work.
+    // In the presigning, we are constructing a ciphertext of `x * y + z` where
+    // `0 < x, y < q < 2^L` and `-2^LP < z < 2^LP`
+    // (`q` is the curve order, `L` and `LP` are constants in `TestSchemeParams`).
+    // We need the final result to be `-N/2 < x * y + z < N/2`
+    // (that is, it may be negative, and it cannot wrap around modulo N).
+    // `N` is a product of two primes of the size `PRIME_BITS`, so `N > 2^(2 * PRIME_BITS - 2)`.
+    // Therefore we require `2^(2*L) + 2^LP < 2^(2 * PRIME_BITS - 3)`
+    // Since in `TestSchemeParams` `L = LP = 256`, this leads to `2 * PRIME_BITS - 3 >= 2 * L + 1`.
+    // TODO: add an assertion for `SchemeParams` checking that?
+    const PRIME_BITS: usize = 258;
     type HalfUint = U512;
     type HalfUintMod = U512Mod;
     type Uint = U1024;
