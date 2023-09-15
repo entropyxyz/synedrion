@@ -191,7 +191,7 @@ impl<P: SchemeParams> AffGProof<P> {
         cap_y: &Ciphertext<P::Paillier>, // $Y = enc_1(y, \rho_y)$
         cap_x: &Point,                   // $X = g * x$, where `g` is the curve generator
         aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
-        aux: &impl Hashable,             // CHECK: used to derive `\hat{N}, s, t`
+        aux: &impl Hashable,
     ) -> bool {
         let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
 
@@ -280,7 +280,7 @@ mod tests {
 
         let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk0);
         let rho_y = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk1);
-
+        // TODO: use full range (0 to N)
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let cap_c = Ciphertext::new_signed(&mut OsRng, pk0, &secret);
 

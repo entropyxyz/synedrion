@@ -19,6 +19,7 @@ mod fac;
 mod log_star;
 mod mod_;
 mod mul;
+mod mul_star;
 mod prm;
 mod sch;
 
