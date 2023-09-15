@@ -9,7 +9,7 @@ use serde::{
 
 use super::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
-    CheckedAdd, CheckedMul, FromScalar, HasWide, Integer, NonZero, UintLike,
+    CheckedAdd, CheckedMul, FromScalar, HasWide, Integer, NonZero, UintLike, UintModLike,
 };
 use crate::curve::{Scalar, ORDER};
 
@@ -163,6 +163,14 @@ impl<T: UintLike> Signed<T> {
         let bound = T::ONE << (bound_bits + 1);
         self.abs() <= bound
     }
+
+    pub fn to_mod<V>(self, precomputed: &V::Precomputed) -> V
+    where
+        V: UintModLike<RawUint = T>,
+    {
+        let abs_mod = V::new(&self.abs(), precomputed);
+        V::conditional_select(&abs_mod, &-abs_mod, self.is_negative())
+    }
 }
 
 impl<T: UintLike> Default for Signed<T> {
@@ -229,6 +237,16 @@ impl<T: UintLike + HasWide> Signed<T> {
     pub fn into_wide(self) -> Signed<T::Wide> {
         let abs_result = self.abs().into_wide();
         Signed::new_from_abs(abs_result, self.bound(), self.is_negative()).unwrap()
+    }
+
+    pub fn mul_wide(&self, rhs: &Self) -> Signed<T::Wide> {
+        let abs_result = self.abs().mul_wide(&rhs.abs());
+        Signed::new_from_abs(
+            abs_result,
+            self.bound() + rhs.bound(),
+            self.is_negative() ^ rhs.is_negative(),
+        )
+        .unwrap()
     }
 }
 

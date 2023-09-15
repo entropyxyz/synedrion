@@ -8,7 +8,7 @@ use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    HasWide, NonZero, PowBoundedExp, Retrieve, Signed, UintLike, UintModLike,
+    HasWide, Integer, NonZero, PowBoundedExp, Retrieve, Signed, UintLike, UintModLike,
 };
 
 /// Paillier ciphertext.
@@ -82,6 +82,19 @@ impl<P: PaillierParams> Ciphertext<P> {
         randomzier: &P::Uint,
     ) -> Self {
         Self::new_with_randomizer_inner(pk, &plaintext.abs(), randomzier, plaintext.is_negative())
+    }
+
+    pub fn new_with_randomizer_wide(
+        pk: &PublicKeyPaillierPrecomputed<P>,
+        plaintext: &Signed<P::WideUint>,
+        randomzier: &P::Uint,
+    ) -> Self {
+        // TODO: ensure this is constant-time
+        let plaintext_reduced = P::Uint::try_from_wide(
+            plaintext.abs() % NonZero::new(pk.modulus().into_wide()).unwrap(),
+        )
+        .unwrap();
+        Self::new_with_randomizer_inner(pk, &plaintext_reduced, randomzier, plaintext.is_negative())
     }
 
     /// Encrypts the plaintext with a random randomizer.
@@ -195,11 +208,60 @@ impl<P: PaillierParams> Ciphertext<P> {
         }
     }
 
+    pub fn homomorphic_mul_wide(
+        &self,
+        pk: &PublicKeyPaillierPrecomputed<P>,
+        rhs: &Signed<P::WideUint>,
+    ) -> Self {
+        let ciphertext_mod =
+            P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
+        // This will not panic as long as the randomizer was chosen to be invertible.
+        let ciphertext = ciphertext_mod.pow_signed(rhs).retrieve();
+        Self {
+            ciphertext,
+            phantom: PhantomData,
+        }
+    }
+
+    pub fn homomorphic_mul_unsigned(
+        &self,
+        pk: &PublicKeyPaillierPrecomputed<P>,
+        rhs: &P::Uint,
+    ) -> Self {
+        let ciphertext_mod =
+            P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
+        // This will not panic as long as the randomizer was chosen to be invertible.
+        let ciphertext = ciphertext_mod
+            .pow_bounded_exp(&rhs.into_wide(), <P::Uint as Integer>::BITS)
+            .retrieve();
+        Self {
+            ciphertext,
+            phantom: PhantomData,
+        }
+    }
+
     pub fn homomorphic_add(&self, pk: &PublicKeyPaillierPrecomputed<P>, rhs: &Self) -> Self {
         let lhs_mod = P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
         let rhs_mod = P::WideUintMod::new(&rhs.ciphertext, pk.precomputed_modulus_squared());
         Self {
             ciphertext: (lhs_mod * rhs_mod).retrieve(),
+            phantom: PhantomData,
+        }
+    }
+
+    pub fn mul_randomizer(
+        &self,
+        pk: &PublicKeyPaillierPrecomputed<P>,
+        randomizer: &P::Uint,
+    ) -> Self {
+        let ciphertext_mod =
+            P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
+        let randomizer_mod =
+            P::WideUintMod::new(&randomizer.into_wide(), pk.precomputed_modulus_squared());
+        let ciphertext_mod = ciphertext_mod
+            * randomizer_mod.pow_bounded_exp(&pk.modulus().into_wide(), P::MODULUS_BITS);
+        Self {
+            ciphertext: ciphertext_mod.retrieve(),
             phantom: PhantomData,
         }
     }

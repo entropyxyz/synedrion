@@ -10,14 +10,14 @@ use super::generic::{
     Round, ToSendTyped,
 };
 use crate::cggmp21::{
-    sigma::{AffGProof, EncProof, LogStarProof},
+    sigma::{AffGProof, EncProof, LogStarProof, MulProof},
     SchemeParams,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams};
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{FromScalar, Signed};
+use crate::uint::{CheckedMul, FromScalar, Signed};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
@@ -524,6 +524,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             big_delta,
             big_gamma: gamma,
             k_ciphertexts: self.k_ciphertexts,
+            g_ciphertexts: self.g_ciphertexts,
         }))
     }
 }
@@ -544,6 +545,7 @@ pub struct Round3<P: SchemeParams> {
     big_delta: Point,
     big_gamma: Point,
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
+    g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
 }
 
 pub struct Round3Payload {
@@ -634,7 +636,7 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn finalize(
         self,
-        _rng: &mut impl CryptoRngCore,
+        rng: &mut impl CryptoRngCore,
         payloads: HoleVec<Self::Payload>,
     ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
         let (deltas, big_deltas) = payloads
@@ -654,6 +656,41 @@ impl<P: SchemeParams> Round for Round3<P> {
 
         // TODO: seems like we only need the x-coordinate of this (as a Scalar)
         let nonce = &self.big_gamma * &delta.invert().unwrap();
+
+        // TODO: this part is only supposed to be executed on error only.
+        // It is executed unconditionally here to check that the proofs work correctly.
+
+        let pk = self.context.key_share.secret_aux.paillier_sk.public_key();
+        let my_idx = self.context.key_share.index.as_usize();
+
+        let rho_h = Ciphertext::randomizer(rng, pk);
+        let cap_h = Ciphertext::new_with_randomizer(
+            pk,
+            &uint_from_scalar::<P>(&self.context.ephemeral_scalar_share)
+                .checked_mul(&uint_from_scalar::<P>(&self.context.gamma))
+                .unwrap(),
+            &rho_h,
+        );
+
+        let aux = (&self.context.key_share.index, &self.context.key_share.index);
+
+        let p_mul = MulProof::<P>::random(
+            rng,
+            &Signed::from_scalar(&self.context.ephemeral_scalar_share),
+            &self.context.rho,
+            &self.context.nu,
+            &rho_h,
+            pk,
+            &self.g_ciphertexts[my_idx],
+            &aux,
+        );
+        assert!(p_mul.verify(
+            pk,
+            &self.k_ciphertexts[my_idx],
+            &self.g_ciphertexts[my_idx],
+            &cap_h,
+            &aux
+        ));
 
         Ok(FinalizeSuccess::Result(PresigningData {
             nonce,

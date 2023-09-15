@@ -24,11 +24,11 @@ pub(crate) struct EncProof<P: SchemeParams> {
 impl<P: SchemeParams> EncProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
-        secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // `k`
-        randomizer: &<P::Paillier as PaillierParams>::Uint,     // `\rho`
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,         // `N_0`
+        secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // $k$
+        randomizer: &<P::Paillier as PaillierParams>::Uint,     // $\rho$
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,         // $N_0$
         aux_rp: &RPParamsMod<P::Paillier>,                      // $\hat{N}$, $s$, $t$
-        aux: &impl Hashable, // CHECK: used to derive `\hat{N}, s, t`
+        aux: &impl Hashable,
     ) -> Self {
         let pk = sk.public_key();
 
