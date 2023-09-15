@@ -261,6 +261,22 @@ impl<P: SchemeParams> KeyShare<P> {
     }
 }
 
+impl<P: SchemeParams> KeySharePrecomputed<P> {
+    /// Returns the number of parties in this set of shares.
+    pub fn num_parties(&self) -> usize {
+        // TODO: technically it is `num_shares`, but for now we are equating the two,
+        // since we assume that one party has one share.
+        self.public_shares.len()
+    }
+
+    /// Returns the index of this share's party.
+    pub fn party_index(&self) -> PartyIdx {
+        // TODO: technically it is the share index, but for now we are equating the two,
+        // since we assume that one party has one share.
+        self.index
+    }
+}
+
 impl PresigningData {
     /// Creates a consistent set of presigning data for testing purposes.
     #[cfg(any(test, feature = "bench-internals"))]

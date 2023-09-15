@@ -10,14 +10,14 @@ use super::generic::{
     Round, ToSendTyped,
 };
 use crate::cggmp21::{
-    sigma::{AffGProof, EncProof, LogStarProof, MulProof},
+    sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
     SchemeParams,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams};
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{CheckedMul, FromScalar, Signed};
+use crate::uint::{CheckedAdd, CheckedMul, FromScalar, Signed};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
@@ -27,7 +27,6 @@ fn uint_from_scalar<P: SchemeParams>(
 
 pub struct Context<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
-    num_parties: usize,
     key_share: KeySharePrecomputed<P>,
     ephemeral_scalar_share: Scalar,
     gamma: Scalar,
@@ -53,7 +52,7 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        num_parties: usize,
+        _num_parties: usize,
         _party_idx: PartyIdx,
         context: Self::Context,
     ) -> Result<Self, InitError> {
@@ -79,7 +78,6 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         Ok(Self {
             context: Context {
                 shared_randomness: shared_randomness.into(),
-                num_parties,
                 key_share,
                 ephemeral_scalar_share,
                 gamma,
@@ -173,8 +171,8 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(
-            self.context.num_parties,
-            self.context.key_share.index.as_usize(),
+            self.context.key_share.num_parties(),
+            self.context.key_share.party_index().as_usize(),
         );
         let messages = range
             .map(|idx| {
@@ -200,11 +198,12 @@ impl<P: SchemeParams> BaseRound for Round1Part2<P> {
     ) -> Result<Self::Payload, ReceiveError> {
         let aux = (
             &self.context.shared_randomness,
-            &self.context.key_share.index,
+            &self.context.key_share.party_index(),
         );
 
-        let public_aux =
-            self.context.key_share.public_aux[self.context.key_share.index.as_usize()].clone();
+        let public_aux = self.context.key_share.public_aux
+            [self.context.key_share.party_index().as_usize()]
+        .clone();
 
         if msg.0.verify(
             &self.context.key_share.public_aux[from.as_usize()].paillier_pk,
@@ -259,54 +258,69 @@ pub struct Round2<P: SchemeParams> {
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     // TODO: these are secret
-    betas: HoleVec<Signed<<P::Paillier as PaillierParams>::Uint>>,
     betas_hat: HoleVec<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    protocols: HoleVec<Round2Protocol<P>>,
+}
+
+#[derive(Debug, Clone)]
+struct Round2Protocol<P: SchemeParams> {
+    beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
+    r: <P::Paillier as PaillierParams>::Uint,
+    cap_f: Ciphertext<P::Paillier>,
 }
 
 impl<P: SchemeParams> Round2<P> {
     fn new(rng: &mut impl CryptoRngCore, round1: Round1Part2<P>) -> Self {
-        let mut betas = HoleVecAccum::new(
-            round1.context.num_parties,
-            round1.context.key_share.index.as_usize(),
-        );
-        let mut betas_hat = HoleVecAccum::new(
-            round1.context.num_parties,
-            round1.context.key_share.index.as_usize(),
-        );
+        // TODO: these can be done in parallel as we creare messages for each nodes.
+        // But it will require `to_send()` to have some "protocol" return value
+        // that will be re-integrated into the round.
 
-        let range = HoleRange::new(
-            round1.context.num_parties,
-            round1.context.key_share.index.as_usize(),
-        );
+        let num_parties = round1.context.key_share.num_parties();
+        let my_idx = round1.context.key_share.party_index().as_usize();
+
+        let range = HoleRange::new(num_parties, my_idx);
+
+        let mut betas_hat = HoleVecAccum::new(num_parties, my_idx);
 
         range.for_each(|idx| {
-            let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
             let beta_hat = Signed::random_bounded_bits(rng, P::LP_BOUND);
 
             // TODO: can we do this without mutation?
             // Create the HoleVec with betas first?
-            betas.insert(idx, beta).unwrap();
             betas_hat.insert(idx, beta_hat).unwrap();
+        });
+
+        // TODO: this will be created with to_send() when we implement it returning protocols
+        let pk = &round1.context.key_share.secret_aux.paillier_sk.public_key();
+        let mut protocols = HoleVecAccum::new(num_parties, my_idx);
+        range.for_each(|idx| {
+            let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
+            let r = pk.random_group_elem_raw(rng);
+            let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r);
+            let protocol = Round2Protocol { beta, r, cap_f };
+
+            protocols.insert(idx, protocol).unwrap();
         });
 
         Self {
             context: round1.context,
             k_ciphertexts: round1.k_ciphertexts,
             g_ciphertexts: round1.g_ciphertexts,
-            betas: betas.finalize().unwrap(),
+            protocols: protocols.finalize().unwrap(),
             betas_hat: betas_hat.finalize().unwrap(),
         }
     }
 }
 
-pub struct Round2Payload {
+pub struct Round2Payload<P: SchemeParams> {
     gamma: Point,
-    alpha: Scalar,
+    alpha: Signed<<P::Paillier as PaillierParams>::Uint>,
     alpha_hat: Scalar,
+    cap_d: Ciphertext<P::Paillier>,
 }
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
-    type Payload = Round2Payload;
+    type Payload = Round2Payload<P>;
     type Message = Round2Direct<P>;
 
     const ROUND_NUM: u8 = 3;
@@ -314,12 +328,12 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(
-            self.context.num_parties,
-            self.context.key_share.index.as_usize(),
+            self.context.key_share.num_parties(),
+            self.context.key_share.party_index().as_usize(),
         );
         let aux = (
             &self.context.shared_randomness,
-            &self.context.key_share.index,
+            &self.context.key_share.party_index(),
         );
 
         let gamma = self.context.gamma.mul_by_generator();
@@ -329,12 +343,14 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             .map(|idx| {
                 let target_pk = &self.context.key_share.public_aux[idx].paillier_pk;
 
-                let r = target_pk.random_group_elem_raw(rng);
+                let protocol = self.protocols.get(idx).unwrap();
+
+                let r = protocol.r;
                 let s = target_pk.random_group_elem_raw(rng);
                 let r_hat = target_pk.random_group_elem_raw(rng);
                 let s_hat = target_pk.random_group_elem_raw(rng);
 
-                let beta = self.betas.get(idx).unwrap();
+                let beta = &protocol.beta;
                 let beta_hat = self.betas_hat.get(idx).unwrap();
 
                 let d = self.k_ciphertexts[idx]
@@ -343,7 +359,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                         target_pk,
                         &Ciphertext::new_with_randomizer_signed(target_pk, &-beta, &s),
                     );
-                let f = Ciphertext::new_with_randomizer_signed(pk, beta, &r);
+                let f = protocol.cap_f.clone();
 
                 let d_hat = self.k_ciphertexts[idx]
                     .homomorphic_mul(
@@ -424,13 +440,13 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         let big_x = self.context.key_share.public_shares[from.as_usize()];
 
         let public_aux =
-            &self.context.key_share.public_aux[self.context.key_share.index.as_usize()];
+            &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
         let aux_rp = &public_aux.aux_rp_params;
 
         if !msg.psi.verify(
             pk,
             from_pk,
-            &self.k_ciphertexts[self.context.key_share.index.as_usize()],
+            &self.k_ciphertexts[self.context.key_share.party_index().as_usize()],
             &msg.d,
             &msg.f,
             &msg.gamma,
@@ -445,7 +461,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         if !msg.psi_hat.verify(
             pk,
             from_pk,
-            &self.k_ciphertexts[self.context.key_share.index.as_usize()],
+            &self.k_ciphertexts[self.context.key_share.party_index().as_usize()],
             &msg.d_hat,
             &msg.f_hat,
             &big_x,
@@ -472,8 +488,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let alpha = msg
             .d
-            .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk)
-            .to_scalar();
+            .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
         let alpha_hat = msg
             .d_hat
             .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk)
@@ -483,6 +498,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
             gamma: msg.gamma,
             alpha,
             alpha_hat,
+            cap_d: msg.d,
         })
     }
 }
@@ -503,19 +519,32 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let big_delta = &gamma * &self.context.ephemeral_scalar_share;
 
-        let alpha_sum: Scalar = payloads.iter().map(|payload| payload.alpha).sum();
-        let alpha_hat_sum: Scalar = payloads.iter().map(|payload| payload.alpha_hat).sum();
+        // The order of operations here is important:
+        // -2^{\ell^\prime} <= \alpha < q^2 + 2^{\ell^\prime}
+        // -2^{\ell^\prime} <= \beta <= 2^{\ell^\prime}
+        // But by construction, 0 <= \alpha + beta < q^2
+        // So we can perform the calculation with non-negative integers,
+        // and assert that the final range is 0 <= \delta < q^2 * num_parties
+        // TODO: check that (could be done in `verify()`), and abort if it is not true
+        // (otherwise we will get panics in arithmetic operations)
 
-        let beta_sum: Signed<_> = self.betas.iter().sum();
+        let mut delta = uint_from_scalar::<P>(&self.context.gamma)
+            .checked_mul(&uint_from_scalar::<P>(&self.context.ephemeral_scalar_share))
+            .unwrap();
+        for (payload, protocol) in payloads.iter().zip(self.protocols.iter()) {
+            let term = (payload.alpha + protocol.beta).abs();
+            delta = delta.checked_add(&term).unwrap();
+        }
+
+        let alpha_hat_sum: Scalar = payloads.iter().map(|payload| payload.alpha_hat).sum();
         let beta_hat_sum: Signed<_> = self.betas_hat.iter().sum();
 
-        let delta = self.context.gamma * self.context.ephemeral_scalar_share
-            + alpha_sum
-            + beta_sum.to_scalar();
         let product_share = self.context.key_share.secret_share
             * self.context.ephemeral_scalar_share
             + alpha_hat_sum
             + beta_hat_sum.to_scalar();
+
+        let cap_ds = payloads.map_ref(|payload| payload.cap_d.clone());
 
         Ok(FinalizeSuccess::AnotherRound(Round3 {
             context: self.context,
@@ -525,6 +554,8 @@ impl<P: SchemeParams> Round for Round2<P> {
             big_gamma: gamma,
             k_ciphertexts: self.k_ciphertexts,
             g_ciphertexts: self.g_ciphertexts,
+            cap_ds,
+            round2_protocols: self.protocols,
         }))
     }
 }
@@ -533,28 +564,30 @@ impl<P: SchemeParams> Round for Round2<P> {
 #[serde(bound(serialize = "LogStarProof<P>: Serialize"))]
 #[serde(bound(deserialize = "LogStarProof<P>: for<'x> Deserialize<'x>"))]
 pub struct Round3Bcast<P: SchemeParams> {
-    delta: Scalar,
+    delta: <P::Paillier as PaillierParams>::Uint,
     big_delta: Point,
     psi_hat_pprime: LogStarProof<P>,
 }
 
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
-    delta: Scalar,
+    delta: <P::Paillier as PaillierParams>::Uint,
     product_share: Scalar,
     big_delta: Point,
     big_gamma: Point,
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
+    cap_ds: HoleVec<Ciphertext<P::Paillier>>,
+    round2_protocols: HoleVec<Round2Protocol<P>>,
 }
 
-pub struct Round3Payload {
-    delta: Scalar,
+pub struct Round3Payload<P: SchemeParams> {
+    delta: <P::Paillier as PaillierParams>::Uint,
     big_delta: Point,
 }
 
 impl<P: SchemeParams> BaseRound for Round3<P> {
-    type Payload = Round3Payload;
+    type Payload = Round3Payload<P>;
     type Message = Round3Bcast<P>;
 
     const ROUND_NUM: u8 = 4;
@@ -562,12 +595,12 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
 
     fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
         let range = HoleRange::new(
-            self.context.num_parties,
-            self.context.key_share.index.as_usize(),
+            self.context.key_share.num_parties(),
+            self.context.key_share.party_index().as_usize(),
         );
         let aux = (
             &self.context.shared_randomness,
-            &self.context.key_share.index,
+            &self.context.key_share.party_index(),
         );
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
 
@@ -606,7 +639,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
         let public_aux =
-            &self.context.key_share.public_aux[self.context.key_share.index.as_usize()];
+            &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
         let aux_rp = &public_aux.aux_rp_params;
 
         if !msg.psi_hat_pprime.verify(
@@ -643,8 +676,8 @@ impl<P: SchemeParams> Round for Round3<P> {
             .map(|payload| (payload.delta, payload.big_delta))
             .unzip();
 
-        let delta: Scalar = deltas.iter().sum();
-        let delta = delta + self.delta;
+        let delta: Scalar = deltas.iter().map(|delta| delta.to_scalar()).sum();
+        let delta = delta + self.delta.to_scalar();
 
         let big_delta: Point = big_deltas.iter().sum();
         let big_delta = big_delta + self.big_delta;
@@ -657,11 +690,15 @@ impl<P: SchemeParams> Round for Round3<P> {
         // TODO: seems like we only need the x-coordinate of this (as a Scalar)
         let nonce = &self.big_gamma * &delta.invert().unwrap();
 
-        // TODO: this part is only supposed to be executed on error only.
-        // It is executed unconditionally here to check that the proofs work correctly.
+        // TODO: this part is supposed to be executed on error only.
+        // It is executed unconditionally here to check that the proofs work correctly,
+        // and the required information is available.
 
-        let pk = self.context.key_share.secret_aux.paillier_sk.public_key();
-        let my_idx = self.context.key_share.index.as_usize();
+        // Mul proof
+
+        let sk = &self.context.key_share.secret_aux.paillier_sk;
+        let pk = sk.public_key();
+        let my_idx = self.context.key_share.party_index().as_usize();
 
         let rho_h = Ciphertext::randomizer(rng, pk);
         let cap_h = Ciphertext::new_with_randomizer(
@@ -672,7 +709,10 @@ impl<P: SchemeParams> Round for Round3<P> {
             &rho_h,
         );
 
-        let aux = (&self.context.key_share.index, &self.context.key_share.index);
+        let aux = (
+            &self.context.shared_randomness,
+            &self.context.key_share.party_index(),
+        );
 
         let p_mul = MulProof::<P>::random(
             rng,
@@ -691,6 +731,39 @@ impl<P: SchemeParams> Round for Round3<P> {
             &cap_h,
             &aux
         ));
+
+        // Dec proof
+
+        let range = HoleRange::new(self.context.key_share.num_parties(), my_idx);
+
+        let mut ciphertext = cap_h.clone();
+
+        for j in range {
+            ciphertext = ciphertext
+                .homomorphic_add(pk, self.cap_ds.get(j).unwrap())
+                .homomorphic_add(pk, &self.round2_protocols.get(j).unwrap().cap_f);
+        }
+
+        let rho = ciphertext.derive_randomizer(sk);
+
+        for j in range {
+            let p_dec = DecProof::<P>::random(
+                rng,
+                // TODO: replace with Bounded type
+                &Signed::new_positive(self.delta, P::L_BOUND * 2 + 10).unwrap(),
+                &rho,
+                pk,
+                &self.context.key_share.public_aux[j].rp_params,
+                &aux,
+            );
+            assert!(p_dec.verify(
+                pk,
+                &self.delta.to_scalar(),
+                &ciphertext,
+                &self.context.key_share.public_aux[j].rp_params,
+                &aux
+            ));
+        }
 
         Ok(FinalizeSuccess::Result(PresigningData {
             nonce,

@@ -156,7 +156,16 @@ impl<T> HoleVec<T> {
         result
     }
 
-    // TODO: can it take a reference?
+    pub fn map_ref<F, V>(&self, f: F) -> HoleVec<V>
+    where
+        F: Fn(&T) -> V,
+    {
+        HoleVec {
+            elems: self.elems.iter().map(f).collect(),
+            hole_at: self.hole_at,
+        }
+    }
+
     pub fn map<F, V>(self, f: F) -> HoleVec<V>
     where
         F: FnMut(T) -> V,

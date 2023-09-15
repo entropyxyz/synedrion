@@ -13,7 +13,7 @@ use crate::uint::upcast_uint;
 //   (where `q` is the curve order)
 // - Range checks will fail with the probability $q / 2^\eps$, so $\eps$ should be large enough.
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
-pub trait SchemeParams: Clone + Send + PartialEq + Eq {
+pub trait SchemeParams: Clone + Send + PartialEq + Eq + core::fmt::Debug {
     /// The order of the curve.
     const CURVE_ORDER: <Self::Paillier as PaillierParams>::Uint; // $q$
     /// The sheme's statistical security parameter.
