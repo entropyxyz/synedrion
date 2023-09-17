@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{
-    JacobiSymbol, JacobiSymbolTrait, PowBoundedExp, RandomMod, Retrieve, UintLike, UintModLike,
-};
+use crate::uint::{JacobiSymbol, JacobiSymbolTrait, RandomMod, Retrieve, UintLike, UintModLike};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
@@ -112,10 +110,7 @@ impl<P: SchemeParams> ModProof<P> {
                     &challenge.0[i],
                     pk.precomputed_modulus(),
                 );
-                let z = y.pow_bounded_exp(
-                    sk.inv_modulus(),
-                    <P::Paillier as PaillierParams>::MODULUS_BITS,
-                );
+                let z = y.pow_bounded(sk.inv_modulus());
 
                 ModProofElem {
                     x: y_4th,
@@ -149,9 +144,7 @@ impl<P: SchemeParams> ModProof<P> {
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
             let z_m = <P::Paillier as PaillierParams>::UintMod::new(&elem.z, modulus);
             let mut y_m = <P::Paillier as PaillierParams>::UintMod::new(y, modulus);
-            if z_m.pow_bounded_exp(pk.modulus(), <P::Paillier as PaillierParams>::MODULUS_BITS)
-                != y_m
-            {
+            if z_m.pow_bounded(&pk.modulus_bounded()) != y_m {
                 return false;
             }
 

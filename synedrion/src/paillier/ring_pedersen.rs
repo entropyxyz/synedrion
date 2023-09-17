@@ -5,11 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{
-    pow_signed_extra_wide, pow_signed_wide, Integer, PowBoundedExp, Retrieve, Signed, UintModLike,
-};
+use crate::uint::{pow_signed_extra_wide, pow_signed_wide, Bounded, Retrieve, Signed, UintModLike};
 
-pub(crate) struct RPSecret<P: PaillierParams>(P::Uint);
+pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
 
 impl<P: PaillierParams> RPSecret<P> {
     pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P>) -> Self {
@@ -21,8 +19,8 @@ impl<P: PaillierParams> RPSecret<P> {
     }
 }
 
-impl<P: PaillierParams> AsRef<P::Uint> for RPSecret<P> {
-    fn as_ref(&self) -> &P::Uint {
+impl<P: PaillierParams> AsRef<Bounded<P::Uint>> for RPSecret<P> {
+    fn as_ref(&self) -> &Bounded<P::Uint> {
         &self.0
     }
 }
@@ -55,7 +53,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
         let r = pk.random_invertible_group_elem(rng);
 
         let base = r.square();
-        let power = base.pow_bounded_exp(&secret.0, P::MODULUS_BITS);
+        let power = base.pow_bounded(&secret.0);
 
         Self {
             pk: pk.clone(),
@@ -80,6 +78,15 @@ impl<P: PaillierParams> RPParamsMod<P> {
         RPCommitmentMod(pow_signed_wide(&self.base, randomizer) * self.power.pow_signed(secret))
     }
 
+    pub fn commit_bounded(
+        &self,
+        randomizer: &Signed<P::WideUint>,
+        secret: &Bounded<P::Uint>,
+    ) -> RPCommitmentMod<P> {
+        // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
+        RPCommitmentMod(pow_signed_wide(&self.base, randomizer) * self.power.pow_bounded(secret))
+    }
+
     pub fn commit_wide(
         &self,
         randomizer: &Signed<P::WideUint>,
@@ -94,14 +101,11 @@ impl<P: PaillierParams> RPParamsMod<P> {
     pub fn commit_xwide(
         &self,
         randomizer: &Signed<P::ExtraWideUint>,
-        secret: &P::Uint,
+        secret: &Bounded<P::Uint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            pow_signed_extra_wide(&self.base, randomizer)
-                * self
-                    .power
-                    .pow_bounded_exp(secret, <P::Uint as Integer>::BITS),
+            pow_signed_extra_wide(&self.base, randomizer) * self.power.pow_bounded(secret),
         )
     }
 

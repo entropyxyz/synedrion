@@ -13,8 +13,7 @@ use crypto_bigint::{
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 
-use super::jacobi::JacobiSymbolTrait;
-use super::signed::Signed;
+use super::{bounded::Bounded, jacobi::JacobiSymbolTrait, signed::Signed};
 use crate::curve::Scalar;
 use crate::tools::hashing::{Chain, Hashable};
 
@@ -216,7 +215,7 @@ pub trait UintModLike:
     fn one(precomputed: &Self::Precomputed) -> Self;
     fn pow_signed_vartime(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
-        let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound_usize());
         if exponent.is_negative().into() {
             abs_result.invert().unwrap()
         } else {
@@ -225,9 +224,12 @@ pub trait UintModLike:
     }
     fn pow_signed(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
-        let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound_usize());
         let inv_result = abs_result.invert().unwrap();
         Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+    fn pow_bounded(&self, exponent: &Bounded<Self::RawUint>) -> Self {
+        self.pow_bounded_exp(exponent.as_ref(), exponent.bound_usize())
     }
     /// Calculates `self^{2^k}`
     fn pow_2k(&self, k: usize) -> Self {
@@ -285,7 +287,7 @@ where
     T::RawUint: HasWide,
 {
     let abs_exponent = exponent.abs();
-    let abs_result = pow_wide(base, &abs_exponent, exponent.bound());
+    let abs_result = pow_wide(base, &abs_exponent, exponent.bound_usize());
     let inv_result = abs_result.invert().unwrap();
     T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
@@ -300,7 +302,7 @@ where
     <T::RawUint as HasWide>::Wide: HasWide,
 {
     let bits = <<T::RawUint as HasWide>::Wide as Integer>::BITS;
-    let bound = exponent.bound();
+    let bound = exponent.bound_usize();
 
     let abs_exponent = exponent.abs();
     let (whi, wlo) = <T::RawUint as HasWide>::Wide::from_wide(abs_exponent);

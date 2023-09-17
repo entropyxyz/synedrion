@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::paillier::{Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{HasWide, NonZero, Retrieve, Signed, UintModLike};
+use crate::uint::{Bounded, NonZero, Retrieve, Signed, UintModLike};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
@@ -51,23 +51,22 @@ impl<P: SchemeParams> MulProof<P> {
         let r_mod = pk.random_invertible_group_elem(rng);
         let s_mod = pk.random_invertible_group_elem(rng);
 
-        let alpha = alpha_mod.retrieve();
+        let alpha = Bounded::new(
+            alpha_mod.retrieve(),
+            <P::Paillier as PaillierParams>::MODULUS_BITS as u32,
+        )
+        .unwrap();
         let r = r_mod.retrieve();
         let s = s_mod.retrieve();
 
         let cap_a = cap_y
             .homomorphic_mul_unsigned(pk, &alpha)
             .mul_randomizer(pk, &r);
-        let cap_b = Ciphertext::new_with_randomizer(pk, &alpha, &s);
+        let cap_b = Ciphertext::new_with_randomizer(pk, alpha.as_ref(), &s);
 
         let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        let z = Signed::new_positive(
-            alpha.into_wide(),
-            <P::Paillier as PaillierParams>::MODULUS_BITS,
-        )
-        .unwrap()
-            + e.mul_wide(secret);
+        let z = alpha.into_signed().unwrap().into_wide() + e.mul_wide(secret);
         let rho_mod = <P::Paillier as PaillierParams>::UintMod::new(&rho, pk.precomputed_modulus());
         let rho_x_mod =
             <P::Paillier as PaillierParams>::UintMod::new(rho_x, pk.precomputed_modulus());

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
-    CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
-    RandomPrimeWithRng, Retrieve, UintLike, UintModLike,
+    Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
+    RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
 };
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -29,7 +29,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let one = P::HalfUint::ONE;
         let p_minus_one = self.p.checked_sub(&one).unwrap();
         let q_minus_one = self.q.checked_sub(&one).unwrap();
-        let totient = p_minus_one.mul_wide(&q_minus_one);
+        let totient =
+            Bounded::new(p_minus_one.mul_wide(&q_minus_one), P::MODULUS_BITS as u32).unwrap();
 
         let precomputed_mod_p = P::HalfUintMod::new_precomputed(&NonZero::new(self.p).unwrap());
         let precomputed_mod_q = P::HalfUintMod::new_precomputed(&NonZero::new(self.q).unwrap());
@@ -39,12 +40,16 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         };
         let public_key = public_key.to_precomputed();
 
-        let inv_totient = P::UintMod::new(&totient, public_key.precomputed_modulus())
+        let inv_totient = P::UintMod::new(totient.as_ref(), public_key.precomputed_modulus())
             .invert()
             .unwrap();
 
         let modulus: &P::Uint = public_key.modulus();
-        let inv_modulus = modulus.inv_mod(&totient).unwrap();
+        let inv_modulus = Bounded::new(
+            modulus.inv_mod(totient.as_ref()).unwrap(),
+            P::MODULUS_BITS as u32,
+        )
+        .unwrap();
 
         let inv_p_mod_q = P::HalfUintMod::new(&self.p, &precomputed_mod_q)
             .invert()
@@ -66,11 +71,11 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 #[derive(Clone)]
 pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     sk: SecretKeyPaillier<P>,
-    totient: P::Uint,
+    totient: Bounded<P::Uint>,
     /// $\phi(N)^{-1} \mod N$
     inv_totient: P::UintMod,
     /// $N^{-1} \mod \phi(N)$
-    inv_modulus: P::Uint,
+    inv_modulus: Bounded<P::Uint>,
     inv_p_mod_q: P::HalfUintMod,
     precomputed_mod_p: <P::HalfUintMod as UintModLike>::Precomputed,
     precomputed_mod_q: <P::HalfUintMod as UintModLike>::Precomputed,
@@ -82,26 +87,35 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         self.sk.clone()
     }
 
-    pub fn primes(&self) -> (P::Uint, P::Uint) {
-        (self.sk.p.into_wide(), self.sk.q.into_wide())
+    pub fn primes(&self) -> (Signed<P::Uint>, Signed<P::Uint>) {
+        // The primes are positive, but where this method is used Signed is needed,
+        // so we return that for convenience.
+        // TODO: must be wrapped in a Secret
+        (
+            Signed::new_positive(self.sk.p.into_wide(), P::PRIME_BITS as u32).unwrap(),
+            Signed::new_positive(self.sk.q.into_wide(), P::PRIME_BITS as u32).unwrap(),
+        )
     }
 
-    pub fn totient(&self) -> &P::Uint {
+    pub fn totient(&self) -> &Bounded<P::Uint> {
+        // TODO: must be wrapped in a Secret
         &self.totient
     }
 
     /// Returns Euler's totient function of the modulus.
     pub fn totient_nonzero(&self) -> NonZero<P::Uint> {
-        NonZero::new(self.totient).unwrap()
+        // TODO: must be wrapped in a Secret
+        NonZero::new(*self.totient.as_ref()).unwrap()
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
     pub fn inv_totient(&self) -> &P::UintMod {
+        // TODO: must be wrapped in a Secret
         &self.inv_totient
     }
 
     /// Returns $N^{-1} \mod \phi(N)$
-    pub fn inv_modulus(&self) -> &P::Uint {
+    pub fn inv_modulus(&self) -> &Bounded<P::Uint> {
         &self.inv_modulus
     }
 
@@ -118,13 +132,11 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     }
 
     pub fn rns_split(&self, elem: &P::Uint) -> (P::HalfUintMod, P::HalfUintMod) {
-        // TODO: the returned values must be zeroized - the moduli are secret
-        let (p, q) = self.primes();
-
         // TODO: speed up potential here since we know p and q are small
         // TODO: make sure this is constant-time
-        let p_rem = *elem % NonZero::new(p).unwrap();
-        let q_rem = *elem % NonZero::new(q).unwrap();
+        // TODO: zeroize intermediate values
+        let p_rem = *elem % NonZero::new(self.sk.p.into_wide()).unwrap();
+        let q_rem = *elem % NonZero::new(self.sk.q.into_wide()).unwrap();
         let p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
         let q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
 
@@ -135,10 +147,13 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
 
     fn sqrt_part(&self, x: &P::HalfUintMod, modulus: &P::HalfUint) -> Option<P::HalfUintMod> {
         // Both `p` and `q` are safe primes, so they're 3 mod 4.
-        // This means that if square root exists, it must be of the form `+/- x^((p+1)/4)`,
-        // CHECK: can we get an overflow here?
-        let modulus_plus_one = modulus.checked_add(&P::HalfUint::ONE).unwrap();
-        let candidate = x.pow_bounded_exp(&(modulus_plus_one >> 2), P::PRIME_BITS - 1);
+        // This means that if square root exists, it must be of the form `+/- x^((modulus+1)/4)`.
+        // Also it means that `(modulus+1)/4 == modulus/4+1`
+        // (this will help avoid a possible overflow).
+        let candidate = x.pow_bounded_exp(
+            &modulus.shr_vartime(2).wrapping_add(&P::HalfUint::ONE),
+            P::PRIME_BITS - 1,
+        );
         if candidate.square() == *x {
             Some(candidate)
         } else {
@@ -177,8 +192,12 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         a.checked_add(&self.sk.p.mul_wide(&x)).unwrap()
     }
 
-    pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
-        P::Uint::random_mod(rng, &self.totient_nonzero())
+    pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
+        Bounded::new(
+            P::Uint::random_mod(rng, &self.totient_nonzero()),
+            P::MODULUS_BITS as u32,
+        )
+        .unwrap()
     }
 }
 
@@ -218,6 +237,10 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
 
     pub fn modulus(&self) -> &P::Uint {
         self.pk.modulus()
+    }
+
+    pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
+        Bounded::new(*self.pk.modulus(), P::MODULUS_BITS as u32).unwrap()
     }
 
     pub fn modulus_nonzero(&self) -> NonZero<P::Uint> {

@@ -13,11 +13,11 @@ use crate::cggmp21::{
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
     SchemeParams,
 };
-use crate::curve::{Point, Scalar};
+use crate::curve::{Point, Scalar, ORDER};
 use crate::paillier::{Ciphertext, PaillierParams};
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{CheckedAdd, CheckedMul, FromScalar, Signed};
+use crate::uint::{Bounded, CheckedAdd, CheckedMul, FromScalar, Signed};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
@@ -528,12 +528,33 @@ impl<P: SchemeParams> Round for Round2<P> {
         // TODO: check that (could be done in `verify()`), and abort if it is not true
         // (otherwise we will get panics in arithmetic operations)
 
-        let mut delta = uint_from_scalar::<P>(&self.context.gamma)
-            .checked_mul(&uint_from_scalar::<P>(&self.context.ephemeral_scalar_share))
+        let mut delta = Bounded::from_scalar(&self.context.gamma)
+            .checked_mul(Bounded::from_scalar(&self.context.ephemeral_scalar_share))
             .unwrap();
-        for (payload, protocol) in payloads.iter().zip(self.protocols.iter()) {
-            let term = (payload.alpha + protocol.beta).abs();
-            delta = delta.checked_add(&term).unwrap();
+        let log2 = |x: usize| usize::BITS - x.leading_zeros();
+        let product_bound = (ORDER.bits_vartime() * 2) as u32;
+        for (i, (payload, protocol)) in payloads.iter().zip(self.protocols.iter()).enumerate() {
+            let term = payload.alpha + protocol.beta;
+            // By construction this should be a product of two Scalar values,
+            // and therefore non-negative
+            if term.is_negative().into() {
+                return Err(FinalizeError::Unspecified(
+                    "Invalid value of alpha * beta".into(),
+                ));
+            }
+
+            // We know that every term is limited by `product_bound`,
+            // so we manually reset the bound of the result.
+            // TODO: return an error on failure here
+            let term = Bounded::new(term.abs(), product_bound).unwrap();
+
+            delta = delta.checked_add(term).unwrap();
+
+            // The bound on `delta` is only `product_bound + ceil(log2(num_parties))`
+            // instead of `product_bound + num_parties` as it would be conservatively set
+            // by a series of `checked_add()`.
+            // TODO: return an error on failure here
+            delta = Bounded::new(*delta.as_ref(), product_bound + log2(i + 1)).unwrap();
         }
 
         let alpha_hat_sum: Scalar = payloads.iter().map(|payload| payload.alpha_hat).sum();
@@ -564,14 +585,14 @@ impl<P: SchemeParams> Round for Round2<P> {
 #[serde(bound(serialize = "LogStarProof<P>: Serialize"))]
 #[serde(bound(deserialize = "LogStarProof<P>: for<'x> Deserialize<'x>"))]
 pub struct Round3Bcast<P: SchemeParams> {
-    delta: <P::Paillier as PaillierParams>::Uint,
+    delta: Scalar,
     big_delta: Point,
     psi_hat_pprime: LogStarProof<P>,
 }
 
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
-    delta: <P::Paillier as PaillierParams>::Uint,
+    delta: Bounded<<P::Paillier as PaillierParams>::Uint>,
     product_share: Scalar,
     big_delta: Point,
     big_gamma: Point,
@@ -581,13 +602,13 @@ pub struct Round3<P: SchemeParams> {
     round2_protocols: HoleVec<Round2Protocol<P>>,
 }
 
-pub struct Round3Payload<P: SchemeParams> {
-    delta: <P::Paillier as PaillierParams>::Uint,
+pub struct Round3Payload {
+    delta: Scalar,
     big_delta: Point,
 }
 
 impl<P: SchemeParams> BaseRound for Round3<P> {
-    type Payload = Round3Payload<P>;
+    type Payload = Round3Payload;
     type Message = Round3Bcast<P>;
 
     const ROUND_NUM: u8 = 4;
@@ -619,7 +640,7 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
                     &aux,
                 );
                 let message = Round3Bcast {
-                    delta: self.delta,
+                    delta: self.delta.to_scalar(),
                     big_delta: self.big_delta,
                     psi_hat_pprime,
                 };
@@ -676,7 +697,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             .map(|payload| (payload.delta, payload.big_delta))
             .unzip();
 
-        let delta: Scalar = deltas.iter().map(|delta| delta.to_scalar()).sum();
+        let delta: Scalar = deltas.iter().sum();
         let delta = delta + self.delta.to_scalar();
 
         let big_delta: Point = big_deltas.iter().sum();
@@ -749,8 +770,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         for j in range {
             let p_dec = DecProof::<P>::random(
                 rng,
-                // TODO: replace with Bounded type
-                &Signed::new_positive(self.delta, P::L_BOUND * 2 + 10).unwrap(),
+                &self.delta,
                 &rho,
                 pk,
                 &self.context.key_share.public_aux[j].rp_params,

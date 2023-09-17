@@ -8,7 +8,7 @@ use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    HasWide, Integer, NonZero, PowBoundedExp, Retrieve, Signed, UintLike, UintModLike,
+    Bounded, HasWide, NonZero, Retrieve, Signed, UintLike, UintModLike,
 };
 
 /// Paillier ciphertext.
@@ -33,15 +33,12 @@ impl<P: PaillierParams> Ciphertext<P> {
     fn new_with_randomizer_inner(
         pk: &PublicKeyPaillierPrecomputed<P>,
         abs_plaintext: &P::Uint,
-        randomzier: &P::Uint,
+        randomizer: &P::Uint,
         plaintext_is_negative: Choice,
     ) -> Self {
         // TODO: check that `abs_plaintext` is in range (< N)
 
-        // `N` as a wide uint
-        let modulus_wide = pk.modulus().into_wide();
-
-        let randomizer = randomzier.into_wide();
+        let randomizer = randomizer.into_wide();
 
         // Calculate the ciphertext `C = (N + 1)^m * rho^N mod N^2`
         // where `N` is the Paillier composite modulus, `m` is the plaintext,
@@ -57,7 +54,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared());
 
         let factor2 = P::WideUintMod::new(&randomizer, pk.precomputed_modulus_squared())
-            .pow_bounded_exp(&modulus_wide, P::MODULUS_BITS);
+            .pow_bounded(&pk.modulus_bounded().into_wide());
 
         let ciphertext = (factor1 * factor2).retrieve();
 
@@ -71,30 +68,39 @@ impl<P: PaillierParams> Ciphertext<P> {
     pub fn new_with_randomizer(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &P::Uint,
-        randomzier: &P::Uint,
+        randomizer: &P::Uint,
     ) -> Self {
-        Self::new_with_randomizer_inner(pk, plaintext, randomzier, Choice::from(0))
+        Self::new_with_randomizer_inner(pk, plaintext, randomizer, Choice::from(0))
+    }
+
+    #[cfg(test)]
+    pub fn new_with_randomizer_bounded(
+        pk: &PublicKeyPaillierPrecomputed<P>,
+        plaintext: &Bounded<P::Uint>,
+        randomizer: &P::Uint,
+    ) -> Self {
+        Self::new_with_randomizer_inner(pk, plaintext.as_ref(), randomizer, Choice::from(0))
     }
 
     pub fn new_with_randomizer_signed(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
-        randomzier: &P::Uint,
+        randomizer: &P::Uint,
     ) -> Self {
-        Self::new_with_randomizer_inner(pk, &plaintext.abs(), randomzier, plaintext.is_negative())
+        Self::new_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())
     }
 
     pub fn new_with_randomizer_wide(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::WideUint>,
-        randomzier: &P::Uint,
+        randomizer: &P::Uint,
     ) -> Self {
         // TODO: ensure this is constant-time
         let plaintext_reduced = P::Uint::try_from_wide(
             plaintext.abs() % NonZero::new(pk.modulus().into_wide()).unwrap(),
         )
         .unwrap();
-        Self::new_with_randomizer_inner(pk, &plaintext_reduced, randomzier, plaintext.is_negative())
+        Self::new_with_randomizer_inner(pk, &plaintext_reduced, randomizer, plaintext.is_negative())
     }
 
     /// Encrypts the plaintext with a random randomizer.
@@ -122,7 +128,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     /// Decrypts this ciphertext assuming that the plaintext is in range `[0, N)`.
     pub fn decrypt(&self, sk: &SecretKeyPaillierPrecomputed<P>) -> P::Uint {
         let pk = sk.public_key();
-        let totient_wide = NonZero::new(sk.totient().into_wide()).unwrap();
+        let totient_wide = sk.totient().into_wide();
         let modulus_wide = NonZero::new(pk.modulus().into_wide()).unwrap();
 
         // Calculate the plaintext `m = ((C^phi mod N^2 - 1) / N) * mu mod N`,
@@ -135,7 +141,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
         // `C^phi mod N^2` may be 0 if `C == N`, which is very unlikely for large `N`.
         let x = P::Uint::try_from_wide(
-            (ciphertext_mod.pow_bounded_exp(&totient_wide, P::MODULUS_BITS)
+            (ciphertext_mod.pow_bounded(&totient_wide)
                 - P::WideUintMod::one(pk.precomputed_modulus_squared()))
             .retrieve()
                 / modulus_wide,
@@ -183,9 +189,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
-        ciphertext_mod_n
-            .pow_bounded_exp(sk.inv_modulus(), P::MODULUS_BITS)
-            .retrieve()
+        ciphertext_mod_n.pow_bounded(sk.inv_modulus()).retrieve()
     }
 
     // Note: while it is true that `enc(x) (*) rhs == enc((x * rhs) mod N)`,
@@ -226,14 +230,12 @@ impl<P: PaillierParams> Ciphertext<P> {
     pub fn homomorphic_mul_unsigned(
         &self,
         pk: &PublicKeyPaillierPrecomputed<P>,
-        rhs: &P::Uint,
+        rhs: &Bounded<P::Uint>,
     ) -> Self {
         let ciphertext_mod =
             P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
         // This will not panic as long as the randomizer was chosen to be invertible.
-        let ciphertext = ciphertext_mod
-            .pow_bounded_exp(&rhs.into_wide(), <P::Uint as Integer>::BITS)
-            .retrieve();
+        let ciphertext = ciphertext_mod.pow_bounded(&rhs.into_wide()).retrieve();
         Self {
             ciphertext,
             phantom: PhantomData,
@@ -258,8 +260,8 @@ impl<P: PaillierParams> Ciphertext<P> {
             P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
         let randomizer_mod =
             P::WideUintMod::new(&randomizer.into_wide(), pk.precomputed_modulus_squared());
-        let ciphertext_mod = ciphertext_mod
-            * randomizer_mod.pow_bounded_exp(&pk.modulus().into_wide(), P::MODULUS_BITS);
+        let ciphertext_mod =
+            ciphertext_mod * randomizer_mod.pow_bounded(&pk.modulus_bounded().into_wide());
         Self {
             ciphertext: ciphertext_mod.retrieve(),
             phantom: PhantomData,

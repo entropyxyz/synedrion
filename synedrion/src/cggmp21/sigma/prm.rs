@@ -15,14 +15,17 @@ use crate::paillier::{
     SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{PowBoundedExp, Retrieve, UintLike, UintModLike, Zero};
+use crate::uint::{
+    subtle::{Choice, ConditionallySelectable},
+    Bounded, Retrieve, UintModLike,
+};
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PrmSecret<P: SchemeParams> {
     public_key: PublicKeyPaillierPrecomputed<P::Paillier>,
     /// `a_i`
-    secret: Vec<<P::Paillier as PaillierParams>::Uint>,
+    secret: Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>,
 }
 
 impl<P: SchemeParams> PrmSecret<P> {
@@ -51,10 +54,7 @@ impl<P: SchemeParams> PrmCommitment<P> {
         let commitment = secret
             .secret
             .iter()
-            .map(|a| {
-                base.pow_bounded_exp(a, <P::Paillier as PaillierParams>::MODULUS_BITS)
-                    .retrieve()
-            })
+            .map(|a| base.pow_bounded(a).retrieve())
             .collect();
         Self(commitment)
     }
@@ -93,7 +93,7 @@ impl Hashable for PrmChallenge {
 pub(crate) struct PrmProof<P: SchemeParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
-    proof: Vec<<P::Paillier as PaillierParams>::Uint>,
+    proof: Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>,
 }
 
 impl<P: SchemeParams> PrmProof<P> {
@@ -110,13 +110,16 @@ impl<P: SchemeParams> PrmProof<P> {
         let commitment = PrmCommitment::new(&proof_secret, &rp.base);
 
         let totient = sk.totient_nonzero();
-        let zero = <P::Paillier as PaillierParams>::Uint::ZERO;
         let challenge = PrmChallenge::new(aux, &commitment);
         let proof = proof_secret
             .secret
             .iter()
             .zip(challenge.0.iter())
-            .map(|(a, e)| a.add_mod(if *e { rp_secret.as_ref() } else { &zero }, &totient))
+            .map(|(a, e)| {
+                let x = a.add_mod(rp_secret.as_ref(), &totient);
+                let choice = Choice::from(*e as u8);
+                Bounded::conditional_select(a, &x, choice)
+            })
             .collect();
         Self {
             commitment,
@@ -138,9 +141,7 @@ impl<P: SchemeParams> PrmProof<P> {
             let z = self.proof[i];
             let e = challenge.0[i];
             let a = <P::Paillier as PaillierParams>::UintMod::new(&self.commitment.0[i], modulus);
-            let pwr = rp
-                .base
-                .pow_bounded_exp(&z, <P::Paillier as PaillierParams>::MODULUS_BITS);
+            let pwr = rp.base.pow_bounded(&z);
             let test = if e { pwr == a * rp.power } else { pwr == a };
             if !test {
                 return false;

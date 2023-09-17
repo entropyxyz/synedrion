@@ -80,17 +80,12 @@ impl<P: SchemeParams> FacProof<P> {
         let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let (p, q) = sk.primes();
-        // TODO: return them as Signed already?
-        let p_signed =
-            Signed::new_positive(p, <P::Paillier as PaillierParams>::PRIME_BITS).unwrap();
-        let q_signed =
-            Signed::new_positive(q, <P::Paillier as PaillierParams>::PRIME_BITS).unwrap();
 
         // P = s^p t^\mu \mod \hat{N}
-        let cap_p = aux_rp.commit(&mu, &p_signed).retrieve();
+        let cap_p = aux_rp.commit(&mu, &p).retrieve();
 
         // Q = s^q t^\nu \mod \hat{N}
-        let cap_q = aux_rp.commit(&nu, &q_signed);
+        let cap_q = aux_rp.commit(&nu, &q);
 
         // A = s^\alpha t^x \mod \hat{N}
         let cap_a = aux_rp.commit_wide(&x, &alpha).retrieve();
@@ -109,13 +104,13 @@ impl<P: SchemeParams> FacProof<P> {
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // \hat{\sigma} = \sigma - \nu p
-        let hat_sigma = sigma - (nu * p_signed.into_wide()).into_wide();
+        let hat_sigma = sigma - (nu * p.into_wide()).into_wide();
 
         // z_1 = \alpha + e p
-        let z1 = alpha + (challenge * p_signed).into_wide();
+        let z1 = alpha + (challenge * p).into_wide();
 
         // z_2 = \beta + e q
-        let z2 = beta + (challenge * q_signed).into_wide();
+        let z2 = beta + (challenge * q).into_wide();
 
         // \omega_1 = x + e \mu
         let omega1 = x + challenge.into_wide() * mu;
@@ -156,7 +151,7 @@ impl<P: SchemeParams> FacProof<P> {
             Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &aux_rp.commit_xwide(&self.sigma, pk.modulus());
+        let cap_r = &aux_rp.commit_xwide(&self.sigma, &pk.modulus_bounded());
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         if aux_rp.commit_wide(&self.omega1, &self.z1)

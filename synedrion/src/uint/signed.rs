@@ -9,7 +9,7 @@ use serde::{
 
 use super::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
-    CheckedAdd, CheckedMul, FromScalar, HasWide, Integer, NonZero, UintLike, UintModLike,
+    Bounded, CheckedAdd, CheckedMul, FromScalar, HasWide, Integer, NonZero, UintLike, UintModLike,
 };
 use crate::curve::{Scalar, ORDER};
 
@@ -71,7 +71,12 @@ impl<T: UintLike + Serialize> Serialize for Signed<T> {
 }
 
 impl<T: UintLike> Signed<T> {
-    pub fn bound(&self) -> usize {
+    pub fn bound(&self) -> u32 {
+        self.bound
+    }
+
+    pub fn bound_usize(&self) -> usize {
+        // Extracted into a method to localize the conversion
         self.bound as usize
     }
 
@@ -81,6 +86,12 @@ impl<T: UintLike> Signed<T> {
 
     pub fn abs(&self) -> T {
         T::conditional_select(&self.value, &self.value.neg(), self.is_negative())
+    }
+
+    pub fn abs_bounded(&self) -> Bounded<T> {
+        // Can unwrap here since the maximum bound on the positive Bounded
+        // is always greater than the maximum bound on Signed
+        Bounded::new(self.abs(), self.bound).unwrap()
     }
 
     /// Creates a signed value from an unsigned one,
@@ -95,7 +106,7 @@ impl<T: UintLike> Signed<T> {
 
     /// Creates a signed value from an unsigned one,
     /// treating it as if it is the absolute value.
-    fn new_from_abs(abs_value: T, bound: usize, is_negative: Choice) -> Option<Self> {
+    fn new_from_abs(abs_value: T, bound: u32, is_negative: Choice) -> Option<Self> {
         Self::new_positive(abs_value, bound).map(|x| {
             let mut x = x;
             x.conditional_negate(is_negative);
@@ -105,15 +116,12 @@ impl<T: UintLike> Signed<T> {
 
     /// Creates a signed value from an unsigned one,
     /// assuming that it encodes a positive value.
-    pub fn new_positive(value: T, bound: usize) -> Option<Self> {
+    pub fn new_positive(value: T, bound: u32) -> Option<Self> {
         // Reserving one bit as the sign bit
-        if bound >= <T as Integer>::BITS || value.bits_vartime() > bound {
+        if bound >= <T as Integer>::BITS as u32 || value.bits_vartime() as u32 > bound {
             return None;
         }
-        let result = Self {
-            value,
-            bound: bound as u32,
-        };
+        let result = Self { value, bound };
         if result.is_negative().into() {
             return None;
         }
@@ -282,7 +290,7 @@ where
 impl<T: UintLike + FromScalar> FromScalar for Signed<T> {
     fn from_scalar(value: &Scalar) -> Self {
         const ORDER_BITS: usize = ORDER.bits_vartime();
-        Signed::new_positive(T::from_scalar(value), ORDER_BITS).unwrap()
+        Signed::new_positive(T::from_scalar(value), ORDER_BITS as u32).unwrap()
     }
     fn to_scalar(&self) -> Scalar {
         let abs_value = self.abs().to_scalar();
