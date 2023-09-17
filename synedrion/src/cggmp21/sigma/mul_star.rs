@@ -12,31 +12,6 @@ use crate::paillier::{
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
 
-// TODO: should it be here? Or in `curve`?
-// Or a separate function so that `uint` and `curve` are agnostic of each other?
-pub(crate) fn mul_by_point<P: SchemeParams>(
-    p: &Point,
-    x: &Signed<<P::Paillier as PaillierParams>::Uint>,
-) -> Point {
-    // TODO: should we have a method in `FromScalar` that does the reduction too?
-    let scalar = (x.abs() % NonZero::new(P::CURVE_ORDER).unwrap()).to_scalar();
-
-    // TODO: make constant-time
-    let scalar = if x.is_negative().into() {
-        -scalar
-    } else {
-        scalar
-    };
-
-    p * &scalar
-}
-
-pub(crate) fn mul_by_generator<P: SchemeParams>(
-    x: &Signed<<P::Paillier as PaillierParams>::Uint>,
-) -> Point {
-    mul_by_point::<P>(&Point::GENERATOR, x)
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,                        // $A$
@@ -82,7 +57,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         let cap_a = cap_c
             .homomorphic_mul(pk, &alpha)
             .mul_randomizer(pk, &r.retrieve());
-        let cap_b_x = mul_by_generator::<P>(&alpha);
+        let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
         let cap_e = aux_rp.commit(&gamma, &alpha).retrieve();
         let cap_s = aux_rp.commit(&m, x).retrieve();
 
@@ -131,7 +106,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
 
         // g^{z_1} == B_x X^e
-        if mul_by_generator::<P>(&self.z1) != self.cap_b_x + mul_by_point::<P>(cap_x, &e) {
+        if &Point::GENERATOR * &self.z1.to_scalar() != self.cap_b_x + cap_x * &e.to_scalar() {
             return false;
         }
 
@@ -150,10 +125,11 @@ impl<P: SchemeParams> MulStarProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::{mul_by_generator, MulStarProof};
+    use super::MulStarProof;
     use crate::cggmp21::{SchemeParams, TestParams};
+    use crate::curve::Point;
     use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
-    use crate::uint::Signed;
+    use crate::uint::{FromScalar, Signed};
 
     #[test]
     fn prove_and_verify() {
@@ -174,7 +150,7 @@ mod tests {
         let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
         let cap_c = Ciphertext::new_signed(&mut OsRng, pk, &secret);
         let cap_d = cap_c.homomorphic_mul(pk, &x).mul_randomizer(pk, &rho);
-        let cap_x = mul_by_generator::<Params>(&x);
+        let cap_x = &Point::GENERATOR * &x.to_scalar();
 
         let proof = MulStarProof::<Params>::random(&mut OsRng, &x, &rho, pk, &cap_c, &aux_rp, &aux);
         assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &aux_rp, &aux));

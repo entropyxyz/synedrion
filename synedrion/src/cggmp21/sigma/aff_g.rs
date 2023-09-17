@@ -11,31 +11,6 @@ use crate::paillier::{
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
 
-// TODO: should it be here? Or in `curve`?
-// Or a separate function so that `uint` and `curve` are agnostic of each other?
-pub(crate) fn mul_by_point<P: SchemeParams>(
-    p: &Point,
-    x: &Signed<<P::Paillier as PaillierParams>::Uint>,
-) -> Point {
-    // TODO: should we have a method in `FromScalar` that does the reduction too?
-    let scalar = (x.abs() % NonZero::new(P::CURVE_ORDER).unwrap()).to_scalar();
-
-    // TODO: make constant-time
-    let scalar = if x.is_negative().into() {
-        -scalar
-    } else {
-        scalar
-    };
-
-    p * &scalar
-}
-
-pub(crate) fn mul_by_generator<P: SchemeParams>(
-    x: &Signed<<P::Paillier as PaillierParams>::Uint>,
-) -> Point {
-    mul_by_point::<P>(&Point::GENERATOR, x)
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,                        // $A$
@@ -115,7 +90,7 @@ impl<P: SchemeParams> AffGProof<P> {
         );
 
         // B_x = g^\alpha
-        let cap_b_x = mul_by_generator::<P>(&alpha);
+        let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
 
         // B_y = (1 + N_1)^\beta r_y^{N_1} \mod N_1^2
         let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y.retrieve());
@@ -214,7 +189,8 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // g^{z_1} = B_x X^e
-        if mul_by_generator::<P>(&self.z1) != self.cap_b_x + mul_by_point::<P>(cap_x, &challenge) {
+        if &Point::GENERATOR * &self.z1.to_scalar() != self.cap_b_x + cap_x * &challenge.to_scalar()
+        {
             return false;
         }
 
@@ -254,10 +230,11 @@ impl<P: SchemeParams> AffGProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::{mul_by_generator, AffGProof};
+    use super::AffGProof;
     use crate::cggmp21::{SchemeParams, TestParams};
+    use crate::curve::Point;
     use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
-    use crate::uint::Signed;
+    use crate::uint::{FromScalar, Signed};
 
     #[test]
     fn prove_and_verify() {
@@ -288,7 +265,7 @@ mod tests {
             .homomorphic_mul(pk0, &x)
             .homomorphic_add(pk0, &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho));
         let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y);
-        let cap_x = mul_by_generator::<Params>(&x);
+        let cap_x = &Point::GENERATOR * &x.to_scalar();
 
         let proof = AffGProof::<Params>::random(
             &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &aux_rp, &aux,

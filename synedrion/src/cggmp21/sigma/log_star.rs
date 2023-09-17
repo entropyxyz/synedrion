@@ -4,13 +4,12 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use super::aff_g::mul_by_point;
 use crate::curve::Point;
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{NonZero, Retrieve, Signed, UintModLike};
+use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
@@ -59,7 +58,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
 
         // Y = g^\alpha
-        let cap_y = mul_by_point::<P>(g, &alpha);
+        let cap_y = g * &alpha.to_scalar();
 
         // D = s^\alpha t^\gamma \mod \hat{N}
         let cap_d = aux_rp.commit(&gamma, &alpha).retrieve();
@@ -118,7 +117,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // g^{z_1} = Y X^e
-        if mul_by_point::<P>(g, &self.z1) != self.cap_y + mul_by_point::<P>(cap_x, &challenge) {
+        if g * &self.z1.to_scalar() != self.cap_y + cap_x * &challenge.to_scalar() {
             return false;
         }
 
@@ -139,12 +138,11 @@ impl<P: SchemeParams> LogStarProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::super::aff_g::mul_by_point;
     use super::LogStarProof;
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::{Point, Scalar};
     use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
-    use crate::uint::Signed;
+    use crate::uint::{FromScalar, Signed};
 
     #[test]
     fn prove_and_verify() {
@@ -163,7 +161,7 @@ mod tests {
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho);
-        let cap_x = mul_by_point::<Params>(&g, &x);
+        let cap_x = &g * &x.to_scalar();
 
         let proof = LogStarProof::<Params>::random(&mut OsRng, &x, &rho, pk, &g, &aux_rp, &aux);
         assert!(proof.verify(pk, &cap_c, &g, &cap_x, &aux_rp, &aux));
