@@ -44,6 +44,10 @@ impl<P: PaillierParams> RandomizerMod<P> {
     pub fn pow_signed(&self, exponent: &Signed<P::Uint>) -> Self {
         Self(self.0.pow_signed(exponent))
     }
+
+    pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
+        Self(self.0.pow_signed_vartime(exponent))
+    }
 }
 
 impl<'a, P: PaillierParams> Mul<&'a RandomizerMod<P>> for &'a RandomizerMod<P> {

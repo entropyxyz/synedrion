@@ -12,6 +12,8 @@ use crate::paillier::{
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{FromScalar, NonZero, Signed};
 
+const HASH_TAG: &[u8] = b"P_log*";
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
     cap_s: RPCommitment<P::Paillier>,
@@ -34,48 +36,26 @@ impl<P: SchemeParams> LogStarProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>,                 // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
-        // TODO: check ranges of input values
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
 
-        let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
 
-        // \alpha <-- +- 2^{\ell + \eps}
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
-
-        // \mu <-- (+- 2^\ell) \hat{N}
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-
-        // r <-- Z^*_{N_0}
         let r = RandomizerMod::random(rng, pk);
-
-        // \gamma <-- (+- 2^{\ell + \eps}) \hat{N}
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        // S = s^x t^m  \mod \hat{N}
         let cap_s = aux_rp.commit(&mu, x).retrieve();
-
-        // A = (1 + N_0)^\alpha r^N_0 \mod N_0^2
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
-
-        // Y = g^\alpha
         let cap_y = g * &alpha.to_scalar();
-
-        // D = s^\alpha t^\gamma \mod \hat{N}
         let cap_d = aux_rp.commit(&gamma, &alpha).retrieve();
 
-        // Non-interactive challenge ($e$)
-        let challenge =
-            Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
-
-        // z_1 = \alpha + e x
-        let z1 = alpha + challenge * *x;
-
-        // z_2 = r * \rho^e mod N_0
-        let z2 = (r * rho.pow_signed(&challenge)).retrieve();
-
-        // z_3 = \gamma + e * \mu
-        let z3 = gamma + mu * challenge.into_wide();
+        let z1 = alpha + e * *x;
+        let z2 = (r * rho.pow_signed_vartime(&e)).retrieve();
+        let z3 = gamma + mu * e.into_wide();
 
         Self {
             cap_s,
@@ -98,32 +78,29 @@ impl<P: SchemeParams> LogStarProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
 
-        let challenge =
-            Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        // Check that $encrypt_{N_0}(z1, z2) == A (+) C (*) e$
+        // enc_0(z1, z2) == A (+) C (*) e
         let c = Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.z2);
-
         if c != self
             .cap_a
-            .homomorphic_add(pk, &cap_c.homomorphic_mul(pk, &challenge))
+            .homomorphic_add(pk, &cap_c.homomorphic_mul(pk, &e))
         {
             return false;
         }
 
-        // g^{z_1} = Y X^e
-        if g * &self.z1.to_scalar() != self.cap_y + cap_x * &challenge.to_scalar() {
+        // g^{z_1} == Y X^e
+        if g * &self.z1.to_scalar() != self.cap_y + cap_x * &e.to_scalar() {
             return false;
         }
 
-        // Check that $s^{z_1} t^{z_3} == D S^e \mod \hat{N}$
+        // s^{z_1} t^{z_3} == D S^e \mod \hat{N}
         let cap_d_mod = self.cap_d.to_mod(aux_rp.public_key());
         let cap_s_mod = self.cap_s.to_mod(aux_rp.public_key());
-        if aux_rp.commit(&self.z3, &self.z1)
-            != &cap_d_mod * &cap_s_mod.pow_signed_vartime(&challenge)
-        {
+        if aux_rp.commit(&self.z3, &self.z1) != &cap_d_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 

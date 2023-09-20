@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::curve::{Point, Scalar};
 use crate::tools::hashing::{Chain, Hash, Hashable};
 
+const HASH_TAG: &[u8] = b"P_sch";
+
 /// Secret data the proof is based on (~ signing key)
 #[derive(Clone)]
 pub(crate) struct SchSecret(
@@ -44,7 +46,7 @@ struct SchChallenge(Scalar);
 impl SchChallenge {
     fn new(aux: &impl Hashable, public: &Point, commitment: &SchCommitment) -> Self {
         Self(
-            Hash::new_with_dst(b"challenge-Schnorr")
+            Hash::new_with_dst(HASH_TAG)
                 .chain(aux)
                 .chain(public)
                 .chain(commitment)

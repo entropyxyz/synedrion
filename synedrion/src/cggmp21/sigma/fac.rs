@@ -1,3 +1,5 @@
+//! No small factor proof ($\Pi^{fac}$, Section C.5, Fig. 28)
+
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +10,8 @@ use crate::paillier::{
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{HasWide, Integer, NonZero, Signed};
+
+const HASH_TAG: &[u8] = b"P_fac";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
@@ -31,7 +35,11 @@ impl<P: SchemeParams> FacProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
-        let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e_wide = e.into_wide();
 
         let pk = sk.public_key();
         let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
@@ -43,83 +51,42 @@ impl<P: SchemeParams> FacProof<P> {
         )
         .unwrap();
 
-        // \alpha <-- +- 2^{\ell + \eps} * \sqrt{N_0}
         let alpha = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
-
-        // \beta <-- +- 2^{\ell + \eps} * \sqrt{N_0}
         let beta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
-
-        // \mu <-- (+- 2^\ell) \hat{N}
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-
-        // \nu <-- (+- 2^\ell) \hat{N}
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // N_0 \hat{N}
         let scale = NonZero::new(pk.modulus().mul_wide(hat_cap_n.as_ref())).unwrap();
 
-        // \sigma <-- (+- 2^\ell) N_0 \hat{N}
         let sigma =
             Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
                 rng,
                 P::L_BOUND,
                 &scale,
             );
-
-        // r <-- (+- 2^{\ell + \eps}) N_0 \hat{N}
         let r = Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
             rng,
             P::L_BOUND + P::EPS_BOUND,
             &scale,
         );
-
-        // x <-- (+- 2^{\ell + \eps}) \hat{N}
         let x = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-
-        // y <-- (+- 2^{\ell + \eps}) \hat{N}
         let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let (p, q) = sk.primes();
 
-        // P = s^p t^\mu \mod \hat{N}
         let cap_p = aux_rp.commit(&mu, &p).retrieve();
-
-        // Q = s^q t^\nu \mod \hat{N}
         let cap_q = aux_rp.commit(&nu, &q);
-
-        // A = s^\alpha t^x \mod \hat{N}
         let cap_a = aux_rp.commit_wide(&x, &alpha).retrieve();
-
-        // B = s^\beta t^y \mod \hat{N}
         let cap_b = aux_rp.commit_wide(&y, &beta).retrieve();
-
-        // T = Q^\alpha t^r \mod \hat{N}
-        // Another way is to rewrite it as
-        //   s^{\alpha * q} t^{\alpha \nu + r} \mod \hat{N}
-        // This may or may not be faster.
         let cap_t = (&cap_q.pow_signed_wide(&alpha) * &aux_rp.commit_base_xwide(&r)).retrieve();
 
-        // Non-interactive challenge ($e$)
-        let challenge =
-            Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
-
-        // \hat{\sigma} = \sigma - \nu p
         let hat_sigma = sigma - (nu * p.into_wide()).into_wide();
-
-        // z_1 = \alpha + e p
-        let z1 = alpha + (challenge * p).into_wide();
-
-        // z_2 = \beta + e q
-        let z2 = beta + (challenge * q).into_wide();
-
-        // \omega_1 = x + e \mu
-        let omega1 = x + challenge.into_wide() * mu;
-
-        // \omega_2 = y + e \nu
-        let omega2 = y + challenge.into_wide() * nu;
-
-        // v = r + e \hat{\sigma}
-        let v = r + (challenge.into_wide().into_wide() * hat_sigma);
+        let z1 = alpha + (e * p).into_wide();
+        let z2 = beta + (e * q).into_wide();
+        let omega1 = x + e_wide * mu;
+        let omega2 = y + e_wide * nu;
+        let v = r + (e_wide.into_wide() * hat_sigma);
 
         Self {
             cap_p,
@@ -142,49 +109,50 @@ impl<P: SchemeParams> FacProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(b"P_log*").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let aux_pk = aux_rp.public_key();
-
-        // Non-interactive challenge ($e$)
-        let challenge =
-            Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // R = s^{N_0} t^\sigma
         let cap_r = &aux_rp.commit_xwide(&self.sigma, &pk.modulus_bounded());
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
+        let cap_a_mod = self.cap_a.to_mod(aux_pk);
+        let cap_p_mod = self.cap_p.to_mod(aux_pk);
         if aux_rp.commit_wide(&self.omega1, &self.z1)
-            != &self.cap_a.to_mod(aux_pk)
-                * &self.cap_p.to_mod(aux_pk).pow_signed_vartime(&challenge)
+            != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e)
         {
             return false;
         }
 
-        let cap_q_mod = self.cap_q.to_mod(aux_pk);
-
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
+        let cap_b_mod = self.cap_b.to_mod(aux_pk);
+        let cap_q_mod = self.cap_q.to_mod(aux_pk);
         if aux_rp.commit_wide(&self.omega2, &self.z2)
-            != &self.cap_b.to_mod(aux_pk) * &cap_q_mod.pow_signed_vartime(&challenge)
+            != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e)
         {
             return false;
         }
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
+        let cap_t_mod = self.cap_t.to_mod(aux_pk);
         if &cap_q_mod.pow_signed_wide(&self.z1) * &aux_rp.commit_base_xwide(&self.v)
-            != &self.cap_t.to_mod(aux_pk) * &cap_r.pow_signed_vartime(&challenge)
+            != &cap_t_mod * &cap_r.pow_signed_vartime(&e)
         {
             return false;
         }
 
-        // z1 \in +- \sqrt{N_0} 2^{\ell + \eps}
+        // z1 \in \pm \sqrt{N_0} 2^{\ell + \eps}
         if !self.z1.in_range_bits(
             P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 1,
         ) {
             return false;
         }
 
-        // z2 \in +- \sqrt{N_0} 2^{\ell + \eps}
+        // z2 \in \pm \sqrt{N_0} 2^{\ell + \eps}
         if !self.z2.in_range_bits(
             P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 1,
         ) {

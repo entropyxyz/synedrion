@@ -12,6 +12,8 @@ use crate::paillier::{
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{Bounded, FromScalar, NonZero, Signed};
 
+const HASH_TAG: &[u8] = b"P_enc";
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
     cap_s: RPCommitment<P::Paillier>,
@@ -32,7 +34,9 @@ impl<P: SchemeParams> DecProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>,              // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
-        let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+
+        // Non-interactive challenge
         let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
@@ -50,7 +54,7 @@ impl<P: SchemeParams> DecProof<P> {
         let z1 = alpha + e * y.into_signed().unwrap();
         let z2 = nu + e.into_wide() * mu;
 
-        let omega = (r * rho.pow_signed(&e)).retrieve();
+        let omega = (r * rho.pow_signed_vartime(&e)).retrieve();
 
         Self {
             cap_s,
@@ -71,7 +75,9 @@ impl<P: SchemeParams> DecProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>,              // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(b"P_enc").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+
+        // Non-interactive challenge
         let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // enc(z_1, \omega) == A (+) C (*) e
@@ -91,7 +97,7 @@ impl<P: SchemeParams> DecProof<P> {
         // s^{z_1} t^{z_2} == T S^e
         let cap_s_mod = self.cap_s.to_mod(aux_rp.public_key());
         let cap_t_mod = self.cap_t.to_mod(aux_rp.public_key());
-        if aux_rp.commit(&self.z2, &self.z1) != &cap_t_mod * &cap_s_mod.pow_signed(&e) {
+        if aux_rp.commit(&self.z2, &self.z1) != &cap_t_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 

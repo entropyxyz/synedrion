@@ -2,11 +2,10 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use digest::{Digest, ExtendableOutput, Update, XofReader};
+use digest::{Digest, XofReader};
 use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use sha3::Shake256;
 
 use crate::curve::Scalar;
 use crate::tools::serde_bytes;
@@ -83,37 +82,6 @@ impl Hash {
 
     pub fn finalize_to_rng(self) -> rand_chacha::ChaCha8Rng {
         rand_chacha::ChaCha8Rng::from_seed(self.0.finalize().into())
-    }
-}
-
-/// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
-// TODO: should we just hash to an RNG with `Hash`, and then use that RNG to produce whatever
-// extensible output we need?
-pub(crate) struct XofHash(Shake256);
-
-impl Chain for XofHash {
-    fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
-        let mut digest = self.0;
-        digest.update(bytes);
-        Self(digest)
-    }
-}
-
-impl XofHash {
-    fn new() -> Self {
-        Self(Shake256::default())
-    }
-
-    pub fn new_with_dst(dst: &[u8]) -> Self {
-        Self::new().chain_bytes(dst)
-    }
-
-    pub fn finalize_boxed(self, output_size: usize) -> Box<[u8]> {
-        self.0.finalize_boxed(output_size)
-    }
-
-    pub fn finalize_reader(self) -> <Shake256 as ExtendableOutput>::Reader {
-        self.0.finalize_xof()
     }
 }
 

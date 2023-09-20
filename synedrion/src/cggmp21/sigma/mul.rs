@@ -10,6 +10,8 @@ use crate::paillier::{
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{Bounded, NonZero, Retrieve, Signed};
 
+const HASH_TAG: &[u8] = b"P_mul";
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,
@@ -31,7 +33,10 @@ impl<P: SchemeParams> MulProof<P> {
         cap_y: &Ciphertext<P::Paillier>,                        // $Y$
         aux: &impl Hashable,
     ) -> Self {
-        let mut aux_rng = Hash::new_with_dst(b"P_mul").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         /*
         CHECK: in Fig. 29, the proof takes three ciphertexts:
@@ -62,11 +67,9 @@ impl<P: SchemeParams> MulProof<P> {
             .mul_randomizer(pk, &r);
         let cap_b = Ciphertext::new_with_randomizer(pk, alpha.as_ref(), &s);
 
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
-
         let z = alpha.into_signed().unwrap().into_wide() + e.mul_wide(secret);
-        let u = (r_mod * rho_mod.pow_signed(&e)).retrieve();
-        let v = (s_mod * rho_x_mod.pow_signed(&e)).retrieve();
+        let u = (r_mod * rho_mod.pow_signed_vartime(&e)).retrieve();
+        let v = (s_mod * rho_x_mod.pow_signed_vartime(&e)).retrieve();
 
         Self {
             cap_a,
@@ -85,8 +88,9 @@ impl<P: SchemeParams> MulProof<P> {
         cap_c: &Ciphertext<P::Paillier>,                // $C = (Y (*) x) * \rho^N$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(b"P_mul").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
 
+        // Non-interactive challenge
         let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // Y^z u^N = A * C^e \mod N^2

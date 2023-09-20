@@ -159,13 +159,6 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
 
     /// Raise to the power of `exponent`.
     ///
-    /// `exponent` will be effectively reduced modulo `totient(N)`.
-    pub fn pow_signed(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(self.0.pow_signed(exponent))
-    }
-
-    /// Raise to the power of `exponent`.
-    ///
     /// Note: this is variable time in `exponent`.
     /// `exponent` will be effectively reduced modulo `totient(N)`.
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {

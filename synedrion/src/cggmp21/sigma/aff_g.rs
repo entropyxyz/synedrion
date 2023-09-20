@@ -12,6 +12,8 @@ use crate::paillier::{
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{FromScalar, NonZero, Signed};
 
+const HASH_TAG: &[u8] = b"P_aff_g";
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,
@@ -35,23 +37,21 @@ impl<P: SchemeParams> AffGProof<P> {
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        rho_mod: &RandomizerMod<P::Paillier>,
-        rho_y_mod: &RandomizerMod<P::Paillier>,
+        rho_mod: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
+        rho_y_mod: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_1$
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_1$
-        cap_c: &Ciphertext<P::Paillier>,                 // a ciphertext encrypted with `pk0`
-        aux_rp: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
+        cap_c: &Ciphertext<P::Paillier>,      // a ciphertext encrypted with `pk0`
+        aux_rp: &RPParamsMod<P::Paillier>,    // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
-        // TODO: check ranges of input values
-
-        let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
-
-        let hat_cap_n = &aux_rp.public_key().modulus_nonzero();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
 
         // Non-interactive challenge
         let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
         let e_wide = e.into_wide();
+
+        let hat_cap_n = &aux_rp.public_key().modulus_nonzero();
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND + P::EPS_BOUND);
@@ -88,11 +88,11 @@ impl<P: SchemeParams> AffGProof<P> {
         let z3 = gamma + e_wide * m;
         let z4 = delta + e_wide * mu;
 
-        let omega = (r_mod * rho_mod.pow_signed(&e)).retrieve();
+        let omega = (r_mod * rho_mod.pow_signed_vartime(&e)).retrieve();
 
         // CHECK: deviation from the paper to support a different $D$
         // Original: $\rho_y^e$. Modified: $\rho_y^{-e}$.
-        let omega_y = (r_y_mod * rho_y_mod.pow_signed(&-e)).retrieve();
+        let omega_y = (r_y_mod * rho_y_mod.pow_signed_vartime(&-e)).retrieve();
 
         Self {
             cap_a,
@@ -128,7 +128,7 @@ impl<P: SchemeParams> AffGProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
 
         let aux_pk = aux_rp.public_key();
 
@@ -165,16 +165,16 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
-        if aux_rp.commit(&self.z3, &self.z1)
-            != &self.cap_e.to_mod(aux_pk) * &self.cap_s.to_mod(aux_pk).pow_signed_vartime(&e)
-        {
+        let cap_e_mod = self.cap_e.to_mod(aux_pk);
+        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        if aux_rp.commit(&self.z3, &self.z1) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
-        if aux_rp.commit(&self.z4, &self.z2)
-            != &self.cap_f.to_mod(aux_pk) * &self.cap_t.to_mod(aux_pk).pow_signed_vartime(&e)
-        {
+        let cap_f_mod = self.cap_f.to_mod(aux_pk);
+        let cap_t_mod = self.cap_t.to_mod(aux_pk);
+        if aux_rp.commit(&self.z4, &self.z2) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e) {
             return false;
         }
 

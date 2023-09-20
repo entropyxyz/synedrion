@@ -3,9 +3,9 @@
 //! Publish $(N, s, t)$ and prove that we know a secret $\lambda$ such that
 //! $s = t^\lambda \mod N$.
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
-use rand_core::CryptoRngCore;
+use rand_core::{CryptoRngCore, RngCore};
 
 use serde::{Deserialize, Serialize};
 
@@ -14,18 +14,19 @@ use crate::paillier::{
     PaillierParams, PublicKeyPaillierPrecomputed, RPParamsMod, RPSecret,
     SecretKeyPaillierPrecomputed,
 };
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, Retrieve, UintModLike,
 };
 
+const HASH_TAG: &[u8] = b"P_prm";
+
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PrmSecret<P: SchemeParams> {
     public_key: PublicKeyPaillierPrecomputed<P::Paillier>,
-    /// `a_i`
-    secret: Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>,
+    secret: Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>, // $a_i$
 }
 
 impl<P: SchemeParams> PrmSecret<P> {
@@ -72,12 +73,13 @@ struct PrmChallenge(Vec<bool>);
 impl PrmChallenge {
     fn new<P: SchemeParams>(aux: &impl Hashable, commitment: &PrmCommitment<P>) -> Self {
         // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
-        // CHECK: should we use an actual RNG here instead of variable-sized hash?
-        let bytes = XofHash::new_with_dst(b"prm-challenge")
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG)
             .chain(aux)
             .chain(commitment)
-            .finalize_boxed(P::SECURITY_PARAMETER);
-        Self(bytes.as_ref().iter().map(|b| b & 1 == 1).collect())
+            .finalize_to_rng();
+        let mut bytes = vec![0u8; P::SECURITY_PARAMETER];
+        aux_rng.fill_bytes(&mut bytes);
+        Self(bytes.iter().map(|b| b & 1 == 1).collect())
     }
 }
 

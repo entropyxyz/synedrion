@@ -1,4 +1,5 @@
 //! Multiplication Paillier vs Group ($\Pi^{mul}$, Section C.6, Fig. 31)
+
 #![allow(dead_code)] // TODO: to be used on erros in Signing protocol
 
 use rand_core::CryptoRngCore;
@@ -12,6 +13,8 @@ use crate::paillier::{
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
 use crate::uint::{FromScalar, NonZero, Signed};
+
+const HASH_TAG: &[u8] = b"P_mul*";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
@@ -43,12 +46,12 @@ impl<P: SchemeParams> MulStarProof<P> {
           (and judging by the condition the verifier checks, it should be == 0)
         */
 
-        // TODO: check ranges of input values
-        let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
-
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let r = RandomizerMod::random(rng, pk);
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
@@ -87,11 +90,12 @@ impl<P: SchemeParams> MulStarProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
+        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let aux_pk = aux_rp.public_key();
-
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
         if cap_c
@@ -110,9 +114,9 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
 
         // s^{z_1} t^{z_2} == E S^e
-        if aux_rp.commit(&self.z2, &self.z1)
-            != &self.cap_e.to_mod(aux_pk) * &self.cap_s.to_mod(aux_pk).pow_signed_vartime(&e)
-        {
+        let cap_e_mod = self.cap_e.to_mod(aux_pk);
+        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        if aux_rp.commit(&self.z2, &self.z1) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
