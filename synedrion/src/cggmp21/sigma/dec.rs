@@ -7,9 +7,10 @@ use super::super::SchemeParams;
 use crate::curve::Scalar;
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
+    Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{Bounded, FromScalar, NonZero, Retrieve, Signed, UintModLike};
+use crate::uint::{Bounded, FromScalar, NonZero, Signed};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
@@ -19,14 +20,14 @@ pub(crate) struct DecProof<P: SchemeParams> {
     gamma: Scalar,
     z1: Signed<<P::Paillier as PaillierParams>::Uint>,
     z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    omega: <P::Paillier as PaillierParams>::Uint,
+    omega: Randomizer<P::Paillier>,
 }
 
 impl<P: SchemeParams> DecProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
         y: &Bounded<<P::Paillier as PaillierParams>::Uint>,
-        rho: &<P::Paillier as PaillierParams>::Uint,
+        rho: &RandomizerMod<P::Paillier>,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
         aux_rp: &RPParamsMod<P::Paillier>,              // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
@@ -39,7 +40,7 @@ impl<P: SchemeParams> DecProof<P> {
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let r = pk.random_invertible_group_elem(rng);
+        let r = RandomizerMod::random(rng, pk);
 
         let cap_s = aux_rp.commit_bounded(&mu, y).retrieve();
         let cap_t = aux_rp.commit(&nu, &alpha).retrieve();
@@ -49,8 +50,7 @@ impl<P: SchemeParams> DecProof<P> {
         let z1 = alpha + e * y.into_signed().unwrap();
         let z2 = nu + e.into_wide() * mu;
 
-        let rho_mod = <P::Paillier as PaillierParams>::UintMod::new(rho, pk.precomputed_modulus());
-        let omega = (r * rho_mod.pow_signed_vartime(&e)).retrieve();
+        let omega = (r * rho.pow_signed(&e)).retrieve();
 
         Self {
             cap_s,
@@ -105,7 +105,7 @@ mod tests {
 
     use super::DecProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
+    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::{FromScalar, Signed};
 
     #[test]
@@ -126,8 +126,8 @@ mod tests {
         let y = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND * 2 + 10).abs_bounded();
         let x = y.to_scalar();
 
-        let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_bounded(pk, &y, &rho);
+        let rho = RandomizerMod::random(&mut OsRng, pk);
+        let cap_c = Ciphertext::new_with_randomizer_bounded(pk, &y, &rho.retrieve());
 
         let proof = DecProof::<Params>::random(&mut OsRng, &y, &rho, pk, &aux_rp, &aux);
         assert!(proof.verify(pk, &x, &cap_c, &aux_rp, &aux));

@@ -258,10 +258,6 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
         &self.precomputed_modulus_squared
     }
 
-    pub fn random_group_elem_raw(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
-        P::Uint::random_mod(rng, &self.modulus_nonzero())
-    }
-
     // TODO: clippy started marking this as unused starting from Rust 1.72
     // It is used in one of the presigning rounds. Is it a bug, or are the presigning rounds
     // somehow not considered publicly visible? Figure it out later.

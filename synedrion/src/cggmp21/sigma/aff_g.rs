@@ -7,132 +7,92 @@ use super::super::SchemeParams;
 use crate::curve::Point;
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
+    Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
+use crate::uint::{FromScalar, NonZero, Signed};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
-    cap_a: Ciphertext<P::Paillier>,                        // $A$
-    cap_b_x: Point,                                        // $B_x$
-    cap_b_y: Ciphertext<P::Paillier>,                      // $B_y$
-    cap_e: RPCommitment<P::Paillier>,                      // $E$
-    cap_s: RPCommitment<P::Paillier>,                      // $S$
-    cap_f: RPCommitment<P::Paillier>,                      // $F$
-    cap_t: RPCommitment<P::Paillier>,                      // $T$
-    z1: Signed<<P::Paillier as PaillierParams>::Uint>,     // $z_1$
-    z2: Signed<<P::Paillier as PaillierParams>::Uint>,     // $z_2$
-    z3: Signed<<P::Paillier as PaillierParams>::WideUint>, // $z_3$
-    z4: Signed<<P::Paillier as PaillierParams>::WideUint>, // $z_4$
-    omega: <P::Paillier as PaillierParams>::Uint,          // $\omega$
-    omega_y: <P::Paillier as PaillierParams>::Uint,        // $\omega_y$
+    cap_a: Ciphertext<P::Paillier>,
+    cap_b_x: Point,
+    cap_b_y: Ciphertext<P::Paillier>,
+    cap_e: RPCommitment<P::Paillier>,
+    cap_s: RPCommitment<P::Paillier>,
+    cap_f: RPCommitment<P::Paillier>,
+    cap_t: RPCommitment<P::Paillier>,
+    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
+    z2: Signed<<P::Paillier as PaillierParams>::Uint>,
+    z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    z4: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    omega: Randomizer<P::Paillier>,
+    omega_y: Randomizer<P::Paillier>,
 }
 
 impl<P: SchemeParams> AffGProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn random(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
-        y: &Signed<<P::Paillier as PaillierParams>::Uint>, // $y \in +- 2^{\ell^\prime}$
-        rho: &<P::Paillier as PaillierParams>::Uint,       // $\rho \in \mathbb{Z}_{N_0}$
-        rho_y: &<P::Paillier as PaillierParams>::Uint,     // $\rho_y \in \mathbb{Z}_{N_1}$
-        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,   // $N_0$
-        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,   // $N_1$
-        // CHECK: while the paper does not impose any restrictions on it,
-        // if `cap_c = encrypt(s)`, then we should have
-        // - `|s \alpha + \beta| < N_0 / 2
-        // - `|s (\alpha + e x) + \beta + e y| < N_0 / 2
-        cap_c: &Ciphertext<P::Paillier>, // a ciphertext encrypted with `pk0`
-        aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        y: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        rho_mod: &RandomizerMod<P::Paillier>,
+        rho_y_mod: &RandomizerMod<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_1$
+        cap_c: &Ciphertext<P::Paillier>,                 // a ciphertext encrypted with `pk0`
+        aux_rp: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         // TODO: check ranges of input values
 
         let mut aux_rng = Hash::new_with_dst(b"P_aff_g").chain(aux).finalize_to_rng();
 
-        let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
+        let hat_cap_n = &aux_rp.public_key().modulus_nonzero();
 
-        // Non-interactive challenge ($e$)
-        let challenge =
-            Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
-        let challenge_wide: Signed<<P::Paillier as PaillierParams>::WideUint> =
-            challenge.into_wide();
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e_wide = e.into_wide();
 
-        // \alpha <-- +- 2^{\ell + \eps}
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
-
-        // \beta <-- +- 2^{\ell^\prime + \eps}
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND + P::EPS_BOUND);
 
-        // TODO: use `Ciphertext::randomizer()`
-        // r <-- Z^*_{N_0}
-        let r = pk0.random_invertible_group_elem(rng);
-        // r_y <-- Z^*_{N_1}
-        let r_y = pk1.random_invertible_group_elem(rng);
+        let r_mod = RandomizerMod::random(rng, pk0);
+        let r_y_mod = RandomizerMod::random(rng, pk1);
 
-        // \gamma <-- (+- 2^{\ell + \eps}) \hat{N}
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-
-        // m <-- (+- 2^\ell) \hat{N}
         let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-
-        // \delta <-- (+- 2^{\ell + \eps}) \hat{N}
         let delta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-
-        // \mu <-- (+- 2^\ell) \hat{N}
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        // A = C^\alpha (1 + N_0)^\beta r^N_0 \mod N_0^2
-        //   = C (*) \alpha (+) encrypt_0(\beta, r)
         let cap_a = cap_c.homomorphic_mul(pk0, &alpha).homomorphic_add(
             pk0,
-            &Ciphertext::new_with_randomizer_signed(pk0, &beta, &r.retrieve()),
+            &Ciphertext::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()),
         );
-
-        // B_x = g^\alpha
         let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
-
-        // B_y = (1 + N_1)^\beta r_y^{N_1} \mod N_1^2
-        let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y.retrieve());
-
-        // E = s^\alpha t^\gamma \mod \hat{N}
+        let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
         let cap_e = aux_rp.commit(&gamma, &alpha).retrieve();
-
-        // S = s^x t^m  \mod \hat{N}
         let cap_s = aux_rp.commit(&m, x).retrieve();
-
-        // F = s^\beta t^\delta \mod \hat{N}
         let cap_f = aux_rp.commit(&delta, &beta).retrieve();
 
-        // CHECK: deviation from the paper to support a different `D`
-        // Original: `s^y`. Modified: `s^{-y}`
-        // T = s^{-y} t^\mu \mod \hat{N}
+        // CHECK: deviation from the paper to support a different $D$
+        // Original: $s^y$. Modified: $s^{-y}$
         let cap_t = aux_rp.commit(&mu, &-y).retrieve();
 
-        // z_1 = \alpha + e x
-        let z1 = alpha + challenge * *x;
+        let z1 = alpha + e * *x;
 
-        // CHECK: deviation from the paper to support a different `D`
-        // Original: z_2 = \beta + e y
-        // Modified: z_2 = \beta - e y
-        let z2 = beta + challenge * (-y);
+        // CHECK: deviation from the paper to support a different $D$
+        // Original: $z_2 = \beta + e y$
+        // Modified: $z_2 = \beta - e y$
+        let z2 = beta + e * (-y);
 
-        // z_3 = \gamma + e m
-        let z3 = gamma + challenge_wide * m;
+        let z3 = gamma + e_wide * m;
+        let z4 = delta + e_wide * mu;
 
-        // z_4 = \delta + e \mu
-        let z4 = delta + challenge_wide * mu;
+        let omega = (r_mod * rho_mod.pow_signed(&e)).retrieve();
 
-        // \omega = r \rho^e \mod N_0
-        let rho_mod = <P::Paillier as PaillierParams>::UintMod::new(rho, pk0.precomputed_modulus());
-        let omega = (r * rho_mod.pow_signed_vartime(&challenge)).retrieve();
-
-        // CHECK: deviation from the paper to support a different `D`
-        // Original: `\rho_y^e`. Modified: `\rho_y^{-e}`.
-        // \omega_y = r_y \rho_y^{-e} \mod N_1
-        let rho_y_mod =
-            <P::Paillier as PaillierParams>::UintMod::new(rho_y, pk1.precomputed_modulus());
-        let omega_y = (r_y * rho_y_mod.pow_signed_vartime(&-challenge)).retrieve();
+        // CHECK: deviation from the paper to support a different $D$
+        // Original: $\rho_y^e$. Modified: $\rho_y^{-e}$.
+        let omega_y = (r_y_mod * rho_y_mod.pow_signed(&-e)).retrieve();
 
         Self {
             cap_a,
@@ -164,7 +124,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // for the whole thing to work.
         cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x (+) enc_0(-y, \rho)$
         cap_y: &Ciphertext<P::Paillier>, // $Y = enc_1(y, \rho_y)$
-        cap_x: &Point,                   // $X = g * x$, where `g` is the curve generator
+        cap_x: &Point,                   // $X = g * x$, where $g$ is the curve generator
         aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
@@ -172,9 +132,8 @@ impl<P: SchemeParams> AffGProof<P> {
 
         let aux_pk = aux_rp.public_key();
 
-        // Non-interactive challenge ($e$)
-        let challenge =
-            Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        // Non-interactive challenge
+        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
@@ -182,15 +141,14 @@ impl<P: SchemeParams> AffGProof<P> {
             pk0,
             &Ciphertext::new_with_randomizer_signed(pk0, &self.z2, &self.omega),
         ) != cap_d
-            .homomorphic_mul(pk0, &challenge)
+            .homomorphic_mul(pk0, &e)
             .homomorphic_add(pk0, &self.cap_a)
         {
             return false;
         }
 
         // g^{z_1} = B_x X^e
-        if &Point::GENERATOR * &self.z1.to_scalar() != self.cap_b_x + cap_x * &challenge.to_scalar()
-        {
+        if &Point::GENERATOR * &self.z1.to_scalar() != self.cap_b_x + cap_x * &e.to_scalar() {
             return false;
         }
 
@@ -200,7 +158,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
         if Ciphertext::new_with_randomizer_signed(pk1, &self.z2, &self.omega_y)
             != cap_y
-                .homomorphic_mul(pk1, &-challenge)
+                .homomorphic_mul(pk1, &-e)
                 .homomorphic_add(pk1, &self.cap_b_y)
         {
             return false;
@@ -208,16 +166,14 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
         if aux_rp.commit(&self.z3, &self.z1)
-            != &self.cap_e.to_mod(aux_pk)
-                * &self.cap_s.to_mod(aux_pk).pow_signed_vartime(&challenge)
+            != &self.cap_e.to_mod(aux_pk) * &self.cap_s.to_mod(aux_pk).pow_signed_vartime(&e)
         {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
         if aux_rp.commit(&self.z4, &self.z2)
-            != &self.cap_f.to_mod(aux_pk)
-                * &self.cap_t.to_mod(aux_pk).pow_signed_vartime(&challenge)
+            != &self.cap_f.to_mod(aux_pk) * &self.cap_t.to_mod(aux_pk).pow_signed_vartime(&e)
         {
             return false;
         }
@@ -233,7 +189,7 @@ mod tests {
     use super::AffGProof;
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::Point;
-    use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
+    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::{FromScalar, Signed};
 
     #[test]
@@ -255,16 +211,16 @@ mod tests {
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let y = Signed::random_bounded_bits(&mut OsRng, Params::LP_BOUND);
 
-        let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk0);
-        let rho_y = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk1);
-        // TODO: use full range (0 to N)
-        let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
+        let rho = RandomizerMod::random(&mut OsRng, pk0);
+        let rho_y = RandomizerMod::random(&mut OsRng, pk1);
+        let secret = Signed::random(&mut OsRng);
         let cap_c = Ciphertext::new_signed(&mut OsRng, pk0, &secret);
 
-        let cap_d = cap_c
-            .homomorphic_mul(pk0, &x)
-            .homomorphic_add(pk0, &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho));
-        let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y);
+        let cap_d = cap_c.homomorphic_mul(pk0, &x).homomorphic_add(
+            pk0,
+            &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho.retrieve()),
+        );
+        let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
         let cap_x = &Point::GENERATOR * &x.to_scalar();
 
         let proof = AffGProof::<Params>::random(

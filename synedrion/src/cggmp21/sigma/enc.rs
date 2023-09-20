@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-    SecretKeyPaillierPrecomputed,
+    Randomizer, RandomizerMod, SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{NonZero, Retrieve, Signed, UintModLike};
+use crate::uint::{NonZero, Signed};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct EncProof<P: SchemeParams> {
@@ -17,7 +17,7 @@ pub(crate) struct EncProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,
     cap_c: RPCommitment<P::Paillier>,
     z1: Signed<<P::Paillier as PaillierParams>::Uint>,
-    z2: <P::Paillier as PaillierParams>::Uint,
+    z2: Randomizer<P::Paillier>,
     z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
 }
 
@@ -25,7 +25,7 @@ impl<P: SchemeParams> EncProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
         secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // $k$
-        randomizer: &<P::Paillier as PaillierParams>::Uint,     // $\rho$
+        randomizer_mod: &RandomizerMod<P::Paillier>,            // $\rho$
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,         // $N_0$
         aux_rp: &RPParamsMod<P::Paillier>,                      // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
@@ -51,10 +51,8 @@ impl<P: SchemeParams> EncProof<P> {
         // \mu <-- (+- 2^\ell) * \hat{N}
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        // TODO: use `Ciphertext::randomizer()` - but we will need a variation returning a modulo
-        // representation.
         // r <-- Z^*_N (N is the modulus of `pk`)
-        let r = pk.random_invertible_group_elem(rng);
+        let r = RandomizerMod::random(rng, pk);
 
         // \gamma <-- (+- 2^{\ell + \eps}) * \hat{N}
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
@@ -75,9 +73,7 @@ impl<P: SchemeParams> EncProof<P> {
 
         // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
-        let randomizer_mod =
-            <P::Paillier as PaillierParams>::UintMod::new(randomizer, pk.precomputed_modulus());
-        let z2 = (r * randomizer_mod.pow_signed_vartime(&challenge)).retrieve();
+        let z2 = (r * randomizer_mod.pow_signed(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu
         let challenge_wide: Signed<<P::Paillier as PaillierParams>::WideUint> =
@@ -141,7 +137,7 @@ mod tests {
 
     use super::EncProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
+    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
     #[test]
@@ -158,8 +154,9 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let randomizer = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
-        let ciphertext = Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer);
+        let randomizer = RandomizerMod::random(&mut OsRng, pk);
+        let ciphertext =
+            Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer.retrieve());
 
         let proof =
             EncProof::<Params>::random(&mut OsRng, &secret, &randomizer, &sk, &aux_rp, &aux);

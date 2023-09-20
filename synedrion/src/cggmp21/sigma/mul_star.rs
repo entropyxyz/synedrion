@@ -8,9 +8,10 @@ use super::super::SchemeParams;
 use crate::curve::Point;
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
+    Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
+use crate::uint::{FromScalar, NonZero, Signed};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
@@ -20,7 +21,7 @@ pub(crate) struct MulStarProof<P: SchemeParams> {
     cap_s: RPCommitment<P::Paillier>,                      // $S$
     z1: Signed<<P::Paillier as PaillierParams>::Uint>,     // $z_1$
     z2: Signed<<P::Paillier as PaillierParams>::WideUint>, // $z_2$
-    omega: <P::Paillier as PaillierParams>::Uint,          // $\omega$
+    omega: Randomizer<P::Paillier>,                        // $\omega$
 }
 
 impl<P: SchemeParams> MulStarProof<P> {
@@ -28,7 +29,7 @@ impl<P: SchemeParams> MulStarProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
-        rho: &<P::Paillier as PaillierParams>::Uint,       // $\rho \in \mathbb{Z}_{N_0}$
+        rho: &RandomizerMod<P::Paillier>,                  // $\rho \in \mathbb{Z}_{N_0}$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
         cap_c: &Ciphertext<P::Paillier>,                   // $C$, a ciphertext encrypted with `pk`
         aux_rp: &RPParamsMod<P::Paillier>,                 // $\hat{N}$, $s$, $t$
@@ -49,7 +50,7 @@ impl<P: SchemeParams> MulStarProof<P> {
 
         let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        let r = pk.random_invertible_group_elem(rng);
+        let r = RandomizerMod::random(rng, pk);
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
@@ -61,11 +62,9 @@ impl<P: SchemeParams> MulStarProof<P> {
         let cap_e = aux_rp.commit(&gamma, &alpha).retrieve();
         let cap_s = aux_rp.commit(&m, x).retrieve();
 
-        let rho_mod = <P::Paillier as PaillierParams>::UintMod::new(rho, pk.precomputed_modulus());
-
         let z1 = alpha + e * *x;
         let z2 = gamma + e.into_wide() * m;
-        let omega = (r * rho_mod.pow_signed_vartime(&e)).retrieve();
+        let omega = (r * rho.pow_signed(&e)).retrieve();
 
         Self {
             cap_a,
@@ -128,7 +127,7 @@ mod tests {
     use super::MulStarProof;
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::Point;
-    use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
+    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::{FromScalar, Signed};
 
     #[test]
@@ -147,9 +146,11 @@ mod tests {
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         // TODO: use full range (0 to N)
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
+        let rho = RandomizerMod::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_signed(&mut OsRng, pk, &secret);
-        let cap_d = cap_c.homomorphic_mul(pk, &x).mul_randomizer(pk, &rho);
+        let cap_d = cap_c
+            .homomorphic_mul(pk, &x)
+            .mul_randomizer(pk, &rho.retrieve());
         let cap_x = &Point::GENERATOR * &x.to_scalar();
 
         let proof = MulStarProof::<Params>::random(&mut OsRng, &x, &rho, pk, &cap_c, &aux_rp, &aux);

@@ -7,9 +7,10 @@ use super::super::SchemeParams;
 use crate::curve::Point;
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
+    Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{FromScalar, NonZero, Retrieve, Signed, UintModLike};
+use crate::uint::{FromScalar, NonZero, Signed};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
@@ -18,7 +19,7 @@ pub(crate) struct LogStarProof<P: SchemeParams> {
     cap_y: Point,
     cap_d: RPCommitment<P::Paillier>,
     z1: Signed<<P::Paillier as PaillierParams>::Uint>,
-    z2: <P::Paillier as PaillierParams>::Uint,
+    z2: Randomizer<P::Paillier>,
     z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
 }
 
@@ -27,7 +28,7 @@ impl<P: SchemeParams> LogStarProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$                                 // `x`
-        rho: &<P::Paillier as PaillierParams>::Uint,       // $\rho$
+        rho: &RandomizerMod<P::Paillier>,                  // $\rho$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
         g: &Point,                                         // $g$
         aux_rp: &RPParamsMod<P::Paillier>,                 // $\hat{N}$, $s$, $t$
@@ -46,7 +47,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // r <-- Z^*_{N_0}
-        let r = pk.random_invertible_group_elem(rng);
+        let r = RandomizerMod::random(rng, pk);
 
         // \gamma <-- (+- 2^{\ell + \eps}) \hat{N}
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
@@ -70,15 +71,11 @@ impl<P: SchemeParams> LogStarProof<P> {
         // z_1 = \alpha + e x
         let z1 = alpha + challenge * *x;
 
-        // TODO: make a `pow_mod_signed()` method to hide this giant type?
         // z_2 = r * \rho^e mod N_0
-        let rho_mod = <P::Paillier as PaillierParams>::UintMod::new(rho, pk.precomputed_modulus());
-        let z2 = (r * rho_mod.pow_signed_vartime(&challenge)).retrieve();
+        let z2 = (r * rho.pow_signed(&challenge)).retrieve();
 
         // z_3 = \gamma + e * \mu
-        let challenge_wide: Signed<<P::Paillier as PaillierParams>::WideUint> =
-            challenge.into_wide();
-        let z3 = gamma + mu * challenge_wide;
+        let z3 = gamma + mu * challenge.into_wide();
 
         Self {
             cap_s,
@@ -141,7 +138,7 @@ mod tests {
     use super::LogStarProof;
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::{Point, Scalar};
-    use crate::paillier::{Ciphertext, RPParamsMod, SecretKeyPaillier};
+    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::{FromScalar, Signed};
 
     #[test]
@@ -159,8 +156,8 @@ mod tests {
 
         let g = &Point::GENERATOR * &Scalar::random(&mut OsRng);
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let rho = Ciphertext::<Paillier>::randomizer(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho);
+        let rho = RandomizerMod::random(&mut OsRng, pk);
+        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho.retrieve());
         let cap_x = &g * &x.to_scalar();
 
         let proof = LogStarProof::<Params>::random(&mut OsRng, &x, &rho, pk, &g, &aux_rp, &aux);

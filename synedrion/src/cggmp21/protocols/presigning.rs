@@ -14,7 +14,7 @@ use crate::cggmp21::{
     SchemeParams,
 };
 use crate::curve::{Point, Scalar, ORDER};
-use crate::paillier::{Ciphertext, PaillierParams};
+use crate::paillier::{Ciphertext, PaillierParams, RandomizerMod};
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{Bounded, CheckedAdd, CheckedMul, FromScalar, Signed};
@@ -30,8 +30,8 @@ pub struct Context<P: SchemeParams> {
     key_share: KeySharePrecomputed<P>,
     ephemeral_scalar_share: Scalar,
     gamma: Scalar,
-    rho: <<P as SchemeParams>::Paillier as PaillierParams>::Uint,
-    nu: <<P as SchemeParams>::Paillier as PaillierParams>::Uint,
+    rho: RandomizerMod<P::Paillier>,
+    nu: RandomizerMod<P::Paillier>,
 }
 
 // We are splitting Round 1 into two parts since it has to send both direct and broadcast
@@ -65,14 +65,15 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
 
         let pk = key_share.secret_aux.paillier_sk.public_key();
 
-        let rho = Ciphertext::<P::Paillier>::randomizer(rng, pk);
-        let nu = Ciphertext::<P::Paillier>::randomizer(rng, pk);
+        let rho = RandomizerMod::<P::Paillier>::random(rng, pk);
+        let nu = RandomizerMod::<P::Paillier>::random(rng, pk);
 
-        let g_ciphertext = Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(&gamma), &nu);
+        let g_ciphertext =
+            Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(&gamma), &nu.retrieve());
         let k_ciphertext = Ciphertext::new_with_randomizer(
             pk,
             &uint_from_scalar::<P>(&ephemeral_scalar_share),
-            &rho,
+            &rho.retrieve(),
         );
 
         Ok(Self {
@@ -265,7 +266,7 @@ pub struct Round2<P: SchemeParams> {
 #[derive(Debug, Clone)]
 struct Round2Protocol<P: SchemeParams> {
     beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
-    r: <P::Paillier as PaillierParams>::Uint,
+    r: RandomizerMod<P::Paillier>,
     cap_f: Ciphertext<P::Paillier>,
 }
 
@@ -295,8 +296,8 @@ impl<P: SchemeParams> Round2<P> {
         let mut protocols = HoleVecAccum::new(num_parties, my_idx);
         range.for_each(|idx| {
             let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
-            let r = pk.random_group_elem_raw(rng);
-            let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r);
+            let r = RandomizerMod::random(rng, pk);
+            let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r.retrieve());
             let protocol = Round2Protocol { beta, r, cap_f };
 
             protocols.insert(idx, protocol).unwrap();
@@ -345,10 +346,10 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
                 let protocol = self.protocols.get(idx).unwrap();
 
-                let r = protocol.r;
-                let s = target_pk.random_group_elem_raw(rng);
-                let r_hat = target_pk.random_group_elem_raw(rng);
-                let s_hat = target_pk.random_group_elem_raw(rng);
+                let r = &protocol.r;
+                let s = RandomizerMod::random(rng, target_pk);
+                let r_hat = RandomizerMod::random(rng, pk);
+                let s_hat = RandomizerMod::random(rng, target_pk);
 
                 let beta = &protocol.beta;
                 let beta_hat = self.betas_hat.get(idx).unwrap();
@@ -357,7 +358,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     .homomorphic_mul(target_pk, &Signed::from_scalar(&self.context.gamma))
                     .homomorphic_add(
                         target_pk,
-                        &Ciphertext::new_with_randomizer_signed(target_pk, &-beta, &s),
+                        &Ciphertext::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve()),
                     );
                 let f = protocol.cap_f.clone();
 
@@ -368,9 +369,13 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     )
                     .homomorphic_add(
                         target_pk,
-                        &Ciphertext::new_with_randomizer_signed(target_pk, &-beta_hat, &s_hat),
+                        &Ciphertext::new_with_randomizer_signed(
+                            target_pk,
+                            &-beta_hat,
+                            &s_hat.retrieve(),
+                        ),
                     );
-                let f_hat = Ciphertext::new_with_randomizer_signed(pk, beta_hat, &r_hat);
+                let f_hat = Ciphertext::new_with_randomizer_signed(pk, beta_hat, &r_hat.retrieve());
 
                 let public_aux = &self.context.key_share.public_aux[idx];
                 let aux_rp = &public_aux.aux_rp_params;
@@ -380,7 +385,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
                     &Signed::from_scalar(&self.context.gamma),
                     beta,
                     &s,
-                    &r,
+                    r,
                     target_pk,
                     pk,
                     &self.k_ciphertexts[idx],
@@ -721,13 +726,13 @@ impl<P: SchemeParams> Round for Round3<P> {
         let pk = sk.public_key();
         let my_idx = self.context.key_share.party_index().as_usize();
 
-        let rho_h = Ciphertext::randomizer(rng, pk);
+        let rho_h = RandomizerMod::random(rng, pk);
         let cap_h = Ciphertext::new_with_randomizer(
             pk,
             &uint_from_scalar::<P>(&self.context.ephemeral_scalar_share)
                 .checked_mul(&uint_from_scalar::<P>(&self.context.gamma))
                 .unwrap(),
-            &rho_h,
+            &rho_h.retrieve(),
         );
 
         let aux = (
