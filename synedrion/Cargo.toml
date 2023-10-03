@@ -1,6 +1,6 @@
 [package]
 name = "synedrion"
-version = "0.0.9"
+version = "0.0.10"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Threshold signing library based on Canetti-Gennaro-Goldfeder-Makriyannis-Peled '21 scheme"
