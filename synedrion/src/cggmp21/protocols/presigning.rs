@@ -708,13 +708,16 @@ impl<P: SchemeParams> Round for Round3<P> {
         let big_delta: Point = big_deltas.iter().sum();
         let big_delta = big_delta + self.big_delta;
 
-        if delta.mul_by_generator() != big_delta {
-            return Err(FinalizeError::Unspecified("Invalid Delta".into()));
-            // TODO: calculate the required proofs here according to the paper.
-        }
+        if delta.mul_by_generator() == big_delta {
+            // TODO: seems like we only need the x-coordinate of this (as a Scalar)
+            let nonce = &self.big_gamma * &delta.invert().unwrap();
 
-        // TODO: seems like we only need the x-coordinate of this (as a Scalar)
-        let nonce = &self.big_gamma * &delta.invert().unwrap();
+            return Ok(FinalizeSuccess::Result(PresigningData {
+                nonce,
+                ephemeral_scalar_share: self.context.ephemeral_scalar_share,
+                product_share: self.product_share,
+            }));
+        }
 
         // TODO: this part is supposed to be executed on error only.
         // It is executed unconditionally here to check that the proofs work correctly,
@@ -790,11 +793,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             ));
         }
 
-        Ok(FinalizeSuccess::Result(PresigningData {
-            nonce,
-            ephemeral_scalar_share: self.context.ephemeral_scalar_share,
-            product_share: self.product_share,
-        }))
+        Err(FinalizeError::Unspecified("Invalid Delta".into()))
     }
 }
 
