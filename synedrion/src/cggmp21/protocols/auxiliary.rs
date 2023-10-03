@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
@@ -6,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareChange, PartyIdx, PublicAuxInfo, SecretAuxInfo};
 use super::generic::{
-    BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
-    Round, ToSendTyped,
+    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
+    FirstRound, InitError, ReceiveError, Round, ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
@@ -18,7 +19,7 @@ use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
     RPParamsMod, RPSecret, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
-use crate::tools::collections::HoleVec;
+use crate::tools::collections::{HoleRange, HoleVec};
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
@@ -69,6 +70,7 @@ struct Context<P: SchemeParams> {
     sch_secrets_x: Vec<SchSecret>,
     data_precomp: FullDataPrecomp<P>,
     party_idx: PartyIdx,
+    num_parties: usize,
     shared_randomness: Box<[u8]>,
 }
 
@@ -188,6 +190,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             el_gamal_proof_secret,
             data_precomp,
             party_idx,
+            num_parties,
             shared_randomness: shared_randomness.into(),
         };
 
@@ -206,15 +209,33 @@ impl Hashable for Round1Bcast {
     }
 }
 
-impl<P: SchemeParams> BaseRound for Round1<P> {
-    type Payload = HashOutput;
-    type Message = Round1Bcast;
-
+impl<P: SchemeParams> Round for Round1<P> {
+    type Type = ToNextRound;
+    type Result = KeyShareChange<P>;
     const ROUND_NUM: u8 = 1;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = true;
+    const NEXT_ROUND_NUM: Option<u8> = Some(2);
+}
 
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        ToSendTyped::Broadcast(Round1Bcast {
+impl<P: SchemeParams> DirectRound for Round1<P> {
+    type Message = ();
+    type Payload = ();
+    type Artefact = ();
+}
+
+impl<P: SchemeParams> BroadcastRound for Round1<P> {
+    const REQUIRES_CONSENSUS: bool = true;
+    type Message = Round1Bcast;
+    type Payload = HashOutput;
+
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
+            self.context.num_parties,
+            self.context.party_idx.as_usize(),
+        ))
+    }
+
+    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
+        Ok(Round1Bcast {
             hash: self
                 .context
                 .data_precomp
@@ -223,7 +244,7 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
         })
     }
 
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         _from: PartyIdx,
         msg: Self::Message,
@@ -232,19 +253,21 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     type NextRound = Round2<P>;
-    type Result = KeyShareChange<P>;
-    const NEXT_ROUND_NUM: Option<u8> = Some(2);
-    fn finalize(
+    fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        Ok(FinalizeSuccess::AnotherRound(Round2 {
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        assert!(dm_payloads.is_none());
+        assert!(dm_artefacts.is_none());
+        Ok(Round2 {
             context: self.context,
-            hashes: payloads,
-        }))
+            hashes: bc_payloads.unwrap(),
+        })
     }
 }
 
@@ -260,20 +283,38 @@ pub struct Round2Bcast<P: SchemeParams> {
     data: FullData<P>,
 }
 
-impl<P: SchemeParams> BaseRound for Round2<P> {
-    type Payload = FullDataPrecomp<P>;
-    type Message = Round2Bcast<P>;
-
+impl<P: SchemeParams> Round for Round2<P> {
+    type Type = ToNextRound;
+    type Result = KeyShareChange<P>;
     const ROUND_NUM: u8 = 2;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
+    const NEXT_ROUND_NUM: Option<u8> = Some(3);
+}
 
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        ToSendTyped::Broadcast(Round2Bcast {
+impl<P: SchemeParams> DirectRound for Round2<P> {
+    type Message = ();
+    type Payload = ();
+    type Artefact = ();
+}
+
+impl<P: SchemeParams> BroadcastRound for Round2<P> {
+    const REQUIRES_CONSENSUS: bool = false;
+    type Message = Round2Bcast<P>;
+    type Payload = FullDataPrecomp<P>;
+
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
+            self.context.num_parties,
+            self.context.party_idx.as_usize(),
+        ))
+    }
+
+    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
+        Ok(Round2Bcast {
             data: self.context.data_precomp.data.clone(),
         })
     }
 
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -326,29 +367,28 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     type NextRound = Round3<P>;
-    type Result = KeyShareChange<P>;
-    const NEXT_ROUND_NUM: Option<u8> = Some(3);
-    fn finalize(
+    fn finalize_to_next_round(
         self,
-        _rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
+        rng: &mut impl CryptoRngCore,
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        assert!(dm_payloads.is_none());
+        assert!(dm_artefacts.is_none());
+        let messages = bc_payloads.unwrap();
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rho = self.context.data_precomp.data.rho_bits.clone();
-        for data in payloads.iter() {
+        for data in messages.iter() {
             for (i, x) in data.data.rho_bits.iter().enumerate() {
                 rho[i] ^= x;
             }
         }
 
-        Ok(FinalizeSuccess::AnotherRound(Round3 {
-            rho,
-            context: self.context,
-            datas: payloads,
-        }))
+        Ok(Round3::new(rng, self.context, messages, rho))
     }
 }
 
@@ -356,6 +396,9 @@ pub struct Round3<P: SchemeParams> {
     context: Context<P>,
     rho: Box<[u8]>,
     datas: HoleVec<FullDataPrecomp<P>>,
+    mod_proof: ModProof<P>,
+    aux_mod_proof: ModProof<P>,
+    sch_proof_y: SchProof,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -381,69 +424,107 @@ pub struct Round3Direct<P: SchemeParams> {
     data2: FullData2<P>,
 }
 
-impl<P: SchemeParams> BaseRound for Round3<P> {
-    type Payload = Scalar;
-    type Message = Round3Direct<P>;
+impl<P: SchemeParams> Round3<P> {
+    fn new(
+        rng: &mut impl CryptoRngCore,
+        context: Context<P>,
+        datas: HoleVec<FullDataPrecomp<P>>,
+        rho: Box<[u8]>,
+    ) -> Self {
+        let aux = (&context.shared_randomness, &rho, &context.party_idx);
+        let mod_proof = ModProof::random(rng, &context.paillier_sk, &aux);
 
+        let aux_mod_proof = ModProof::random(rng, &context.aux_paillier_sk, &aux);
+
+        let sch_proof_y = SchProof::new(
+            &context.el_gamal_proof_secret,
+            &context.el_gamal_sk,
+            &context.data_precomp.data.el_gamal_commitment,
+            &context.data_precomp.data.el_gamal_pk,
+            &aux,
+        );
+
+        Self {
+            context,
+            datas,
+            rho,
+            mod_proof,
+            aux_mod_proof,
+            sch_proof_y,
+        }
+    }
+}
+
+impl<P: SchemeParams> Round for Round3<P> {
+    type Type = ToResult;
+    type Result = KeyShareChange<P>;
     const ROUND_NUM: u8 = 3;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
+    const NEXT_ROUND_NUM: Option<u8> = None;
+}
 
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
+impl<P: SchemeParams> BroadcastRound for Round3<P> {
+    type Message = ();
+    type Payload = ();
+}
+
+impl<P: SchemeParams> DirectRound for Round3<P> {
+    type Message = Round3Direct<P>;
+    type Payload = Scalar;
+    type Artefact = ();
+
+    fn direct_message_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
+            self.context.num_parties,
+            self.context.party_idx.as_usize(),
+        ))
+    }
+
+    fn make_direct_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+        destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artefact), String> {
         let aux = (
             &self.context.shared_randomness,
             &self.rho,
             &self.context.party_idx,
         );
-        let mod_proof = ModProof::random(rng, &self.context.paillier_sk, &aux);
 
-        let aux_mod_proof = ModProof::random(rng, &self.context.aux_paillier_sk, &aux);
+        let idx = destination.as_usize();
+        let data = self.datas.get(idx).unwrap();
 
-        let sch_proof_y = SchProof::new(
-            &self.context.el_gamal_proof_secret,
-            &self.context.el_gamal_sk,
-            &self.context.data_precomp.data.el_gamal_commitment,
-            &self.context.data_precomp.data.el_gamal_pk,
+        let fac_proof = FacProof::random(
+            rng,
+            &self.context.paillier_sk,
+            &self.datas.get(idx).unwrap().aux_rp_params,
             &aux,
         );
 
-        let mut dms = Vec::new();
-        for (party_idx, data) in self.datas.enumerate() {
-            let fac_proof = FacProof::random(
-                rng,
-                &self.context.paillier_sk,
-                &self.datas.get(party_idx).unwrap().aux_rp_params,
-                &aux,
-            );
+        let x_secret = self.context.xs_secret[idx];
+        let x_public = self.context.data_precomp.data.xs_public[idx];
+        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &uint_from_scalar::<P>(&x_secret));
 
-            let x_secret = self.context.xs_secret[party_idx];
-            let x_public = self.context.data_precomp.data.xs_public[party_idx];
-            let ciphertext =
-                Ciphertext::new(rng, &data.paillier_pk, &uint_from_scalar::<P>(&x_secret));
+        let sch_proof_x = SchProof::new(
+            &self.context.sch_secrets_x[idx],
+            &x_secret,
+            &self.context.data_precomp.data.sch_commitments_x[idx],
+            &x_public,
+            &aux,
+        );
 
-            let sch_proof_x = SchProof::new(
-                &self.context.sch_secrets_x[party_idx],
-                &x_secret,
-                &self.context.data_precomp.data.sch_commitments_x[party_idx],
-                &x_public,
-                &aux,
-            );
+        let data2 = FullData2 {
+            mod_proof: self.mod_proof.clone(),
+            aux_mod_proof: self.aux_mod_proof.clone(),
+            fac_proof,
+            sch_proof_y: self.sch_proof_y.clone(),
+            paillier_enc_x: ciphertext,
+            sch_proof_x,
+        };
 
-            let data2 = FullData2 {
-                mod_proof: mod_proof.clone(),
-                aux_mod_proof: aux_mod_proof.clone(),
-                fac_proof,
-                sch_proof_y: sch_proof_y.clone(),
-                paillier_enc_x: ciphertext,
-                sch_proof_x,
-            };
-
-            dms.push((PartyIdx::from_usize(party_idx), Round3Direct { data2 }));
-        }
-
-        ToSendTyped::Direct(dms)
+        Ok((Round3Direct { data2 }, ()))
     }
 
-    fn verify_received(
+    fn verify_direct_message(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -519,16 +600,18 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
-    type NextRound = NonExistent<Self::Result>;
-    type Result = KeyShareChange<P>;
-    const NEXT_ROUND_NUM: Option<u8> = None;
-    fn finalize(
+impl<P: SchemeParams> FinalizableToResult for Round3<P> {
+    fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let secrets = payloads.into_vec(self.context.xs_secret[self.context.party_idx.as_usize()]);
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::Result, FinalizeError> {
+        assert!(bc_payloads.is_none());
+        let secrets = dm_payloads
+            .unwrap()
+            .into_vec(self.context.xs_secret[self.context.party_idx.as_usize()]);
         let secret_share_change = secrets.iter().sum();
 
         let datas = self.datas.into_vec(self.context.data_precomp);
@@ -561,7 +644,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             public_aux,
         };
 
-        Ok(FinalizeSuccess::Result(key_share_change))
+        Ok(key_share_change)
     }
 }
 
@@ -571,7 +654,7 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::super::{
-        test_utils::{assert_next_round, assert_result, step},
+        test_utils::{step_next_round, step_result, step_round},
         FirstRound,
     };
     use super::Round1;
@@ -597,13 +680,16 @@ mod tests {
             })
             .collect();
 
-        let r2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
-        let r3 = assert_next_round(step(&mut OsRng, r2).unwrap()).unwrap();
-        let results = assert_result(step(&mut OsRng, r3).unwrap()).unwrap();
+        let r1a = step_round(&mut OsRng, r1).unwrap();
+        let r2 = step_next_round(&mut OsRng, r1a).unwrap();
+        let r2a = step_round(&mut OsRng, r2).unwrap();
+        let r3 = step_next_round(&mut OsRng, r2a).unwrap();
+        let r3a = step_round(&mut OsRng, r3).unwrap();
+        let changes = step_result(&mut OsRng, r3a).unwrap();
 
         // Check that public points correspond to secret scalars
-        for (idx, change) in results.iter().enumerate() {
-            for other_change in results.iter() {
+        for (idx, change) in changes.iter().enumerate() {
+            for other_change in changes.iter() {
                 assert_eq!(
                     change.secret_share_change.mul_by_generator(),
                     other_change.public_share_changes[idx]
@@ -617,7 +703,7 @@ mod tests {
 
         // The resulting sum of masks should be zero, since the combined secret key
         // should not change after applying the masks at each node.
-        let mask_sum: Scalar = results
+        let mask_sum: Scalar = changes
             .iter()
             .map(|change| change.secret_share_change)
             .sum();

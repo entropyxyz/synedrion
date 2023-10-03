@@ -4,7 +4,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
-use super::states::SendingState;
+use super::states::Session;
 use crate::cggmp21::{
     auxiliary, interactive_signing, keygen_and_aux, InitError, KeyShare, KeyShareChange, PartyIdx,
     SchemeParams,
@@ -21,14 +21,14 @@ pub fn make_keygen_and_aux_session<P, Sig, Signer, Verifier>(
     signer: Signer,
     verifiers: &[Verifier],
     party_idx: PartyIdx,
-) -> Result<SendingState<KeyShare<P>, Sig, Signer, Verifier>, InitError>
+) -> Result<Session<KeyShare<P>, Sig, Signer, Verifier>, InitError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig>,
     Verifier: PrehashVerifier<Sig> + Clone,
 {
-    SendingState::new::<keygen_and_aux::Round1<P>>(
+    Session::new::<keygen_and_aux::Round1<P>>(
         rng,
         shared_randomness,
         signer,
@@ -45,21 +45,14 @@ pub fn make_key_refresh_session<P, Sig, Signer, Verifier>(
     signer: Signer,
     verifiers: &[Verifier],
     party_idx: PartyIdx,
-) -> Result<SendingState<KeyShareChange<P>, Sig, Signer, Verifier>, InitError>
+) -> Result<Session<KeyShareChange<P>, Sig, Signer, Verifier>, InitError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig>,
     Verifier: PrehashVerifier<Sig> + Clone,
 {
-    SendingState::new::<auxiliary::Round1<P>>(
-        rng,
-        shared_randomness,
-        signer,
-        party_idx,
-        verifiers,
-        (),
-    )
+    Session::new::<auxiliary::Round1<P>>(rng, shared_randomness, signer, party_idx, verifiers, ())
 }
 
 /// Creates the initial state for the joined Presigning and Signing protocols.
@@ -70,7 +63,7 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     verifiers: &[Verifier],
     key_share: &KeyShare<P>,
     prehashed_message: &PrehashedMessage,
-) -> Result<SendingState<RecoverableSignature, Sig, Signer, Verifier>, InitError>
+) -> Result<Session<RecoverableSignature, Sig, Signer, Verifier>, InitError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
@@ -95,7 +88,7 @@ where
         message: scalar_message,
     };
 
-    SendingState::new::<interactive_signing::Round1Part1<P>>(
+    Session::new::<interactive_signing::Round1<P>>(
         rng,
         shared_randomness,
         signer,

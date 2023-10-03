@@ -13,4 +13,4 @@ pub use constructors::{
 };
 pub use error::Error;
 pub use signed_message::SignedMessage;
-pub use states::{FinalizeOutcome, ReceivingState, SendingState, ToSend};
+pub use states::{FinalizeOutcome, Session};

@@ -3,10 +3,13 @@ use alloc::boxed::Box;
 use rand_core::CryptoRngCore;
 
 use super::common::{KeyShare, PartyIdx};
-use super::generic::{FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, Round};
-use super::merged::BaseRoundWrapper;
+use super::generic::{
+    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
+    FirstRound, InitError, ToNextRound, ToResult,
+};
 use super::presigning;
 use super::signing;
+use super::wrappers::RoundWrapper;
 use crate::cggmp21::params::SchemeParams;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::tools::collections::HoleVec;
@@ -23,12 +26,12 @@ pub(crate) struct Context<P: SchemeParams> {
     pub(crate) message: Scalar,
 }
 
-pub(crate) struct Round1Part1<P: SchemeParams> {
-    round: presigning::Round1Part1<P>,
+pub(crate) struct Round1<P: SchemeParams> {
+    round: presigning::Round1<P>,
     context: RoundContext<P>,
 }
 
-impl<P: SchemeParams> FirstRound for Round1Part1<P> {
+impl<P: SchemeParams> FirstRound for Round1<P> {
     type Context = Context<P>;
     fn new(
         rng: &mut impl CryptoRngCore,
@@ -37,7 +40,7 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
         party_idx: PartyIdx,
         context: Self::Context,
     ) -> Result<Self, InitError> {
-        let round = presigning::Round1Part1::new(
+        let round = presigning::Round1::new(
             rng,
             shared_randomness,
             num_parties,
@@ -53,69 +56,34 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
     }
 }
 
-impl<P: SchemeParams> BaseRoundWrapper for Round1Part1<P> {
-    type InnerRound = presigning::Round1Part1<P>;
+impl<P: SchemeParams> RoundWrapper for Round1<P> {
+    type Type = ToNextRound;
+    type Result = RecoverableSignature;
+    type InnerRound = presigning::Round1<P>;
     const ROUND_NUM: u8 = 1;
-    fn inner_round(&self) -> &Self::InnerRound {
-        &self.round
-    }
-}
-
-impl<P: SchemeParams> Round for Round1Part1<P> {
-    type NextRound = Round1Part2<P>;
-    type Result = RecoverableSignature;
-    fn finalize(
-        self,
-        rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let result = self.round.finalize(rng, payloads)?;
-        match result {
-            FinalizeSuccess::AnotherRound(round) => {
-                Ok(FinalizeSuccess::AnotherRound(Round1Part2::<P> {
-                    round,
-                    context: self.context,
-                }))
-            }
-            FinalizeSuccess::Result(_res) => unreachable!(),
-        }
-    }
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
-}
-
-pub(crate) struct Round1Part2<P: SchemeParams> {
-    round: presigning::Round1Part2<P>,
-    context: RoundContext<P>,
-}
-
-impl<P: SchemeParams> BaseRoundWrapper for Round1Part2<P> {
-    type InnerRound = presigning::Round1Part2<P>;
-    const ROUND_NUM: u8 = 2;
     fn inner_round(&self) -> &Self::InnerRound {
         &self.round
     }
 }
 
-impl<P: SchemeParams> Round for Round1Part2<P> {
+impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     type NextRound = Round2<P>;
-    type Result = RecoverableSignature;
-    fn finalize(
+    fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let result = self.round.finalize(rng, payloads)?;
-        match result {
-            FinalizeSuccess::AnotherRound(round) => {
-                Ok(FinalizeSuccess::AnotherRound(Round2::<P> {
-                    round,
-                    context: self.context,
-                }))
-            }
-            FinalizeSuccess::Result(_res) => unreachable!(),
-        }
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        let round =
+            self.round
+                .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artefacts)?;
+        Ok(Round2 {
+            round,
+            context: self.context,
+        })
     }
-    const NEXT_ROUND_NUM: Option<u8> = Some(3);
 }
 
 pub(crate) struct Round2<P: SchemeParams> {
@@ -123,34 +91,34 @@ pub(crate) struct Round2<P: SchemeParams> {
     context: RoundContext<P>,
 }
 
-impl<P: SchemeParams> BaseRoundWrapper for Round2<P> {
+impl<P: SchemeParams> RoundWrapper for Round2<P> {
+    type Type = ToNextRound;
+    type Result = RecoverableSignature;
     type InnerRound = presigning::Round2<P>;
-    const ROUND_NUM: u8 = 3;
+    const ROUND_NUM: u8 = 2;
+    const NEXT_ROUND_NUM: Option<u8> = Some(3);
     fn inner_round(&self) -> &Self::InnerRound {
         &self.round
     }
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     type NextRound = Round3<P>;
-    type Result = RecoverableSignature;
-    fn finalize(
+    fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let result = self.round.finalize(rng, payloads)?;
-        match result {
-            FinalizeSuccess::AnotherRound(round) => {
-                Ok(FinalizeSuccess::AnotherRound(Round3::<P> {
-                    round,
-                    context: self.context,
-                }))
-            }
-            FinalizeSuccess::Result(_res) => unreachable!(),
-        }
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        let round =
+            self.round
+                .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artefacts)?;
+        Ok(Round3 {
+            round,
+            context: self.context,
+        })
     }
-    const NEXT_ROUND_NUM: Option<u8> = Some(4);
 }
 
 pub(crate) struct Round3<P: SchemeParams> {
@@ -158,76 +126,75 @@ pub(crate) struct Round3<P: SchemeParams> {
     context: RoundContext<P>,
 }
 
-impl<P: SchemeParams> BaseRoundWrapper for Round3<P> {
+impl<P: SchemeParams> RoundWrapper for Round3<P> {
+    type Type = ToNextRound;
+    type Result = RecoverableSignature;
     type InnerRound = presigning::Round3<P>;
-    const ROUND_NUM: u8 = 4;
+    const ROUND_NUM: u8 = 3;
+    const NEXT_ROUND_NUM: Option<u8> = Some(4);
     fn inner_round(&self) -> &Self::InnerRound {
         &self.round
     }
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
-    type NextRound = SigningRound;
-    type Result = RecoverableSignature;
-    fn finalize(
+impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
+    type NextRound = Round4;
+    fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        let presigning_data =
+            self.round
+                .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artefacts)?;
         let num_parties = self.context.key_share.num_parties();
         let party_idx = self.context.key_share.party_index();
-        let result = self.round.finalize(rng, payloads)?;
-        match result {
-            FinalizeSuccess::AnotherRound(_round) => unreachable!(),
-            FinalizeSuccess::Result(result) => {
-                let signing_context = signing::Context {
-                    message: self.context.message,
-                    presigning: result,
-                    verifying_key: self.context.key_share.verifying_key_as_point(),
-                };
-                let signing_round = signing::Round1::new(
-                    rng,
-                    &self.context.shared_randomness,
-                    num_parties,
-                    party_idx,
-                    signing_context,
-                )
-                .map_err(FinalizeError::ProtocolMergeSequential)?;
-                Ok(FinalizeSuccess::AnotherRound(SigningRound {
-                    round: signing_round,
-                }))
-            }
-        }
+        let signing_context = signing::Context {
+            message: self.context.message,
+            presigning: presigning_data,
+            verifying_key: self.context.key_share.verifying_key_as_point(),
+        };
+        let signing_round = signing::Round1::new(
+            rng,
+            &self.context.shared_randomness,
+            num_parties,
+            party_idx,
+            signing_context,
+        )
+        .map_err(FinalizeError::ProtocolMergeSequential)?;
+
+        Ok(Round4 {
+            round: signing_round,
+        })
     }
-    const NEXT_ROUND_NUM: Option<u8> = Some(5);
 }
 
-pub(crate) struct SigningRound {
+pub(crate) struct Round4 {
     round: signing::Round1,
 }
 
-impl BaseRoundWrapper for SigningRound {
+impl RoundWrapper for Round4 {
+    type Type = ToResult;
+    type Result = RecoverableSignature;
     type InnerRound = signing::Round1;
-    const ROUND_NUM: u8 = 5;
+    const ROUND_NUM: u8 = 4;
+    const NEXT_ROUND_NUM: Option<u8> = None;
     fn inner_round(&self) -> &Self::InnerRound {
         &self.round
     }
 }
 
-impl Round for SigningRound {
-    type NextRound = NonExistent<Self::Result>;
-    type Result = RecoverableSignature;
-    fn finalize(
+impl FinalizableToResult for Round4 {
+    fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::Result, FinalizeError> {
         self.round
-            .finalize(rng, payloads)
-            .map(|success| match success {
-                FinalizeSuccess::Result(res) => FinalizeSuccess::Result(res),
-                FinalizeSuccess::AnotherRound(_round) => unreachable!(),
-            })
+            .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artefacts)
     }
-    const NEXT_ROUND_NUM: Option<u8> = None;
 }

@@ -6,7 +6,7 @@ use rand_core::CryptoRngCore;
 use super::{
     protocols::{
         auxiliary, keygen, presigning, signing,
-        test_utils::{assert_next_round, assert_result, step},
+        test_utils::{step_next_round, step_result, step_round},
         FirstRound, PartyIdx, PresigningData,
     },
     KeyShare, SchemeParams,
@@ -31,9 +31,12 @@ pub fn keygen<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: usize)
         })
         .collect();
 
-    let r2 = assert_next_round(step(rng, r1).unwrap()).unwrap();
-    let r3 = assert_next_round(step(rng, r2).unwrap()).unwrap();
-    let _shares = assert_result(step(rng, r3).unwrap()).unwrap();
+    let r1a = step_round(rng, r1).unwrap();
+    let r2 = step_next_round(rng, r1a).unwrap();
+    let r2a = step_round(rng, r2).unwrap();
+    let r3 = step_next_round(rng, r2a).unwrap();
+    let r3a = step_round(rng, r3).unwrap();
+    let _shares = step_result(rng, r3a).unwrap();
 }
 
 /// A sequential execution of the KeyRefresh/Auxiliary protocol for all parties.
@@ -54,9 +57,12 @@ pub fn key_refresh<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: u
         })
         .collect();
 
-    let r2 = assert_next_round(step(rng, r1).unwrap()).unwrap();
-    let r3 = assert_next_round(step(rng, r2).unwrap()).unwrap();
-    let _shares = assert_result(step(rng, r3).unwrap()).unwrap();
+    let r1a = step_round(rng, r1).unwrap();
+    let r2 = step_next_round(rng, r1a).unwrap();
+    let r2a = step_round(rng, r2).unwrap();
+    let r3 = step_next_round(rng, r2a).unwrap();
+    let r3a = step_round(rng, r3).unwrap();
+    let _changes = step_result(rng, r3a).unwrap();
 }
 
 /// A sequential execution of the Presigning protocol for all parties.
@@ -67,7 +73,7 @@ pub fn presigning<P: SchemeParams>(rng: &mut impl CryptoRngCore, key_shares: &[K
     let num_parties = key_shares.len();
     let r1 = (0..num_parties)
         .map(|idx| {
-            presigning::Round1Part1::<P>::new(
+            presigning::Round1::<P>::new(
                 rng,
                 &shared_randomness,
                 num_parties,
@@ -78,10 +84,12 @@ pub fn presigning<P: SchemeParams>(rng: &mut impl CryptoRngCore, key_shares: &[K
         })
         .collect();
 
-    let r1p2 = assert_next_round(step(rng, r1).unwrap()).unwrap();
-    let r2 = assert_next_round(step(rng, r1p2).unwrap()).unwrap();
-    let r3 = assert_next_round(step(rng, r2).unwrap()).unwrap();
-    let _presigning_datas = assert_result(step(rng, r3).unwrap()).unwrap();
+    let r1a = step_round(rng, r1).unwrap();
+    let r2 = step_next_round(rng, r1a).unwrap();
+    let r2a = step_round(rng, r2).unwrap();
+    let r3 = step_next_round(rng, r2a).unwrap();
+    let r3a = step_round(rng, r3).unwrap();
+    let _presigning_datas = step_result(rng, r3a).unwrap();
 }
 
 /// A sequential execution of the Presigning protocol for all parties.
@@ -112,5 +120,6 @@ pub fn signing<P: SchemeParams>(rng: &mut impl CryptoRngCore, key_shares: &[KeyS
         })
         .collect();
 
-    let _signatures = assert_result(step(rng, r1).unwrap()).unwrap();
+    let r1a = step_round(rng, r1).unwrap();
+    let _signatures = step_result(rng, r1a).unwrap();
 }

@@ -16,7 +16,8 @@ pub mod benches;
 
 pub use params::{ProductionParams, SchemeParams, TestParams};
 pub(crate) use protocols::{
-    auxiliary, interactive_signing, keygen_and_aux, FinalizeError, FinalizeSuccess, FirstRound,
-    ReceiveError, Round, ToSendTyped,
+    auxiliary, interactive_signing, keygen_and_aux, BroadcastRound, DirectRound,
+    FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound, ReceiveError, Round,
+    ToNextRound, ToResult,
 };
 pub use protocols::{InitError, KeyShare, KeyShareChange, PartyIdx, ThresholdKeyShare};

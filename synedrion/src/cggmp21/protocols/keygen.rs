@@ -1,6 +1,7 @@
 //! ECDSA key generation (Fig. 5).
 
 use alloc::boxed::Box;
+use alloc::string::String;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
@@ -8,15 +9,15 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareSeed, PartyIdx};
 use super::generic::{
-    BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
-    Round, ToSendTyped,
+    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
+    FirstRound, InitError, ReceiveError, Round, ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{SchCommitment, SchProof, SchSecret},
     SchemeParams,
 };
 use crate::curve::{Point, Scalar};
-use crate::tools::collections::HoleVec;
+use crate::tools::collections::{HoleRange, HoleVec};
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
@@ -63,6 +64,7 @@ struct Context {
     sch_secret: SchSecret,
     shared_randomness: Box<[u8]>,
     party_idx: PartyIdx,
+    num_parties: usize,
     data: FullData,
 }
 
@@ -82,7 +84,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        _num_parties: usize,
+        num_parties: usize,
         party_idx: PartyIdx,
         _context: Self::Context,
     ) -> Result<Self, InitError> {
@@ -103,6 +105,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 
         let context = Context {
             party_idx,
+            num_parties,
             key_share: secret,
             sch_secret: proof_secret,
             shared_randomness: shared_randomness.into(),
@@ -116,21 +119,32 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> BaseRound for Round1<P> {
-    type Payload = HashOutput;
-    type Message = Round1Bcast;
-
+impl<P: SchemeParams> Round for Round1<P> {
+    type Type = ToNextRound;
+    type Result = KeyShareSeed;
     const ROUND_NUM: u8 = 1;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = true;
+    const NEXT_ROUND_NUM: Option<u8> = Some(2);
+}
 
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
+impl<P: SchemeParams> BroadcastRound for Round1<P> {
+    const REQUIRES_CONSENSUS: bool = true;
+    type Message = Round1Bcast;
+    type Payload = HashOutput;
+
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
+            self.context.num_parties,
+            self.context.party_idx.as_usize(),
+        ))
+    }
+    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
         let hash = self
             .context
             .data
             .hash(&self.context.shared_randomness, self.context.party_idx);
-        ToSendTyped::Broadcast(Round1Bcast { hash })
+        Ok(Round1Bcast { hash })
     }
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         _from: PartyIdx,
         msg: Self::Message,
@@ -139,20 +153,28 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams> DirectRound for Round1<P> {
+    type Message = ();
+    type Payload = ();
+    type Artefact = ();
+}
+
+impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     type NextRound = Round2<P>;
-    type Result = KeyShareSeed;
-    const NEXT_ROUND_NUM: Option<u8> = Some(2);
-    fn finalize(
+    fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        Ok(FinalizeSuccess::AnotherRound(Round2 {
-            hashes: payloads,
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        assert!(dm_payloads.is_none());
+        assert!(dm_artefacts.is_none());
+        Ok(Round2 {
+            hashes: bc_payloads.unwrap(),
             context: self.context,
             phantom: PhantomData,
-        }))
+        })
     }
 }
 
@@ -167,19 +189,30 @@ pub struct Round2Bcast {
     data: FullData,
 }
 
-impl<P: SchemeParams> BaseRound for Round2<P> {
-    type Payload = FullData;
-    type Message = Round2Bcast;
-
+impl<P: SchemeParams> Round for Round2<P> {
+    type Type = ToNextRound;
+    type Result = KeyShareSeed;
     const ROUND_NUM: u8 = 2;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
+    const NEXT_ROUND_NUM: Option<u8> = Some(3);
+}
 
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        ToSendTyped::Broadcast(Round2Bcast {
+impl<P: SchemeParams> BroadcastRound for Round2<P> {
+    const REQUIRES_CONSENSUS: bool = false;
+    type Message = Round2Bcast;
+    type Payload = FullData;
+
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
+            self.context.num_parties,
+            self.context.party_idx.as_usize(),
+        ))
+    }
+    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
+        Ok(Round2Bcast {
             data: self.context.data.clone(),
         })
     }
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -194,30 +227,39 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> DirectRound for Round2<P> {
+    type Message = ();
+    type Payload = ();
+    type Artefact = ();
+}
+
+impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     type NextRound = Round3<P>;
-    type Result = KeyShareSeed;
-    const NEXT_ROUND_NUM: Option<u8> = Some(3);
-    fn finalize(
+    fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        assert!(dm_payloads.is_none());
+        assert!(dm_artefacts.is_none());
+        let bc_payloads = bc_payloads.unwrap();
         // XOR the vectors together
         // TODO: is there a better way?
         let mut rid = self.context.data.rid.clone();
-        for data in payloads.iter() {
+        for data in bc_payloads.iter() {
             for (i, x) in data.rid.iter().enumerate() {
                 rid[i] ^= x;
             }
         }
 
-        Ok(FinalizeSuccess::AnotherRound(Round3 {
-            datas: payloads,
+        Ok(Round3 {
+            datas: bc_payloads,
             context: self.context,
             rid,
             phantom: PhantomData,
-        }))
+        })
     }
 }
 
@@ -233,14 +275,19 @@ pub struct Round3Bcast {
     proof: SchProof,
 }
 
-impl<P: SchemeParams> BaseRound for Round3<P> {
-    type Payload = bool;
-    type Message = Round3Bcast;
-
+impl<P: SchemeParams> Round for Round3<P> {
+    type Type = ToResult;
+    type Result = KeyShareSeed;
     const ROUND_NUM: u8 = 3;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
+    const NEXT_ROUND_NUM: Option<u8> = None;
+}
 
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
+impl<P: SchemeParams> BroadcastRound for Round3<P> {
+    const REQUIRES_CONSENSUS: bool = false;
+    type Message = Round3Bcast;
+    type Payload = ();
+
+    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
         let aux = (
             &self.context.shared_randomness,
             &self.context.party_idx,
@@ -253,9 +300,10 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
             &self.context.data.public,
             &aux,
         );
-        ToSendTyped::Broadcast(Round3Bcast { proof })
+        Ok(Round3Bcast { proof })
     }
-    fn verify_received(
+
+    fn verify_broadcast(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -271,25 +319,32 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
                 "Schnorr verification failed".into(),
             ));
         }
-        Ok(true)
+        Ok(())
     }
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
-    type NextRound = NonExistent<Self::Result>;
-    type Result = KeyShareSeed;
-    const NEXT_ROUND_NUM: Option<u8> = None;
-    fn finalize(
+impl<P: SchemeParams> DirectRound for Round3<P> {
+    type Message = ();
+    type Payload = ();
+    type Artefact = ();
+}
+
+impl<P: SchemeParams> FinalizableToResult for Round3<P> {
+    fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
-        _payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
+        _bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::Result, FinalizeError> {
+        assert!(dm_payloads.is_none());
+        assert!(dm_artefacts.is_none());
         let datas = self.datas.into_vec(self.context.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
-        Ok(FinalizeSuccess::Result(KeyShareSeed {
+        Ok(KeyShareSeed {
             secret_share: self.context.key_share,
             public_shares: public_keys,
-        }))
+        })
     }
 }
 
@@ -298,7 +353,7 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::super::{
-        test_utils::{assert_next_round, assert_result, step},
+        test_utils::{step_next_round, step_result, step_round},
         FirstRound,
     };
     use super::Round1;
@@ -323,9 +378,12 @@ mod tests {
             })
             .collect();
 
-        let r2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
-        let r3 = assert_next_round(step(&mut OsRng, r2).unwrap()).unwrap();
-        let shares = assert_result(step(&mut OsRng, r3).unwrap()).unwrap();
+        let r1a = step_round(&mut OsRng, r1).unwrap();
+        let r2 = step_next_round(&mut OsRng, r1a).unwrap();
+        let r2a = step_round(&mut OsRng, r2).unwrap();
+        let r3 = step_next_round(&mut OsRng, r2a).unwrap();
+        let r3a = step_round(&mut OsRng, r3).unwrap();
+        let shares = step_result(&mut OsRng, r3a).unwrap();
 
         // Check that the sets of public keys are the same at each node
 

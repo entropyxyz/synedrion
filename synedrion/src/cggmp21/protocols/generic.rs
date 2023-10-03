@@ -1,26 +1,108 @@
 use alloc::string::String;
-use alloc::vec::Vec;
 use core::fmt;
-use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
-use crate::tools::collections::HoleVec;
+use crate::tools::collections::{HoleRange, HoleVec};
 
-#[derive(Debug)]
-pub(crate) enum ReceiveError {
+pub(crate) trait BroadcastRound {
+    const REQUIRES_CONSENSUS: bool = false;
+    type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
+    type Payload: Sized + Send + 'static;
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        None
+    }
+    fn make_broadcast(
+        &self,
+        #[allow(unused_variables)] rng: &mut impl CryptoRngCore,
+    ) -> Result<Self::Message, String> {
+        Err("This round does not send out broadcasts".into())
+    }
+    fn verify_broadcast(
+        &self,
+        #[allow(unused_variables)] from: PartyIdx,
+        #[allow(unused_variables)] msg: Self::Message,
+    ) -> Result<Self::Payload, ReceiveError> {
+        Err(ReceiveError::UnexpectedMessage(
+            "This round does not receive broadcasts".into(),
+        ))
+    }
+}
+
+pub(crate) trait DirectRound {
+    type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
+    type Payload: Sized + Send + 'static;
+    type Artefact: Sized + Send + 'static;
+    fn direct_message_destinations(&self) -> Option<HoleRange> {
+        None
+    }
+    fn make_direct_message(
+        &self,
+        #[allow(unused_variables)] rng: &mut impl CryptoRngCore,
+        #[allow(unused_variables)] destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artefact), String> {
+        Err("This round does not send out direct messages".into())
+    }
+    fn verify_direct_message(
+        &self,
+        #[allow(unused_variables)] from: PartyIdx,
+        #[allow(unused_variables)] msg: Self::Message,
+    ) -> Result<Self::Payload, ReceiveError> {
+        Err(ReceiveError::UnexpectedMessage(
+            "This round does not receive direct messages".into(),
+        ))
+    }
+}
+
+pub trait FinalizableType {}
+
+pub struct ToResult;
+
+impl FinalizableType for ToResult {}
+
+pub struct ToNextRound;
+
+impl FinalizableType for ToNextRound {}
+
+pub(crate) trait Round: Sized + Send + BroadcastRound + DirectRound {
+    type Type: FinalizableType;
+    type Result: Sized + Send;
+    const ROUND_NUM: u8;
+    // TODO: find a way to derive it from `ROUND_NUM`
+    const NEXT_ROUND_NUM: Option<u8>;
+}
+
+pub(crate) trait FinalizableToResult: Round {
+    fn finalize_to_result(
+        self,
+        rng: &mut impl CryptoRngCore,
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::Result, FinalizeError>;
+}
+
+pub(crate) trait FinalizableToNextRound: Round {
+    type NextRound: Round<Result = Self::Result>;
+    fn finalize_to_next_round(
+        self,
+        rng: &mut impl CryptoRngCore,
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError>;
+}
+
+#[derive(Debug, Clone)]
+pub enum ReceiveError {
     VerificationFail(String),
+    UnexpectedMessage(String),
 }
 
-pub(crate) enum FinalizeSuccess<R: Round> {
-    Result(R::Result),
-    AnotherRound(R::NextRound),
-}
-
-#[derive(Debug)]
-pub(crate) enum FinalizeError {
+#[derive(Debug, Clone)]
+pub enum FinalizeError {
     /// Returned when there is an error chaining the start of another protocol
     /// on the finalization of the previous one.
     ProtocolMergeSequential(InitError),
@@ -28,42 +110,8 @@ pub(crate) enum FinalizeError {
     Unspecified(String), // TODO: add fine-grained errors
 }
 
-pub(crate) enum ToSendTyped<Message> {
-    Broadcast(Message),
-    // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(PartyIdx, Message)>),
-}
-
-pub(crate) trait BaseRound: Sized + Send {
-    type Message: Sized + Clone + Serialize + for<'de> Deserialize<'de>;
-    type Payload: Sized + Send;
-
-    const ROUND_NUM: u8;
-    const REQUIRES_BROADCAST_CONSENSUS: bool;
-
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message>;
-    fn verify_received(
-        &self,
-        from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError>;
-}
-
-pub(crate) trait Round: BaseRound {
-    type NextRound: Round<Result = Self::Result>;
-    type Result: Sized + Send;
-    fn finalize(
-        self,
-        rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError>;
-    // TODO: these may be possible to implement generically without needing to specify them
-    // in every `Round` impl. See the mutually exclusive trait trick.
-    const NEXT_ROUND_NUM: Option<u8>;
-}
-
 /// An error that can occur when initializing a protocol.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InitError(pub(crate) String);
 
 impl fmt::Display for InitError {
@@ -73,7 +121,7 @@ impl fmt::Display for InitError {
     }
 }
 
-pub(crate) trait FirstRound: BaseRound {
+pub(crate) trait FirstRound: Round {
     type Context;
     fn new(
         rng: &mut impl CryptoRngCore,
@@ -82,40 +130,4 @@ pub(crate) trait FirstRound: BaseRound {
         party_idx: PartyIdx,
         context: Self::Context,
     ) -> Result<Self, InitError>;
-}
-
-/// A dummy round to use as the `Round::NextRound` when there is no actual next round.
-pub(crate) struct NonExistent<Res>(PhantomData<Res>);
-
-impl<Res: Send> BaseRound for NonExistent<Res> {
-    type Message = ();
-    type Payload = ();
-
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        unreachable!()
-    }
-    fn verify_received(
-        &self,
-        _from: PartyIdx,
-        _msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
-        unreachable!()
-    }
-
-    const ROUND_NUM: u8 = 0;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
-}
-
-impl<Res: Send> Round for NonExistent<Res> {
-    type NextRound = Self;
-    type Result = Res;
-    fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
-        _payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        unreachable!()
-    }
-
-    const NEXT_ROUND_NUM: Option<u8> = None;
 }

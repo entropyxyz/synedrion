@@ -1,6 +1,7 @@
 use alloc::string::String;
 use core::fmt;
 
+use super::type_erased;
 use crate::cggmp21::PartyIdx;
 
 /// Possible errors returned by session methods.
@@ -48,6 +49,7 @@ pub enum MyFault {
     SerializationError(String),
     InvalidId(PartyIdx),
     SigningError(String),
+    TypeErased(type_erased::Error),
 }
 
 #[derive(Clone, Debug)]
@@ -58,4 +60,5 @@ pub enum TheirFault {
     InvalidSessionId,
     Receive(String),
     VerificationFail(String),
+    TypeErased(type_erased::Error),
 }

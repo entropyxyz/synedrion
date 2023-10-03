@@ -26,6 +26,7 @@ crypto-primes = "0.5"
 serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"
 cfg-if = "1"
+itertools = { version = "0.11", default-features = false, optional = true }
 
 [dev-dependencies]
 num-modular = { version = "0.5", features = ["num-bigint"] }
@@ -34,9 +35,10 @@ num-integer = "0.1"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = "0.8"
 criterion = "0.5"
+itertools = "0.11"
 
 [features]
-bench-internals = [] # makes some internal functions public to allow external benchmarks
+bench-internals = ["itertools"] # makes some internal functions public to allow external benchmarks
 
 [[bench]]
 bench = true
