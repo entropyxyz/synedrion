@@ -67,7 +67,7 @@ impl<P: SchemeParams> MulProof<P> {
             .mul_randomizer(pk, &r);
         let cap_b = Ciphertext::new_with_randomizer(pk, alpha.as_ref(), &s);
 
-        let z = alpha.into_signed().unwrap().into_wide() + e.mul_wide(secret);
+        let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(secret);
         let u = (r_mod * rho_mod.pow_signed_vartime(&e)).retrieve();
         let v = (s_mod * rho_x_mod.pow_signed_vartime(&e)).retrieve();
 
