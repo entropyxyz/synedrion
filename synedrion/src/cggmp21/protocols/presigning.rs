@@ -494,6 +494,14 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
         let alpha = msg
             .d
             .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
+
+        // `alpha == x * y + z` where `0 <= x, y < q`, and `-2^l' <= z <= 2^l'`,
+        // where `q` is the curve order.
+        // We will need this bound later, so we're asserting it.
+        let alpha = alpha
+            .assert_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
+            .unwrap();
+
         let alpha_hat = msg
             .d_hat
             .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk)

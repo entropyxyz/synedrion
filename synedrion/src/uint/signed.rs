@@ -75,6 +75,17 @@ impl<T: UintLike> Signed<T> {
         self.bound
     }
 
+    pub fn assert_bound_usize(self, bound: usize) -> Option<Self> {
+        if self.abs().bits() <= bound {
+            Some(Self {
+                value: self.value,
+                bound: bound as u32,
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn bound_usize(&self) -> usize {
         // Extracted into a method to localize the conversion
         self.bound as usize
