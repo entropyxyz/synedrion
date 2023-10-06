@@ -78,15 +78,6 @@ impl<P: PaillierParams> RPParamsMod<P> {
         RPCommitmentMod(pow_signed_wide(&self.base, randomizer) * self.power.pow_signed(secret))
     }
 
-    pub fn commit_bounded(
-        &self,
-        randomizer: &Signed<P::WideUint>,
-        secret: &Bounded<P::Uint>,
-    ) -> RPCommitmentMod<P> {
-        // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(pow_signed_wide(&self.base, randomizer) * self.power.pow_bounded(secret))
-    }
-
     pub fn commit_wide(
         &self,
         randomizer: &Signed<P::WideUint>,

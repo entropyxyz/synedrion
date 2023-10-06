@@ -10,7 +10,7 @@ use crate::paillier::{
     Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{Bounded, FromScalar, NonZero, Signed};
+use crate::uint::{FromScalar, NonZero, Signed};
 
 const HASH_TAG: &[u8] = b"P_dec";
 
@@ -28,7 +28,7 @@ pub(crate) struct DecProof<P: SchemeParams> {
 impl<P: SchemeParams> DecProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
-        y: &Bounded<<P::Paillier as PaillierParams>::Uint>,
+        y: &Signed<<P::Paillier as PaillierParams>::Uint>,
         rho: &RandomizerMod<P::Paillier>,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
         aux_rp: &RPParamsMod<P::Paillier>,              // $\hat{N}$, $s$, $t$
@@ -46,12 +46,12 @@ impl<P: SchemeParams> DecProof<P> {
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let r = RandomizerMod::random(rng, pk);
 
-        let cap_s = aux_rp.commit_bounded(&mu, y).retrieve();
+        let cap_s = aux_rp.commit(&mu, y).retrieve();
         let cap_t = aux_rp.commit(&nu, &alpha).retrieve();
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
         let gamma = alpha.to_scalar();
 
-        let z1 = alpha + e * y.into_signed().unwrap();
+        let z1 = alpha + e * *y;
         let z2 = nu + e.into_wide() * mu;
 
         let omega = (r * rho.pow_signed_vartime(&e)).retrieve();
@@ -111,7 +111,9 @@ mod tests {
 
     use super::DecProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
+    use crate::paillier::{
+        Ciphertext, PaillierParams, RPParamsMod, RandomizerMod, SecretKeyPaillier,
+    };
     use crate::uint::{FromScalar, Signed};
 
     #[test]
@@ -127,13 +129,12 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        // +10 to imitate a realistic bound
-        // (sum_j(x_i * y_i) where x_i and y_j are bounded by L_BOUND)
-        let y = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND * 2 + 10).abs_bounded();
+        // We need something within the range -N/2..N/2 so that it doesn't wrap around.
+        let y = Signed::random_bounded_bits(&mut OsRng, Paillier::PRIME_BITS - 2);
         let x = y.to_scalar();
 
         let rho = RandomizerMod::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_bounded(pk, &y, &rho.retrieve());
+        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho.retrieve());
 
         let proof = DecProof::<Params>::random(&mut OsRng, &y, &rho, pk, &aux_rp, &aux);
         assert!(proof.verify(pk, &x, &cap_c, &aux_rp, &aux));

@@ -13,11 +13,11 @@ use crate::cggmp21::{
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
     SchemeParams,
 };
-use crate::curve::{Point, Scalar, ORDER};
+use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams, RandomizerMod};
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{Bounded, CheckedAdd, CheckedMul, FromScalar, Signed};
+use crate::uint::{CheckedMul, FromScalar, Signed};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
@@ -532,43 +532,10 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let big_delta = &gamma * &self.context.ephemeral_scalar_share;
 
-        // The order of operations here is important:
-        // -2^{\ell^\prime} <= \alpha < q^2 + 2^{\ell^\prime}
-        // -2^{\ell^\prime} <= \beta <= 2^{\ell^\prime}
-        // But by construction, 0 <= \alpha + beta < q^2
-        // So we can perform the calculation with non-negative integers,
-        // and assert that the final range is 0 <= \delta < q^2 * num_parties
-        // TODO: check that (could be done in `verify()`), and abort if it is not true
-        // (otherwise we will get panics in arithmetic operations)
-
-        let mut delta = Bounded::from_scalar(&self.context.gamma)
-            .checked_mul(Bounded::from_scalar(&self.context.ephemeral_scalar_share))
-            .unwrap();
-        let log2 = |x: usize| usize::BITS - x.leading_zeros();
-        let product_bound = (ORDER.bits_vartime() * 2) as u32;
-        for (i, (payload, protocol)) in payloads.iter().zip(self.protocols.iter()).enumerate() {
-            let term = payload.alpha + protocol.beta;
-            // By construction this should be a product of two Scalar values,
-            // and therefore non-negative
-            if term.is_negative().into() {
-                return Err(FinalizeError::Unspecified(
-                    "Invalid value of alpha * beta".into(),
-                ));
-            }
-
-            // We know that every term is limited by `product_bound`,
-            // so we manually reset the bound of the result.
-            // TODO: return an error on failure here
-            let term = Bounded::new(term.abs(), product_bound).unwrap();
-
-            delta = delta.checked_add(term).unwrap();
-
-            // The bound on `delta` is only `product_bound + ceil(log2(num_parties))`
-            // instead of `product_bound + num_parties` as it would be conservatively set
-            // by a series of `checked_add()`.
-            // TODO: return an error on failure here
-            delta = Bounded::new(*delta.as_ref(), product_bound + log2(i + 1)).unwrap();
-        }
+        let delta = Signed::from_scalar(&self.context.gamma)
+            * Signed::from_scalar(&self.context.ephemeral_scalar_share)
+            + payloads.iter().map(|p| p.alpha).sum()
+            + self.protocols.iter().map(|p| p.beta).sum();
 
         let alpha_hat_sum: Scalar = payloads.iter().map(|payload| payload.alpha_hat).sum();
         let beta_hat_sum: Signed<_> = self.betas_hat.iter().sum();
@@ -605,7 +572,7 @@ pub struct Round3Bcast<P: SchemeParams> {
 
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
-    delta: Bounded<<P::Paillier as PaillierParams>::Uint>,
+    delta: Signed<<P::Paillier as PaillierParams>::Uint>,
     product_share: Scalar,
     big_delta: Point,
     big_gamma: Point,

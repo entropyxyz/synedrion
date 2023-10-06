@@ -139,15 +139,6 @@ impl<P: PaillierParams> Ciphertext<P> {
         Self::new_with_randomizer_inner(pk, plaintext, randomizer, Choice::from(0))
     }
 
-    #[cfg(test)]
-    pub fn new_with_randomizer_bounded(
-        pk: &PublicKeyPaillierPrecomputed<P>,
-        plaintext: &Bounded<P::Uint>,
-        randomizer: &Randomizer<P>,
-    ) -> Self {
-        Self::new_with_randomizer_inner(pk, plaintext.as_ref(), randomizer, Choice::from(0))
-    }
-
     pub fn new_with_randomizer_signed(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
