@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
@@ -6,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, KeySharePrecomputed, PartyIdx, PresigningData};
 use super::generic::{
-    BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
-    Round, ToSendTyped,
+    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
+    FirstRound, InitError, ReceiveError, Round, ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
@@ -15,7 +16,7 @@ use crate::cggmp21::{
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams, RandomizerMod};
-use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
+use crate::tools::collections::{HoleRange, HoleVec};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{CheckedMul, FromScalar, Signed};
 
@@ -34,20 +35,13 @@ pub struct Context<P: SchemeParams> {
     nu: RandomizerMod<P::Paillier>,
 }
 
-// We are splitting Round 1 into two parts since it has to send both direct and broadcast
-// messages. Our generic Round can only do either one or the other.
-// So we are sending the broadcast first, and when the succeeds, send the direct ones.
-// CHECK: this should not affect security.
-// We could support sending both types of messages generically, but that would mean that most
-// rounds would have empty implementations and unused types, since that behavior only happens
-// in a few cases.
-pub struct Round1Part1<P: SchemeParams> {
+pub struct Round1<P: SchemeParams> {
     context: Context<P>,
     k_ciphertext: Ciphertext<P::Paillier>,
     g_ciphertext: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams> FirstRound for Round1Part1<P> {
+impl<P: SchemeParams> FirstRound for Round1<P> {
     type Context = KeyShare<P>;
     fn new(
         rng: &mut impl CryptoRngCore,
@@ -91,6 +85,13 @@ impl<P: SchemeParams> FirstRound for Round1Part1<P> {
     }
 }
 
+impl<P: SchemeParams> Round for Round1<P> {
+    type Type = ToNextRound;
+    type Result = PresigningData;
+    const ROUND_NUM: u8 = 1;
+    const NEXT_ROUND_NUM: Option<u8> = Some(2);
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "Ciphertext<P>: Serialize"))]
 #[serde(bound(deserialize = "Ciphertext<P>: for<'x> Deserialize<'x>"))]
@@ -105,21 +106,31 @@ impl<P: PaillierParams> Hashable for Round1Bcast<P> {
     }
 }
 
-impl<P: SchemeParams> BaseRound for Round1Part1<P> {
-    type Payload = Round1Bcast<P::Paillier>;
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "EncProof<P>: Serialize"))]
+#[serde(bound(deserialize = "EncProof<P>: for<'x> Deserialize<'x>"))]
+pub struct Round1Direct<P: SchemeParams>(EncProof<P>);
+
+impl<P: SchemeParams> BroadcastRound for Round1<P> {
+    const REQUIRES_CONSENSUS: bool = true;
     type Message = Round1Bcast<P::Paillier>;
+    type Payload = Round1Bcast<P::Paillier>;
 
-    const ROUND_NUM: u8 = 1;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = true;
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
+            self.context.key_share.num_parties(),
+            self.context.key_share.party_index().as_usize(),
+        ))
+    }
 
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        ToSendTyped::Broadcast(Round1Bcast {
+    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
+        Ok(Round1Bcast {
             k_ciphertext: self.k_ciphertext.clone(),
             g_ciphertext: self.g_ciphertext.clone(),
         })
     }
 
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         _from: PartyIdx,
         msg: Self::Message,
@@ -128,111 +139,88 @@ impl<P: SchemeParams> BaseRound for Round1Part1<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round1Part1<P> {
-    type NextRound = Round1Part2<P>;
-    type Result = PresigningData;
-
-    const NEXT_ROUND_NUM: Option<u8> = Some(2);
-
-    fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let (k_ciphertexts, g_ciphertexts) = payloads
-            .map(|data| (data.k_ciphertext, data.g_ciphertext))
-            .unzip();
-        let k_ciphertexts = k_ciphertexts.into_vec(self.k_ciphertext);
-        let g_ciphertexts = g_ciphertexts.into_vec(self.g_ciphertext);
-        Ok(FinalizeSuccess::AnotherRound(Round1Part2 {
-            context: self.context,
-            k_ciphertexts,
-            g_ciphertexts,
-        }))
-    }
-}
-
-pub struct Round1Part2<P: SchemeParams> {
-    context: Context<P>,
-    k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
-    g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "EncProof<P>: Serialize"))]
-#[serde(bound(deserialize = "EncProof<P>: for<'x> Deserialize<'x>"))]
-pub struct Round1Direct<P: SchemeParams>(EncProof<P>);
-
-impl<P: SchemeParams> BaseRound for Round1Part2<P> {
-    type Payload = ();
+impl<P: SchemeParams> DirectRound for Round1<P> {
     type Message = Round1Direct<P>;
+    type Payload = Round1Direct<P>;
+    type Artefact = ();
 
-    const ROUND_NUM: u8 = 2;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
-
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(
+    fn direct_message_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
             self.context.key_share.num_parties(),
             self.context.key_share.party_index().as_usize(),
-        );
-        let messages = range
-            .map(|idx| {
-                let aux = (&self.context.shared_randomness, &PartyIdx::from_usize(idx));
-                let proof = EncProof::random(
-                    rng,
-                    &Signed::from_scalar(&self.context.ephemeral_scalar_share),
-                    &self.context.rho,
-                    &self.context.key_share.secret_aux.paillier_sk,
-                    &self.context.key_share.public_aux[idx].aux_rp_params,
-                    &aux,
-                );
-                (PartyIdx::from_usize(idx), Round1Direct(proof))
-            })
-            .collect();
-        ToSendTyped::Direct(messages)
+        ))
     }
 
-    fn verify_received(
+    fn make_direct_message(
         &self,
-        from: PartyIdx,
+        rng: &mut impl CryptoRngCore,
+        destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artefact), String> {
+        let aux = (&self.context.shared_randomness, &destination);
+        let proof = EncProof::random(
+            rng,
+            &Signed::from_scalar(&self.context.ephemeral_scalar_share),
+            &self.context.rho,
+            &self.context.key_share.secret_aux.paillier_sk,
+            &self.context.key_share.public_aux[destination.as_usize()].aux_rp_params,
+            &aux,
+        );
+        Ok((Round1Direct(proof), ()))
+    }
+
+    fn verify_direct_message(
+        &self,
+        _from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
+        Ok(msg)
+    }
+}
+
+impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
+    type NextRound = Round2<P>;
+    fn finalize_to_next_round(
+        self,
+        _rng: &mut impl CryptoRngCore,
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        let ciphertexts = bc_payloads.unwrap();
+        let proofs = dm_payloads.unwrap();
+
         let aux = (
             &self.context.shared_randomness,
             &self.context.key_share.party_index(),
         );
 
-        let public_aux = self.context.key_share.public_aux
-            [self.context.key_share.party_index().as_usize()]
-        .clone();
+        let public_aux =
+            &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
 
-        if msg.0.verify(
-            &self.context.key_share.public_aux[from.as_usize()].paillier_pk,
-            &self.k_ciphertexts[from.as_usize()],
-            &public_aux.aux_rp_params,
-            &aux,
-        ) {
-            Ok(())
-        } else {
-            Err(ReceiveError::VerificationFail(
-                "Failed to verify EncProof".into(),
-            ))
+        for ((from, ciphertexts), proof) in ciphertexts.enumerate().zip(proofs.iter()) {
+            if !proof.0.verify(
+                &self.context.key_share.public_aux[from].paillier_pk,
+                &ciphertexts.k_ciphertext,
+                &public_aux.aux_rp_params,
+                &aux,
+            ) {
+                // TODO: report the idx of the malicious node
+                return Err(FinalizeError::Unspecified(
+                    "Failed to verify EncProof".into(),
+                ));
+            }
         }
-    }
-}
 
-impl<P: SchemeParams> Round for Round1Part2<P> {
-    type NextRound = Round2<P>;
-    type Result = PresigningData;
-
-    const NEXT_ROUND_NUM: Option<u8> = Some(3);
-
-    fn finalize(
-        self,
-        rng: &mut impl CryptoRngCore,
-        _payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        Ok(FinalizeSuccess::AnotherRound(Round2::new(rng, self)))
+        let (k_ciphertexts, g_ciphertexts) = ciphertexts
+            .map(|data| (data.k_ciphertext, data.g_ciphertext))
+            .unzip();
+        let k_ciphertexts = k_ciphertexts.into_vec(self.k_ciphertext);
+        let g_ciphertexts = g_ciphertexts.into_vec(self.g_ciphertext);
+        Ok(Round2 {
+            context: self.context,
+            k_ciphertexts,
+            g_ciphertexts,
+        })
     }
 }
 
@@ -258,59 +246,13 @@ pub struct Round2<P: SchemeParams> {
     context: Context<P>,
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
-    // TODO: these are secret
-    betas_hat: HoleVec<Signed<<P::Paillier as PaillierParams>::Uint>>,
-    protocols: HoleVec<Round2Protocol<P>>,
 }
 
 #[derive(Debug, Clone)]
-struct Round2Protocol<P: SchemeParams> {
+pub struct Round2Artefact<P: SchemeParams> {
     beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
-    r: RandomizerMod<P::Paillier>,
+    beta_hat: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
     cap_f: Ciphertext<P::Paillier>,
-}
-
-impl<P: SchemeParams> Round2<P> {
-    fn new(rng: &mut impl CryptoRngCore, round1: Round1Part2<P>) -> Self {
-        // TODO: these can be done in parallel as we creare messages for each nodes.
-        // But it will require `to_send()` to have some "protocol" return value
-        // that will be re-integrated into the round.
-
-        let num_parties = round1.context.key_share.num_parties();
-        let my_idx = round1.context.key_share.party_index().as_usize();
-
-        let range = HoleRange::new(num_parties, my_idx);
-
-        let mut betas_hat = HoleVecAccum::new(num_parties, my_idx);
-
-        range.for_each(|idx| {
-            let beta_hat = Signed::random_bounded_bits(rng, P::LP_BOUND);
-
-            // TODO: can we do this without mutation?
-            // Create the HoleVec with betas first?
-            betas_hat.insert(idx, beta_hat).unwrap();
-        });
-
-        // TODO: this will be created with to_send() when we implement it returning protocols
-        let pk = &round1.context.key_share.secret_aux.paillier_sk.public_key();
-        let mut protocols = HoleVecAccum::new(num_parties, my_idx);
-        range.for_each(|idx| {
-            let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
-            let r = RandomizerMod::random(rng, pk);
-            let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r.retrieve());
-            let protocol = Round2Protocol { beta, r, cap_f };
-
-            protocols.insert(idx, protocol).unwrap();
-        });
-
-        Self {
-            context: round1.context,
-            k_ciphertexts: round1.k_ciphertexts,
-            g_ciphertexts: round1.g_ciphertexts,
-            protocols: protocols.finalize().unwrap(),
-            betas_hat: betas_hat.finalize().unwrap(),
-        }
-    }
 }
 
 pub struct Round2Payload<P: SchemeParams> {
@@ -320,18 +262,35 @@ pub struct Round2Payload<P: SchemeParams> {
     cap_d: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams> BaseRound for Round2<P> {
-    type Payload = Round2Payload<P>;
+impl<P: SchemeParams> Round for Round2<P> {
+    type Type = ToNextRound;
+    type Result = PresigningData;
+    const ROUND_NUM: u8 = 2;
+    const NEXT_ROUND_NUM: Option<u8> = Some(3);
+}
+
+impl<P: SchemeParams> BroadcastRound for Round2<P> {
+    type Message = ();
+    type Payload = ();
+}
+
+impl<P: SchemeParams> DirectRound for Round2<P> {
     type Message = Round2Direct<P>;
+    type Payload = Round2Payload<P>;
+    type Artefact = Round2Artefact<P>;
 
-    const ROUND_NUM: u8 = 3;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
-
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(
+    fn direct_message_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
             self.context.key_share.num_parties(),
             self.context.key_share.party_index().as_usize(),
-        );
+        ))
+    }
+
+    fn make_direct_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+        destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artefact), String> {
         let aux = (
             &self.context.shared_randomness,
             &self.context.key_share.party_index(),
@@ -339,101 +298,97 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 
         let gamma = self.context.gamma.mul_by_generator();
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
+        let idx = destination.as_usize();
 
-        let messages = range
-            .map(|idx| {
-                let target_pk = &self.context.key_share.public_aux[idx].paillier_pk;
+        let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
+        let beta_hat = Signed::random_bounded_bits(rng, P::LP_BOUND);
+        let r = RandomizerMod::random(rng, pk);
+        let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r.retrieve());
 
-                let protocol = self.protocols.get(idx).unwrap();
+        let target_pk = &self.context.key_share.public_aux[idx].paillier_pk;
 
-                let r = &protocol.r;
-                let s = RandomizerMod::random(rng, target_pk);
-                let r_hat = RandomizerMod::random(rng, pk);
-                let s_hat = RandomizerMod::random(rng, target_pk);
+        let s = RandomizerMod::random(rng, target_pk);
+        let r_hat = RandomizerMod::random(rng, pk);
+        let s_hat = RandomizerMod::random(rng, target_pk);
 
-                let beta = &protocol.beta;
-                let beta_hat = self.betas_hat.get(idx).unwrap();
+        let d = self.k_ciphertexts[idx]
+            .homomorphic_mul(target_pk, &Signed::from_scalar(&self.context.gamma))
+            .homomorphic_add(
+                target_pk,
+                &Ciphertext::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve()),
+            );
 
-                let d = self.k_ciphertexts[idx]
-                    .homomorphic_mul(target_pk, &Signed::from_scalar(&self.context.gamma))
-                    .homomorphic_add(
-                        target_pk,
-                        &Ciphertext::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve()),
-                    );
-                let f = protocol.cap_f.clone();
+        let d_hat = self.k_ciphertexts[idx]
+            .homomorphic_mul(
+                target_pk,
+                &Signed::from_scalar(&self.context.key_share.secret_share),
+            )
+            .homomorphic_add(
+                target_pk,
+                &Ciphertext::new_with_randomizer_signed(target_pk, &-beta_hat, &s_hat.retrieve()),
+            );
+        let f_hat = Ciphertext::new_with_randomizer_signed(pk, &beta_hat, &r_hat.retrieve());
 
-                let d_hat = self.k_ciphertexts[idx]
-                    .homomorphic_mul(
-                        target_pk,
-                        &Signed::from_scalar(&self.context.key_share.secret_share),
-                    )
-                    .homomorphic_add(
-                        target_pk,
-                        &Ciphertext::new_with_randomizer_signed(
-                            target_pk,
-                            &-beta_hat,
-                            &s_hat.retrieve(),
-                        ),
-                    );
-                let f_hat = Ciphertext::new_with_randomizer_signed(pk, beta_hat, &r_hat.retrieve());
+        let public_aux = &self.context.key_share.public_aux[idx];
+        let aux_rp = &public_aux.aux_rp_params;
 
-                let public_aux = &self.context.key_share.public_aux[idx];
-                let aux_rp = &public_aux.aux_rp_params;
+        let psi = AffGProof::random(
+            rng,
+            &Signed::from_scalar(&self.context.gamma),
+            &beta,
+            &s,
+            &r,
+            target_pk,
+            pk,
+            &self.k_ciphertexts[idx],
+            aux_rp,
+            &aux,
+        );
 
-                let psi = AffGProof::random(
-                    rng,
-                    &Signed::from_scalar(&self.context.gamma),
-                    beta,
-                    &s,
-                    r,
-                    target_pk,
-                    pk,
-                    &self.k_ciphertexts[idx],
-                    aux_rp,
-                    &aux,
-                );
+        let psi_hat = AffGProof::random(
+            rng,
+            &Signed::from_scalar(&self.context.key_share.secret_share),
+            &beta_hat,
+            &s_hat,
+            &r_hat,
+            target_pk,
+            pk,
+            &self.k_ciphertexts[idx],
+            aux_rp,
+            &aux,
+        );
 
-                let psi_hat = AffGProof::random(
-                    rng,
-                    &Signed::from_scalar(&self.context.key_share.secret_share),
-                    beta_hat,
-                    &s_hat,
-                    &r_hat,
-                    target_pk,
-                    pk,
-                    &self.k_ciphertexts[idx],
-                    aux_rp,
-                    &aux,
-                );
+        let psi_hat_prime = LogStarProof::random(
+            rng,
+            &Signed::from_scalar(&self.context.gamma),
+            &self.context.nu,
+            pk,
+            &Point::GENERATOR,
+            aux_rp,
+            &aux,
+        );
 
-                let psi_hat_prime = LogStarProof::random(
-                    rng,
-                    &Signed::from_scalar(&self.context.gamma),
-                    &self.context.nu,
-                    pk,
-                    &Point::GENERATOR,
-                    aux_rp,
-                    &aux,
-                );
+        let msg = Round2Direct {
+            gamma,
+            d,
+            f: cap_f.clone(),
+            d_hat,
+            f_hat,
+            psi,
+            psi_hat,
+            psi_hat_prime,
+        };
 
-                let msg = Round2Direct {
-                    gamma,
-                    d,
-                    f,
-                    d_hat,
-                    f_hat,
-                    psi,
-                    psi_hat,
-                    psi_hat_prime,
-                };
+        let artefact = Round2Artefact {
+            beta,
+            beta_hat,
+            cap_f,
+        };
 
-                (PartyIdx::from_usize(idx), msg)
-            })
-            .collect();
-        ToSendTyped::Direct(messages)
+        Ok((msg, artefact))
     }
 
-    fn verify_received(
+    fn verify_direct_message(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -516,38 +471,39 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     type NextRound = Round3<P>;
-    type Result = PresigningData;
-
-    const NEXT_ROUND_NUM: Option<u8> = Some(4);
-
-    fn finalize(
+    fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let gamma: Point = payloads.iter().map(|payload| payload.gamma).sum();
+        _bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        let dm_payloads = dm_payloads.unwrap();
+        let dm_artefacts = dm_artefacts.unwrap();
+
+        let gamma: Point = dm_payloads.iter().map(|payload| payload.gamma).sum();
         let gamma = gamma + self.context.gamma.mul_by_generator();
 
         let big_delta = &gamma * &self.context.ephemeral_scalar_share;
 
         let delta = Signed::from_scalar(&self.context.gamma)
             * Signed::from_scalar(&self.context.ephemeral_scalar_share)
-            + payloads.iter().map(|p| p.alpha).sum()
-            + self.protocols.iter().map(|p| p.beta).sum();
+            + dm_payloads.iter().map(|p| p.alpha).sum()
+            + dm_artefacts.iter().map(|p| p.beta).sum();
 
-        let alpha_hat_sum: Scalar = payloads.iter().map(|payload| payload.alpha_hat).sum();
-        let beta_hat_sum: Signed<_> = self.betas_hat.iter().sum();
+        let alpha_hat_sum: Scalar = dm_payloads.iter().map(|payload| payload.alpha_hat).sum();
+        let beta_hat_sum: Signed<_> = dm_artefacts.iter().map(|artefact| artefact.beta_hat).sum();
 
         let product_share = self.context.key_share.secret_share
             * self.context.ephemeral_scalar_share
             + alpha_hat_sum
             + beta_hat_sum.to_scalar();
 
-        let cap_ds = payloads.map_ref(|payload| payload.cap_d.clone());
+        let cap_ds = dm_payloads.map_ref(|payload| payload.cap_d.clone());
 
-        Ok(FinalizeSuccess::AnotherRound(Round3 {
+        Ok(Round3 {
             context: self.context,
             delta,
             product_share,
@@ -556,15 +512,15 @@ impl<P: SchemeParams> Round for Round2<P> {
             k_ciphertexts: self.k_ciphertexts,
             g_ciphertexts: self.g_ciphertexts,
             cap_ds,
-            round2_protocols: self.protocols,
-        }))
+            round2_artefacts: dm_artefacts,
+        })
     }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "LogStarProof<P>: Serialize"))]
 #[serde(bound(deserialize = "LogStarProof<P>: for<'x> Deserialize<'x>"))]
-pub struct Round3Bcast<P: SchemeParams> {
+pub struct Round3Direct<P: SchemeParams> {
     delta: Scalar,
     big_delta: Point,
     psi_hat_pprime: LogStarProof<P>,
@@ -579,7 +535,14 @@ pub struct Round3<P: SchemeParams> {
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     cap_ds: HoleVec<Ciphertext<P::Paillier>>,
-    round2_protocols: HoleVec<Round2Protocol<P>>,
+    round2_artefacts: HoleVec<Round2Artefact<P>>,
+}
+
+impl<P: SchemeParams> Round for Round3<P> {
+    type Type = ToResult;
+    type Result = PresigningData;
+    const ROUND_NUM: u8 = 3;
+    const NEXT_ROUND_NUM: Option<u8> = None;
 }
 
 pub struct Round3Payload {
@@ -587,51 +550,57 @@ pub struct Round3Payload {
     big_delta: Point,
 }
 
-impl<P: SchemeParams> BaseRound for Round3<P> {
+impl<P: SchemeParams> BroadcastRound for Round3<P> {
+    type Message = ();
+    type Payload = ();
+}
+
+impl<P: SchemeParams> DirectRound for Round3<P> {
+    type Message = Round3Direct<P>;
     type Payload = Round3Payload;
-    type Message = Round3Bcast<P>;
+    type Artefact = ();
 
-    const ROUND_NUM: u8 = 4;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
-
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        let range = HoleRange::new(
+    fn direct_message_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
             self.context.key_share.num_parties(),
             self.context.key_share.party_index().as_usize(),
-        );
+        ))
+    }
+
+    fn make_direct_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+        destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artefact), String> {
         let aux = (
             &self.context.shared_randomness,
             &self.context.key_share.party_index(),
         );
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
+        let idx = destination.as_usize();
 
-        let messages = range
-            .map(|idx| {
-                let public_aux = &self.context.key_share.public_aux[idx];
-                let aux_rp = &public_aux.aux_rp_params;
+        let public_aux = &self.context.key_share.public_aux[idx];
+        let aux_rp = &public_aux.aux_rp_params;
 
-                let psi_hat_pprime = LogStarProof::random(
-                    rng,
-                    &Signed::from_scalar(&self.context.ephemeral_scalar_share),
-                    &self.context.rho,
-                    pk,
-                    &self.big_gamma,
-                    aux_rp,
-                    &aux,
-                );
-                let message = Round3Bcast {
-                    delta: self.delta.to_scalar(),
-                    big_delta: self.big_delta,
-                    psi_hat_pprime,
-                };
-                (PartyIdx::from_usize(idx), message)
-            })
-            .collect();
+        let psi_hat_pprime = LogStarProof::random(
+            rng,
+            &Signed::from_scalar(&self.context.ephemeral_scalar_share),
+            &self.context.rho,
+            pk,
+            &self.big_gamma,
+            aux_rp,
+            &aux,
+        );
+        let message = Round3Direct {
+            delta: self.delta.to_scalar(),
+            big_delta: self.big_delta,
+            psi_hat_pprime,
+        };
 
-        ToSendTyped::Direct(messages)
+        Ok((message, ()))
     }
 
-    fn verify_received(
+    fn verify_direct_message(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -662,18 +631,16 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
-    type NextRound = NonExistent<Self::Result>;
-    type Result = PresigningData;
-
-    const NEXT_ROUND_NUM: Option<u8> = None;
-
-    fn finalize(
+impl<P: SchemeParams> FinalizableToResult for Round3<P> {
+    fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let (deltas, big_deltas) = payloads
+        _bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::Result, FinalizeError> {
+        let dm_payloads = dm_payloads.unwrap();
+        let (deltas, big_deltas) = dm_payloads
             .map(|payload| (payload.delta, payload.big_delta))
             .unzip();
 
@@ -687,11 +654,11 @@ impl<P: SchemeParams> Round for Round3<P> {
             // TODO: seems like we only need the x-coordinate of this (as a Scalar)
             let nonce = &self.big_gamma * &delta.invert().unwrap();
 
-            return Ok(FinalizeSuccess::Result(PresigningData {
+            return Ok(PresigningData {
                 nonce,
                 ephemeral_scalar_share: self.context.ephemeral_scalar_share,
                 product_share: self.product_share,
-            }));
+            });
         }
 
         // TODO: this part is supposed to be executed on error only.
@@ -745,7 +712,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         for j in range {
             ciphertext = ciphertext
                 .homomorphic_add(pk, self.cap_ds.get(j).unwrap())
-                .homomorphic_add(pk, &self.round2_protocols.get(j).unwrap().cap_f);
+                .homomorphic_add(pk, &self.round2_artefacts.get(j).unwrap().cap_f);
         }
 
         let rho = ciphertext.derive_randomizer(sk);
@@ -777,10 +744,10 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::super::{
-        test_utils::{assert_next_round, assert_result, step},
+        test_utils::{step_next_round, step_result, step_round},
         FirstRound,
     };
-    use super::Round1Part1;
+    use super::Round1;
     use crate::cggmp21::{KeyShare, PartyIdx, TestParams};
     use crate::curve::{Point, Scalar};
 
@@ -793,7 +760,7 @@ mod tests {
         let key_shares = KeyShare::new_centralized(&mut OsRng, num_parties, None);
         let r1 = (0..num_parties)
             .map(|idx| {
-                Round1Part1::<TestParams>::new(
+                Round1::<TestParams>::new(
                     &mut OsRng,
                     &shared_randomness,
                     num_parties,
@@ -804,10 +771,12 @@ mod tests {
             })
             .collect();
 
-        let r1p2 = assert_next_round(step(&mut OsRng, r1).unwrap()).unwrap();
-        let r2 = assert_next_round(step(&mut OsRng, r1p2).unwrap()).unwrap();
-        let r3 = assert_next_round(step(&mut OsRng, r2).unwrap()).unwrap();
-        let presigning_datas = assert_result(step(&mut OsRng, r3).unwrap()).unwrap();
+        let r1a = step_round(&mut OsRng, r1).unwrap();
+        let r2 = step_next_round(&mut OsRng, r1a).unwrap();
+        let r2a = step_round(&mut OsRng, r2).unwrap();
+        let r3 = step_next_round(&mut OsRng, r2a).unwrap();
+        let r3a = step_round(&mut OsRng, r3).unwrap();
+        let presigning_datas = step_result(&mut OsRng, r3a).unwrap();
 
         // Check that each node ends up with the same nonce.
         assert_eq!(presigning_datas[0].nonce, presigning_datas[1].nonce);

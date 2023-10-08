@@ -1,4 +1,5 @@
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::vec::Vec;
 
@@ -7,14 +8,14 @@ use signature::hazmat::PrehashVerifier;
 
 use super::error::{Error, TheirFault};
 use super::signed_message::{SignedMessage, VerifiedMessage};
-use super::type_erased::{deserialize_message, serialize_message, ToSendSerialized};
+use super::type_erased::{deserialize_message, serialize_message};
+use crate::tools::collections::HoleVecAccum;
 use crate::PartyIdx;
 
 #[derive(Clone)]
 pub(crate) struct BroadcastConsensus<Sig, Verifier> {
     verifiers: Vec<Verifier>,
     broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
-    received_echo_from: BTreeSet<PartyIdx>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -32,11 +33,10 @@ where
         Self {
             broadcasts,
             verifiers: verifiers.into(),
-            received_echo_from: BTreeSet::new(),
         }
     }
 
-    pub fn to_send(&self) -> ToSendSerialized {
+    pub fn make_broadcast(&self) -> Box<[u8]> {
         let message = Message {
             broadcasts: self
                 .broadcasts
@@ -45,11 +45,11 @@ where
                 .map(|(idx, msg)| (idx, msg.into_unverified()))
                 .collect(),
         };
-        ToSendSerialized::Broadcast(serialize_message(&message).unwrap())
+        serialize_message(&message).unwrap()
     }
 
-    pub fn receive_message(
-        &mut self,
+    pub fn verify_broadcast(
+        &self,
         from: PartyIdx,
         verified_message: VerifiedMessage<Sig>,
     ) -> Result<(), Error> {
@@ -99,25 +99,43 @@ where
             }
         }
 
-        self.received_echo_from.insert(from);
-
         Ok(())
-    }
-
-    pub fn can_finalize(&self) -> bool {
-        for (idx, _) in self.broadcasts.iter() {
-            if self.received_echo_from.get(idx).is_none() {
-                return false;
-            }
-        }
-        true
     }
 
     pub fn finalize(self) -> Result<(), Error> {
-        if !self.can_finalize() {
-            // TODO: report which nodes are missing
-            return Err(Error::NotEnoughMessages);
-        }
         Ok(())
+    }
+}
+
+pub(crate) struct BcConsensusAccum {
+    received_echo_from: HoleVecAccum<()>,
+}
+
+impl BcConsensusAccum {
+    pub fn new(num_parties: usize, party_idx: PartyIdx) -> Self {
+        Self {
+            received_echo_from: HoleVecAccum::new(num_parties, party_idx.as_usize()),
+        }
+    }
+
+    pub fn add_echo_received(&mut self, from: PartyIdx) -> Result<(), Error> {
+        self.received_echo_from
+            .insert(from.as_usize(), ())
+            .ok_or(Error::TheirFault {
+                party: from,
+                error: TheirFault::DuplicateMessage,
+            })
+    }
+
+    pub fn can_finalize(&self) -> bool {
+        self.received_echo_from.can_finalize()
+    }
+
+    pub fn finalize(self) -> Result<(), Error> {
+        if self.can_finalize() {
+            Ok(())
+        } else {
+            Err(Error::NotEnoughMessages)
+        }
     }
 }

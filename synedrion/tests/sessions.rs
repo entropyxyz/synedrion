@@ -8,8 +8,8 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     sessions::{
-        make_interactive_signing_session, make_keygen_and_aux_session, FinalizeOutcome,
-        SendingState, SignedMessage, ToSend,
+        make_interactive_signing_session, make_keygen_and_aux_session, FinalizeOutcome, Session,
+        SignedMessage,
     },
     KeyShare, PartyIdx, TestParams,
 };
@@ -20,55 +20,86 @@ type MessageIn = (PartyIdx, SignedMessage<Signature>);
 async fn run_session<Res>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
-    session: SendingState<Res, Signature, SigningKey, VerifyingKey>,
+    session: Session<Res, Signature, SigningKey, VerifyingKey>,
     party_idx: PartyIdx,
-    num_parties: usize,
 ) -> Res {
     let mut rx = rx;
 
-    let other_ids = (0..num_parties)
-        .map(PartyIdx::from_usize)
-        .filter(|idx| idx != &party_idx)
-        .collect::<Vec<_>>();
-
-    let mut sending = session;
+    let mut session = session;
+    let mut cached_messages = Vec::new();
 
     loop {
-        println!("*** {:?}: starting round", party_idx);
+        println!(
+            "*** {:?}: starting round {:?}",
+            party_idx,
+            session.current_round()
+        );
 
-        let (mut receiving, to_send) = sending.start_receiving(&mut OsRng).unwrap();
+        // This is kept in the main task since it's mutable,
+        // and we don't want to bother with synchronization.
+        let mut accum = session.make_accumulator();
 
-        match to_send {
-            ToSend::Broadcast(message) => {
-                for id_to in other_ids.iter() {
-                    tx.send((party_idx, *id_to, message.clone())).await.unwrap();
-                }
+        // Note: generating/sending messages, verifying cached messages,
+        // and verifying newly received messages can be done in parallel,
+        // with the results being assembled into `accum` sequentially in the host task.
+
+        let destinations = session.broadcast_destinations();
+        if let Some(destinations) = destinations {
+            // In production usage, this will happen in a spawned task
+            let message = session.make_broadcast(&mut OsRng).unwrap();
+            for idx_to in destinations.iter() {
+                println!("{party_idx:?}: sending a broadcast to {idx_to:?}");
+                tx.send((party_idx, *idx_to, message.clone()))
+                    .await
+                    .unwrap();
             }
-            ToSend::Direct(msgs) => {
-                for (id_to, message) in msgs.into_iter() {
-                    tx.send((party_idx, id_to, message)).await.unwrap();
-                }
-            }
-        };
-
-        println!("{party_idx:?}: applying cached messages");
-
-        while receiving.has_cached_messages() {
-            receiving.receive_cached_message().unwrap();
         }
 
-        while !receiving.can_finalize() {
+        let destinations = session.direct_message_destinations();
+        if let Some(destinations) = destinations {
+            for idx_to in destinations.iter() {
+                // In production usage, this will happen in a spawned task
+                // (since it can take some time to create a message),
+                // and the artefact will be sent back to the host task
+                // to be added to the accumulator.
+                let (message, artefact) = session.make_direct_message(&mut OsRng, idx_to).unwrap();
+                println!("{party_idx:?}: sending a direct message to {idx_to:?}");
+                tx.send((party_idx, *idx_to, message)).await.unwrap();
+
+                // This will happen in a host task
+                accum.add_artefact(artefact).unwrap();
+            }
+        }
+
+        for (idx_from, message) in cached_messages {
+            // In production usage, this will happen in a spawned task.
+            println!("{party_idx:?}: applying a cached message from {idx_from:?}");
+            let result = session.verify_message(idx_from, message).unwrap();
+
+            // This will happen in a host task.
+            accum.add_processed_message(result).unwrap();
+        }
+
+        while !session.can_finalize(&accum) {
             println!("{party_idx:?}: waiting for a message");
-            let (id_from, message) = rx.recv().await.unwrap();
-            println!("{party_idx:?}: applying the message from {id_from:?}");
-            receiving.receive(id_from, message).unwrap();
+            let (idx_from, message) = rx.recv().await.unwrap();
+
+            // In production usage, this will happen in a spawned task.
+            println!("{party_idx:?}: applying a message from {idx_from:?}");
+            let result = session.verify_message(idx_from, message).unwrap();
+
+            // This will happen in a host task.
+            accum.add_processed_message(result).unwrap();
         }
 
         println!("{party_idx:?}: finalizing the round");
 
-        match receiving.finalize(&mut OsRng).unwrap() {
+        match session.finalize_round(&mut OsRng, accum).unwrap() {
             FinalizeOutcome::Result(res) => break res,
-            FinalizeOutcome::AnotherRound(new_sending) => sending = new_sending,
+            FinalizeOutcome::AnotherRound(new_session, new_cached_messages) => {
+                session = new_session;
+                cached_messages = new_cached_messages;
+            }
         }
     }
 }
@@ -118,7 +149,7 @@ fn make_signers(num_parties: usize) -> (Vec<SigningKey>, Vec<VerifyingKey>) {
 }
 
 async fn run_nodes<Res: Send + 'static>(
-    sessions: Vec<SendingState<Res, Signature, SigningKey, VerifyingKey>>,
+    sessions: Vec<Session<Res, Signature, SigningKey, VerifyingKey>>,
 ) -> Vec<Res> {
     let num_parties = sessions.len();
     let parties = (0..num_parties)
@@ -139,7 +170,7 @@ async fn run_nodes<Res: Send + 'static>(
     let handles: Vec<tokio::task::JoinHandle<Res>> = rx_map
         .zip(sessions.into_iter())
         .map(|((party_idx, rx), session)| {
-            let node_task = run_session(dispatcher_tx.clone(), rx, session, party_idx, num_parties);
+            let node_task = run_session(dispatcher_tx.clone(), rx, session, party_idx);
             tokio::spawn(node_task)
         })
         .collect();

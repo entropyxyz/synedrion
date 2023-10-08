@@ -1,18 +1,22 @@
+use alloc::string::String;
+
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::{PartyIdx, PresigningData};
 use super::generic::{
-    BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
-    Round, ToSendTyped,
+    BroadcastRound, DirectRound, FinalizableToResult, FinalizeError, FirstRound, InitError,
+    ReceiveError, Round, ToResult,
 };
 use crate::curve::{Point, RecoverableSignature, Scalar};
-use crate::tools::collections::HoleVec;
+use crate::tools::collections::{HoleRange, HoleVec};
 
 pub struct Round1 {
     r: Scalar,
     s_part: Scalar,
     context: Context,
+    num_parties: usize,
+    party_idx: PartyIdx,
 }
 
 #[derive(Clone)]
@@ -27,15 +31,28 @@ impl FirstRound for Round1 {
     fn new(
         _rng: &mut impl CryptoRngCore,
         _shared_randomness: &[u8],
-        _num_parties: usize,
-        _party_idx: PartyIdx,
+        num_parties: usize,
+        party_idx: PartyIdx,
         context: Self::Context,
     ) -> Result<Self, InitError> {
         let r = context.presigning.nonce.x_coordinate();
         let s_part = context.presigning.ephemeral_scalar_share * context.message
             + r * context.presigning.product_share;
-        Ok(Self { r, s_part, context })
+        Ok(Self {
+            r,
+            s_part,
+            context,
+            num_parties,
+            party_idx,
+        })
     }
+}
+
+impl Round for Round1 {
+    type Type = ToResult;
+    type Result = RecoverableSignature;
+    const ROUND_NUM: u8 = 1;
+    const NEXT_ROUND_NUM: Option<u8> = None;
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -43,20 +60,20 @@ pub struct Round1Bcast {
     s_part: Scalar,
 }
 
-impl BaseRound for Round1 {
-    type Payload = Scalar;
+impl BroadcastRound for Round1 {
+    const REQUIRES_CONSENSUS: bool = false;
     type Message = Round1Bcast;
-
-    const ROUND_NUM: u8 = 1;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
-
-    fn to_send(&self, _rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        ToSendTyped::Broadcast(Round1Bcast {
+    type Payload = Scalar;
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(self.num_parties, self.party_idx.as_usize()))
+    }
+    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
+        Ok(Round1Bcast {
             s_part: self.s_part,
         })
     }
 
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         _from: PartyIdx,
         msg: Self::Message,
@@ -65,18 +82,22 @@ impl BaseRound for Round1 {
     }
 }
 
-impl Round for Round1 {
-    type NextRound = NonExistent<Self::Result>;
-    type Result = RecoverableSignature;
+impl DirectRound for Round1 {
+    type Message = ();
+    type Payload = ();
+    type Artefact = ();
+}
 
-    const NEXT_ROUND_NUM: Option<u8> = Some(2);
-
-    fn finalize(
+impl FinalizableToResult for Round1 {
+    fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let s: Scalar = payloads.iter().sum();
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        _dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::Result, FinalizeError> {
+        let shares = bc_payloads.unwrap();
+        let s: Scalar = shares.iter().sum();
         let s = s + self.s_part;
 
         // CHECK: should `s` be normalized here?
@@ -89,7 +110,7 @@ impl Round for Round1 {
         )
         .unwrap();
 
-        Ok(FinalizeSuccess::Result(sig))
+        Ok(sig)
     }
 }
 
@@ -100,7 +121,7 @@ mod tests {
 
     use super::super::{
         common::PresigningData,
-        test_utils::{assert_result, step},
+        test_utils::{step_result, step_round},
         FirstRound,
     };
     use super::{Context, Round1};
@@ -137,7 +158,8 @@ mod tests {
             })
             .collect();
 
-        let signatures = assert_result(step(&mut OsRng, r1).unwrap()).unwrap();
+        let r1a = step_round(&mut OsRng, r1).unwrap();
+        let signatures = step_result(&mut OsRng, r1a).unwrap();
 
         for signature in signatures {
             let (sig, rec_id) = signature.to_backend();

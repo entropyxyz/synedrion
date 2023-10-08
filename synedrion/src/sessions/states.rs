@@ -1,193 +1,40 @@
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use alloc::format;
 use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
-use super::broadcast::BroadcastConsensus;
+use super::broadcast::{BcConsensusAccum, BroadcastConsensus};
 use super::error::{Error, MyFault, TheirFault};
-use super::signed_message::{SessionId, SignedMessage, VerifiedMessage};
+use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
-    self, ReceiveOutcome, ToSendSerialized, TypeErasedReceivingRound, TypeErasedRound,
+    self, TypeErasedBcPayload, TypeErasedDmArtefact, TypeErasedDmPayload, TypeErasedFinalizable,
+    TypeErasedRoundAccum,
 };
 use crate::cggmp21::{FirstRound, InitError, Round};
+use crate::tools::collections::HoleRange;
 use crate::PartyIdx;
 
-/// Messages to send to another parties.
-#[derive(Debug, Clone)]
-pub enum ToSend<Sig> {
-    /// This messages needs to be broadcasted to all parties.
-    Broadcast(SignedMessage<Sig>),
-    /// These messages need to be sent directly to the corresponding parties.
-    // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(PartyIdx, SignedMessage<Sig>)>),
-}
-
-struct Context<Sig, Signer, Verifier> {
+struct Context<Signer, Verifier> {
     signer: Signer,
     verifiers: Vec<Verifier>,
     session_id: SessionId,
     party_idx: PartyIdx,
-    message_cache: Vec<(PartyIdx, VerifiedMessage<Sig>)>, // could it be in the state as well?
-    // TODO: do we need to save broadcast conesnsus messages too?
-    received_messages: BTreeMap<u8, Vec<(PartyIdx, VerifiedMessage<Sig>)>>,
 }
 
-enum SendingType<Res, Sig, Verifier> {
-    Normal(Box<dyn TypeErasedRound<Res>>),
+enum SessionType<Res, Sig, Verifier> {
+    Normal(Box<dyn TypeErasedFinalizable<Res>>),
     Bc {
-        next_round: Box<dyn TypeErasedRound<Res>>,
+        next_round: Box<dyn TypeErasedFinalizable<Res>>,
         bc: BroadcastConsensus<Sig, Verifier>,
     },
 }
 
 /// The session state where it is ready to send messages.
-pub struct SendingState<Res, Sig, Signer, Verifier> {
-    tp: SendingType<Res, Sig, Verifier>,
-    context: Context<Sig, Signer, Verifier>,
-}
-
-enum ReceivingType<Res, Sig, Verifier> {
-    Normal(Box<dyn TypeErasedReceivingRound<Res>>),
-    Bc {
-        next_round: Box<dyn TypeErasedRound<Res>>,
-        bc: BroadcastConsensus<Sig, Verifier>,
-    },
-}
-
-/// The session state where it is ready to receive messages.
-pub struct ReceivingState<Res, Sig, Signer, Verifier> {
-    tp: ReceivingType<Res, Sig, Verifier>,
-    context: Context<Sig, Signer, Verifier>,
-}
-
-impl<Res, Sig, Signer, Verifier> SendingState<Res, Sig, Signer, Verifier>
-where
-    Signer: RandomizedPrehashSigner<Sig>,
-    Verifier: Clone + PrehashVerifier<Sig>,
-    Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
-{
-    pub(crate) fn new<R: FirstRound + 'static>(
-        rng: &mut impl CryptoRngCore,
-        shared_randomness: &[u8],
-        // TODO: merge signers and verifiers into one struct to make getting party_idx more natural?
-        signer: Signer,
-        party_idx: PartyIdx,
-        verifiers: &[Verifier],
-        context: R::Context,
-    ) -> Result<Self, InitError>
-    where
-        R: Round<Result = Res>,
-    {
-        // CHECK: is this enough? Do we need to hash in e.g. the verifier public keys?
-        // TODO: Need to specify the requirements for the shared randomness in the docstring.
-        let session_id = SessionId::from_seed(shared_randomness);
-        let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, context)?;
-        let round: Box<dyn TypeErasedRound<Res>> = Box::new(typed_round);
-        let context = Context {
-            signer,
-            verifiers: verifiers.into(),
-            session_id,
-            party_idx,
-            message_cache: Vec::new(),
-            received_messages: BTreeMap::new(),
-        };
-        Ok(Self {
-            tp: SendingType::Normal(round),
-            context,
-        })
-    }
-
-    fn sign_messages(
-        rng: &mut impl CryptoRngCore,
-        signer: &Signer,
-        session_id: &SessionId,
-        to_send: &ToSendSerialized,
-        round_num: u8,
-        bc_consensus: bool,
-    ) -> Result<ToSend<Sig>, Error> {
-        Ok(match &to_send {
-            ToSendSerialized::Broadcast(message_bytes) => {
-                let message = VerifiedMessage::new(
-                    rng,
-                    signer,
-                    session_id,
-                    round_num,
-                    bc_consensus,
-                    message_bytes,
-                )
-                .map_err(Error::MyFault)?;
-                ToSend::Broadcast(message.into_unverified())
-            }
-            ToSendSerialized::Direct(messages) => {
-                let mut signed_messages = Vec::with_capacity(messages.len());
-                for (index, message_bytes) in messages.iter() {
-                    let signed_message = VerifiedMessage::new(
-                        rng,
-                        signer,
-                        session_id,
-                        round_num,
-                        bc_consensus,
-                        message_bytes,
-                    )
-                    .map_err(Error::MyFault)?;
-                    signed_messages.push((*index, signed_message.into_unverified()));
-                }
-                ToSend::Direct(signed_messages)
-            }
-        })
-    }
-
-    /// Returns the messages to send and the receiving state
-    /// ready to accept messages from other parties.
-    #[allow(clippy::type_complexity)]
-    pub fn start_receiving(
-        self,
-        rng: &mut impl CryptoRngCore,
-    ) -> Result<(ReceivingState<Res, Sig, Signer, Verifier>, ToSend<Sig>), Error> {
-        let mut context = self.context;
-        match self.tp {
-            SendingType::Normal(round) => {
-                let round_num = round.round_num();
-                let (receiving_round, to_send) =
-                    round.to_receiving_state(rng, context.verifiers.len(), context.party_idx);
-                let signed_to_send = Self::sign_messages(
-                    rng,
-                    &context.signer,
-                    &context.session_id,
-                    &to_send,
-                    round_num,
-                    false,
-                )?;
-                context.received_messages.insert(round_num, Vec::new());
-                let state = ReceivingState {
-                    tp: ReceivingType::Normal(receiving_round),
-                    context,
-                };
-                Ok((state, signed_to_send))
-            }
-            SendingType::Bc { next_round, bc } => {
-                let round_num = next_round.round_num() - 1;
-                let to_send = bc.to_send();
-                let signed_to_send = Self::sign_messages(
-                    rng,
-                    &context.signer,
-                    &context.session_id,
-                    &to_send,
-                    round_num,
-                    true,
-                )?;
-                let state = ReceivingState {
-                    tp: ReceivingType::Bc { next_round, bc },
-                    context,
-                };
-                Ok((state, signed_to_send))
-            }
-        }
-    }
+pub struct Session<Res, Sig, Signer, Verifier> {
+    tp: SessionType<Res, Sig, Verifier>,
+    context: Context<Signer, Verifier>,
 }
 
 enum MessageFor {
@@ -197,15 +44,15 @@ enum MessageFor {
 }
 
 fn route_message_normal<Sig, Res>(
-    round: &dyn TypeErasedReceivingRound<Res>,
-    message: &VerifiedMessage<Sig>,
+    round: &dyn TypeErasedFinalizable<Res>,
+    message: &SignedMessage<Sig>,
 ) -> MessageFor {
     let this_round = round.round_num();
     let next_round = round.next_round_num();
     let requires_bc = round.requires_broadcast_consensus();
 
     let message_round = message.round();
-    let message_bc = message.broadcast_consensus();
+    let message_bc = message.message_type() == MessageType::BroadcastConsensus;
 
     if message_round == this_round && !message_bc {
         return MessageFor::ThisRound;
@@ -225,12 +72,12 @@ fn route_message_normal<Sig, Res>(
 }
 
 fn route_message_bc<Sig, Res>(
-    next_round: &dyn TypeErasedRound<Res>,
-    message: &VerifiedMessage<Sig>,
+    next_round: &dyn TypeErasedFinalizable<Res>,
+    message: &SignedMessage<Sig>,
 ) -> MessageFor {
     let next_round = next_round.round_num();
     let message_round = message.round();
-    let message_bc = message.broadcast_consensus();
+    let message_bc = message.message_type() == MessageType::BroadcastConsensus;
 
     if message_round == next_round - 1 && message_bc {
         return MessageFor::ThisRound;
@@ -248,32 +95,184 @@ pub enum FinalizeOutcome<Res, Sig, Signer, Verifier> {
     /// The protocol result is available.
     Result(Res),
     /// Starting the next round.
-    AnotherRound(SendingState<Res, Sig, Signer, Verifier>),
+    AnotherRound(
+        Session<Res, Sig, Signer, Verifier>,
+        Vec<(PartyIdx, SignedMessage<Sig>)>,
+    ),
 }
 
-impl<Res, Sig, Signer, Verifier> ReceivingState<Res, Sig, Signer, Verifier>
+impl<Res, Sig, Signer, Verifier> Session<Res, Sig, Signer, Verifier>
 where
     Signer: RandomizedPrehashSigner<Sig>,
     Verifier: Clone + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
-    /// Returns a pair of the current stage index and whether it is a broadcast consensus stage.
-    pub fn current_stage(&self) -> (u8, bool) {
+    pub(crate) fn new<
+        R: FirstRound + TypeErasedFinalizable<Res> + Round<Result = Res> + 'static,
+    >(
+        rng: &mut impl CryptoRngCore,
+        shared_randomness: &[u8],
+        // TODO: merge signers and verifiers into one struct to make getting party_idx more natural?
+        signer: Signer,
+        party_idx: PartyIdx,
+        verifiers: &[Verifier],
+        context: R::Context,
+    ) -> Result<Self, InitError> {
+        // CHECK: is this enough? Do we need to hash in e.g. the verifier public keys?
+        // TODO: Need to specify the requirements for the shared randomness in the docstring.
+        let session_id = SessionId::from_seed(shared_randomness);
+        let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, context)?;
+        let round: Box<dyn TypeErasedFinalizable<Res>> = Box::new(typed_round);
+        let context = Context {
+            signer,
+            verifiers: verifiers.into(),
+            session_id,
+            party_idx,
+        };
+        Ok(Self {
+            tp: SessionType::Normal(round),
+            context,
+        })
+    }
+
+    /// Returns a pair of the current round index and whether it is a broadcast consensus stage.
+    pub fn current_round(&self) -> (u8, bool) {
         match &self.tp {
-            ReceivingType::Normal(round) => (round.round_num(), false),
-            ReceivingType::Bc { next_round, .. } => (next_round.round_num() - 1, true),
+            SessionType::Normal(round) => (round.round_num(), false),
+            SessionType::Bc { next_round, .. } => (next_round.round_num() - 1, true),
+        }
+    }
+
+    /// Create an accumulator to store message creation and processing results of this round.
+    pub fn make_accumulator(&self) -> RoundAccumulator<Sig> {
+        RoundAccumulator::new(
+            self.context.verifiers.len(),
+            self.context.party_idx,
+            self.broadcast_destinations().is_some(),
+            self.direct_message_destinations().is_some(),
+        )
+    }
+
+    /// Returns `true` if the round can be finalized.
+    pub fn can_finalize(&self, accum: &RoundAccumulator<Sig>) -> bool {
+        match &self.tp {
+            SessionType::Normal(_) => accum.processed.can_finalize(),
+            SessionType::Bc { .. } => accum.bc_accum.can_finalize(),
+        }
+    }
+
+    /// Returns the party indices to which the broadcast of this round should be sent;
+    /// if `None`, there is no broadcast in this round.
+    pub fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        let range = HoleRange::new(
+            self.context.verifiers.len(),
+            self.context.party_idx.as_usize(),
+        );
+        match &self.tp {
+            SessionType::Normal(round) => round
+                .broadcast_destinations()
+                .map(|range| range.map(PartyIdx::from_usize).collect()),
+            SessionType::Bc { .. } => Some(range.map(PartyIdx::from_usize).collect()),
+        }
+    }
+
+    /// Returns the current round's broadcast.
+    pub fn make_broadcast(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> Result<SignedMessage<Sig>, Error> {
+        let (round_num, payload, is_bc_consensus) = match &self.tp {
+            SessionType::Normal(round) => {
+                let round_num = round.round_num();
+                if round.broadcast_destinations().is_none() {
+                    return Err(Error::MyFault(MyFault::InvalidState(
+                        "This round does not send out broadcasts".into(),
+                    )));
+                }
+
+                let payload = round
+                    .make_broadcast(rng)
+                    .map_err(|err| Error::MyFault(MyFault::TypeErased(err)))?;
+                (round_num, payload, false)
+            }
+            SessionType::Bc { next_round, bc } => {
+                let round_num = next_round.round_num() - 1;
+                let payload = bc.make_broadcast();
+                (round_num, payload, true)
+            }
+        };
+
+        Ok(VerifiedMessage::new(
+            rng,
+            &self.context.signer,
+            &self.context.session_id,
+            round_num,
+            if is_bc_consensus {
+                MessageType::BroadcastConsensus
+            } else {
+                MessageType::Broadcast
+            },
+            &payload,
+        )
+        .map_err(Error::MyFault)?
+        .into_unverified())
+    }
+
+    /// Returns the party indices to which the direct messages of this round should be sent;
+    /// if `None`, there are no direct messages in this round.
+    pub fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
+        match &self.tp {
+            SessionType::Normal(round) => round
+                .direct_message_destinations()
+                .map(|range| range.map(PartyIdx::from_usize).collect()),
+            _ => None,
+        }
+    }
+
+    /// Returns the direct message for the given destination
+    /// (must be one of those returned by [`Self::direct_message_destinations`].
+    pub fn make_direct_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+        destination: &PartyIdx,
+    ) -> Result<(SignedMessage<Sig>, Artefact), Error> {
+        match &self.tp {
+            SessionType::Normal(round) => {
+                let round_num = round.round_num();
+                let (payload, artefact) = round
+                    .make_direct_message(rng, *destination)
+                    .map_err(|err| Error::MyFault(MyFault::TypeErased(err)))?;
+                let message = VerifiedMessage::new(
+                    rng,
+                    &self.context.signer,
+                    &self.context.session_id,
+                    round_num,
+                    MessageType::Direct,
+                    &payload,
+                )
+                .map_err(Error::MyFault)?
+                .into_unverified();
+                Ok((
+                    message,
+                    Artefact {
+                        destination: *destination,
+                        artefact,
+                    },
+                ))
+            }
+            _ => Err(Error::MyFault(MyFault::InvalidState(
+                "This round does not send direct messages".into(),
+            ))),
         }
     }
 
     /// Process a received message from another party.
-    pub fn receive(&mut self, from: PartyIdx, message: SignedMessage<Sig>) -> Result<(), Error> {
-        // TODO: should we check the session ID and round number before verification, to save time?
-
-        let verified_message = message
-            .verify(&self.context.verifiers[from.as_usize()])
-            .unwrap();
-
-        if verified_message.session_id() != &self.context.session_id {
+    pub fn verify_message(
+        &self,
+        from: PartyIdx,
+        message: SignedMessage<Sig>,
+    ) -> Result<ProcessedMessage<Sig>, Error> {
+        if message.session_id() != &self.context.session_id {
             // Even though the message was verified, it may be just a replay attack,
             // hence unprovable.
             return Err(Error::TheirFaultUnprovable {
@@ -283,18 +282,14 @@ where
         }
 
         let message_for = match &self.tp {
-            ReceivingType::Normal(round) => route_message_normal(round.as_ref(), &verified_message),
-            ReceivingType::Bc { next_round, .. } => {
-                route_message_bc(next_round.as_ref(), &verified_message)
-            }
+            SessionType::Normal(round) => route_message_normal(round.as_ref(), &message),
+            SessionType::Bc { next_round, .. } => route_message_bc(next_round.as_ref(), &message),
         };
 
         match message_for {
-            MessageFor::ThisRound => self.receive_verified(from, verified_message),
-            MessageFor::NextRound => {
-                self.context.message_cache.push((from, verified_message));
-                Ok(())
-            }
+            MessageFor::ThisRound => self.verify_message_inner(from, message),
+            // TODO: should we cache the verified or the unverified message?
+            MessageFor::NextRound => Ok(ProcessedMessage::Cache { from, message }),
             // TODO: this is an unprovable fault (may be a replay attack)
             MessageFor::OutOfOrder => Err(Error::TheirFault {
                 party: from,
@@ -303,134 +298,205 @@ where
         }
     }
 
-    fn receive_verified(
-        &mut self,
+    fn verify_message_inner(
+        &self,
         from: PartyIdx,
-        verified_message: VerifiedMessage<Sig>,
-    ) -> Result<(), Error> {
-        match &mut self.tp {
-            ReceivingType::Normal(round) => {
-                self.context
-                    .received_messages
-                    .get_mut(&round.round_num())
-                    .unwrap()
-                    .push((from, verified_message.clone()));
-                Self::receive_normal(round.as_mut(), from, verified_message)
+        message: SignedMessage<Sig>,
+    ) -> Result<ProcessedMessage<Sig>, Error> {
+        let verified_message = message
+            .verify(&self.context.verifiers[from.as_usize()])
+            .unwrap();
+
+        match &self.tp {
+            SessionType::Normal(round) => {
+                match verified_message.message_type() {
+                    MessageType::Direct => {
+                        let payload = round
+                            .verify_direct_message(from, verified_message.payload())
+                            .map_err(|err| Error::TheirFault {
+                                party: from,
+                                error: TheirFault::TypeErased(err),
+                            })?;
+                        Ok(ProcessedMessage::DmPayload {
+                            from,
+                            payload,
+                            message: verified_message,
+                        })
+                    }
+                    MessageType::Broadcast => {
+                        let payload = round
+                            .verify_broadcast(from, verified_message.payload())
+                            .map_err(|err| Error::TheirFault {
+                                party: from,
+                                error: TheirFault::TypeErased(err),
+                            })?;
+                        Ok(ProcessedMessage::BcPayload {
+                            from,
+                            payload,
+                            message: verified_message,
+                        })
+                    }
+                    _ => {
+                        // TODO: this branch will never really be reached
+                        Err(Error::TheirFault {
+                            party: from,
+                            error: TheirFault::Receive("Unexpected bc consensus message".into()),
+                        })
+                    }
+                }
             }
-            ReceivingType::Bc { bc, .. } => Self::receive_bc(bc, from, verified_message),
+            SessionType::Bc { bc, .. } => {
+                bc.verify_broadcast(from, verified_message)?;
+                Ok(ProcessedMessage::Bc { from })
+            }
         }
     }
 
-    fn receive_normal(
-        round: &mut dyn TypeErasedReceivingRound<Res>,
-        from: PartyIdx,
-        message: VerifiedMessage<Sig>,
-    ) -> Result<(), Error> {
-        match round.receive(from, message.payload()) {
-            ReceiveOutcome::Success => Ok(()),
-            ReceiveOutcome::Error(err) => Err(Error::TheirFault {
-                party: from,
-                error: TheirFault::Receive(format!("{:?}", err)),
-            }),
-            // TODO: here we may check if the message is a duplicate, or has different contents
-            // the latter should be a more serious error.
-            ReceiveOutcome::AlreadyReceived => Err(Error::TheirFault {
-                party: from,
-                error: TheirFault::DuplicateMessage,
-            }),
-            ReceiveOutcome::DeserializationFail(err) => Err(Error::TheirFault {
-                party: from,
-                error: TheirFault::DeserializationError(err),
-            }),
+    /// Try to finalize the round.
+    pub fn finalize_round(
+        self,
+        rng: &mut impl CryptoRngCore,
+        accum: RoundAccumulator<Sig>,
+    ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error> {
+        match self.tp {
+            SessionType::Normal(round) => {
+                Self::finalize_regular_round(self.context, round, rng, accum)
+            }
+            SessionType::Bc { next_round, bc } => {
+                Self::finalize_bc_round(self.context, next_round, bc, accum)
+            }
         }
-    }
-
-    fn receive_bc(
-        bc: &mut BroadcastConsensus<Sig, Verifier>,
-        from: PartyIdx,
-        message: VerifiedMessage<Sig>,
-    ) -> Result<(), Error> {
-        bc.receive_message(from, message)
     }
 
     fn finalize_regular_round(
-        context: Context<Sig, Signer, Verifier>,
-        round: Box<dyn TypeErasedReceivingRound<Res>>,
+        context: Context<Signer, Verifier>,
+        round: Box<dyn TypeErasedFinalizable<Res>>,
         rng: &mut impl CryptoRngCore,
+        accum: RoundAccumulator<Sig>,
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error> {
-        let round_num = round.round_num();
         let requires_bc = round.requires_broadcast_consensus();
 
-        match round.finalize(rng) {
+        match round.finalize(rng, accum.processed).unwrap() {
             type_erased::FinalizeOutcome::Result(res) => Ok(FinalizeOutcome::Result(res)),
             type_erased::FinalizeOutcome::AnotherRound(next_round) => {
                 if requires_bc {
-                    let broadcasts = context.received_messages[&round_num].clone();
+                    let broadcasts = accum.received_broadcasts;
                     let bc = BroadcastConsensus::new(broadcasts, &context.verifiers);
-                    Ok(FinalizeOutcome::AnotherRound(SendingState {
-                        tp: SendingType::Bc { next_round, bc },
+                    let new_session = Session {
+                        tp: SessionType::Bc { next_round, bc },
                         context,
-                    }))
+                    };
+                    Ok(FinalizeOutcome::AnotherRound(
+                        new_session,
+                        accum.cached_messages,
+                    ))
                 } else {
-                    Ok(FinalizeOutcome::AnotherRound(SendingState {
-                        tp: SendingType::Normal(next_round),
+                    let new_session = Session {
+                        tp: SessionType::Normal(next_round),
                         context,
-                    }))
+                    };
+                    Ok(FinalizeOutcome::AnotherRound(
+                        new_session,
+                        accum.cached_messages,
+                    ))
                 }
             }
-            type_erased::FinalizeOutcome::NotEnoughMessages => Err(Error::NotEnoughMessages),
-            // TODO: propagate the error
-            type_erased::FinalizeOutcome::Error(_) => Err(Error::Finalize),
         }
     }
 
     fn finalize_bc_round(
-        context: Context<Sig, Signer, Verifier>,
-        round: Box<dyn TypeErasedRound<Res>>,
+        context: Context<Signer, Verifier>,
+        round: Box<dyn TypeErasedFinalizable<Res>>,
         bc: BroadcastConsensus<Sig, Verifier>,
+        accum: RoundAccumulator<Sig>,
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error> {
+        accum.bc_accum.finalize()?;
         bc.finalize().map(|_| {
-            FinalizeOutcome::AnotherRound(SendingState {
-                tp: SendingType::Normal(round),
+            let new_session = Session {
+                tp: SessionType::Normal(round),
                 context,
-            })
+            };
+            FinalizeOutcome::AnotherRound(new_session, accum.cached_messages)
         })
     }
+}
 
-    /// Try to finalize the stage.
-    pub fn finalize(
-        self,
-        rng: &mut impl CryptoRngCore,
-    ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error> {
-        match self.tp {
-            ReceivingType::Normal(round) => Self::finalize_regular_round(self.context, round, rng),
-            ReceivingType::Bc { next_round, bc } => {
-                Self::finalize_bc_round(self.context, next_round, bc)
+pub struct RoundAccumulator<Sig> {
+    received_direct_messages: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
+    received_broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
+    processed: TypeErasedRoundAccum,
+    cached_messages: Vec<(PartyIdx, SignedMessage<Sig>)>,
+    bc_accum: BcConsensusAccum,
+}
+
+impl<Sig> RoundAccumulator<Sig> {
+    fn new(num_parties: usize, party_idx: PartyIdx, is_bc_round: bool, is_dm_round: bool) -> Self {
+        Self {
+            received_direct_messages: Vec::new(),
+            received_broadcasts: Vec::new(),
+            processed: TypeErasedRoundAccum::new(num_parties, party_idx, is_bc_round, is_dm_round),
+            cached_messages: Vec::new(),
+            bc_accum: BcConsensusAccum::new(num_parties, party_idx),
+        }
+    }
+
+    /// Save an artefact produced by [`Session::make_direct_message`].
+    pub fn add_artefact(&mut self, artefact: Artefact) -> Result<(), Error> {
+        // TODO: add a check that the index is in range, and wasn't filled yet
+        self.processed
+            .add_dm_artefact(artefact.destination, artefact.artefact)
+            .unwrap();
+        Ok(())
+    }
+
+    /// Save a processed message produced by [`Session::verify_message`].
+    pub fn add_processed_message(&mut self, pm: ProcessedMessage<Sig>) -> Result<(), Error> {
+        // TODO: add a check that the index is in range, and wasn't filled yet
+        match pm {
+            ProcessedMessage::BcPayload {
+                from,
+                payload,
+                message,
+            } => {
+                self.processed.add_bc_payload(from, payload).unwrap();
+                self.received_broadcasts.push((from, message));
             }
+            ProcessedMessage::DmPayload {
+                from,
+                payload,
+                message,
+            } => {
+                self.processed.add_dm_payload(from, payload).unwrap();
+                self.received_direct_messages.push((from, message));
+            }
+            ProcessedMessage::Cache { from, message } => self.cached_messages.push((from, message)),
+            ProcessedMessage::Bc { from } => self.bc_accum.add_echo_received(from).unwrap(),
         }
+        Ok(())
     }
+}
 
-    /// Returns `true` if the session has cached messages for this stage
-    /// received during the previous stage.
-    pub fn has_cached_messages(&self) -> bool {
-        !self.context.message_cache.is_empty()
-    }
+pub struct Artefact {
+    destination: PartyIdx,
+    artefact: TypeErasedDmArtefact,
+}
 
-    /// Attempt to process one message from the cache.
-    ///
-    /// The message is removed on success.
-    pub fn receive_cached_message(&mut self) -> Result<(), Error> {
-        let (from, verified_message) = self.context.message_cache.pop().ok_or_else(|| {
-            Error::MyFault(MyFault::InvalidState("No more cached messages left".into()))
-        })?;
-        self.receive_verified(from, verified_message)
-    }
-
-    /// Returns `true` if the stage has processed enough messages to be finalized.
-    pub fn can_finalize(&self) -> bool {
-        match &self.tp {
-            ReceivingType::Normal(round) => round.can_finalize(),
-            ReceivingType::Bc { bc, .. } => bc.can_finalize(),
-        }
-    }
+pub enum ProcessedMessage<Sig> {
+    BcPayload {
+        from: PartyIdx,
+        payload: TypeErasedBcPayload,
+        message: VerifiedMessage<Sig>,
+    },
+    DmPayload {
+        from: PartyIdx,
+        payload: TypeErasedDmPayload,
+        message: VerifiedMessage<Sig>,
+    },
+    Cache {
+        from: PartyIdx,
+        message: SignedMessage<Sig>,
+    },
+    Bc {
+        from: PartyIdx,
+    },
 }

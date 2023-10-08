@@ -49,6 +49,10 @@ impl<T> HoleVecAccum<T> {
         self.elems.iter().all(|elem| elem.is_some())
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.elems.iter().all(|elem| elem.is_none())
+    }
+
     pub fn finalize(self) -> Result<HoleVec<T>, Self> {
         if self.can_finalize() {
             let elems = self
@@ -66,7 +70,7 @@ impl<T> HoleVecAccum<T> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HoleRange {
     length: usize,
     position: usize,
@@ -174,6 +178,20 @@ impl<T> HoleVec<T> {
             elems: self.elems.into_iter().map(f).collect(),
             hole_at: self.hole_at,
         }
+    }
+
+    pub fn map_fallible<F, V, E>(self, f: F) -> Result<HoleVec<V>, E>
+    where
+        F: FnMut(T) -> Result<V, E>,
+    {
+        Ok(HoleVec {
+            elems: self
+                .elems
+                .into_iter()
+                .map(f)
+                .collect::<Result<Vec<_>, E>>()?,
+            hole_at: self.hole_at,
+        })
     }
 }
 

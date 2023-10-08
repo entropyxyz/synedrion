@@ -1,15 +1,17 @@
+use alloc::string::String;
+
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::auxiliary;
 use super::common::{KeyShare, PartyIdx};
 use super::generic::{
-    BaseRound, FinalizeError, FinalizeSuccess, FirstRound, InitError, NonExistent, ReceiveError,
-    Round, ToSendTyped,
+    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
+    FirstRound, InitError, ReceiveError, Round, ToNextRound, ToResult,
 };
 use super::keygen;
 use crate::cggmp21::SchemeParams;
-use crate::tools::collections::HoleVec;
+use crate::tools::collections::{HoleRange, HoleVec};
 
 pub(crate) struct Round1<P: SchemeParams> {
     keygen_round: keygen::Round1<P>,
@@ -35,94 +37,93 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(
-    bound(serialize = "<keygen::Round1<P> as BaseRound>::Message: Serialize,
-    <auxiliary::Round1<P> as BaseRound>::Message: Serialize")
-)]
 #[serde(bound(
-    deserialize = "<keygen::Round1<P> as BaseRound>::Message: for<'x> Deserialize<'x>,
-    <auxiliary::Round1<P> as BaseRound>::Message: for<'x> Deserialize<'x>"
+    serialize = "<keygen::Round1<P> as BroadcastRound>::Message: Serialize,
+    <auxiliary::Round1<P> as BroadcastRound>::Message: Serialize"
+))]
+#[serde(bound(
+    deserialize = "<keygen::Round1<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>,
+    <auxiliary::Round1<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>"
 ))]
 pub struct Round1Message<P: SchemeParams> {
-    keygen_message: <keygen::Round1<P> as BaseRound>::Message,
-    aux_message: <auxiliary::Round1<P> as BaseRound>::Message,
+    keygen_message: <keygen::Round1<P> as BroadcastRound>::Message,
+    aux_message: <auxiliary::Round1<P> as BroadcastRound>::Message,
 }
 
-pub struct Round1Payload<P: SchemeParams> {
-    keygen_payload: <keygen::Round1<P> as BaseRound>::Payload,
-    aux_payload: <auxiliary::Round1<P> as BaseRound>::Payload,
-}
-
-impl<P: SchemeParams> BaseRound for Round1<P> {
-    type Message = Round1Message<P>;
-    type Payload = Round1Payload<P>;
-
+impl<P: SchemeParams> Round for Round1<P> {
+    type Type = ToNextRound;
+    type Result = KeyShare<P>;
     const ROUND_NUM: u8 = 1;
-    const REQUIRES_BROADCAST_CONSENSUS: bool =
-        <keygen::Round1<P> as BaseRound>::REQUIRES_BROADCAST_CONSENSUS
-            || <auxiliary::Round1<P> as BaseRound>::REQUIRES_BROADCAST_CONSENSUS;
+    const NEXT_ROUND_NUM: Option<u8> = Some(2);
+}
 
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        // TODO: find a way to do it in a type-safe manner.
-        // One way is to allow both broadcast and direct messages in the same round
-        // (which we otherwise need for presigning)
-        let keygen_message = match self.keygen_round.to_send(rng) {
-            ToSendTyped::Broadcast(msg) => msg,
-            _ => panic!("This round is not expected to produce direct messages"),
-        };
-        let aux_message = match self.aux_round.to_send(rng) {
-            ToSendTyped::Broadcast(msg) => msg,
-            _ => panic!("This round is not expected to produce direct messages"),
-        };
-        ToSendTyped::Broadcast(Round1Message {
+impl<P: SchemeParams> BroadcastRound for Round1<P> {
+    const REQUIRES_CONSENSUS: bool = <keygen::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS
+        || <auxiliary::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS;
+    type Message = Round1Message<P>;
+    type Payload = (
+        <keygen::Round1<P> as BroadcastRound>::Payload,
+        <auxiliary::Round1<P> as BroadcastRound>::Payload,
+    );
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        let keygen_dest = self.keygen_round.broadcast_destinations();
+        let aux_dest = self.aux_round.broadcast_destinations();
+        assert!(keygen_dest == aux_dest);
+        keygen_dest
+    }
+    fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
+        let keygen_message = self.keygen_round.make_broadcast(rng)?;
+        let aux_message = self.aux_round.make_broadcast(rng)?;
+        Ok(Round1Message {
             keygen_message,
             aux_message,
         })
     }
-
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
         let keygen_payload = self
             .keygen_round
-            .verify_received(from, msg.keygen_message)?;
-        let aux_payload = self.aux_round.verify_received(from, msg.aux_message)?;
-        Ok(Round1Payload {
-            keygen_payload,
-            aux_payload,
-        })
+            .verify_broadcast(from, msg.keygen_message)?;
+        let aux_payload = self.aux_round.verify_broadcast(from, msg.aux_message)?;
+        Ok((keygen_payload, aux_payload))
     }
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams> DirectRound for Round1<P> {
+    type Message = ();
+    type Payload = ();
+    type Artefact = ();
+}
+
+impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     type NextRound = Round2<P>;
-    type Result = KeyShare<P>;
-    fn finalize(
+    fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let (keygen_payloads, aux_payloads) = payloads
-            .map(|payload| (payload.keygen_payload, payload.aux_payload))
-            .unzip();
-        let keygen_result = self.keygen_round.finalize(rng, keygen_payloads)?;
-        let aux_result = self.aux_round.finalize(rng, aux_payloads)?;
-        match (keygen_result, aux_result) {
-            (
-                FinalizeSuccess::AnotherRound(keygen_round),
-                FinalizeSuccess::AnotherRound(aux_round),
-            ) => Ok(FinalizeSuccess::AnotherRound(Round2::<P> {
-                keygen_round,
-                aux_round,
-            })),
-            _ => Err(FinalizeError::ProtocolMergeParallel(
-                "Unexpected finalization results in round 1".into(),
-            )),
-        }
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        assert!(dm_payloads.is_none());
+        assert!(dm_artefacts.is_none());
+        let (keygen_bc_payloads, aux_bc_payloads) = bc_payloads
+            .map(|payloads| payloads.unzip())
+            .map_or((None, None), |(x, y)| (Some(x), Some(y)));
+
+        let keygen_round =
+            self.keygen_round
+                .finalize_to_next_round(rng, keygen_bc_payloads, None, None)?;
+        let aux_round = self
+            .aux_round
+            .finalize_to_next_round(rng, aux_bc_payloads, None, None)?;
+        Ok(Round2 {
+            keygen_round,
+            aux_round,
+        })
     }
-    const NEXT_ROUND_NUM: Option<u8> = Some(2);
 }
 
 pub(crate) struct Round2<P: SchemeParams> {
@@ -131,94 +132,95 @@ pub(crate) struct Round2<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(
-    bound(serialize = "<keygen::Round2<P> as BaseRound>::Message: Serialize,
-    <auxiliary::Round2<P> as BaseRound>::Message: Serialize")
-)]
 #[serde(bound(
-    deserialize = "<keygen::Round2<P> as BaseRound>::Message: for<'x> Deserialize<'x>,
-    <auxiliary::Round2<P> as BaseRound>::Message: for<'x> Deserialize<'x>"
+    serialize = "<keygen::Round2<P> as BroadcastRound>::Message: Serialize,
+    <auxiliary::Round2<P> as BroadcastRound>::Message: Serialize"
+))]
+#[serde(bound(
+    deserialize = "<keygen::Round2<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>,
+    <auxiliary::Round2<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>"
 ))]
 pub struct Round2Message<P: SchemeParams> {
-    keygen_message: <keygen::Round2<P> as BaseRound>::Message,
-    aux_message: <auxiliary::Round2<P> as BaseRound>::Message,
+    keygen_message: <keygen::Round2<P> as BroadcastRound>::Message,
+    aux_message: <auxiliary::Round2<P> as BroadcastRound>::Message,
 }
 
-pub struct Round2Payload<P: SchemeParams> {
-    keygen_payload: <keygen::Round2<P> as BaseRound>::Payload,
-    aux_payload: <auxiliary::Round2<P> as BaseRound>::Payload,
-}
-
-impl<P: SchemeParams> BaseRound for Round2<P> {
-    type Message = Round2Message<P>;
-    type Payload = Round2Payload<P>;
-
+impl<P: SchemeParams> Round for Round2<P> {
+    type Type = ToNextRound;
+    type Result = KeyShare<P>;
     const ROUND_NUM: u8 = 2;
-    const REQUIRES_BROADCAST_CONSENSUS: bool =
-        <keygen::Round2<P> as BaseRound>::REQUIRES_BROADCAST_CONSENSUS
-            || <auxiliary::Round2<P> as BaseRound>::REQUIRES_BROADCAST_CONSENSUS;
+    const NEXT_ROUND_NUM: Option<u8> = Some(3);
+}
 
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        // TODO: find a way to do it in a type-safe manner.
-        // One way is to allow both broadcast and direct messages in the same round
-        // (which we otherwise need for presigning)
-        let keygen_message = match self.keygen_round.to_send(rng) {
-            ToSendTyped::Broadcast(msg) => msg,
-            _ => panic!("This round is not expected to produce direct messages"),
-        };
-        let aux_message = match self.aux_round.to_send(rng) {
-            ToSendTyped::Broadcast(msg) => msg,
-            _ => panic!("This round is not expected to produce direct messages"),
-        };
-        ToSendTyped::Broadcast(Round2Message {
+impl<P: SchemeParams> BroadcastRound for Round2<P> {
+    const REQUIRES_CONSENSUS: bool = <keygen::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS
+        || <auxiliary::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS;
+    type Message = Round2Message<P>;
+    type Payload = (
+        <keygen::Round2<P> as BroadcastRound>::Payload,
+        <auxiliary::Round2<P> as BroadcastRound>::Payload,
+    );
+
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        let keygen_dest = self.keygen_round.broadcast_destinations();
+        let aux_dest = self.aux_round.broadcast_destinations();
+        assert!(keygen_dest == aux_dest);
+        keygen_dest
+    }
+    fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
+        let keygen_message = self.keygen_round.make_broadcast(rng)?;
+        let aux_message = self.aux_round.make_broadcast(rng)?;
+        Ok(Round2Message {
             keygen_message,
             aux_message,
         })
     }
 
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
         let keygen_payload = self
             .keygen_round
-            .verify_received(from, msg.keygen_message)?;
-        let aux_payload = self.aux_round.verify_received(from, msg.aux_message)?;
-        Ok(Round2Payload {
-            keygen_payload,
-            aux_payload,
-        })
+            .verify_broadcast(from, msg.keygen_message)?;
+        let aux_payload = self.aux_round.verify_broadcast(from, msg.aux_message)?;
+        Ok((keygen_payload, aux_payload))
     }
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> DirectRound for Round2<P> {
+    type Message = ();
+    type Payload = ();
+    type Artefact = ();
+}
+
+impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     type NextRound = Round3<P>;
-    type Result = KeyShare<P>;
-    fn finalize(
+    fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let (keygen_payloads, aux_payloads) = payloads
-            .map(|payload| (payload.keygen_payload, payload.aux_payload))
-            .unzip();
-        let keygen_result = self.keygen_round.finalize(rng, keygen_payloads)?;
-        let aux_result = self.aux_round.finalize(rng, aux_payloads)?;
-        match (keygen_result, aux_result) {
-            (
-                FinalizeSuccess::AnotherRound(keygen_round),
-                FinalizeSuccess::AnotherRound(aux_round),
-            ) => Ok(FinalizeSuccess::AnotherRound(Round3::<P> {
-                keygen_round,
-                aux_round,
-            })),
-            _ => Err(FinalizeError::ProtocolMergeParallel(
-                "Unexpected finalization results in round 2".into(),
-            )),
-        }
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::NextRound, FinalizeError> {
+        assert!(dm_payloads.is_none());
+        assert!(dm_artefacts.is_none());
+        let (keygen_bc_payloads, aux_bc_payloads) = bc_payloads
+            .map(|payloads| payloads.unzip())
+            .map_or((None, None), |(x, y)| (Some(x), Some(y)));
+
+        let keygen_round =
+            self.keygen_round
+                .finalize_to_next_round(rng, keygen_bc_payloads, None, None)?;
+        let aux_round = self
+            .aux_round
+            .finalize_to_next_round(rng, aux_bc_payloads, None, None)?;
+        Ok(Round3 {
+            keygen_round,
+            aux_round,
+        })
     }
-    const NEXT_ROUND_NUM: Option<u8> = Some(3);
 }
 
 pub(crate) struct Round3<P: SchemeParams> {
@@ -226,99 +228,73 @@ pub(crate) struct Round3<P: SchemeParams> {
     aux_round: auxiliary::Round3<P>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(
-    bound(serialize = "<keygen::Round3<P> as BaseRound>::Message: Serialize,
-    <auxiliary::Round3<P> as BaseRound>::Message: Serialize")
-)]
-#[serde(bound(
-    deserialize = "<keygen::Round3<P> as BaseRound>::Message: for<'x> Deserialize<'x>,
-    <auxiliary::Round3<P> as BaseRound>::Message: for<'x> Deserialize<'x>"
-))]
-pub struct Round3Message<P: SchemeParams> {
-    keygen_message: <keygen::Round3<P> as BaseRound>::Message,
-    aux_message: <auxiliary::Round3<P> as BaseRound>::Message,
-}
-
-pub struct Round3Payload<P: SchemeParams> {
-    keygen_payload: <keygen::Round3<P> as BaseRound>::Payload,
-    aux_payload: <auxiliary::Round3<P> as BaseRound>::Payload,
-}
-
-impl<P: SchemeParams> BaseRound for Round3<P> {
-    type Message = Round3Message<P>;
-    type Payload = Round3Payload<P>;
-
+impl<P: SchemeParams> Round for Round3<P> {
+    type Type = ToResult;
+    type Result = KeyShare<P>;
     const ROUND_NUM: u8 = 3;
-    const REQUIRES_BROADCAST_CONSENSUS: bool = false;
+    const NEXT_ROUND_NUM: Option<u8> = None;
+}
 
-    fn to_send(&self, rng: &mut impl CryptoRngCore) -> ToSendTyped<Self::Message> {
-        // TODO: find a way to do it in a type-safe manner.
-        // One way is to allow both broadcast and direct messages in the same round
-        // (which we otherwise need for presigning)
-        let keygen_message = match self.keygen_round.to_send(rng) {
-            ToSendTyped::Broadcast(msg) => msg,
-            _ => panic!("This round is not expected to produce direct messages"),
-        };
-        let aux_messages = match self.aux_round.to_send(rng) {
-            ToSendTyped::Direct(msgs) => msgs,
-            _ => panic!("This round is not expected to produce direct messages"),
-        };
+impl<P: SchemeParams> BroadcastRound for Round3<P> {
+    const REQUIRES_CONSENSUS: bool = keygen::Round3::<P>::REQUIRES_CONSENSUS;
+    type Message = <keygen::Round3<P> as BroadcastRound>::Message;
+    type Payload = <keygen::Round3<P> as BroadcastRound>::Payload;
 
-        let messages = aux_messages
-            .into_iter()
-            .map(|(to, aux_message)| {
-                let message = Round3Message {
-                    keygen_message: keygen_message.clone(),
-                    aux_message,
-                };
-                (to, message)
-            })
-            .collect();
-
-        ToSendTyped::Direct(messages)
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        self.keygen_round.broadcast_destinations()
+    }
+    fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
+        self.keygen_round.make_broadcast(rng)
     }
 
-    fn verify_received(
+    fn verify_broadcast(
         &self,
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError> {
-        let keygen_payload = self
-            .keygen_round
-            .verify_received(from, msg.keygen_message)?;
-        let aux_payload = self.aux_round.verify_received(from, msg.aux_message)?;
-        Ok(Round3Payload {
-            keygen_payload,
-            aux_payload,
-        })
+        self.keygen_round.verify_broadcast(from, msg)
     }
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
-    type NextRound = NonExistent<Self::Result>;
-    type Result = KeyShare<P>;
-    fn finalize(
+impl<P: SchemeParams> DirectRound for Round3<P> {
+    type Artefact = <auxiliary::Round3<P> as DirectRound>::Artefact;
+    type Message = <auxiliary::Round3<P> as DirectRound>::Message;
+    type Payload = <auxiliary::Round3<P> as DirectRound>::Payload;
+
+    fn direct_message_destinations(&self) -> Option<HoleRange> {
+        self.aux_round.direct_message_destinations()
+    }
+    fn make_direct_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+        destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artefact), String> {
+        self.aux_round.make_direct_message(rng, destination)
+    }
+
+    fn verify_direct_message(
+        &self,
+        from: PartyIdx,
+        msg: Self::Message,
+    ) -> Result<Self::Payload, ReceiveError> {
+        self.aux_round.verify_direct_message(from, msg)
+    }
+}
+
+impl<P: SchemeParams> FinalizableToResult for Round3<P> {
+    fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: HoleVec<Self::Payload>,
-    ) -> Result<FinalizeSuccess<Self>, FinalizeError> {
-        let (keygen_payloads, aux_payloads) = payloads
-            .map(|payload| (payload.keygen_payload, payload.aux_payload))
-            .unzip();
-        let keygen_result = self.keygen_round.finalize(rng, keygen_payloads)?;
-        let aux_result = self.aux_round.finalize(rng, aux_payloads)?;
-        match (keygen_result, aux_result) {
-            (FinalizeSuccess::Result(keyshare_seed), FinalizeSuccess::Result(keyshare_change)) => {
-                Ok(FinalizeSuccess::Result(KeyShare::new(
-                    keyshare_seed,
-                    keyshare_change,
-                )))
-            }
-            _ => Err(FinalizeError::ProtocolMergeParallel(
-                "Unexpected finalization results in round 3".into(),
-            )),
-        }
+        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
+        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
+        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+    ) -> Result<Self::Result, FinalizeError> {
+        let keyshare_seed = self
+            .keygen_round
+            .finalize_to_result(rng, bc_payloads, None, None)?;
+        let keyshare_change =
+            self.aux_round
+                .finalize_to_result(rng, None, dm_payloads, dm_artefacts)?;
+        Ok(KeyShare::new(keyshare_seed, keyshare_change))
     }
-    const NEXT_ROUND_NUM: Option<u8> = None;
 }

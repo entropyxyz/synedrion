@@ -1,13 +1,16 @@
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+use core::any::Any;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::{FinalizeError, FinalizeSuccess, ReceiveError, Round, ToSendTyped};
-use crate::tools::collections::HoleVecAccum;
+use crate::cggmp21::{
+    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
+    ReceiveError, Round, ToNextRound, ToResult,
+};
+use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::PartyIdx;
 
 pub(crate) fn serialize_message(
@@ -22,81 +25,19 @@ pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
     rmp_serde::decode::from_slice(message_bytes)
 }
 
-struct RoundAndAccum<R: Round> {
-    round: R,
-    accum: HoleVecAccum<R::Payload>,
-}
-
-impl<R: Round> RoundAndAccum<R> {
-    pub fn new(
-        round: R,
-        rng: &mut impl CryptoRngCore,
-        num_parties: usize,
-        index: usize,
-    ) -> (Self, ToSendTyped<R::Message>) {
-        // TODO: could get length and hole_at from round
-        let to_send = round.to_send(rng);
-        let state = Self {
-            round,
-            accum: HoleVecAccum::new(num_parties, index),
-        };
-        (state, to_send)
-    }
-
-    fn receive_typed(&mut self, from: PartyIdx, msg: R::Message) -> ReceiveOutcome {
-        let payload = match self.round.verify_received(from, msg) {
-            Ok(payload) => payload,
-            Err(err) => return ReceiveOutcome::Error(err),
-        };
-
-        if self.accum.insert(from.as_usize(), payload).is_none() {
-            return ReceiveOutcome::AlreadyReceived;
-        }
-
-        ReceiveOutcome::Success
-    }
-    fn finalize_typed(
-        self,
-        rng: &mut impl CryptoRngCore,
-    ) -> FinalizeOutcomeTyped<R::Result, R::NextRound> {
-        let payloads = match self.accum.finalize() {
-            Ok(payloads) => payloads,
-            Err(_) => return FinalizeOutcomeTyped::NotEnoughMessages,
-        };
-        match self.round.finalize(rng, payloads) {
-            Ok(FinalizeSuccess::Result(res)) => FinalizeOutcomeTyped::Result(res),
-            Ok(FinalizeSuccess::AnotherRound(round)) => FinalizeOutcomeTyped::AnotherRound(round),
-            Err(err) => FinalizeOutcomeTyped::Error(err),
-        }
-    }
-}
-
-/// Serialized messages without the stage number specified.
-pub(crate) enum ToSendSerialized {
-    Broadcast(Box<[u8]>),
-    // TODO: return an iterator instead, since preparing one message can take some time
-    Direct(Vec<(PartyIdx, Box<[u8]>)>),
-}
-
-pub(crate) enum ReceiveOutcome {
-    Success,
-    Error(ReceiveError),
-    AlreadyReceived,
+#[derive(Debug, Clone)]
+pub enum Error {
+    Generic(String),
+    Finalize(FinalizeError),
+    SerializationFail(String),
     DeserializationFail(String),
+    VerificationFail(ReceiveError),
+    MessageCreationFail(String),
 }
 
-enum FinalizeOutcomeTyped<R, R2: Round> {
-    Result(R),
-    Error(FinalizeError),
-    NotEnoughMessages, // TODO: include the indices of parties whose messages are missing
-    AnotherRound(R2),
-}
-
-pub(crate) enum FinalizeOutcome<R> {
-    Result(R),
-    Error(FinalizeError),
-    NotEnoughMessages, // TODO: include the indices of parties whose messages are missing
-    AnotherRound(Box<dyn TypeErasedRound<R>>),
+pub(crate) enum FinalizeOutcome<Res> {
+    Result(Res),
+    AnotherRound(Box<dyn TypeErasedFinalizable<Res>>),
 }
 
 struct BoxedRng<'a>(&'a mut dyn CryptoRngCore);
@@ -118,37 +59,355 @@ impl<'a> rand_core::RngCore for BoxedRng<'a> {
     }
 }
 
-pub(crate) trait TypeErasedRound<Res>: Send {
-    fn to_receiving_state(
-        self: Box<Self>,
-        rng: &mut dyn CryptoRngCore,
-        num_parties: usize,
-        party_idx: PartyIdx,
-    ) -> (Box<dyn TypeErasedReceivingRound<Res>>, ToSendSerialized);
-    fn round_num(&self) -> u8;
-}
+pub struct TypeErasedBcPayload(Box<dyn Any + Send>);
 
-pub(crate) trait TypeErasedReceivingRound<Res>: Send {
-    // Possible outcomes:
-    // - success
-    // - ReceiveError (verification fail etc)
-    // - deserialization fail
-    // - message already received
-    fn receive(&mut self, from: PartyIdx, msg: &[u8]) -> ReceiveOutcome;
-    // Possible outcomes:
-    // - result
-    // - next round
-    // - finalization error
-    // - not enough messages received
-    // - (TODO) error round
-    fn finalize(self: Box<Self>, rng: &mut dyn CryptoRngCore) -> FinalizeOutcome<Res>;
+pub struct TypeErasedDmPayload(Box<dyn Any + Send>);
+
+pub struct TypeErasedDmArtefact(Box<dyn Any + Send>);
+
+pub(crate) trait TypeErasedRound<Res>: Send {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
+
+    fn broadcast_destinations(&self) -> Option<HoleRange>;
+    fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, Error>;
     fn requires_broadcast_consensus(&self) -> bool;
-    fn can_finalize(&self) -> bool;
+    fn direct_message_destinations(&self) -> Option<HoleRange>;
+    fn make_direct_message(
+        &self,
+        rng: &mut dyn CryptoRngCore,
+        destination: PartyIdx,
+    ) -> Result<(Box<[u8]>, TypeErasedDmArtefact), Error>;
+
+    fn verify_broadcast(
+        &self,
+        from: PartyIdx,
+        message: &[u8],
+    ) -> Result<TypeErasedBcPayload, Error>;
+    fn verify_direct_message(
+        &self,
+        from: PartyIdx,
+        message: &[u8],
+    ) -> Result<TypeErasedDmPayload, Error>;
 }
 
-impl<R: Round + 'static> TypeErasedRound<R::Result> for R {
+impl<R: Round + 'static + Send> TypeErasedRound<R::Result> for R {
+    fn round_num(&self) -> u8 {
+        R::ROUND_NUM
+    }
+
+    fn next_round_num(&self) -> Option<u8> {
+        R::NEXT_ROUND_NUM
+    }
+
+    fn verify_broadcast(
+        &self,
+        from: PartyIdx,
+        message: &[u8],
+    ) -> Result<TypeErasedBcPayload, Error> {
+        let typed_message: <R as BroadcastRound>::Message = match deserialize_message(message) {
+            Ok(message) => message,
+            Err(err) => return Err(Error::DeserializationFail(format!("{}", err))),
+        };
+
+        let payload = match self.verify_broadcast(from, typed_message) {
+            Ok(payload) => payload,
+            Err(err) => return Err(Error::VerificationFail(err)),
+        };
+
+        Ok(TypeErasedBcPayload(Box::new(payload)))
+    }
+
+    fn verify_direct_message(
+        &self,
+        from: PartyIdx,
+        message: &[u8],
+    ) -> Result<TypeErasedDmPayload, Error> {
+        let typed_message: <R as DirectRound>::Message = match deserialize_message(message) {
+            Ok(message) => message,
+            Err(err) => return Err(Error::DeserializationFail(format!("{}", err))),
+        };
+
+        let payload = match self.verify_direct_message(from, typed_message) {
+            Ok(payload) => payload,
+            Err(err) => return Err(Error::VerificationFail(err)),
+        };
+
+        Ok(TypeErasedDmPayload(Box::new(payload)))
+    }
+
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        self.broadcast_destinations()
+    }
+    fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, Error> {
+        let mut boxed_rng = BoxedRng(rng);
+        let serialized = self
+            .make_broadcast(&mut boxed_rng)
+            .map_err(|err| Error::MessageCreationFail(err.to_string()))?;
+        serialize_message(&serialized).map_err(|err| Error::SerializationFail(err.to_string()))
+    }
+    fn requires_broadcast_consensus(&self) -> bool {
+        <R as BroadcastRound>::REQUIRES_CONSENSUS
+    }
+    fn direct_message_destinations(&self) -> Option<HoleRange> {
+        self.direct_message_destinations()
+    }
+    fn make_direct_message(
+        &self,
+        rng: &mut dyn CryptoRngCore,
+        destination: PartyIdx,
+    ) -> Result<(Box<[u8]>, TypeErasedDmArtefact), Error> {
+        let mut boxed_rng = BoxedRng(rng);
+        let (typed_message, typed_artefact) = self
+            .make_direct_message(&mut boxed_rng, destination)
+            .map_err(|err| Error::MessageCreationFail(err.to_string()))?;
+        let message = serialize_message(&typed_message)
+            .map_err(|err| Error::SerializationFail(err.to_string()))?;
+        Ok((message, TypeErasedDmArtefact(Box::new(typed_artefact))))
+    }
+}
+
+pub(crate) struct TypeErasedRoundAccum {
+    bc_payloads: Option<HoleVecAccum<TypeErasedBcPayload>>,
+    dm_payloads: Option<HoleVecAccum<TypeErasedDmPayload>>,
+    dm_artefacts: Option<HoleVecAccum<TypeErasedDmArtefact>>,
+}
+
+struct TypedRoundAccum<R: Round> {
+    bc_payloads: Option<HoleVec<<R as BroadcastRound>::Payload>>,
+    dm_payloads: Option<HoleVec<<R as DirectRound>::Payload>>,
+    dm_artefacts: Option<HoleVec<<R as DirectRound>::Artefact>>,
+}
+
+impl TypeErasedRoundAccum {
+    pub fn new(num_parties: usize, idx: PartyIdx, is_bc_round: bool, is_dm_round: bool) -> Self {
+        Self {
+            bc_payloads: if is_bc_round {
+                Some(HoleVecAccum::new(num_parties, idx.as_usize()))
+            } else {
+                None
+            },
+            dm_payloads: if is_dm_round {
+                Some(HoleVecAccum::new(num_parties, idx.as_usize()))
+            } else {
+                None
+            },
+            dm_artefacts: if is_dm_round {
+                Some(HoleVecAccum::new(num_parties, idx.as_usize()))
+            } else {
+                None
+            },
+        }
+    }
+
+    pub fn add_bc_payload(
+        &mut self,
+        from: PartyIdx,
+        payload: TypeErasedBcPayload,
+    ) -> Result<(), String> {
+        match &mut self.bc_payloads {
+            Some(payloads) => payloads
+                .insert(from.as_usize(), payload)
+                .ok_or("Failed to insert BC payload".into()),
+            None => Err("This round does not expect broadcast messages".into()),
+        }
+    }
+    pub fn add_dm_payload(
+        &mut self,
+        from: PartyIdx,
+        payload: TypeErasedDmPayload,
+    ) -> Result<(), String> {
+        match &mut self.dm_payloads {
+            Some(payloads) => payloads
+                .insert(from.as_usize(), payload)
+                .ok_or("Failed to insert DM payload".into()),
+            None => Err("This round does not expect direct messages".into()),
+        }
+    }
+    pub fn add_dm_artefact(
+        &mut self,
+        destination: PartyIdx,
+        artefact: TypeErasedDmArtefact,
+    ) -> Result<(), String> {
+        match &mut self.dm_artefacts {
+            Some(artefacts) => artefacts
+                .insert(destination.as_usize(), artefact)
+                .ok_or("Failed to insert DM artefact".into()),
+            None => Err("This round does not send direct messages".into()),
+        }
+    }
+
+    pub fn can_finalize(&self) -> bool {
+        // TODO: should this be the job of the round itself?
+        self.bc_payloads
+            .as_ref()
+            .map_or(true, |accum| accum.can_finalize())
+            && self
+                .dm_payloads
+                .as_ref()
+                .map_or(true, |accum| accum.can_finalize())
+            && self
+                .dm_artefacts
+                .as_ref()
+                .map_or(true, |accum| accum.can_finalize())
+    }
+
+    fn finalize<R: Round>(self) -> Result<TypedRoundAccum<R>, String> {
+        let bc_payloads = match self.bc_payloads {
+            Some(accum) => {
+                let hvec = accum
+                    .finalize()
+                    .map_err(|_| "Failed to finalize BC payloads")?;
+                Some(hvec.map_fallible(|elem| downcast::<<R as BroadcastRound>::Payload>(elem.0))?)
+            }
+            None => None,
+        };
+        let dm_payloads = match self.dm_payloads {
+            Some(accum) => {
+                let hvec = accum
+                    .finalize()
+                    .map_err(|_| "Failed to finalize DM payloads")?;
+                Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Payload>(elem.0))?)
+            }
+            None => None,
+        };
+        let dm_artefacts = match self.dm_artefacts {
+            Some(accum) => {
+                let hvec = accum
+                    .finalize()
+                    .map_err(|_| "Failed to finalize DM artefacts")?;
+                Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Artefact>(elem.0))?)
+            }
+            None => None,
+        };
+        Ok(TypedRoundAccum {
+            bc_payloads,
+            dm_payloads,
+            dm_artefacts,
+        })
+    }
+}
+
+fn downcast<T: 'static>(boxed: Box<dyn Any>) -> Result<T, String> {
+    Ok(*(boxed.downcast::<T>().map_err(|_| {
+        format!(
+            "Failed to downcast into {} payload",
+            core::any::type_name::<T>()
+        )
+    })?))
+}
+
+pub(crate) trait TypeErasedFinalizable<Res>: TypeErasedRound<Res> + Send {
+    fn finalize(
+        self: Box<Self>,
+        rng: &mut dyn CryptoRngCore,
+        accum: TypeErasedRoundAccum,
+    ) -> Result<FinalizeOutcome<Res>, Error>;
+}
+
+const _: () = {
+    trait _TypeErasedFinalizable<Res, T> {
+        fn finalize(
+            self: Box<Self>,
+            rng: &mut dyn CryptoRngCore,
+            accum: TypeErasedRoundAccum,
+        ) -> Result<FinalizeOutcome<Res>, Error>;
+    }
+
+    impl<T: 'static + FinalizableToResult + Round<Type = ToResult>>
+        _TypeErasedFinalizable<T::Result, ToResult> for T
+    {
+        fn finalize(
+            self: Box<Self>,
+            rng: &mut dyn CryptoRngCore,
+            accum: TypeErasedRoundAccum,
+        ) -> Result<FinalizeOutcome<T::Result>, Error> {
+            let mut boxed_rng = BoxedRng(rng);
+            let typed_accum = accum.finalize::<T>().unwrap();
+            let result = (*self)
+                .finalize_to_result(
+                    &mut boxed_rng,
+                    typed_accum.bc_payloads,
+                    typed_accum.dm_payloads,
+                    typed_accum.dm_artefacts,
+                )
+                .map_err(Error::Finalize)?;
+            Ok(FinalizeOutcome::Result(result))
+        }
+    }
+
+    impl<T: 'static + FinalizableToNextRound + Round<Type = ToNextRound>>
+        _TypeErasedFinalizable<T::Result, ToNextRound> for T
+    where
+        <T as FinalizableToNextRound>::NextRound: TypeErasedFinalizable<T::Result>,
+    {
+        fn finalize(
+            self: Box<Self>,
+            rng: &mut dyn CryptoRngCore,
+            accum: TypeErasedRoundAccum,
+        ) -> Result<FinalizeOutcome<T::Result>, Error> {
+            let mut boxed_rng = BoxedRng(rng);
+            let typed_accum = accum.finalize::<T>().unwrap();
+            let next_round = (*self)
+                .finalize_to_next_round(
+                    &mut boxed_rng,
+                    typed_accum.bc_payloads,
+                    typed_accum.dm_payloads,
+                    typed_accum.dm_artefacts,
+                )
+                .map_err(Error::Finalize)?;
+            Ok(FinalizeOutcome::AnotherRound(Box::new(next_round)))
+        }
+    }
+
+    impl<T> TypeErasedFinalizable<T::Result> for T
+    where
+        T: Round + 'static,
+        Self: _TypeErasedFinalizable<T::Result, <T as Round>::Type>,
+    {
+        fn finalize(
+            self: Box<Self>,
+            rng: &mut dyn CryptoRngCore,
+            accum: TypeErasedRoundAccum,
+        ) -> Result<FinalizeOutcome<T::Result>, Error> {
+            <Self as _TypeErasedFinalizable<T::Result, T::Type>>::finalize(self, rng, accum)
+        }
+    }
+};
+
+/*
+use crate::cggmp21::{FirstRound, InitError};
+
+struct Session<Res>(Box<dyn TypeErasedRound<Res>>);
+
+impl<Res> Session<Res> {
+    pub(crate) fn new<R: RoundConstructor<Res> + 'static>(
+        rng: &mut impl CryptoRngCore,
+        shared_randomness: &[u8],
+        party_idx: PartyIdx,
+        num_parties: usize,
+        context: R::Context,
+    ) -> Result<Self, InitError>
+    {
+        let typed_round = R::new(rng, shared_randomness, num_parties, party_idx, context)?;
+        let round = RoundConstructor::<Res>::new_boxed(typed_round);
+        Ok(Self(round))
+    }
+}
+
+use crate::cggmp21::{keygen, KeyShareSeed, TestParams};
+use rand_core::OsRng;
+
+fn foo() -> Session<KeyShareSeed> {
+    Session::new::<keygen::Round1<TestParams>>(&mut OsRng, b"asdasd", PartyIdx::from_usize(0), 3, ()).unwrap()
+}
+*/
+
+/*
+
+
+
+
     fn to_receiving_state(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
@@ -178,42 +437,5 @@ impl<R: Round + 'static> TypeErasedRound<R::Result> for R {
             Box::new(receiving_round);
         (receiving_round, to_send)
     }
-    fn round_num(&self) -> u8 {
-        R::ROUND_NUM
-    }
-}
 
-impl<R: Round + 'static + Send> TypeErasedReceivingRound<R::Result> for RoundAndAccum<R> {
-    fn round_num(&self) -> u8 {
-        R::ROUND_NUM
-    }
-    fn next_round_num(&self) -> Option<u8> {
-        R::NEXT_ROUND_NUM
-    }
-    fn requires_broadcast_consensus(&self) -> bool {
-        R::REQUIRES_BROADCAST_CONSENSUS
-    }
-    fn receive(&mut self, from: PartyIdx, msg: &[u8]) -> ReceiveOutcome {
-        let message: R::Message = match deserialize_message(msg) {
-            Ok(message) => message,
-            Err(err) => return ReceiveOutcome::DeserializationFail(format!("{}", err)),
-        };
-        self.receive_typed(from, message)
-    }
-
-    fn finalize(self: Box<Self>, rng: &mut dyn CryptoRngCore) -> FinalizeOutcome<R::Result> {
-        let mut boxed_rng = BoxedRng(rng);
-        match self.finalize_typed(&mut boxed_rng) {
-            FinalizeOutcomeTyped::Result(res) => FinalizeOutcome::Result(res),
-            FinalizeOutcomeTyped::AnotherRound(round) => {
-                FinalizeOutcome::AnotherRound(Box::new(round))
-            }
-            FinalizeOutcomeTyped::NotEnoughMessages => FinalizeOutcome::NotEnoughMessages,
-            FinalizeOutcomeTyped::Error(err) => FinalizeOutcome::Error(err),
-        }
-    }
-
-    fn can_finalize(&self) -> bool {
-        self.accum.can_finalize()
-    }
-}
+*/
