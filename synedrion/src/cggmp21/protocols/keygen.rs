@@ -287,6 +287,13 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
     type Message = Round3Bcast;
     type Payload = ();
 
+    fn broadcast_destinations(&self) -> Option<HoleRange> {
+        Some(HoleRange::new(
+            self.context.num_parties,
+            self.context.party_idx.as_usize(),
+        ))
+    }
+
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
         let aux = (
             &self.context.shared_randomness,
