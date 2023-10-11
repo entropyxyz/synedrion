@@ -43,7 +43,7 @@ pub enum Error {
 
 pub(crate) enum FinalizeOutcome<Res> {
     Result(Res),
-    AnotherRound(Box<dyn TypeErasedFinalizable<Res>>),
+    AnotherRound(Box<dyn DynFinalizable<Res>>),
 }
 
 /// Since object-safe trait methods cannot take `impl CryptoRngCore` arguments,
@@ -68,14 +68,14 @@ impl<'a> rand_core::RngCore for BoxedRng<'a> {
     }
 }
 
-pub(crate) struct TypeErasedBcPayload(Box<dyn Any + Send>);
+pub(crate) struct DynBcPayload(Box<dyn Any + Send>);
 
-pub(crate) struct TypeErasedDmPayload(Box<dyn Any + Send>);
+pub(crate) struct DynDmPayload(Box<dyn Any + Send>);
 
-pub(crate) struct TypeErasedDmArtefact(Box<dyn Any + Send>);
+pub(crate) struct DynDmArtefact(Box<dyn Any + Send>);
 
 /// An object-safe trait wrapping `Round`.
-pub(crate) trait TypeErasedRound<Res>: Send {
+pub(crate) trait DynRound<Res>: Send {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
 
@@ -87,21 +87,13 @@ pub(crate) trait TypeErasedRound<Res>: Send {
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, TypeErasedDmArtefact), Error>;
+    ) -> Result<(Box<[u8]>, DynDmArtefact), Error>;
 
-    fn verify_broadcast(
-        &self,
-        from: PartyIdx,
-        message: &[u8],
-    ) -> Result<TypeErasedBcPayload, Error>;
-    fn verify_direct_message(
-        &self,
-        from: PartyIdx,
-        message: &[u8],
-    ) -> Result<TypeErasedDmPayload, Error>;
+    fn verify_broadcast(&self, from: PartyIdx, message: &[u8]) -> Result<DynBcPayload, Error>;
+    fn verify_direct_message(&self, from: PartyIdx, message: &[u8]) -> Result<DynDmPayload, Error>;
 }
 
-impl<R> TypeErasedRound<R::Result> for R
+impl<R> DynRound<R::Result> for R
 where
     R: Round + Send,
     <R as BroadcastRound>::Payload: 'static + Send,
@@ -116,11 +108,7 @@ where
         R::NEXT_ROUND_NUM
     }
 
-    fn verify_broadcast(
-        &self,
-        from: PartyIdx,
-        message: &[u8],
-    ) -> Result<TypeErasedBcPayload, Error> {
+    fn verify_broadcast(&self, from: PartyIdx, message: &[u8]) -> Result<DynBcPayload, Error> {
         let typed_message: <R as BroadcastRound>::Message = match deserialize_message(message) {
             Ok(message) => message,
             Err(err) => return Err(Error::DeserializationFail(format!("{}", err))),
@@ -131,14 +119,10 @@ where
             Err(err) => return Err(Error::VerificationFail(err)),
         };
 
-        Ok(TypeErasedBcPayload(Box::new(payload)))
+        Ok(DynBcPayload(Box::new(payload)))
     }
 
-    fn verify_direct_message(
-        &self,
-        from: PartyIdx,
-        message: &[u8],
-    ) -> Result<TypeErasedDmPayload, Error> {
+    fn verify_direct_message(&self, from: PartyIdx, message: &[u8]) -> Result<DynDmPayload, Error> {
         let typed_message: <R as DirectRound>::Message = match deserialize_message(message) {
             Ok(message) => message,
             Err(err) => return Err(Error::DeserializationFail(format!("{}", err))),
@@ -149,7 +133,7 @@ where
             Err(err) => return Err(Error::VerificationFail(err)),
         };
 
-        Ok(TypeErasedDmPayload(Box::new(payload)))
+        Ok(DynDmPayload(Box::new(payload)))
     }
 
     fn broadcast_destinations(&self) -> Option<HoleRange> {
@@ -176,30 +160,30 @@ where
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, TypeErasedDmArtefact), Error> {
+    ) -> Result<(Box<[u8]>, DynDmArtefact), Error> {
         let mut boxed_rng = BoxedRng(rng);
         let (typed_message, typed_artefact) = self
             .make_direct_message(&mut boxed_rng, destination)
             .map_err(|err| Error::MessageCreationFail(err.to_string()))?;
         let message = serialize_message(&typed_message)
             .map_err(|err| Error::SerializationFail(err.to_string()))?;
-        Ok((message, TypeErasedDmArtefact(Box::new(typed_artefact))))
+        Ok((message, DynDmArtefact(Box::new(typed_artefact))))
     }
 }
 
-pub(crate) struct TypeErasedRoundAccum {
-    bc_payloads: Option<HoleVecAccum<TypeErasedBcPayload>>,
-    dm_payloads: Option<HoleVecAccum<TypeErasedDmPayload>>,
-    dm_artefacts: Option<HoleVecAccum<TypeErasedDmArtefact>>,
+pub(crate) struct DynRoundAccum {
+    bc_payloads: Option<HoleVecAccum<DynBcPayload>>,
+    dm_payloads: Option<HoleVecAccum<DynDmPayload>>,
+    dm_artefacts: Option<HoleVecAccum<DynDmArtefact>>,
 }
 
-struct TypedRoundAccum<R: Round> {
+struct RoundAccum<R: Round> {
     bc_payloads: Option<HoleVec<<R as BroadcastRound>::Payload>>,
     dm_payloads: Option<HoleVec<<R as DirectRound>::Payload>>,
     dm_artefacts: Option<HoleVec<<R as DirectRound>::Artefact>>,
 }
 
-impl TypeErasedRoundAccum {
+impl DynRoundAccum {
     pub fn new(num_parties: usize, idx: PartyIdx, is_bc_round: bool, is_dm_round: bool) -> Self {
         Self {
             bc_payloads: if is_bc_round {
@@ -220,11 +204,7 @@ impl TypeErasedRoundAccum {
         }
     }
 
-    pub fn add_bc_payload(
-        &mut self,
-        from: PartyIdx,
-        payload: TypeErasedBcPayload,
-    ) -> Result<(), String> {
+    pub fn add_bc_payload(&mut self, from: PartyIdx, payload: DynBcPayload) -> Result<(), String> {
         match &mut self.bc_payloads {
             Some(payloads) => payloads
                 .insert(from.as_usize(), payload)
@@ -233,11 +213,7 @@ impl TypeErasedRoundAccum {
         }
     }
 
-    pub fn add_dm_payload(
-        &mut self,
-        from: PartyIdx,
-        payload: TypeErasedDmPayload,
-    ) -> Result<(), String> {
+    pub fn add_dm_payload(&mut self, from: PartyIdx, payload: DynDmPayload) -> Result<(), String> {
         match &mut self.dm_payloads {
             Some(payloads) => payloads
                 .insert(from.as_usize(), payload)
@@ -249,7 +225,7 @@ impl TypeErasedRoundAccum {
     pub fn add_dm_artefact(
         &mut self,
         destination: PartyIdx,
-        artefact: TypeErasedDmArtefact,
+        artefact: DynDmArtefact,
     ) -> Result<(), String> {
         match &mut self.dm_artefacts {
             Some(artefacts) => artefacts
@@ -274,7 +250,7 @@ impl TypeErasedRoundAccum {
                 .map_or(true, |accum| accum.can_finalize())
     }
 
-    fn finalize<R: Round>(self) -> Result<TypedRoundAccum<R>, String>
+    fn finalize<R: Round>(self) -> Result<RoundAccum<R>, String>
     where
         <R as BroadcastRound>::Payload: 'static,
         <R as DirectRound>::Payload: 'static,
@@ -307,7 +283,7 @@ impl TypeErasedRoundAccum {
             }
             None => None,
         };
-        Ok(TypedRoundAccum {
+        Ok(RoundAccum {
             bc_payloads,
             dm_payloads,
             dm_artefacts,
@@ -316,24 +292,21 @@ impl TypeErasedRoundAccum {
 }
 
 fn downcast<T: 'static>(boxed: Box<dyn Any>) -> Result<T, String> {
-    Ok(*(boxed.downcast::<T>().map_err(|_| {
-        format!(
-            "Failed to downcast into {} payload",
-            core::any::type_name::<T>()
-        )
-    })?))
+    Ok(*(boxed
+        .downcast::<T>()
+        .map_err(|_| format!("Failed to downcast into {}", core::any::type_name::<T>()))?))
 }
 
-pub(crate) trait TypeErasedFinalizable<Res>: TypeErasedRound<Res> {
+pub(crate) trait DynFinalizable<Res>: DynRound<Res> {
     fn finalize(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
-        accum: TypeErasedRoundAccum,
+        accum: DynRoundAccum,
     ) -> Result<FinalizeOutcome<Res>, Error>;
 }
 
 // This is needed because Rust does not currently support exclusive trait imlpementations.
-// We want to implement `TypeErasedFinalizable` depending on whether the type is
+// We want to implement `DynFinalizable` depending on whether the type is
 // `FinalizableToResult` or `FinalizableToNextRound`.
 // A way to do it is to exploit the fact that a trait with an associated type (in our case, `Round`)
 // can only be implemented for one value of the associated type (in our case, `Round::Type`),
@@ -344,26 +317,26 @@ const _: () = {
     //    of the target associated type, with the same methods as the target trait;
     // 2) A blanket implementation for the target trait.
 
-    trait _TypeErasedFinalizable<Res, T> {
+    trait _DynFinalizable<Res, T> {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
-            accum: TypeErasedRoundAccum,
+            accum: DynRoundAccum,
         ) -> Result<FinalizeOutcome<Res>, Error>;
     }
 
-    impl<R> TypeErasedFinalizable<R::Result> for R
+    impl<R> DynFinalizable<R::Result> for R
     where
         R: Round + Send + 'static,
         <R as BroadcastRound>::Payload: Send,
         <R as DirectRound>::Payload: Send,
         <R as DirectRound>::Artefact: Send,
-        Self: _TypeErasedFinalizable<R::Result, R::Type>,
+        Self: _DynFinalizable<R::Result, R::Type>,
     {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
-            accum: TypeErasedRoundAccum,
+            accum: DynRoundAccum,
         ) -> Result<FinalizeOutcome<R::Result>, Error> {
             Self::finalize(self, rng, accum)
         }
@@ -371,14 +344,14 @@ const _: () = {
 
     // Actual diverging imlpementations.
 
-    impl<R> _TypeErasedFinalizable<R::Result, ToResult> for R
+    impl<R> _DynFinalizable<R::Result, ToResult> for R
     where
         R: 'static + FinalizableToResult,
     {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
-            accum: TypeErasedRoundAccum,
+            accum: DynRoundAccum,
         ) -> Result<FinalizeOutcome<R::Result>, Error> {
             let mut boxed_rng = BoxedRng(rng);
             let typed_accum = accum.finalize::<R>().map_err(Error::AccumFinalize)?;
@@ -394,15 +367,15 @@ const _: () = {
         }
     }
 
-    impl<R> _TypeErasedFinalizable<R::Result, ToNextRound> for R
+    impl<R> _DynFinalizable<R::Result, ToNextRound> for R
     where
         R: 'static + FinalizableToNextRound,
-        <R as FinalizableToNextRound>::NextRound: TypeErasedFinalizable<R::Result>,
+        <R as FinalizableToNextRound>::NextRound: DynFinalizable<R::Result>,
     {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
-            accum: TypeErasedRoundAccum,
+            accum: DynRoundAccum,
         ) -> Result<FinalizeOutcome<R::Result>, Error> {
             let mut boxed_rng = BoxedRng(rng);
             let typed_accum = accum.finalize::<R>().map_err(Error::AccumFinalize)?;

@@ -9,8 +9,7 @@ use super::broadcast::{BcConsensusAccum, BroadcastConsensus};
 use super::error::{Error, MyFault, TheirFault};
 use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
-    self, TypeErasedBcPayload, TypeErasedDmArtefact, TypeErasedDmPayload, TypeErasedFinalizable,
-    TypeErasedRoundAccum,
+    self, DynBcPayload, DynDmArtefact, DynDmPayload, DynFinalizable, DynRoundAccum,
 };
 use crate::cggmp21::{FirstRound, InitError, Round};
 use crate::tools::collections::HoleRange;
@@ -24,9 +23,9 @@ struct Context<Signer, Verifier> {
 }
 
 enum SessionType<Res, Sig, Verifier> {
-    Normal(Box<dyn TypeErasedFinalizable<Res>>),
+    Normal(Box<dyn DynFinalizable<Res>>),
     Bc {
-        next_round: Box<dyn TypeErasedFinalizable<Res>>,
+        next_round: Box<dyn DynFinalizable<Res>>,
         bc: BroadcastConsensus<Sig, Verifier>,
     },
 }
@@ -44,7 +43,7 @@ enum MessageFor {
 }
 
 fn route_message_normal<Sig, Res>(
-    round: &dyn TypeErasedFinalizable<Res>,
+    round: &dyn DynFinalizable<Res>,
     message: &SignedMessage<Sig>,
 ) -> MessageFor {
     let this_round = round.round_num();
@@ -72,7 +71,7 @@ fn route_message_normal<Sig, Res>(
 }
 
 fn route_message_bc<Sig, Res>(
-    next_round: &dyn TypeErasedFinalizable<Res>,
+    next_round: &dyn DynFinalizable<Res>,
     message: &SignedMessage<Sig>,
 ) -> MessageFor {
     let next_round = next_round.round_num();
@@ -107,9 +106,7 @@ where
     Verifier: Clone + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
-    pub(crate) fn new<
-        R: FirstRound + TypeErasedFinalizable<Res> + Round<Result = Res> + 'static,
-    >(
+    pub(crate) fn new<R: FirstRound + DynFinalizable<Res> + Round<Result = Res> + 'static>(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         // TODO: merge signers and verifiers into one struct to make getting party_idx more natural?
@@ -122,7 +119,7 @@ where
         // TODO: Need to specify the requirements for the shared randomness in the docstring.
         let session_id = SessionId::from_seed(shared_randomness);
         let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, context)?;
-        let round: Box<dyn TypeErasedFinalizable<Res>> = Box::new(typed_round);
+        let round: Box<dyn DynFinalizable<Res>> = Box::new(typed_round);
         let context = Context {
             signer,
             verifiers: verifiers.into(),
@@ -373,7 +370,7 @@ where
 
     fn finalize_regular_round(
         context: Context<Signer, Verifier>,
-        round: Box<dyn TypeErasedFinalizable<Res>>,
+        round: Box<dyn DynFinalizable<Res>>,
         rng: &mut impl CryptoRngCore,
         accum: RoundAccumulator<Sig>,
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error> {
@@ -409,7 +406,7 @@ where
 
     fn finalize_bc_round(
         context: Context<Signer, Verifier>,
-        round: Box<dyn TypeErasedFinalizable<Res>>,
+        round: Box<dyn DynFinalizable<Res>>,
         bc: BroadcastConsensus<Sig, Verifier>,
         accum: RoundAccumulator<Sig>,
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error> {
@@ -427,7 +424,7 @@ where
 pub struct RoundAccumulator<Sig> {
     received_direct_messages: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
     received_broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
-    processed: TypeErasedRoundAccum,
+    processed: DynRoundAccum,
     cached_messages: Vec<(PartyIdx, SignedMessage<Sig>)>,
     bc_accum: BcConsensusAccum,
 }
@@ -437,7 +434,7 @@ impl<Sig> RoundAccumulator<Sig> {
         Self {
             received_direct_messages: Vec::new(),
             received_broadcasts: Vec::new(),
-            processed: TypeErasedRoundAccum::new(num_parties, party_idx, is_bc_round, is_dm_round),
+            processed: DynRoundAccum::new(num_parties, party_idx, is_bc_round, is_dm_round),
             cached_messages: Vec::new(),
             bc_accum: BcConsensusAccum::new(num_parties, party_idx),
         }
@@ -483,7 +480,7 @@ impl<Sig> RoundAccumulator<Sig> {
 
 pub struct Artefact {
     destination: PartyIdx,
-    artefact: TypeErasedDmArtefact,
+    artefact: DynDmArtefact,
 }
 
 pub struct ProcessedMessage<Sig>(ProcessedMessageEnum<Sig>);
@@ -491,12 +488,12 @@ pub struct ProcessedMessage<Sig>(ProcessedMessageEnum<Sig>);
 enum ProcessedMessageEnum<Sig> {
     BcPayload {
         from: PartyIdx,
-        payload: TypeErasedBcPayload,
+        payload: DynBcPayload,
         message: VerifiedMessage<Sig>,
     },
     DmPayload {
         from: PartyIdx,
-        payload: TypeErasedDmPayload,
+        payload: DynDmPayload,
         message: VerifiedMessage<Sig>,
     },
     Cache {
