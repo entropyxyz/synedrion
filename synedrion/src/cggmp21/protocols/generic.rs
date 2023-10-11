@@ -132,7 +132,6 @@ pub enum FinalizeError {
     /// Returned when there is an error chaining the start of another protocol
     /// on the finalization of the previous one.
     ProtocolMergeSequential(InitError),
-    ProtocolMergeParallel(String),
     Unspecified(String), // TODO: add fine-grained errors
 }
 
