@@ -289,7 +289,7 @@ where
         match message_for {
             MessageFor::ThisRound => self.verify_message_inner(from, message),
             // TODO: should we cache the verified or the unverified message?
-            MessageFor::NextRound => Ok(ProcessedMessage::Cache { from, message }),
+            MessageFor::NextRound => Ok(ProcessedMessage(ProcessedMessageEnum::Cache { from, message })),
             // TODO: this is an unprovable fault (may be a replay attack)
             MessageFor::OutOfOrder => Err(Error::TheirFault {
                 party: from,
@@ -317,11 +317,11 @@ where
                                 party: from,
                                 error: TheirFault::TypeErased(err),
                             })?;
-                        Ok(ProcessedMessage::DmPayload {
+                        Ok(ProcessedMessage(ProcessedMessageEnum::DmPayload {
                             from,
                             payload,
                             message: verified_message,
-                        })
+                        }))
                     }
                     MessageType::Broadcast => {
                         let payload = round
@@ -330,11 +330,11 @@ where
                                 party: from,
                                 error: TheirFault::TypeErased(err),
                             })?;
-                        Ok(ProcessedMessage::BcPayload {
+                        Ok(ProcessedMessage(ProcessedMessageEnum::BcPayload {
                             from,
                             payload,
                             message: verified_message,
-                        })
+                        }))
                     }
                     _ => {
                         // TODO: this branch will never really be reached
@@ -347,7 +347,7 @@ where
             }
             SessionType::Bc { bc, .. } => {
                 bc.verify_broadcast(from, verified_message)?;
-                Ok(ProcessedMessage::Bc { from })
+                Ok(ProcessedMessage(ProcessedMessageEnum::Bc { from }))
             }
         }
     }
@@ -452,8 +452,8 @@ impl<Sig> RoundAccumulator<Sig> {
     /// Save a processed message produced by [`Session::verify_message`].
     pub fn add_processed_message(&mut self, pm: ProcessedMessage<Sig>) -> Result<(), Error> {
         // TODO: add a check that the index is in range, and wasn't filled yet
-        match pm {
-            ProcessedMessage::BcPayload {
+        match pm.0 {
+            ProcessedMessageEnum::BcPayload {
                 from,
                 payload,
                 message,
@@ -461,7 +461,7 @@ impl<Sig> RoundAccumulator<Sig> {
                 self.processed.add_bc_payload(from, payload).unwrap();
                 self.received_broadcasts.push((from, message));
             }
-            ProcessedMessage::DmPayload {
+            ProcessedMessageEnum::DmPayload {
                 from,
                 payload,
                 message,
@@ -469,8 +469,8 @@ impl<Sig> RoundAccumulator<Sig> {
                 self.processed.add_dm_payload(from, payload).unwrap();
                 self.received_direct_messages.push((from, message));
             }
-            ProcessedMessage::Cache { from, message } => self.cached_messages.push((from, message)),
-            ProcessedMessage::Bc { from } => self.bc_accum.add_echo_received(from).unwrap(),
+            ProcessedMessageEnum::Cache { from, message } => self.cached_messages.push((from, message)),
+            ProcessedMessageEnum::Bc { from } => self.bc_accum.add_echo_received(from).unwrap(),
         }
         Ok(())
     }
@@ -481,7 +481,9 @@ pub struct Artefact {
     artefact: TypeErasedDmArtefact,
 }
 
-pub enum ProcessedMessage<Sig> {
+pub struct ProcessedMessage<Sig>(ProcessedMessageEnum<Sig>);
+
+enum ProcessedMessageEnum<Sig> {
     BcPayload {
         from: PartyIdx,
         payload: TypeErasedBcPayload,

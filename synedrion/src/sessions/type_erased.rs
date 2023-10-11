@@ -1,3 +1,8 @@
+/*!
+This module maps the static typed interface of the rounds into boxable traits.
+This way they can be used in a state machine loop without code repetition.
+*/
+
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -40,6 +45,9 @@ pub(crate) enum FinalizeOutcome<Res> {
     AnotherRound(Box<dyn TypeErasedFinalizable<Res>>),
 }
 
+/// Since object-safe trait methods cannot take `impl CryptoRngCore` arguments,
+/// this structure wraps the dynamic object and exposes a `CryptoRngCore` interface,
+/// to be passed to statically typed round methods.
 struct BoxedRng<'a>(&'a mut dyn CryptoRngCore);
 
 impl<'a> rand_core::CryptoRng for BoxedRng<'a> {}
@@ -59,11 +67,11 @@ impl<'a> rand_core::RngCore for BoxedRng<'a> {
     }
 }
 
-pub struct TypeErasedBcPayload(Box<dyn Any + Send>);
+pub(crate) struct TypeErasedBcPayload(Box<dyn Any + Send>);
 
-pub struct TypeErasedDmPayload(Box<dyn Any + Send>);
+pub(crate) struct TypeErasedDmPayload(Box<dyn Any + Send>);
 
-pub struct TypeErasedDmArtefact(Box<dyn Any + Send>);
+pub(crate) struct TypeErasedDmArtefact(Box<dyn Any + Send>);
 
 pub(crate) trait TypeErasedRound<Res>: Send {
     fn round_num(&self) -> u8;
@@ -374,68 +382,3 @@ const _: () = {
         }
     }
 };
-
-/*
-use crate::cggmp21::{FirstRound, InitError};
-
-struct Session<Res>(Box<dyn TypeErasedRound<Res>>);
-
-impl<Res> Session<Res> {
-    pub(crate) fn new<R: RoundConstructor<Res> + 'static>(
-        rng: &mut impl CryptoRngCore,
-        shared_randomness: &[u8],
-        party_idx: PartyIdx,
-        num_parties: usize,
-        context: R::Context,
-    ) -> Result<Self, InitError>
-    {
-        let typed_round = R::new(rng, shared_randomness, num_parties, party_idx, context)?;
-        let round = RoundConstructor::<Res>::new_boxed(typed_round);
-        Ok(Self(round))
-    }
-}
-
-use crate::cggmp21::{keygen, KeyShareSeed, TestParams};
-use rand_core::OsRng;
-
-fn foo() -> Session<KeyShareSeed> {
-    Session::new::<keygen::Round1<TestParams>>(&mut OsRng, b"asdasd", PartyIdx::from_usize(0), 3, ()).unwrap()
-}
-*/
-
-/*
-
-
-
-
-    fn to_receiving_state(
-        self: Box<Self>,
-        rng: &mut dyn CryptoRngCore,
-        num_parties: usize,
-        party_idx: PartyIdx,
-    ) -> (
-        Box<dyn TypeErasedReceivingRound<R::Result>>,
-        ToSendSerialized,
-    ) {
-        let mut boxed_rng = BoxedRng(rng);
-        let (receiving_round, to_send) =
-            RoundAndAccum::new(*self, &mut boxed_rng, num_parties, party_idx.as_usize());
-        let to_send = match to_send {
-            ToSendTyped::Broadcast(message) => {
-                let message = serialize_message(&message).unwrap();
-                ToSendSerialized::Broadcast(message)
-            }
-            ToSendTyped::Direct(messages) => ToSendSerialized::Direct({
-                let mut serialized = Vec::with_capacity(messages.len());
-                for (idx, message) in messages.into_iter() {
-                    serialized.push((idx, serialize_message(&message).unwrap()));
-                }
-                serialized
-            }),
-        };
-        let receiving_round: Box<dyn TypeErasedReceivingRound<R::Result>> =
-            Box::new(receiving_round);
-        (receiving_round, to_send)
-    }
-
-*/

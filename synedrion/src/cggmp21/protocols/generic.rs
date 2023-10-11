@@ -74,7 +74,7 @@ pub(crate) trait Round: Sized + Send + BroadcastRound + DirectRound {
     const NEXT_ROUND_NUM: Option<u8>;
 }
 
-pub(crate) trait FinalizableToResult: Round {
+pub(crate) trait FinalizableToResult: Round<Type=ToResult> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
@@ -84,7 +84,7 @@ pub(crate) trait FinalizableToResult: Round {
     ) -> Result<Self::Result, FinalizeError>;
 }
 
-pub(crate) trait FinalizableToNextRound: Round {
+pub(crate) trait FinalizableToNextRound: Round<Type=ToNextRound> {
     type NextRound: Round<Result = Self::Result>;
     fn finalize_to_next_round(
         self,
