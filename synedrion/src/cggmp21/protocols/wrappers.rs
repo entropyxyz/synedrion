@@ -6,7 +6,7 @@ use super::common::PartyIdx;
 use super::generic::{BroadcastRound, DirectRound, FinalizableType, ReceiveError, Round};
 use crate::tools::collections::HoleRange;
 
-pub(crate) trait RoundWrapper: Sized + Send {
+pub(crate) trait RoundWrapper: 'static + Sized + Send {
     type Result: Sized + Send;
     type Type: FinalizableType;
     type InnerRound: Round;

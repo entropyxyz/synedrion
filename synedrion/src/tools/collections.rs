@@ -49,6 +49,7 @@ impl<T> HoleVecAccum<T> {
         self.elems.iter().all(|elem| elem.is_some())
     }
 
+    #[cfg(any(test, feature = "bench-internals"))]
     pub fn is_empty(&self) -> bool {
         self.elems.iter().all(|elem| elem.is_none())
     }

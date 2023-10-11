@@ -108,7 +108,7 @@ impl<Sig> SignedMessage<Sig> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct VerifiedMessage<Sig>(SignedMessage<Sig>);
+pub(crate) struct VerifiedMessage<Sig>(SignedMessage<Sig>);
 
 impl<Sig> VerifiedMessage<Sig> {
     pub(crate) fn new(
@@ -144,16 +144,8 @@ impl<Sig> VerifiedMessage<Sig> {
         self.0
     }
 
-    pub fn session_id(&self) -> &SessionId {
-        &self.0.session_id
-    }
-
     pub fn payload(&self) -> &[u8] {
         &self.0.payload
-    }
-
-    pub fn round(&self) -> u8 {
-        self.0.round
     }
 
     pub fn message_type(&self) -> MessageType {

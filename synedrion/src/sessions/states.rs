@@ -289,7 +289,10 @@ where
         match message_for {
             MessageFor::ThisRound => self.verify_message_inner(from, message),
             // TODO: should we cache the verified or the unverified message?
-            MessageFor::NextRound => Ok(ProcessedMessage(ProcessedMessageEnum::Cache { from, message })),
+            MessageFor::NextRound => Ok(ProcessedMessage(ProcessedMessageEnum::Cache {
+                from,
+                message,
+            })),
             // TODO: this is an unprovable fault (may be a replay attack)
             MessageFor::OutOfOrder => Err(Error::TheirFault {
                 party: from,
@@ -469,7 +472,9 @@ impl<Sig> RoundAccumulator<Sig> {
                 self.processed.add_dm_payload(from, payload).unwrap();
                 self.received_direct_messages.push((from, message));
             }
-            ProcessedMessageEnum::Cache { from, message } => self.cached_messages.push((from, message)),
+            ProcessedMessageEnum::Cache { from, message } => {
+                self.cached_messages.push((from, message))
+            }
             ProcessedMessageEnum::Bc { from } => self.bc_accum.add_echo_received(from).unwrap(),
         }
         Ok(())

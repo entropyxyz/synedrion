@@ -22,10 +22,14 @@ pub(crate) struct AssembledRound<R: Round> {
     dm_artefacts: Option<HoleVec<<R as DirectRound>::Artefact>>,
 }
 
-pub(crate) fn step_round<R: Round>(
+pub(crate) fn step_round<R>(
     rng: &mut impl CryptoRngCore,
     rounds: Vec<R>,
-) -> Result<Vec<AssembledRound<R>>, StepError> {
+) -> Result<Vec<AssembledRound<R>>, StepError>
+where
+    R: Round,
+    <R as BroadcastRound>::Message: Clone,
+{
     // Collect outgoing messages
 
     let mut dm_artefact_accums = (0..rounds.len())
