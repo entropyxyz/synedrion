@@ -124,7 +124,7 @@ pub struct KeyShareChange<P: SchemeParams> {
 }
 
 /// The result of the Presigning protocol.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct PresigningData {
     // CHECK: can we store nonce as a scalar?
     pub(crate) nonce: Point, // `R`

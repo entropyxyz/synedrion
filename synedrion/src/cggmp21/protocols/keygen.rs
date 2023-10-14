@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareSeed, PartyIdx};
 use super::generic::{
-    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, ReceiveError, Round, ToNextRound, ToResult,
+    BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
+    FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{SchCommitment, SchProof, SchSecret},
@@ -21,6 +21,21 @@ use crate::tools::collections::{HoleRange, HoleVec};
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
+
+#[derive(Debug, Clone, Copy)]
+pub struct KeygenResult;
+
+impl ProtocolResult for KeygenResult {
+    type Success = KeyShareSeed;
+    type ProvableError = KeygenError;
+    type CorrectnessProof = ();
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum KeygenError {
+    R2HashMismatch,
+    R3InvalidSchProof,
+}
 
 // CHECK: note that we don't include `sid` (shared randomness) or `i` (party idx) here.
 // Since `sid` is shared, every node already has it,
@@ -119,9 +134,9 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams> BaseRound for Round1<P> {
     type Type = ToNextRound;
-    type Result = KeyShareSeed;
+    type Result = KeygenResult;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 }
@@ -148,7 +163,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         Ok(msg.hash)
     }
 }
@@ -167,7 +182,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
         assert!(dm_artefacts.is_none());
         Ok(Round2 {
@@ -189,9 +204,9 @@ pub struct Round2Bcast {
     data: FullData,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> BaseRound for Round2<P> {
     type Type = ToNextRound;
-    type Result = KeyShareSeed;
+    type Result = KeygenResult;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
 }
@@ -216,11 +231,11 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         if &msg.data.hash(&self.context.shared_randomness, from)
             != self.hashes.get(from.as_usize()).unwrap()
         {
-            return Err(ReceiveError::VerificationFail("Invalid hash".into()));
+            return Err(ReceiveError::Provable(KeygenError::R2HashMismatch));
         }
 
         Ok(msg.data)
@@ -241,7 +256,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
         assert!(dm_artefacts.is_none());
         let bc_payloads = bc_payloads.unwrap();
@@ -275,9 +290,9 @@ pub struct Round3Bcast {
     proof: SchProof,
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
+impl<P: SchemeParams> BaseRound for Round3<P> {
     type Type = ToResult;
-    type Result = KeyShareSeed;
+    type Result = KeygenResult;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
 }
@@ -314,7 +329,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let party_data = self.datas.get(from.as_usize()).unwrap();
 
         let aux = (&self.context.shared_randomness, &from, &self.rid);
@@ -322,9 +337,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
             .proof
             .verify(&party_data.commitment, &party_data.public, &aux)
         {
-            return Err(ReceiveError::VerificationFail(
-                "Schnorr verification failed".into(),
-            ));
+            return Err(ReceiveError::Provable(KeygenError::R3InvalidSchProof));
         }
         Ok(())
     }
@@ -343,7 +356,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         _bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::Result, FinalizeError> {
+    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
         assert!(dm_artefacts.is_none());
         let datas = self.datas.into_vec(self.context.data);

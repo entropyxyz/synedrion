@@ -1,14 +1,15 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, KeySharePrecomputed, PartyIdx, PresigningData};
 use super::generic::{
-    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, ReceiveError, Round, ToNextRound, ToResult,
+    BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
+    FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
@@ -24,6 +25,22 @@ fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
 ) -> <<P as SchemeParams>::Paillier as PaillierParams>::Uint {
     <<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(x)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PresigningResult<P: SchemeParams>(PhantomData<P>);
+
+impl<P: SchemeParams> ProtocolResult for PresigningResult<P> {
+    type Success = PresigningData;
+    type ProvableError = PresigningError;
+    type CorrectnessProof = PresigningProof<P>;
+}
+
+#[derive(Debug, Clone)]
+pub enum PresigningError {
+    Round1(String),
+    Round2(String),
+    Round3(String),
 }
 
 pub struct Context<P: SchemeParams> {
@@ -85,9 +102,9 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams> BaseRound for Round1<P> {
     type Type = ToNextRound;
-    type Result = PresigningData;
+    type Result = PresigningResult<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 }
@@ -134,7 +151,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         Ok(msg)
     }
 }
@@ -172,7 +189,7 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         Ok(msg)
     }
 }
@@ -185,7 +202,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let ciphertexts = bc_payloads.unwrap();
         let proofs = dm_payloads.unwrap();
 
@@ -204,10 +221,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
                 &public_aux.aux_rp_params,
                 &aux,
             ) {
-                // TODO: report the idx of the malicious node
-                return Err(FinalizeError::Unspecified(
-                    "Failed to verify EncProof".into(),
-                ));
+                return Err(FinalizeError::Provable {
+                    party: PartyIdx::from_usize(from),
+                    error: PresigningError::Round1("Failed to verify EncProof".into()),
+                });
             }
         }
 
@@ -262,9 +279,9 @@ pub struct Round2Payload<P: SchemeParams> {
     cap_d: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> BaseRound for Round2<P> {
     type Type = ToNextRound;
-    type Result = PresigningData;
+    type Result = PresigningResult<P>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
 }
@@ -392,7 +409,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let aux = (&self.context.shared_randomness, &from);
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
@@ -413,9 +430,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             aux_rp,
             &aux,
         ) {
-            return Err(ReceiveError::VerificationFail(
+            return Err(ReceiveError::Provable(PresigningError::Round2(
                 "Failed to verify AffGProof (psi)".into(),
-            ));
+            )));
         }
 
         if !msg.psi_hat.verify(
@@ -428,9 +445,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             aux_rp,
             &aux,
         ) {
-            return Err(ReceiveError::VerificationFail(
+            return Err(ReceiveError::Provable(PresigningError::Round2(
                 "Failed to verify AffGProof (psi_hat)".into(),
-            ));
+            )));
         }
 
         if !msg.psi_hat_prime.verify(
@@ -441,9 +458,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             aux_rp,
             &aux,
         ) {
-            return Err(ReceiveError::VerificationFail(
+            return Err(ReceiveError::Provable(PresigningError::Round2(
                 "Failed to verify LogStarProof".into(),
-            ));
+            )));
         }
 
         let alpha = msg
@@ -479,7 +496,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         _bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let dm_payloads = dm_payloads.unwrap();
         let dm_artefacts = dm_artefacts.unwrap();
 
@@ -538,9 +555,9 @@ pub struct Round3<P: SchemeParams> {
     round2_artefacts: HoleVec<Round2Artefact<P>>,
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
+impl<P: SchemeParams> BaseRound for Round3<P> {
     type Type = ToResult;
-    type Result = PresigningData;
+    type Result = PresigningResult<P>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
 }
@@ -604,7 +621,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let aux = (&self.context.shared_randomness, &from);
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
@@ -620,15 +637,25 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             aux_rp,
             &aux,
         ) {
-            return Err(ReceiveError::VerificationFail(
+            return Err(ReceiveError::Provable(PresigningError::Round3(
                 "Failed to verify Log-Star proof".into(),
-            ));
+            )));
         }
         Ok(Round3Payload {
             delta: msg.delta,
             big_delta: msg.big_delta,
         })
     }
+}
+
+// TODO: this can be removed when error verification is added
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct PresigningProof<P: SchemeParams> {
+    // TODO: attach the aff-g proofs
+    // Check: do we actually need to create them for every set of aux parameters?
+    mul_proof: MulProof<P>,
+    dec_proofs: Vec<(PartyIdx, DecProof<P>)>,
 }
 
 impl<P: SchemeParams> FinalizableToResult for Round3<P> {
@@ -638,7 +665,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         _bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::Result, FinalizeError> {
+    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         let dm_payloads = dm_payloads.unwrap();
         let (deltas, big_deltas) = dm_payloads
             .map(|payload| (payload.delta, payload.big_delta))
@@ -661,9 +688,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             });
         }
 
-        // TODO: this part is supposed to be executed on error only.
-        // It is executed unconditionally here to check that the proofs work correctly,
-        // and the required information is available.
+        // Construct the correctness proofs
 
         // Mul proof
 
@@ -717,6 +742,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         let rho = ciphertext.derive_randomizer(sk);
 
+        let mut dec_proofs = Vec::new();
         for j in range {
             let p_dec = DecProof::<P>::random(
                 rng,
@@ -733,9 +759,13 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 &self.context.key_share.public_aux[j].rp_params,
                 &aux
             ));
+            dec_proofs.push((PartyIdx::from_usize(j), p_dec));
         }
 
-        Err(FinalizeError::Unspecified("Invalid Delta".into()))
+        Err(FinalizeError::Proof(PresigningProof {
+            dec_proofs,
+            mul_proof: p_mul,
+        }))
     }
 }
 

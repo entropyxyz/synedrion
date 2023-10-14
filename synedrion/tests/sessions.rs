@@ -11,18 +11,18 @@ use synedrion::{
         make_interactive_signing_session, make_keygen_and_aux_session, FinalizeOutcome, Session,
         SignedMessage,
     },
-    KeyShare, PartyIdx, TestParams,
+    KeyShare, PartyIdx, ProtocolResult, TestParams,
 };
 
 type MessageOut = (PartyIdx, PartyIdx, SignedMessage<Signature>);
 type MessageIn = (PartyIdx, SignedMessage<Signature>);
 
-async fn run_session<Res>(
+async fn run_session<Res: ProtocolResult>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
     session: Session<Res, Signature, SigningKey, VerifyingKey>,
     party_idx: PartyIdx,
-) -> Res {
+) -> <Res as ProtocolResult>::Success {
     let mut rx = rx;
 
     let mut session = session;
@@ -84,6 +84,9 @@ async fn run_session<Res>(
             println!("{party_idx:?}: waiting for a message");
             let (idx_from, message) = rx.recv().await.unwrap();
 
+            // TODO: check here that the message from this origin hasn't been already processed
+            // if accum.already_processed(message) { ... }
+
             // In production usage, this will happen in a spawned task.
             println!("{party_idx:?}: applying a message from {idx_from:?}");
             let result = session.verify_message(idx_from, message).unwrap();
@@ -95,7 +98,7 @@ async fn run_session<Res>(
         println!("{party_idx:?}: finalizing the round");
 
         match session.finalize_round(&mut OsRng, accum).unwrap() {
-            FinalizeOutcome::Result(res) => break res,
+            FinalizeOutcome::Success(res) => break res,
             FinalizeOutcome::AnotherRound(new_session, new_cached_messages) => {
                 session = new_session;
                 cached_messages = new_cached_messages;
@@ -148,9 +151,13 @@ fn make_signers(num_parties: usize) -> (Vec<SigningKey>, Vec<VerifyingKey>) {
     (signers, verifiers)
 }
 
-async fn run_nodes<Res: Send + 'static>(
+async fn run_nodes<Res>(
     sessions: Vec<Session<Res, Signature, SigningKey, VerifyingKey>>,
-) -> Vec<Res> {
+) -> Vec<<Res as ProtocolResult>::Success>
+where
+    Res: ProtocolResult + Send + 'static,
+    <Res as ProtocolResult>::Success: Send + 'static,
+{
     let num_parties = sessions.len();
     let parties = (0..num_parties)
         .map(PartyIdx::from_usize)
@@ -167,7 +174,7 @@ async fn run_nodes<Res: Send + 'static>(
     let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
     let dispatcher = tokio::spawn(dispatcher_task);
 
-    let handles: Vec<tokio::task::JoinHandle<Res>> = rx_map
+    let handles: Vec<tokio::task::JoinHandle<<Res as ProtocolResult>::Success>> = rx_map
         .zip(sessions.into_iter())
         .map(|((party_idx, rx), session)| {
             let node_task = run_session(dispatcher_tx.clone(), rx, session, party_idx);

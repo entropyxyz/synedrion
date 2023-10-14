@@ -20,4 +20,7 @@ pub(crate) use protocols::{
     FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound, ReceiveError, Round,
     ToNextRound, ToResult,
 };
-pub use protocols::{InitError, KeyShare, KeyShareChange, PartyIdx, ThresholdKeyShare};
+pub use protocols::{
+    InteractiveSigningResult, KeyRefreshResult, KeyShare, KeyShareChange, KeygenAndAuxResult,
+    PartyIdx, ProtocolResult, ThresholdKeyShare,
+};
