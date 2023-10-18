@@ -1,18 +1,65 @@
 use alloc::boxed::Box;
+use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 
 use super::common::{KeyShare, PartyIdx};
 use super::generic::{
     BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, ToNextRound, ToResult,
+    FirstRound, InitError, ProtocolResult, ToNextRound, ToResult,
 };
-use super::presigning;
-use super::signing;
-use super::wrappers::RoundWrapper;
+use super::presigning::{self, PresigningResult};
+use super::signing::{self, SigningResult};
+use super::wrappers::{wrap_finalize_error, ResultWrapper, RoundWrapper};
 use crate::cggmp21::params::SchemeParams;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::tools::collections::HoleVec;
+
+/// Possible results of merged Presigning and Signing protocols.
+#[derive(Debug, Clone, Copy)]
+pub struct InteractiveSigningResult<P: SchemeParams>(PhantomData<P>);
+
+impl<P: SchemeParams> ProtocolResult for InteractiveSigningResult<P> {
+    type Success = RecoverableSignature;
+    type ProvableError = InteractiveSigningError<P>;
+    type CorrectnessProof = InteractiveSigningProof<P>;
+}
+
+#[derive(Debug, Clone)]
+pub enum InteractiveSigningError<P: SchemeParams> {
+    Presigning(<PresigningResult<P> as ProtocolResult>::ProvableError),
+    Signing(<SigningResult as ProtocolResult>::ProvableError),
+}
+
+#[derive(Debug, Clone)]
+pub enum InteractiveSigningProof<P: SchemeParams> {
+    Presigning(<PresigningResult<P> as ProtocolResult>::CorrectnessProof),
+    Signing(<SigningResult as ProtocolResult>::CorrectnessProof),
+}
+
+impl<P: SchemeParams> ResultWrapper<PresigningResult<P>> for InteractiveSigningResult<P> {
+    fn wrap_error(
+        error: <PresigningResult<P> as ProtocolResult>::ProvableError,
+    ) -> Self::ProvableError {
+        InteractiveSigningError::Presigning(error)
+    }
+    fn wrap_proof(
+        proof: <PresigningResult<P> as ProtocolResult>::CorrectnessProof,
+    ) -> Self::CorrectnessProof {
+        InteractiveSigningProof::Presigning(proof)
+    }
+}
+
+impl<P: SchemeParams> ResultWrapper<SigningResult> for InteractiveSigningResult<P> {
+    fn wrap_error(error: <SigningResult as ProtocolResult>::ProvableError) -> Self::ProvableError {
+        InteractiveSigningError::Signing(error)
+    }
+    fn wrap_proof(
+        proof: <SigningResult as ProtocolResult>::CorrectnessProof,
+    ) -> Self::CorrectnessProof {
+        InteractiveSigningProof::Signing(proof)
+    }
+}
 
 struct RoundContext<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
@@ -58,7 +105,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 
 impl<P: SchemeParams> RoundWrapper for Round1<P> {
     type Type = ToNextRound;
-    type Result = RecoverableSignature;
+    type Result = InteractiveSigningResult<P>;
     type InnerRound = presigning::Round1<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
@@ -75,10 +122,11 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
-        let round =
-            self.round
-                .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artefacts)?;
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+        let round = self
+            .round
+            .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artefacts)
+            .map_err(wrap_finalize_error)?;
         Ok(Round2 {
             round,
             context: self.context,
@@ -93,7 +141,7 @@ pub(crate) struct Round2<P: SchemeParams> {
 
 impl<P: SchemeParams> RoundWrapper for Round2<P> {
     type Type = ToNextRound;
-    type Result = RecoverableSignature;
+    type Result = InteractiveSigningResult<P>;
     type InnerRound = presigning::Round2<P>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
@@ -110,10 +158,11 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
-        let round =
-            self.round
-                .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artefacts)?;
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+        let round = self
+            .round
+            .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artefacts)
+            .map_err(wrap_finalize_error)?;
         Ok(Round3 {
             round,
             context: self.context,
@@ -128,7 +177,7 @@ pub(crate) struct Round3<P: SchemeParams> {
 
 impl<P: SchemeParams> RoundWrapper for Round3<P> {
     type Type = ToNextRound;
-    type Result = RecoverableSignature;
+    type Result = InteractiveSigningResult<P>;
     type InnerRound = presigning::Round3<P>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = Some(4);
@@ -138,17 +187,18 @@ impl<P: SchemeParams> RoundWrapper for Round3<P> {
 }
 
 impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
-    type NextRound = Round4;
+    type NextRound = Round4<P>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
-        let presigning_data =
-            self.round
-                .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artefacts)?;
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+        let presigning_data = self
+            .round
+            .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artefacts)
+            .map_err(wrap_finalize_error)?;
         let num_parties = self.context.key_share.num_parties();
         let party_idx = self.context.key_share.party_index();
         let signing_context = signing::Context {
@@ -163,21 +213,23 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
             party_idx,
             signing_context,
         )
-        .map_err(FinalizeError::ProtocolMergeSequential)?;
+        .map_err(FinalizeError::Init)?;
 
         Ok(Round4 {
             round: signing_round,
+            phantom: PhantomData,
         })
     }
 }
 
-pub(crate) struct Round4 {
+pub(crate) struct Round4<P: SchemeParams> {
     round: signing::Round1,
+    phantom: PhantomData<P>,
 }
 
-impl RoundWrapper for Round4 {
+impl<P: SchemeParams> RoundWrapper for Round4<P> {
     type Type = ToResult;
-    type Result = RecoverableSignature;
+    type Result = InteractiveSigningResult<P>;
     type InnerRound = signing::Round1;
     const ROUND_NUM: u8 = 4;
     const NEXT_ROUND_NUM: Option<u8> = None;
@@ -186,15 +238,16 @@ impl RoundWrapper for Round4 {
     }
 }
 
-impl FinalizableToResult for Round4 {
+impl<P: SchemeParams> FinalizableToResult for Round4<P> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::Result, FinalizeError> {
+    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         self.round
             .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artefacts)
+            .map_err(wrap_finalize_error)
     }
 }

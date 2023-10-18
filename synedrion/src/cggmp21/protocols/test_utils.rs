@@ -1,18 +1,20 @@
+use alloc::format;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use itertools::izip;
 use rand_core::CryptoRngCore;
 
 use super::generic::{
-    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, Round,
+    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, ProtocolResult, Round,
 };
-use super::{FinalizeError, PartyIdx, ReceiveError};
+use super::{FinalizeError, PartyIdx};
 use crate::tools::collections::{HoleVec, HoleVecAccum};
 
 #[derive(Debug)]
 pub(crate) enum StepError {
     AccumFinalize,
-    Receive(ReceiveError),
+    Receive(String),
 }
 
 pub(crate) struct AssembledRound<R: Round> {
@@ -72,7 +74,7 @@ where
         let round = &rounds[idx_to.as_usize()];
         let payload = round
             .verify_direct_message(idx_from, message)
-            .map_err(StepError::Receive)?;
+            .map_err(|err| StepError::Receive(format!("{:?}", err)))?;
         dm_payload_accums[idx_to.as_usize()].insert(idx_from.as_usize(), payload);
     }
 
@@ -85,7 +87,7 @@ where
         let round = &rounds[idx_to.as_usize()];
         let payload = round
             .verify_broadcast(idx_from, message)
-            .map_err(StepError::Receive)?;
+            .map_err(|err| StepError::Receive(format!("{:?}", err)))?;
         bc_payload_accums[idx_to.as_usize()].insert(idx_from.as_usize(), payload);
     }
 
@@ -140,7 +142,7 @@ where
 pub(crate) fn step_next_round<R: FinalizableToNextRound>(
     rng: &mut impl CryptoRngCore,
     assembled_rounds: Vec<AssembledRound<R>>,
-) -> Result<Vec<R::NextRound>, FinalizeError> {
+) -> Result<Vec<R::NextRound>, FinalizeError<R::Result>> {
     let mut results = Vec::new();
     for assembled_round in assembled_rounds.into_iter() {
         let next_round = assembled_round.round.finalize_to_next_round(
@@ -157,7 +159,7 @@ pub(crate) fn step_next_round<R: FinalizableToNextRound>(
 pub(crate) fn step_result<R: FinalizableToResult>(
     rng: &mut impl CryptoRngCore,
     assembled_rounds: Vec<AssembledRound<R>>,
-) -> Result<Vec<R::Result>, FinalizeError> {
+) -> Result<Vec<<R::Result as ProtocolResult>::Success>, FinalizeError<R::Result>> {
     let mut results = Vec::new();
     for assembled_round in assembled_rounds.into_iter() {
         let result = assembled_round.round.finalize_to_result(

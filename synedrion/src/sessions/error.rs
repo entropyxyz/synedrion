@@ -1,44 +1,47 @@
 use alloc::string::String;
-use core::fmt;
 
-use super::type_erased;
-use crate::cggmp21::PartyIdx;
+use super::broadcast::ConsensusError;
+use super::type_erased::{AccumAddError, AccumFinalizeError};
+use crate::cggmp21::{PartyIdx, ProtocolResult};
 
 /// Possible errors returned by session methods.
 #[derive(Clone, Debug)]
-pub enum Error {
-    /// Indicates an error on this party's side:
-    /// incorrect implementation, or some environment error.
-    MyFault(MyFault),
-    /// Not enough messages received to finalize the round.
-    NotEnoughMessages,
-    /// Failed to finalize the round.
-    Finalize,
-    /// A provable fault of another party.
-    TheirFault {
-        /// The index of the failed party.
-        party: PartyIdx,
-        /// The error that occurred.
-        error: TheirFault,
-    },
+pub enum Error<Res: ProtocolResult> {
+    /// Indicates an error on this party's side.
+    /// Can be caused by an incorrect usage, a bug in the implementation, or some environment error.
+    Local(LocalError),
     /// An unprovable fault of another party.
-    TheirFaultUnprovable {
+    Remote {
         /// The index of the failed party.
         party: PartyIdx,
         /// The error that occurred.
-        error: TheirFault,
+        error: RemoteError,
     },
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        // TODO: make proper Display impls
-        write!(f, "{self:?}")
-    }
+    /// A provable fault of another party.
+    // TODO: attach the party's messages up to this round for this to be verifiable by a third party
+    Provable {
+        /// The index of the failed party.
+        party: PartyIdx,
+        /// The error that occurred.
+        error: ProvableError<Res>,
+    },
+    /// An error occurred, but the fault of a specific party cannot be immediately proven.
+    /// This structure instead proves that this party performed its calculations correctly.
+    Proof {
+        // TODO: attach all received messages from other parties.
+        // What else do we need to verify it?
+        /// The proof of correctness.
+        proof: Res::CorrectnessProof,
+    },
 }
 
 #[derive(Clone, Debug)]
-pub enum MyFault {
+pub enum LocalError {
+    /// An error while initializing the first round of a protocol.
+    ///
+    /// Note that it can be returned in the middle of the session in case of
+    /// sequentially merged protocols (e.g. Presigning and Signing).
+    Init(String),
     /// A mutable object was in an invalid state for calling a method.
     ///
     /// This indicates a logic error either in the calling code or in the method code.
@@ -46,19 +49,26 @@ pub enum MyFault {
     /// A message could not be serialized.
     ///
     /// Refer to the documentation of the chosen serialization library for more info.
-    SerializationError(String),
-    InvalidId(PartyIdx),
-    SigningError(String),
-    TypeErased(type_erased::Error),
+    CannotSerialize(String),
+    /// A message could not be signed.
+    ///
+    /// Refer to the documentation of the chosen ECDSA library for more info.
+    CannotSign(String),
+    AccumFinalize(AccumFinalizeError),
+    AccumAdd(AccumAddError),
 }
 
 #[derive(Clone, Debug)]
-pub enum TheirFault {
-    DeserializationError(String),
-    DuplicateMessage,
+pub enum RemoteError {
+    UnexpectedSessionId,
     OutOfOrderMessage,
-    InvalidSessionId,
-    Receive(String),
-    VerificationFail(String),
-    TypeErased(type_erased::Error),
+    DuplicateMessage,
+    InvalidSignature(String),
+}
+
+#[derive(Clone, Debug)]
+pub enum ProvableError<Res: ProtocolResult> {
+    Protocol(Res::ProvableError),
+    CannotDeserialize(String),
+    Consensus(ConsensusError),
 }

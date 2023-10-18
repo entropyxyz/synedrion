@@ -113,7 +113,7 @@ pub fn signing<P: SchemeParams>(rng: &mut impl CryptoRngCore, key_shares: &[KeyS
                 signing::Context {
                     message,
                     verifying_key,
-                    presigning: presigning_datas[idx].clone(),
+                    presigning: presigning_datas[idx],
                 },
             )
             .unwrap()

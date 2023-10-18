@@ -9,16 +9,20 @@ pub(crate) mod signing;
 mod threshold;
 mod wrappers;
 
-#[cfg(any(test, feature = "bench-internals"))]
-pub(crate) mod test_utils;
-
-pub use common::{KeyShare, KeyShareChange, KeyShareSeed, PartyIdx};
-pub use generic::InitError;
 pub(crate) use generic::{
     BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
     FirstRound, ReceiveError, Round, ToNextRound, ToResult,
 };
-pub use threshold::ThresholdKeyShare;
+
+#[cfg(any(test, feature = "bench-internals"))]
+pub(crate) mod test_utils;
 
 #[cfg(feature = "bench-internals")]
 pub(crate) use common::PresigningData;
+
+pub use auxiliary::KeyRefreshResult;
+pub use common::{KeyShare, KeyShareChange, KeyShareSeed, PartyIdx};
+pub use generic::ProtocolResult;
+pub use interactive_signing::InteractiveSigningResult;
+pub use keygen_and_aux::KeygenAndAuxResult;
+pub use threshold::ThresholdKeyShare;

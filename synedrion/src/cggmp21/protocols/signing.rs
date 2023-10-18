@@ -5,11 +5,23 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{PartyIdx, PresigningData};
 use super::generic::{
-    BroadcastRound, DirectRound, FinalizableToResult, FinalizeError, FirstRound, InitError,
-    ReceiveError, Round, ToResult,
+    BaseRound, BroadcastRound, DirectRound, FinalizableToResult, FinalizeError, FirstRound,
+    InitError, ProtocolResult, ReceiveError, ToResult,
 };
 use crate::curve::{Point, RecoverableSignature, Scalar};
 use crate::tools::collections::{HoleRange, HoleVec};
+
+#[derive(Debug, Clone, Copy)]
+pub struct SigningResult;
+
+impl ProtocolResult for SigningResult {
+    type Success = RecoverableSignature;
+    type ProvableError = ();
+    type CorrectnessProof = SigningProof;
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SigningProof {}
 
 pub struct Round1 {
     r: Scalar,
@@ -48,9 +60,9 @@ impl FirstRound for Round1 {
     }
 }
 
-impl Round for Round1 {
+impl BaseRound for Round1 {
     type Type = ToResult;
-    type Result = RecoverableSignature;
+    type Result = SigningResult;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = None;
 }
@@ -77,7 +89,7 @@ impl BroadcastRound for Round1 {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         Ok(msg.s_part)
     }
 }
@@ -95,7 +107,7 @@ impl FinalizableToResult for Round1 {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         _dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::Result, FinalizeError> {
+    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         let shares = bc_payloads.unwrap();
         let s: Scalar = shares.iter().sum();
         let s = s + self.s_part;
@@ -107,10 +119,17 @@ impl FinalizableToResult for Round1 {
             &s,
             &self.context.verifying_key,
             &self.context.message,
-        )
-        .unwrap();
+        );
 
-        Ok(sig)
+        if let Some(sig) = sig {
+            return Ok(sig);
+        }
+
+        let proof = SigningProof {
+            // TODO: create all the necessary proofs
+        };
+
+        Err(FinalizeError::Proof(proof))
     }
 }
 
@@ -149,7 +168,7 @@ mod tests {
                     num_parties,
                     PartyIdx::from_usize(idx),
                     Context {
-                        presigning: presigning_datas[idx].clone(),
+                        presigning: presigning_datas[idx],
                         message,
                         verifying_key,
                     },

@@ -1,20 +1,17 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::format;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
-use signature::hazmat::PrehashVerifier;
 
-use super::error::{Error, TheirFault};
 use super::signed_message::{SignedMessage, VerifiedMessage};
 use super::type_erased::{deserialize_message, serialize_message};
 use crate::tools::collections::HoleVecAccum;
 use crate::PartyIdx;
 
 #[derive(Clone)]
-pub(crate) struct BroadcastConsensus<Sig, Verifier> {
-    verifiers: Vec<Verifier>,
+pub(crate) struct BroadcastConsensus<Sig> {
     broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
 }
 
@@ -23,17 +20,21 @@ struct Message<Sig> {
     broadcasts: Vec<(PartyIdx, SignedMessage<Sig>)>,
 }
 
-impl<Sig, Verifier> BroadcastConsensus<Sig, Verifier>
+#[derive(Debug, Clone)]
+pub enum ConsensusError {
+    CannotDeserialize(String),
+    UnexpectedNumberOfBroadcasts,
+    MissingBroadcast,
+    ConflictingBroadcasts,
+}
+
+impl<Sig> BroadcastConsensus<Sig>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
-    Verifier: PrehashVerifier<Sig> + Clone,
 {
-    pub fn new(broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>, verifiers: &[Verifier]) -> Self {
+    pub fn new(broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>) -> Self {
         // TODO: don't have to clone `verifiers` here, can just keep a ref.
-        Self {
-            broadcasts,
-            verifiers: verifiers.into(),
-        }
+        Self { broadcasts }
     }
 
     pub fn make_broadcast(&self) -> Box<[u8]> {
@@ -52,20 +53,16 @@ where
         &self,
         from: PartyIdx,
         verified_message: VerifiedMessage<Sig>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), ConsensusError> {
         // TODO: check that `from` is valid here?
-        let message: Message<Sig> = deserialize_message(verified_message.payload()).unwrap();
+        let message: Message<Sig> = deserialize_message(verified_message.payload())
+            .map_err(|err| ConsensusError::CannotDeserialize(err.to_string()))?;
 
         // TODO: check that there are no repeating indices?
         let bc_map = message.broadcasts.into_iter().collect::<BTreeMap<_, _>>();
 
         if bc_map.len() != self.broadcasts.len() {
-            return Err(Error::TheirFault {
-                party: from,
-                error: TheirFault::VerificationFail(
-                    "Unexpected number of broadcasts received".into(),
-                ),
-            });
+            return Err(ConsensusError::UnexpectedNumberOfBroadcasts);
         }
 
         // CHECK: should we save our own broadcast,
@@ -79,30 +76,13 @@ where
                 continue;
             }
 
-            let echoed_bc = bc_map.get(idx).ok_or_else(|| Error::TheirFault {
-                party: from,
-                error: TheirFault::VerificationFail(format!(
-                    "Missing broadcast from party {idx:?}"
-                )),
-            })?;
+            let echoed_bc = bc_map.get(idx).ok_or(ConsensusError::MissingBroadcast)?;
 
-            let verified_bc = echoed_bc
-                .clone()
-                .verify(&self.verifiers[idx.as_usize()])
-                .map_err(|error| Error::TheirFault { party: from, error })?;
-
-            if broadcast != &verified_bc {
-                return Err(Error::TheirFault {
-                    party: *idx,
-                    error: TheirFault::VerificationFail("Received conflicting broadcasts".into()),
-                });
+            if broadcast.as_unverified() != echoed_bc {
+                return Err(ConsensusError::ConflictingBroadcasts);
             }
         }
 
-        Ok(())
-    }
-
-    pub fn finalize(self) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -118,24 +98,19 @@ impl BcConsensusAccum {
         }
     }
 
-    pub fn add_echo_received(&mut self, from: PartyIdx) -> Result<(), Error> {
-        self.received_echo_from
-            .insert(from.as_usize(), ())
-            .ok_or(Error::TheirFault {
-                party: from,
-                error: TheirFault::DuplicateMessage,
-            })
+    pub fn add_echo_received(&mut self, from: PartyIdx) -> Option<()> {
+        self.received_echo_from.insert(from.as_usize(), ())
     }
 
     pub fn can_finalize(&self) -> bool {
         self.received_echo_from.can_finalize()
     }
 
-    pub fn finalize(self) -> Result<(), Error> {
+    pub fn finalize(self) -> Option<()> {
         if self.can_finalize() {
-            Ok(())
+            Some(())
         } else {
-            Err(Error::NotEnoughMessages)
+            None
         }
     }
 }

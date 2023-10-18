@@ -1,14 +1,15 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareChange, PartyIdx, PublicAuxInfo, SecretAuxInfo};
 use super::generic::{
-    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, ReceiveError, Round, ToNextRound, ToResult,
+    BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
+    FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
@@ -17,7 +18,7 @@ use crate::cggmp21::{
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
-    RPParamsMod, RPSecret, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+    RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::tools::collections::{HoleRange, HoleVec};
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
@@ -29,6 +30,32 @@ fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
 ) -> <<P as SchemeParams>::Paillier as PaillierParams>::Uint {
     <<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(x)
+}
+
+/// Possible results of the KeyRefresh protocol.
+#[derive(Debug, Clone, Copy)]
+pub struct KeyRefreshResult<P: SchemeParams>(PhantomData<P>);
+
+impl<P: SchemeParams> ProtocolResult for KeyRefreshResult<P> {
+    type Success = KeyShareChange<P>;
+    type ProvableError = KeyRefreshError<P>;
+    type CorrectnessProof = ();
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyRefreshError<P: SchemeParams>(KeyRefreshErrorEnum<P>);
+
+#[derive(Debug, Clone)]
+enum KeyRefreshErrorEnum<P: SchemeParams> {
+    Round2(String),
+    Round3(String),
+    // TODO: this can be removed when error verification is added
+    #[allow(dead_code)]
+    Round3MismatchedSecret {
+        cap_c: Ciphertext<P::Paillier>,
+        x: Scalar,
+        mu: Randomizer<P::Paillier>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,9 +236,9 @@ impl Hashable for Round1Bcast {
     }
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams> BaseRound for Round1<P> {
     type Type = ToNextRound;
-    type Result = KeyShareChange<P>;
+    type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 }
@@ -248,7 +275,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         &self,
         _from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         Ok(msg.hash)
     }
 }
@@ -261,7 +288,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
         assert!(dm_artefacts.is_none());
         Ok(Round2 {
@@ -283,9 +310,9 @@ pub struct Round2Bcast<P: SchemeParams> {
     data: FullData<P>,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams> BaseRound for Round2<P> {
     type Type = ToNextRound;
-    type Result = KeyShareChange<P>;
+    type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
 }
@@ -318,43 +345,45 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         if &msg.data.hash(&self.context.shared_randomness, from)
             != self.hashes.get(from.as_usize()).unwrap()
         {
-            return Err(ReceiveError::VerificationFail("Invalid hash".into()));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("Hash mismatch".into()),
+            )));
         }
 
         let paillier_pk = msg.data.paillier_pk.to_precomputed();
 
         if paillier_pk.modulus().bits_vartime() < 8 * P::SECURITY_PARAMETER {
-            return Err(ReceiveError::VerificationFail(
-                "Paillier modulus is too small".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("Paillier modulus is too small".into()),
+            )));
         }
 
         let sum_x: Point = msg.data.xs_public.iter().sum();
         if sum_x != Point::IDENTITY {
-            return Err(ReceiveError::VerificationFail(
-                "Sum of X points is not identity".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("Sum of X points is not identity".into()),
+            )));
         }
 
         let aux = (&self.context.shared_randomness, &from);
 
         let rp_params = msg.data.rp_params.to_mod(&paillier_pk);
         if !msg.data.prm_proof.verify(&rp_params, &aux) {
-            return Err(ReceiveError::VerificationFail(
-                "PRM verification failed".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("PRM verification failed".into()),
+            )));
         }
 
         let aux_paillier_pk = msg.data.aux_paillier_pk.to_precomputed();
         let aux_rp_params = msg.data.aux_rp_params.to_mod(&aux_paillier_pk);
         if !msg.data.aux_prm_proof.verify(&aux_rp_params, &aux) {
-            return Err(ReceiveError::VerificationFail(
-                "PRM verification (setup parameters) failed".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("PRM verification (setup parameters) failed".into()),
+            )));
         }
 
         Ok(FullDataPrecomp {
@@ -375,7 +404,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::NextRound, FinalizeError> {
+    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
         assert!(dm_artefacts.is_none());
         let messages = bc_payloads.unwrap();
@@ -455,9 +484,9 @@ impl<P: SchemeParams> Round3<P> {
     }
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
+impl<P: SchemeParams> BaseRound for Round3<P> {
     type Type = ToResult;
-    type Result = KeyShareChange<P>;
+    type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
 }
@@ -528,7 +557,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         &self,
         from: PartyIdx,
         msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError> {
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let sender_data = &self.datas.get(from.as_usize()).unwrap();
 
         let x_secret = msg
@@ -540,16 +569,25 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         if x_secret.mul_by_generator()
             != sender_data.data.xs_public[self.context.party_idx.as_usize()]
         {
-            // TODO: paper has `\mu` calculation here.
-            return Err(ReceiveError::VerificationFail("Mismatched secret x".into()));
+            let mu = msg
+                .data2
+                .paillier_enc_x
+                .derive_randomizer(&self.context.paillier_sk);
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3MismatchedSecret {
+                    cap_c: msg.data2.paillier_enc_x,
+                    x: x_secret,
+                    mu: mu.retrieve(),
+                },
+            )));
         }
 
         let aux = (&self.context.shared_randomness, &self.rho, &from);
 
         if !msg.data2.mod_proof.verify(&sender_data.paillier_pk, &aux) {
-            return Err(ReceiveError::VerificationFail(
-                "Mod proof verification failed".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3("Mod proof verification failed".into()),
+            )));
         }
 
         if !msg
@@ -557,9 +595,11 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             .aux_mod_proof
             .verify(&sender_data.aux_paillier_pk, &aux)
         {
-            return Err(ReceiveError::VerificationFail(
-                "Mod proof (setup parameters) verification failed".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3(
+                    "Mod proof (setup parameters) verification failed".into(),
+                ),
+            )));
         }
 
         if !msg.data2.fac_proof.verify(
@@ -567,9 +607,9 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             &self.context.data_precomp.aux_rp_params,
             &aux,
         ) {
-            return Err(ReceiveError::VerificationFail(
-                "Fac proof verification failed".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3("Fac proof verification failed".into()),
+            )));
         }
 
         if !msg.data2.sch_proof_y.verify(
@@ -579,9 +619,9 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         ) {
             // CHECK: not sending the commitment the second time in `msg`,
             // since we already got it from the previous round.
-            return Err(ReceiveError::VerificationFail(
-                "Sch proof verification (Y) failed".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3("Sch proof verification (Y) failed".into()),
+            )));
         }
 
         if !msg.data2.sch_proof_x.verify(
@@ -591,9 +631,9 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         ) {
             // CHECK: not sending the commitment the second time in `msg`,
             // since we already got it from the previous round.
-            return Err(ReceiveError::VerificationFail(
-                "Sch proof verification (Y) failed".into(),
-            ));
+            return Err(ReceiveError::Provable(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3("Sch proof verification (Y) failed".into()),
+            )));
         }
 
         Ok(x_secret)
@@ -607,7 +647,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
         _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
-    ) -> Result<Self::Result, FinalizeError> {
+    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         assert!(bc_payloads.is_none());
         let secrets = dm_payloads
             .unwrap()

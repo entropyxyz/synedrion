@@ -12,7 +12,7 @@ use crate::uint::{Bounded, NonZero, Retrieve, Signed};
 
 const HASH_TAG: &[u8] = b"P_mul";
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,
     cap_b: Ciphertext<P::Paillier>,

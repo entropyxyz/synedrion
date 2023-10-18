@@ -14,7 +14,7 @@ use crate::uint::{FromScalar, NonZero, Signed};
 
 const HASH_TAG: &[u8] = b"P_dec";
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
     cap_s: RPCommitment<P::Paillier>,
     cap_t: RPCommitment<P::Paillier>,

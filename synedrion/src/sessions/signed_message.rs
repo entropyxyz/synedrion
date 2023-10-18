@@ -1,11 +1,12 @@
 use alloc::boxed::Box;
-use alloc::string::ToString;
+use alloc::format;
+use alloc::string::{String, ToString};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
-use super::error::{MyFault, TheirFault};
+use super::error::LocalError;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::serde_bytes;
 
@@ -75,7 +76,7 @@ impl<Sig> SignedMessage<Sig> {
     pub(crate) fn verify(
         self,
         verifier: &impl PrehashVerifier<Sig>,
-    ) -> Result<VerifiedMessage<Sig>, TheirFault> {
+    ) -> Result<VerifiedMessage<Sig>, String> {
         verifier
             .verify_prehash(
                 message_hash(
@@ -87,7 +88,7 @@ impl<Sig> SignedMessage<Sig> {
                 .as_ref(),
                 &self.signature,
             )
-            .map_err(|err| TheirFault::VerificationFail(err.to_string()))?;
+            .map_err(|err| format!("{:?}", err))?;
         Ok(VerifiedMessage(self))
     }
 
@@ -118,7 +119,7 @@ impl<Sig> VerifiedMessage<Sig> {
         round: u8,
         message_type: MessageType,
         message_bytes: &[u8],
-    ) -> Result<Self, MyFault> {
+    ) -> Result<Self, LocalError> {
         // In order for the messages be impossible to reuse by a malicious third party,
         // we need to sign, besides the message itself, the session and the round in this session
         // it belongs to.
@@ -130,7 +131,7 @@ impl<Sig> VerifiedMessage<Sig> {
                 rng,
                 message_hash(session_id, round, message_type, message_bytes).as_ref(),
             )
-            .map_err(|err| MyFault::SigningError(err.to_string()))?;
+            .map_err(|err| LocalError::CannotSign(err.to_string()))?;
         Ok(Self(SignedMessage {
             session_id: *session_id,
             round,
@@ -138,6 +139,10 @@ impl<Sig> VerifiedMessage<Sig> {
             payload: message_bytes.into(),
             signature,
         }))
+    }
+
+    pub fn as_unverified(&self) -> &SignedMessage<Sig> {
+        &self.0
     }
 
     pub fn into_unverified(self) -> SignedMessage<Sig> {

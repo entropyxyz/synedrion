@@ -11,9 +11,10 @@ use core::any::Any;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+use super::error::LocalError;
 use crate::cggmp21::{
-    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
-    ReceiveError, Round, ToNextRound, ToResult,
+    self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, ProtocolResult,
+    Round, ToNextRound, ToResult,
 };
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 use crate::PartyIdx;
@@ -30,20 +31,39 @@ pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
     rmp_serde::decode::from_slice(message_bytes)
 }
 
-#[derive(Debug, Clone)]
-pub enum Error {
-    Generic(String),
-    AccumFinalize(String),
-    Finalize(FinalizeError),
-    SerializationFail(String),
-    DeserializationFail(String),
-    VerificationFail(ReceiveError),
-    MessageCreationFail(String),
+pub(crate) enum FinalizeOutcome<Res: ProtocolResult> {
+    Success(Res::Success),
+    AnotherRound(Box<dyn DynFinalizable<Res>>),
 }
 
-pub(crate) enum FinalizeOutcome<Res> {
-    Result(Res),
-    AnotherRound(Box<dyn DynFinalizable<Res>>),
+#[derive(Debug, Clone, Copy)]
+pub enum AccumAddError {
+    /// An item with the given origin has already been added to the accumulator.
+    SlotTaken(PartyIdx),
+    /// Trying to add an item to an accumulator that was not initialized on construction.
+    NoAccumulator,
+}
+
+#[derive(Debug, Clone)]
+pub enum AccumFinalizeError {
+    NotEnoughMessages,
+    Downcast(String),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ReceiveError<Res: ProtocolResult> {
+    /// Error while deserializing the given message.
+    CannotDeserialize(String),
+    /// An error from the protocol level
+    Protocol(cggmp21::ReceiveError<Res>),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum FinalizeError<Res: ProtocolResult> {
+    /// An error from the protocol level
+    Protocol(cggmp21::FinalizeError<Res>),
+    /// Cannot finalize (an accumulator still has empty slots).
+    Accumulator(AccumFinalizeError),
 }
 
 /// Since object-safe trait methods cannot take `impl CryptoRngCore` arguments,
@@ -75,22 +95,30 @@ pub(crate) struct DynDmPayload(Box<dyn Any + Send>);
 pub(crate) struct DynDmArtefact(Box<dyn Any + Send>);
 
 /// An object-safe trait wrapping `Round`.
-pub(crate) trait DynRound<Res>: Send {
+pub(crate) trait DynRound<Res: ProtocolResult>: Send {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
 
     fn broadcast_destinations(&self) -> Option<HoleRange>;
-    fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, Error>;
+    fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, LocalError>;
     fn requires_broadcast_consensus(&self) -> bool;
     fn direct_message_destinations(&self) -> Option<HoleRange>;
     fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, DynDmArtefact), Error>;
+    ) -> Result<(Box<[u8]>, DynDmArtefact), LocalError>;
 
-    fn verify_broadcast(&self, from: PartyIdx, message: &[u8]) -> Result<DynBcPayload, Error>;
-    fn verify_direct_message(&self, from: PartyIdx, message: &[u8]) -> Result<DynDmPayload, Error>;
+    fn verify_broadcast(
+        &self,
+        from: PartyIdx,
+        message: &[u8],
+    ) -> Result<DynBcPayload, ReceiveError<Res>>;
+    fn verify_direct_message(
+        &self,
+        from: PartyIdx,
+        message: &[u8],
+    ) -> Result<DynDmPayload, ReceiveError<Res>>;
 }
 
 impl<R> DynRound<R::Result> for R
@@ -108,30 +136,36 @@ where
         R::NEXT_ROUND_NUM
     }
 
-    fn verify_broadcast(&self, from: PartyIdx, message: &[u8]) -> Result<DynBcPayload, Error> {
+    fn verify_broadcast(
+        &self,
+        from: PartyIdx,
+        message: &[u8],
+    ) -> Result<DynBcPayload, ReceiveError<R::Result>> {
         let typed_message: <R as BroadcastRound>::Message = match deserialize_message(message) {
             Ok(message) => message,
-            Err(err) => return Err(Error::DeserializationFail(format!("{}", err))),
+            Err(err) => return Err(ReceiveError::CannotDeserialize(err.to_string())),
         };
 
-        let payload = match self.verify_broadcast(from, typed_message) {
-            Ok(payload) => payload,
-            Err(err) => return Err(Error::VerificationFail(err)),
-        };
+        let payload = self
+            .verify_broadcast(from, typed_message)
+            .map_err(ReceiveError::Protocol)?;
 
         Ok(DynBcPayload(Box::new(payload)))
     }
 
-    fn verify_direct_message(&self, from: PartyIdx, message: &[u8]) -> Result<DynDmPayload, Error> {
+    fn verify_direct_message(
+        &self,
+        from: PartyIdx,
+        message: &[u8],
+    ) -> Result<DynDmPayload, ReceiveError<R::Result>> {
         let typed_message: <R as DirectRound>::Message = match deserialize_message(message) {
             Ok(message) => message,
-            Err(err) => return Err(Error::DeserializationFail(format!("{}", err))),
+            Err(err) => return Err(ReceiveError::CannotDeserialize(err.to_string())),
         };
 
-        let payload = match self.verify_direct_message(from, typed_message) {
-            Ok(payload) => payload,
-            Err(err) => return Err(Error::VerificationFail(err)),
-        };
+        let payload = self
+            .verify_direct_message(from, typed_message)
+            .map_err(ReceiveError::Protocol)?;
 
         Ok(DynDmPayload(Box::new(payload)))
     }
@@ -140,12 +174,12 @@ where
         self.broadcast_destinations()
     }
 
-    fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, Error> {
+    fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, LocalError> {
         let mut boxed_rng = BoxedRng(rng);
         let serialized = self
             .make_broadcast(&mut boxed_rng)
-            .map_err(|err| Error::MessageCreationFail(err.to_string()))?;
-        serialize_message(&serialized).map_err(|err| Error::SerializationFail(err.to_string()))
+            .map_err(LocalError::InvalidState)?;
+        serialize_message(&serialized).map_err(|err| LocalError::CannotSerialize(err.to_string()))
     }
 
     fn requires_broadcast_consensus(&self) -> bool {
@@ -160,13 +194,13 @@ where
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, DynDmArtefact), Error> {
+    ) -> Result<(Box<[u8]>, DynDmArtefact), LocalError> {
         let mut boxed_rng = BoxedRng(rng);
         let (typed_message, typed_artefact) = self
             .make_direct_message(&mut boxed_rng, destination)
-            .map_err(|err| Error::MessageCreationFail(err.to_string()))?;
+            .map_err(LocalError::InvalidState)?;
         let message = serialize_message(&typed_message)
-            .map_err(|err| Error::SerializationFail(err.to_string()))?;
+            .map_err(|err| LocalError::CannotSerialize(err.to_string()))?;
         Ok((message, DynDmArtefact(Box::new(typed_artefact))))
     }
 }
@@ -204,21 +238,29 @@ impl DynRoundAccum {
         }
     }
 
-    pub fn add_bc_payload(&mut self, from: PartyIdx, payload: DynBcPayload) -> Result<(), String> {
+    pub fn add_bc_payload(
+        &mut self,
+        from: PartyIdx,
+        payload: DynBcPayload,
+    ) -> Result<(), AccumAddError> {
         match &mut self.bc_payloads {
             Some(payloads) => payloads
                 .insert(from.as_usize(), payload)
-                .ok_or("Failed to insert BC payload".into()),
-            None => Err("This round does not expect broadcast messages".into()),
+                .ok_or(AccumAddError::SlotTaken(from)),
+            None => Err(AccumAddError::NoAccumulator),
         }
     }
 
-    pub fn add_dm_payload(&mut self, from: PartyIdx, payload: DynDmPayload) -> Result<(), String> {
+    pub fn add_dm_payload(
+        &mut self,
+        from: PartyIdx,
+        payload: DynDmPayload,
+    ) -> Result<(), AccumAddError> {
         match &mut self.dm_payloads {
             Some(payloads) => payloads
                 .insert(from.as_usize(), payload)
-                .ok_or("Failed to insert DM payload".into()),
-            None => Err("This round does not expect direct messages".into()),
+                .ok_or(AccumAddError::SlotTaken(from)),
+            None => Err(AccumAddError::NoAccumulator),
         }
     }
 
@@ -226,12 +268,12 @@ impl DynRoundAccum {
         &mut self,
         destination: PartyIdx,
         artefact: DynDmArtefact,
-    ) -> Result<(), String> {
+    ) -> Result<(), AccumAddError> {
         match &mut self.dm_artefacts {
             Some(artefacts) => artefacts
                 .insert(destination.as_usize(), artefact)
-                .ok_or("Failed to insert DM artefact".into()),
-            None => Err("This round does not send direct messages".into()),
+                .ok_or(AccumAddError::SlotTaken(destination)),
+            None => Err(AccumAddError::NoAccumulator),
         }
     }
 
@@ -250,7 +292,7 @@ impl DynRoundAccum {
                 .map_or(true, |accum| accum.can_finalize())
     }
 
-    fn finalize<R: Round>(self) -> Result<RoundAccum<R>, String>
+    fn finalize<R: Round>(self) -> Result<RoundAccum<R>, AccumFinalizeError>
     where
         <R as BroadcastRound>::Payload: 'static,
         <R as DirectRound>::Payload: 'static,
@@ -260,7 +302,7 @@ impl DynRoundAccum {
             Some(accum) => {
                 let hvec = accum
                     .finalize()
-                    .map_err(|_| "Failed to finalize BC payloads")?;
+                    .map_err(|_| AccumFinalizeError::NotEnoughMessages)?;
                 Some(hvec.map_fallible(|elem| downcast::<<R as BroadcastRound>::Payload>(elem.0))?)
             }
             None => None,
@@ -269,7 +311,7 @@ impl DynRoundAccum {
             Some(accum) => {
                 let hvec = accum
                     .finalize()
-                    .map_err(|_| "Failed to finalize DM payloads")?;
+                    .map_err(|_| AccumFinalizeError::NotEnoughMessages)?;
                 Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Payload>(elem.0))?)
             }
             None => None,
@@ -278,7 +320,7 @@ impl DynRoundAccum {
             Some(accum) => {
                 let hvec = accum
                     .finalize()
-                    .map_err(|_| "Failed to finalize DM artefacts")?;
+                    .map_err(|_| AccumFinalizeError::NotEnoughMessages)?;
                 Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Artefact>(elem.0))?)
             }
             None => None,
@@ -291,18 +333,21 @@ impl DynRoundAccum {
     }
 }
 
-fn downcast<T: 'static>(boxed: Box<dyn Any>) -> Result<T, String> {
-    Ok(*(boxed
-        .downcast::<T>()
-        .map_err(|_| format!("Failed to downcast into {}", core::any::type_name::<T>()))?))
+fn downcast<T: 'static>(boxed: Box<dyn Any>) -> Result<T, AccumFinalizeError> {
+    Ok(*(boxed.downcast::<T>().map_err(|_| {
+        AccumFinalizeError::Downcast(format!(
+            "Failed to downcast into {}",
+            core::any::type_name::<T>()
+        ))
+    })?))
 }
 
-pub(crate) trait DynFinalizable<Res>: DynRound<Res> {
+pub(crate) trait DynFinalizable<Res: ProtocolResult>: DynRound<Res> {
     fn finalize(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
         accum: DynRoundAccum,
-    ) -> Result<FinalizeOutcome<Res>, Error>;
+    ) -> Result<FinalizeOutcome<Res>, FinalizeError<Res>>;
 }
 
 // This is needed because Rust does not currently support exclusive trait imlpementations.
@@ -317,12 +362,12 @@ const _: () = {
     //    of the target associated type, with the same methods as the target trait;
     // 2) A blanket implementation for the target trait.
 
-    trait _DynFinalizable<Res, T> {
+    trait _DynFinalizable<Res: ProtocolResult, T> {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
             accum: DynRoundAccum,
-        ) -> Result<FinalizeOutcome<Res>, Error>;
+        ) -> Result<FinalizeOutcome<Res>, FinalizeError<Res>>;
     }
 
     impl<R> DynFinalizable<R::Result> for R
@@ -337,7 +382,7 @@ const _: () = {
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
             accum: DynRoundAccum,
-        ) -> Result<FinalizeOutcome<R::Result>, Error> {
+        ) -> Result<FinalizeOutcome<R::Result>, FinalizeError<R::Result>> {
             Self::finalize(self, rng, accum)
         }
     }
@@ -352,9 +397,9 @@ const _: () = {
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
             accum: DynRoundAccum,
-        ) -> Result<FinalizeOutcome<R::Result>, Error> {
+        ) -> Result<FinalizeOutcome<R::Result>, FinalizeError<R::Result>> {
             let mut boxed_rng = BoxedRng(rng);
-            let typed_accum = accum.finalize::<R>().map_err(Error::AccumFinalize)?;
+            let typed_accum = accum.finalize::<R>().map_err(FinalizeError::Accumulator)?;
             let result = (*self)
                 .finalize_to_result(
                     &mut boxed_rng,
@@ -362,8 +407,8 @@ const _: () = {
                     typed_accum.dm_payloads,
                     typed_accum.dm_artefacts,
                 )
-                .map_err(Error::Finalize)?;
-            Ok(FinalizeOutcome::Result(result))
+                .map_err(FinalizeError::Protocol)?;
+            Ok(FinalizeOutcome::Success(result))
         }
     }
 
@@ -376,9 +421,9 @@ const _: () = {
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
             accum: DynRoundAccum,
-        ) -> Result<FinalizeOutcome<R::Result>, Error> {
+        ) -> Result<FinalizeOutcome<R::Result>, FinalizeError<R::Result>> {
             let mut boxed_rng = BoxedRng(rng);
-            let typed_accum = accum.finalize::<R>().map_err(Error::AccumFinalize)?;
+            let typed_accum = accum.finalize::<R>().map_err(FinalizeError::Accumulator)?;
             let next_round = (*self)
                 .finalize_to_next_round(
                     &mut boxed_rng,
@@ -386,7 +431,7 @@ const _: () = {
                     typed_accum.dm_payloads,
                     typed_accum.dm_artefacts,
                 )
-                .map_err(Error::Finalize)?;
+                .map_err(FinalizeError::Protocol)?;
             Ok(FinalizeOutcome::AnotherRound(Box::new(next_round)))
         }
     }
