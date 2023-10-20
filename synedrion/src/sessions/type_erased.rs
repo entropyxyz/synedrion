@@ -13,11 +13,10 @@ use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
 use crate::cggmp21::{
-    self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, ProtocolResult,
-    Round, ToNextRound, ToResult,
+    self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, PartyIdx,
+    ProtocolResult, Round, ToNextRound, ToResult,
 };
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
-use crate::PartyIdx;
 
 pub(crate) fn serialize_message(
     message: &impl Serialize,

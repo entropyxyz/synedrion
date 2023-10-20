@@ -1,14 +1,18 @@
 use alloc::format;
+use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
+use signature::{
+    hazmat::{PrehashVerifier, RandomizedPrehashSigner},
+    Keypair,
+};
 
 use super::error::{Error, LocalError};
 use super::states::Session;
 use crate::cggmp21::{
     auxiliary, interactive_signing, keygen_and_aux, InteractiveSigningResult, KeyRefreshResult,
-    KeyShare, KeygenAndAuxResult, PartyIdx, SchemeParams,
+    KeyShare, KeygenAndAuxResult, SchemeParams,
 };
 use crate::curve::Scalar;
 
@@ -22,22 +26,17 @@ pub fn make_keygen_and_aux_session<P, Sig, Signer, Verifier>(
     shared_randomness: &[u8],
     signer: Signer,
     verifiers: &[Verifier],
-    party_idx: PartyIdx,
-) -> Result<Session<KeygenAndAuxResult<P>, Sig, Signer, Verifier>, Error<KeygenAndAuxResult<P>>>
+) -> Result<
+    Session<KeygenAndAuxResult<P>, Sig, Signer, Verifier>,
+    Error<KeygenAndAuxResult<P>, Verifier>,
+>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
-    Signer: RandomizedPrehashSigner<Sig>,
-    Verifier: PrehashVerifier<Sig> + Clone,
+    Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
+    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
-    Session::new::<keygen_and_aux::Round1<P>>(
-        rng,
-        shared_randomness,
-        signer,
-        party_idx,
-        verifiers,
-        (),
-    )
+    Session::new::<keygen_and_aux::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
 
 /// Creates the initial state for the KeyRefresh+Auxiliary protocol.
@@ -47,15 +46,14 @@ pub fn make_key_refresh_session<P, Sig, Signer, Verifier>(
     shared_randomness: &[u8],
     signer: Signer,
     verifiers: &[Verifier],
-    party_idx: PartyIdx,
-) -> Result<Session<KeyRefreshResult<P>, Sig, Signer, Verifier>, Error<KeyRefreshResult<P>>>
+) -> Result<Session<KeyRefreshResult<P>, Sig, Signer, Verifier>, Error<KeyRefreshResult<P>, Verifier>>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
-    Signer: RandomizedPrehashSigner<Sig>,
-    Verifier: PrehashVerifier<Sig> + Clone,
+    Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
+    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
-    Session::new::<auxiliary::Round1<P>>(rng, shared_randomness, signer, party_idx, verifiers, ())
+    Session::new::<auxiliary::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
 
 /// Creates the initial state for the joined Presigning and Signing protocols.
@@ -69,14 +67,15 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     prehashed_message: &PrehashedMessage,
 ) -> Result<
     Session<InteractiveSigningResult<P>, Sig, Signer, Verifier>,
-    Error<InteractiveSigningResult<P>>,
+    Error<InteractiveSigningResult<P>, Verifier>,
 >
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
-    Signer: RandomizedPrehashSigner<Sig>,
-    Verifier: PrehashVerifier<Sig> + Clone,
+    Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
+    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
+    // TODO: check that key share party index corresponds to the signer's position among the verifiers
     if verifiers.len() != key_share.num_parties() {
         return Err(Error::Local(LocalError::Init(format!(
             concat![
@@ -99,7 +98,6 @@ where
         rng,
         shared_randomness,
         signer,
-        key_share.party_index(),
         verifiers,
         context,
     )

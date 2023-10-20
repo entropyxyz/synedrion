@@ -2,18 +2,18 @@ use alloc::string::String;
 
 use super::broadcast::ConsensusError;
 use super::type_erased::{AccumAddError, AccumFinalizeError};
-use crate::cggmp21::{PartyIdx, ProtocolResult};
+use crate::cggmp21::ProtocolResult;
 
 /// Possible errors returned by session methods.
 #[derive(Clone, Debug)]
-pub enum Error<Res: ProtocolResult> {
+pub enum Error<Res: ProtocolResult, Verifier> {
     /// Indicates an error on this party's side.
     /// Can be caused by an incorrect usage, a bug in the implementation, or some environment error.
     Local(LocalError),
     /// An unprovable fault of another party.
     Remote {
         /// The index of the failed party.
-        party: PartyIdx,
+        party: Verifier,
         /// The error that occurred.
         error: RemoteError,
     },
@@ -21,7 +21,7 @@ pub enum Error<Res: ProtocolResult> {
     // TODO: attach the party's messages up to this round for this to be verifiable by a third party
     Provable {
         /// The index of the failed party.
-        party: PartyIdx,
+        party: Verifier,
         /// The error that occurred.
         error: ProvableError<Res>,
     },
@@ -56,6 +56,7 @@ pub enum LocalError {
     CannotSign(String),
     AccumFinalize(AccumFinalizeError),
     AccumAdd(AccumAddError),
+    VerifierNotFound(String),
 }
 
 #[derive(Clone, Debug)]
