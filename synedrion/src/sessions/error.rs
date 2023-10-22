@@ -1,7 +1,6 @@
 use alloc::string::String;
 
 use super::broadcast::ConsensusError;
-use super::type_erased::{AccumAddError, AccumFinalizeError};
 use crate::cggmp21::ProtocolResult;
 
 /// Possible errors returned by session methods.
@@ -10,13 +9,6 @@ pub enum Error<Res: ProtocolResult, Verifier> {
     /// Indicates an error on this party's side.
     /// Can be caused by an incorrect usage, a bug in the implementation, or some environment error.
     Local(LocalError),
-    /// An unprovable fault of another party.
-    Remote {
-        /// The index of the failed party.
-        party: Verifier,
-        /// The error that occurred.
-        error: RemoteError,
-    },
     /// A provable fault of another party.
     // TODO: attach the party's messages up to this round for this to be verifiable by a third party
     Provable {
@@ -33,34 +25,25 @@ pub enum Error<Res: ProtocolResult, Verifier> {
         /// The proof of correctness.
         proof: Res::CorrectnessProof,
     },
+    /// An error caused by remote party, unprovable at this level.
+    ///
+    /// This error may be eventually provable if there are some external guarantees
+    /// provided by the communication channel.
+    Remote(RemoteError<Verifier>),
 }
 
 #[derive(Clone, Debug)]
-pub enum LocalError {
-    /// An error while initializing the first round of a protocol.
-    ///
-    /// Note that it can be returned in the middle of the session in case of
-    /// sequentially merged protocols (e.g. Presigning and Signing).
-    Init(String),
-    /// A mutable object was in an invalid state for calling a method.
-    ///
-    /// This indicates a logic error either in the calling code or in the method code.
-    InvalidState(String),
-    /// A message could not be serialized.
-    ///
-    /// Refer to the documentation of the chosen serialization library for more info.
-    CannotSerialize(String),
-    /// A message could not be signed.
-    ///
-    /// Refer to the documentation of the chosen ECDSA library for more info.
-    CannotSign(String),
-    AccumFinalize(AccumFinalizeError),
-    AccumAdd(AccumAddError),
-    VerifierNotFound(String),
+pub struct LocalError(pub(crate) String);
+
+/// An unprovable fault of another party.
+#[derive(Clone, Debug)]
+pub struct RemoteError<Verifier> {
+    pub party: Verifier,
+    pub error: RemoteErrorEnum,
 }
 
 #[derive(Clone, Debug)]
-pub enum RemoteError {
+pub enum RemoteErrorEnum {
     UnexpectedSessionId,
     OutOfOrderMessage,
     DuplicateMessage,

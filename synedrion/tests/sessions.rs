@@ -74,10 +74,10 @@ async fn run_session<Res: ProtocolResult>(
             let result = session.verify_message(&from, message).unwrap();
 
             // This will happen in a host task.
-            accum.add_processed_message(result).unwrap();
+            accum.add_processed_message(result).unwrap().unwrap();
         }
 
-        while !session.can_finalize(&accum) {
+        while !session.can_finalize(&accum).unwrap() {
             println!("{key:?}: waiting for a message");
             let (from, message) = rx.recv().await.unwrap();
 
@@ -89,7 +89,7 @@ async fn run_session<Res: ProtocolResult>(
             let result = session.verify_message(&from, message).unwrap();
 
             // This will happen in a host task.
-            accum.add_processed_message(result).unwrap();
+            accum.add_processed_message(result).unwrap().unwrap();
         }
 
         println!("{key:?}: finalizing the round");

@@ -131,7 +131,7 @@ impl<Sig> VerifiedMessage<Sig> {
                 rng,
                 message_hash(session_id, round, message_type, message_bytes).as_ref(),
             )
-            .map_err(|err| LocalError::CannotSign(err.to_string()))?;
+            .map_err(|err| LocalError(err.to_string()))?;
         Ok(Self(SignedMessage {
             session_id: *session_id,
             round,
