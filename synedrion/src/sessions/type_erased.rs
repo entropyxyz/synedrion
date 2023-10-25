@@ -13,22 +13,21 @@ use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
 use crate::cggmp21::{
-    self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, ProtocolResult,
-    Round, ToNextRound, ToResult,
+    self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, PartyIdx,
+    ProtocolResult, Round, ToNextRound, ToResult,
 };
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
-use crate::PartyIdx;
 
-pub(crate) fn serialize_message(
-    message: &impl Serialize,
-) -> Result<Box<[u8]>, rmp_serde::encode::Error> {
-    rmp_serde::encode::to_vec(message).map(|serialized| serialized.into_boxed_slice())
+pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, LocalError> {
+    rmp_serde::encode::to_vec(message)
+        .map(|serialized| serialized.into_boxed_slice())
+        .map_err(|err| LocalError(format!("Failed to serialize: {err:?}")))
 }
 
 pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
     message_bytes: &[u8],
-) -> Result<M, rmp_serde::decode::Error> {
-    rmp_serde::decode::from_slice(message_bytes)
+) -> Result<M, String> {
+    rmp_serde::decode::from_slice(message_bytes).map_err(|err| err.to_string())
 }
 
 pub(crate) enum FinalizeOutcome<Res: ProtocolResult> {
@@ -39,7 +38,7 @@ pub(crate) enum FinalizeOutcome<Res: ProtocolResult> {
 #[derive(Debug, Clone, Copy)]
 pub enum AccumAddError {
     /// An item with the given origin has already been added to the accumulator.
-    SlotTaken(PartyIdx),
+    SlotTaken,
     /// Trying to add an item to an accumulator that was not initialized on construction.
     NoAccumulator,
 }
@@ -143,7 +142,7 @@ where
     ) -> Result<DynBcPayload, ReceiveError<R::Result>> {
         let typed_message: <R as BroadcastRound>::Message = match deserialize_message(message) {
             Ok(message) => message,
-            Err(err) => return Err(ReceiveError::CannotDeserialize(err.to_string())),
+            Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
         };
 
         let payload = self
@@ -160,7 +159,7 @@ where
     ) -> Result<DynDmPayload, ReceiveError<R::Result>> {
         let typed_message: <R as DirectRound>::Message = match deserialize_message(message) {
             Ok(message) => message,
-            Err(err) => return Err(ReceiveError::CannotDeserialize(err.to_string())),
+            Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
         };
 
         let payload = self
@@ -178,8 +177,8 @@ where
         let mut boxed_rng = BoxedRng(rng);
         let serialized = self
             .make_broadcast(&mut boxed_rng)
-            .map_err(LocalError::InvalidState)?;
-        serialize_message(&serialized).map_err(|err| LocalError::CannotSerialize(err.to_string()))
+            .map_err(|err| LocalError(format!("Failed to make a broadcast message: {err:?}")))?;
+        serialize_message(&serialized)
     }
 
     fn requires_broadcast_consensus(&self) -> bool {
@@ -198,9 +197,8 @@ where
         let mut boxed_rng = BoxedRng(rng);
         let (typed_message, typed_artefact) = self
             .make_direct_message(&mut boxed_rng, destination)
-            .map_err(LocalError::InvalidState)?;
-        let message = serialize_message(&typed_message)
-            .map_err(|err| LocalError::CannotSerialize(err.to_string()))?;
+            .map_err(|err| LocalError(format!("Failed to make a direct message: {err:?}")))?;
+        let message = serialize_message(&typed_message)?;
         Ok((message, DynDmArtefact(Box::new(typed_artefact))))
     }
 }
@@ -246,7 +244,7 @@ impl DynRoundAccum {
         match &mut self.bc_payloads {
             Some(payloads) => payloads
                 .insert(from.as_usize(), payload)
-                .ok_or(AccumAddError::SlotTaken(from)),
+                .ok_or(AccumAddError::SlotTaken),
             None => Err(AccumAddError::NoAccumulator),
         }
     }
@@ -259,7 +257,7 @@ impl DynRoundAccum {
         match &mut self.dm_payloads {
             Some(payloads) => payloads
                 .insert(from.as_usize(), payload)
-                .ok_or(AccumAddError::SlotTaken(from)),
+                .ok_or(AccumAddError::SlotTaken),
             None => Err(AccumAddError::NoAccumulator),
         }
     }
@@ -272,7 +270,7 @@ impl DynRoundAccum {
         match &mut self.dm_artefacts {
             Some(artefacts) => artefacts
                 .insert(destination.as_usize(), artefact)
-                .ok_or(AccumAddError::SlotTaken(destination)),
+                .ok_or(AccumAddError::SlotTaken),
             None => Err(AccumAddError::NoAccumulator),
         }
     }

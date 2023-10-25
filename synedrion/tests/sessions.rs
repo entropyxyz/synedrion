@@ -11,29 +11,26 @@ use synedrion::{
         make_interactive_signing_session, make_keygen_and_aux_session, FinalizeOutcome, Session,
         SignedMessage,
     },
-    KeyShare, PartyIdx, ProtocolResult, TestParams,
+    KeyShare, ProtocolResult, TestParams,
 };
 
-type MessageOut = (PartyIdx, PartyIdx, SignedMessage<Signature>);
-type MessageIn = (PartyIdx, SignedMessage<Signature>);
+type MessageOut = (VerifyingKey, VerifyingKey, SignedMessage<Signature>);
+type MessageIn = (VerifyingKey, SignedMessage<Signature>);
 
 async fn run_session<Res: ProtocolResult>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
     session: Session<Res, Signature, SigningKey, VerifyingKey>,
-    party_idx: PartyIdx,
 ) -> <Res as ProtocolResult>::Success {
     let mut rx = rx;
 
     let mut session = session;
-    let mut cached_messages = Vec::new();
+    let mut cached_messages = Vec::<(VerifyingKey, SignedMessage<Signature>)>::new();
+
+    let key = session.verifier();
 
     loop {
-        println!(
-            "*** {:?}: starting round {:?}",
-            party_idx,
-            session.current_round()
-        );
+        println!("*** {key:?}: starting round {:?}", session.current_round());
 
         // This is kept in the main task since it's mutable,
         // and we don't want to bother with synchronization.
@@ -47,59 +44,62 @@ async fn run_session<Res: ProtocolResult>(
         if let Some(destinations) = destinations {
             // In production usage, this will happen in a spawned task
             let message = session.make_broadcast(&mut OsRng).unwrap();
-            for idx_to in destinations.iter() {
-                println!("{party_idx:?}: sending a broadcast to {idx_to:?}");
-                tx.send((party_idx, *idx_to, message.clone()))
-                    .await
-                    .unwrap();
+            for destination in destinations.iter() {
+                println!("{key:?}: sending a broadcast to {destination:?}");
+                tx.send((key, *destination, message.clone())).await.unwrap();
             }
         }
 
         let destinations = session.direct_message_destinations();
         if let Some(destinations) = destinations {
-            for idx_to in destinations.iter() {
+            for destination in destinations.iter() {
                 // In production usage, this will happen in a spawned task
                 // (since it can take some time to create a message),
                 // and the artefact will be sent back to the host task
                 // to be added to the accumulator.
-                let (message, artefact) = session.make_direct_message(&mut OsRng, idx_to).unwrap();
-                println!("{party_idx:?}: sending a direct message to {idx_to:?}");
-                tx.send((party_idx, *idx_to, message)).await.unwrap();
+                let (message, artefact) = session
+                    .make_direct_message(&mut OsRng, destination)
+                    .unwrap();
+                println!("{key:?}: sending a direct message to {destination:?}");
+                tx.send((key, *destination, message)).await.unwrap();
 
                 // This will happen in a host task
                 accum.add_artefact(artefact).unwrap();
             }
         }
 
-        for (idx_from, message) in cached_messages {
+        for (from, message) in cached_messages {
             // In production usage, this will happen in a spawned task.
-            println!("{party_idx:?}: applying a cached message from {idx_from:?}");
-            let result = session.verify_message(idx_from, message).unwrap();
+            println!("{key:?}: applying a cached message from {from:?}");
+            let result = session.verify_message(&from, message).unwrap();
 
             // This will happen in a host task.
-            accum.add_processed_message(result).unwrap();
+            accum.add_processed_message(result).unwrap().unwrap();
         }
 
-        while !session.can_finalize(&accum) {
-            println!("{party_idx:?}: waiting for a message");
-            let (idx_from, message) = rx.recv().await.unwrap();
+        while !session.can_finalize(&accum).unwrap() {
+            println!("{key:?}: waiting for a message");
+            let (from, message) = rx.recv().await.unwrap();
 
             // TODO: check here that the message from this origin hasn't been already processed
             // if accum.already_processed(message) { ... }
 
             // In production usage, this will happen in a spawned task.
-            println!("{party_idx:?}: applying a message from {idx_from:?}");
-            let result = session.verify_message(idx_from, message).unwrap();
+            println!("{key:?}: applying a message from {from:?}");
+            let result = session.verify_message(&from, message).unwrap();
 
             // This will happen in a host task.
-            accum.add_processed_message(result).unwrap();
+            accum.add_processed_message(result).unwrap().unwrap();
         }
 
-        println!("{party_idx:?}: finalizing the round");
+        println!("{key:?}: finalizing the round");
 
         match session.finalize_round(&mut OsRng, accum).unwrap() {
             FinalizeOutcome::Success(res) => break res,
-            FinalizeOutcome::AnotherRound(new_session, new_cached_messages) => {
+            FinalizeOutcome::AnotherRound {
+                session: new_session,
+                cached_messages: new_cached_messages,
+            } => {
                 session = new_session;
                 cached_messages = new_cached_messages;
             }
@@ -108,7 +108,7 @@ async fn run_session<Res: ProtocolResult>(
 }
 
 async fn message_dispatcher(
-    txs: BTreeMap<PartyIdx, mpsc::Sender<MessageIn>>,
+    txs: BTreeMap<VerifyingKey, mpsc::Sender<MessageIn>>,
     rx: mpsc::Receiver<MessageOut>,
 ) {
     let mut rx = rx;
@@ -159,25 +159,26 @@ where
     <Res as ProtocolResult>::Success: Send + 'static,
 {
     let num_parties = sessions.len();
-    let parties = (0..num_parties)
-        .map(PartyIdx::from_usize)
-        .collect::<Vec<_>>();
 
     let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<MessageOut>(100);
 
     let channels = (0..num_parties).map(|_| mpsc::channel::<MessageIn>(100));
     let (txs, rxs): (Vec<mpsc::Sender<MessageIn>>, Vec<mpsc::Receiver<MessageIn>>) =
         channels.unzip();
-    let tx_map = parties.iter().cloned().zip(txs.into_iter()).collect();
-    let rx_map = parties.iter().cloned().zip(rxs.into_iter());
+    let tx_map = sessions
+        .iter()
+        .map(|session| session.verifier())
+        .zip(txs.into_iter())
+        .collect();
 
     let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
     let dispatcher = tokio::spawn(dispatcher_task);
 
-    let handles: Vec<tokio::task::JoinHandle<<Res as ProtocolResult>::Success>> = rx_map
+    let handles: Vec<tokio::task::JoinHandle<<Res as ProtocolResult>::Success>> = rxs
+        .into_iter()
         .zip(sessions.into_iter())
-        .map(|((party_idx, rx), session)| {
-            let node_task = run_session(dispatcher_tx.clone(), rx, session, party_idx);
+        .map(|(rx, session)| {
+            let node_task = run_session(dispatcher_tx.clone(), rx, session);
             tokio::spawn(node_task)
         })
         .collect();
@@ -204,14 +205,12 @@ async fn keygen_and_aux() {
 
     let sessions = signers
         .into_iter()
-        .enumerate()
-        .map(|(idx, signer)| {
+        .map(|signer| {
             make_keygen_and_aux_session::<TestParams, Signature, _, _>(
                 &mut OsRng,
                 shared_randomness,
                 signer,
                 &verifiers,
-                PartyIdx::from_usize(idx),
             )
             .unwrap()
         })
@@ -220,7 +219,7 @@ async fn keygen_and_aux() {
     let key_shares = run_nodes(sessions).await;
 
     for (idx, key_share) in key_shares.iter().enumerate() {
-        assert_eq!(key_share.party_index(), PartyIdx::from_usize(idx));
+        assert_eq!(key_share.party_index().as_usize(), idx);
         assert_eq!(key_share.num_parties(), num_parties);
         assert_eq!(key_share.verifying_key(), key_shares[0].verifying_key());
     }

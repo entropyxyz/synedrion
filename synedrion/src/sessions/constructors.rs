@@ -1,14 +1,18 @@
 use alloc::format;
+use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
+use signature::{
+    hazmat::{PrehashVerifier, RandomizedPrehashSigner},
+    Keypair,
+};
 
-use super::error::{Error, LocalError};
+use super::error::LocalError;
 use super::states::Session;
 use crate::cggmp21::{
     auxiliary, interactive_signing, keygen_and_aux, InteractiveSigningResult, KeyRefreshResult,
-    KeyShare, KeygenAndAuxResult, PartyIdx, SchemeParams,
+    KeyShare, KeygenAndAuxResult, SchemeParams,
 };
 use crate::curve::Scalar;
 
@@ -16,50 +20,38 @@ use crate::curve::Scalar;
 pub type PrehashedMessage = [u8; 32];
 
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
-#[allow(clippy::type_complexity)]
 pub fn make_keygen_and_aux_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
     shared_randomness: &[u8],
     signer: Signer,
     verifiers: &[Verifier],
-    party_idx: PartyIdx,
-) -> Result<Session<KeygenAndAuxResult<P>, Sig, Signer, Verifier>, Error<KeygenAndAuxResult<P>>>
+) -> Result<Session<KeygenAndAuxResult<P>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
-    Signer: RandomizedPrehashSigner<Sig>,
-    Verifier: PrehashVerifier<Sig> + Clone,
+    Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
+    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
-    Session::new::<keygen_and_aux::Round1<P>>(
-        rng,
-        shared_randomness,
-        signer,
-        party_idx,
-        verifiers,
-        (),
-    )
+    Session::new::<keygen_and_aux::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
 
 /// Creates the initial state for the KeyRefresh+Auxiliary protocol.
-#[allow(clippy::type_complexity)]
 pub fn make_key_refresh_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
     shared_randomness: &[u8],
     signer: Signer,
     verifiers: &[Verifier],
-    party_idx: PartyIdx,
-) -> Result<Session<KeyRefreshResult<P>, Sig, Signer, Verifier>, Error<KeyRefreshResult<P>>>
+) -> Result<Session<KeyRefreshResult<P>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
-    Signer: RandomizedPrehashSigner<Sig>,
-    Verifier: PrehashVerifier<Sig> + Clone,
+    Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
+    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
-    Session::new::<auxiliary::Round1<P>>(rng, shared_randomness, signer, party_idx, verifiers, ())
+    Session::new::<auxiliary::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
 
 /// Creates the initial state for the joined Presigning and Signing protocols.
-#[allow(clippy::type_complexity)]
 pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
     shared_randomness: &[u8],
@@ -67,25 +59,23 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     verifiers: &[Verifier],
     key_share: &KeyShare<P>,
     prehashed_message: &PrehashedMessage,
-) -> Result<
-    Session<InteractiveSigningResult<P>, Sig, Signer, Verifier>,
-    Error<InteractiveSigningResult<P>>,
->
+) -> Result<Session<InteractiveSigningResult<P>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
-    Signer: RandomizedPrehashSigner<Sig>,
-    Verifier: PrehashVerifier<Sig> + Clone,
+    Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
+    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
+    // TODO: check that key share party index corresponds to the signer's position among the verifiers
     if verifiers.len() != key_share.num_parties() {
-        return Err(Error::Local(LocalError::Init(format!(
+        return Err(LocalError(format!(
             concat![
                 "Number of verifiers (got: {}) must be equal ",
                 "to the number of parties in the key share (got: {})"
             ],
             verifiers.len(),
             key_share.num_parties()
-        ))));
+        )));
     }
 
     let scalar_message = Scalar::from_reduced_bytes(prehashed_message);
@@ -99,7 +89,6 @@ where
         rng,
         shared_randomness,
         signer,
-        key_share.party_index(),
         verifiers,
         context,
     )
