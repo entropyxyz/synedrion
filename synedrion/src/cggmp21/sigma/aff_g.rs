@@ -14,7 +14,7 @@ use crate::uint::{FromScalar, NonZero, Signed};
 
 const HASH_TAG: &[u8] = b"P_aff_g";
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,
     cap_b_x: Point,

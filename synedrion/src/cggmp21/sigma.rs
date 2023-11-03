@@ -30,5 +30,6 @@ pub(crate) use fac::FacProof;
 pub(crate) use log_star::LogStarProof;
 pub(crate) use mod_::ModProof;
 pub(crate) use mul::MulProof;
+pub(crate) use mul_star::MulStarProof;
 pub(crate) use prm::PrmProof;
 pub(crate) use sch::{SchCommitment, SchProof, SchSecret};

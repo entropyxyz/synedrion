@@ -20,6 +20,11 @@ impl<P: PaillierParams> Randomizer<P> {
     pub fn random(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillierPrecomputed<P>) -> Self {
         RandomizerMod::random(rng, pk).retrieve()
     }
+
+    pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
+        // TODO: check that the value is within the modulus?
+        RandomizerMod(P::UintMod::new(&self.0, pk.precomputed_modulus()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

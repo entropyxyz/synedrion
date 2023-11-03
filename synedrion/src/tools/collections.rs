@@ -116,7 +116,7 @@ impl Iterator for HoleRange {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct HoleVec<T> {
     elems: Vec<T>,
     // `u16` because we need it to be serialized uniformly across different platforms,
