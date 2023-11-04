@@ -100,7 +100,6 @@ pub fn signing<P: SchemeParams>(rng: &mut impl CryptoRngCore, key_shares: &[KeyS
     let presigning_datas = PresigningData::new_centralized(rng, key_shares);
 
     let message = Scalar::random(rng);
-    let verifying_key = key_shares[0].verifying_key_as_point();
 
     let num_parties = presigning_datas.len();
     let r1 = (0..num_parties)
@@ -112,8 +111,8 @@ pub fn signing<P: SchemeParams>(rng: &mut impl CryptoRngCore, key_shares: &[KeyS
                 PartyIdx::from_usize(idx),
                 signing::Context {
                     message,
-                    verifying_key,
-                    presigning: presigning_datas[idx],
+                    presigning: presigning_datas[idx].clone(),
+                    key_share: key_shares[idx].to_precomputed(),
                 },
             )
             .unwrap()

@@ -1,5 +1,8 @@
 use alloc::boxed::Box;
 
+#[cfg(any(test, feature = "bench-internals"))]
+use alloc::vec::Vec;
+
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -7,10 +10,19 @@ use serde::{Deserialize, Serialize};
 use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
-    PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod, SecretKeyPaillier,
-    SecretKeyPaillierPrecomputed,
+    Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
+    RPParamsMod, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
+use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hashable};
+use crate::uint::Signed;
+
+#[cfg(any(test, feature = "bench-internals"))]
+use crate::{
+    paillier::RandomizerMod,
+    tools::collections::{HoleRange, HoleVecAccum},
+    uint::FromScalar,
+};
 
 /// A typed integer denoting the index of a party in the group.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -124,14 +136,22 @@ pub struct KeyShareChange<P: SchemeParams> {
 }
 
 /// The result of the Presigning protocol.
-#[derive(Debug, Clone, Copy)]
-pub struct PresigningData {
+#[derive(Debug, Clone)]
+pub struct PresigningData<P: SchemeParams> {
     // CHECK: can we store nonce as a scalar?
     pub(crate) nonce: Point, // `R`
     /// An additive share of the ephemeral scalar `k`.
     pub(crate) ephemeral_scalar_share: Scalar, // `k_i`
     /// An additive share of `k * x` where `x` is the secret key.
     pub(crate) product_share: Scalar,
+    // Values generated during presigning,
+    // kept in case we need to generate a proof of correctness.
+    pub(crate) hat_beta: HoleVec<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    pub(crate) hat_r: HoleVec<Randomizer<P::Paillier>>,
+    pub(crate) hat_s: HoleVec<Randomizer<P::Paillier>>,
+    pub(crate) cap_k: Ciphertext<P::Paillier>,
+    pub(crate) hat_cap_d: HoleVec<Ciphertext<P::Paillier>>,
+    pub(crate) hat_cap_f: HoleVec<Ciphertext<P::Paillier>>,
 }
 
 impl<P: SchemeParams> KeyShare<P> {
@@ -275,12 +295,16 @@ impl<P: SchemeParams> KeySharePrecomputed<P> {
         // since we assume that one party has one share.
         self.index
     }
+
+    pub(crate) fn verifying_key_as_point(&self) -> Point {
+        self.public_shares.iter().sum()
+    }
 }
 
-impl PresigningData {
+impl<P: SchemeParams> PresigningData<P> {
     /// Creates a consistent set of presigning data for testing purposes.
     #[cfg(any(test, feature = "bench-internals"))]
-    pub(crate) fn new_centralized<P: SchemeParams>(
+    pub(crate) fn new_centralized(
         rng: &mut impl CryptoRngCore,
         key_shares: &[KeyShare<P>],
     ) -> Box<[Self]> {
@@ -293,15 +317,76 @@ impl PresigningData {
             .sum();
         let product_shares = (ephemeral_scalar * secret).split(rng, key_shares.len());
 
-        ephemeral_scalar_shares
-            .into_iter()
-            .zip(product_shares)
-            .map(|(ephemeral_scalar_share, product_share)| PresigningData {
-                nonce,
-                ephemeral_scalar_share,
-                product_share,
+        let num_parties = key_shares.len();
+        let public_keys = key_shares[0]
+            .public_aux
+            .iter()
+            .map(|aux| aux.paillier_pk.to_precomputed())
+            .collect::<Vec<_>>();
+
+        let cap_k = ephemeral_scalar_shares
+            .iter()
+            .enumerate()
+            .map(|(i, k)| {
+                Ciphertext::new(
+                    rng,
+                    &public_keys[i],
+                    &<<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(k),
+                )
             })
-            .collect()
+            .collect::<Vec<_>>();
+
+        let mut presigning = Vec::new();
+
+        for i in 0..key_shares.len() {
+            let mut hat_beta_vec = HoleVecAccum::new(num_parties, i);
+            let mut hat_r_vec = HoleVecAccum::new(num_parties, i);
+            let mut hat_s_vec = HoleVecAccum::new(num_parties, i);
+            let mut hat_cap_d_vec = HoleVecAccum::new(num_parties, i);
+            let mut hat_cap_f_vec = HoleVecAccum::new(num_parties, i);
+
+            let x = key_shares[i].secret_share;
+            let k = ephemeral_scalar_shares[i];
+
+            for j in HoleRange::new(num_parties, i) {
+                let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
+                let hat_r = RandomizerMod::random(rng, &public_keys[i]).retrieve();
+                let hat_s = RandomizerMod::random(rng, &public_keys[j]).retrieve();
+
+                let hat_cap_d = cap_k[j]
+                    .homomorphic_mul(&public_keys[j], &Signed::from_scalar(&x))
+                    .homomorphic_add(
+                        &public_keys[j],
+                        &Ciphertext::new_with_randomizer_signed(
+                            &public_keys[j],
+                            &-hat_beta,
+                            &hat_s,
+                        ),
+                    );
+                let hat_cap_f =
+                    Ciphertext::new_with_randomizer_signed(&public_keys[j], &hat_beta, &hat_r);
+
+                hat_beta_vec.insert(j, hat_beta);
+                hat_r_vec.insert(j, hat_r);
+                hat_s_vec.insert(j, hat_s);
+                hat_cap_d_vec.insert(j, hat_cap_d);
+                hat_cap_f_vec.insert(j, hat_cap_f);
+            }
+
+            presigning.push(PresigningData {
+                nonce,
+                ephemeral_scalar_share: k,
+                product_share: product_shares[i],
+                hat_beta: hat_beta_vec.finalize().unwrap(),
+                hat_r: hat_r_vec.finalize().unwrap(),
+                hat_s: hat_s_vec.finalize().unwrap(),
+                hat_cap_d: hat_cap_d_vec.finalize().unwrap(),
+                hat_cap_f: hat_cap_f_vec.finalize().unwrap(),
+                cap_k: cap_k[i].clone(),
+            });
+        }
+
+        presigning.into()
     }
 }
 

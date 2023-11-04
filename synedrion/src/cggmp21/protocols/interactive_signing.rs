@@ -28,13 +28,13 @@ impl<P: SchemeParams> ProtocolResult for InteractiveSigningResult<P> {
 #[derive(Debug, Clone)]
 pub enum InteractiveSigningError<P: SchemeParams> {
     Presigning(<PresigningResult<P> as ProtocolResult>::ProvableError),
-    Signing(<SigningResult as ProtocolResult>::ProvableError),
+    Signing(<SigningResult<P> as ProtocolResult>::ProvableError),
 }
 
 #[derive(Debug, Clone)]
 pub enum InteractiveSigningProof<P: SchemeParams> {
     Presigning(<PresigningResult<P> as ProtocolResult>::CorrectnessProof),
-    Signing(<SigningResult as ProtocolResult>::CorrectnessProof),
+    Signing(<SigningResult<P> as ProtocolResult>::CorrectnessProof),
 }
 
 impl<P: SchemeParams> ResultWrapper<PresigningResult<P>> for InteractiveSigningResult<P> {
@@ -50,12 +50,14 @@ impl<P: SchemeParams> ResultWrapper<PresigningResult<P>> for InteractiveSigningR
     }
 }
 
-impl<P: SchemeParams> ResultWrapper<SigningResult> for InteractiveSigningResult<P> {
-    fn wrap_error(error: <SigningResult as ProtocolResult>::ProvableError) -> Self::ProvableError {
+impl<P: SchemeParams> ResultWrapper<SigningResult<P>> for InteractiveSigningResult<P> {
+    fn wrap_error(
+        error: <SigningResult<P> as ProtocolResult>::ProvableError,
+    ) -> Self::ProvableError {
         InteractiveSigningError::Signing(error)
     }
     fn wrap_proof(
-        proof: <SigningResult as ProtocolResult>::CorrectnessProof,
+        proof: <SigningResult<P> as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
         InteractiveSigningProof::Signing(proof)
     }
@@ -204,7 +206,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
         let signing_context = signing::Context {
             message: self.context.message,
             presigning: presigning_data,
-            verifying_key: self.context.key_share.verifying_key_as_point(),
+            key_share: self.context.key_share.to_precomputed(),
         };
         let signing_round = signing::Round1::new(
             rng,
@@ -223,14 +225,14 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
 }
 
 pub(crate) struct Round4<P: SchemeParams> {
-    round: signing::Round1,
+    round: signing::Round1<P>,
     phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> RoundWrapper for Round4<P> {
     type Type = ToResult;
     type Result = InteractiveSigningResult<P>;
-    type InnerRound = signing::Round1;
+    type InnerRound = signing::Round1<P>;
     const ROUND_NUM: u8 = 4;
     const NEXT_ROUND_NUM: Option<u8> = None;
     fn inner_round(&self) -> &Self::InnerRound {

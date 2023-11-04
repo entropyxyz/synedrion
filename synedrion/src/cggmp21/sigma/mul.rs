@@ -27,8 +27,7 @@ impl<P: SchemeParams> MulProof<P> {
         rng: &mut impl CryptoRngCore,
         secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x$
         rho_x_mod: &RandomizerMod<P::Paillier>,                 // $\rho_x$
-        rho_y_mod: &RandomizerMod<P::Paillier>,                 // the randomizer of $Y$
-        rho_c_mod: &RandomizerMod<P::Paillier>,                 // the randomizer of $C$
+        rho_mod: &RandomizerMod<P::Paillier>,                   // $\rho$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,         // $N$
         cap_y: &Ciphertext<P::Paillier>,                        // $Y$
         aux: &impl Hashable,
@@ -37,18 +36,6 @@ impl<P: SchemeParams> MulProof<P> {
 
         // Non-interactive challenge
         let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
-
-        /*
-        CHECK: in Fig. 29, the proof takes three ciphertexts:
-        $X = enc(x, \rho_x); Y; C = Y^x \rho^N$
-        But at the stage where it is supposed to be used (Presigning, Round 3), what we have is
-        $X = enc(x, \rho_x); Y = enc(y, \rho_y); C = enc(x * y, \rho_c)$
-        So instead of taking $\rho$ as a parameter, we take $\rho_y$ and $\rho_z$ that we know
-        and derive $\rho$ from them:
-        $\rho = \rho_c * \rho_y^(-x)$
-        Setting $\rho$ to this value will make $C$ have the desired relation to $x$ and $Y$.
-        */
-        let rho_mod = rho_c_mod * rho_y_mod.pow_signed(&-secret);
 
         let alpha_mod = pk.random_invertible_group_elem(rng);
         let r_mod = RandomizerMod::random(rng, pk);
@@ -140,15 +127,15 @@ mod tests {
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let y = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho_x = RandomizerMod::random(&mut OsRng, pk);
-        let rho_y = RandomizerMod::random(&mut OsRng, pk);
-        let rho_c = RandomizerMod::random(&mut OsRng, pk);
+        let rho = RandomizerMod::random(&mut OsRng, pk);
 
         let cap_x = Ciphertext::new_with_randomizer_signed(pk, &x, &rho_x.retrieve());
-        let cap_y = Ciphertext::new_with_randomizer_signed(pk, &y, &rho_y.retrieve());
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &(x * y), &rho_c.retrieve());
+        let cap_y = Ciphertext::new_signed(&mut OsRng, pk, &y);
+        let cap_c = cap_y
+            .homomorphic_mul(pk, &x)
+            .mul_randomizer(pk, &rho.retrieve());
 
-        let proof =
-            MulProof::<Params>::random(&mut OsRng, &x, &rho_x, &rho_y, &rho_c, pk, &cap_y, &aux);
+        let proof = MulProof::<Params>::random(&mut OsRng, &x, &rho_x, &rho, pk, &cap_y, &aux);
         assert!(proof.verify(pk, &cap_x, &cap_y, &cap_c, &aux));
     }
 }

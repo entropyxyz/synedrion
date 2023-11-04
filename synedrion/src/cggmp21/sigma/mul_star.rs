@@ -16,7 +16,7 @@ use crate::uint::{FromScalar, NonZero, Signed};
 
 const HASH_TAG: &[u8] = b"P_mul*";
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
     cap_a: Ciphertext<P::Paillier>,                        // $A$
     cap_b_x: Point,                                        // $B_x$

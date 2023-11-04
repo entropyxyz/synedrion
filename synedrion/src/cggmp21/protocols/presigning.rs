@@ -16,10 +16,10 @@ use crate::cggmp21::{
     SchemeParams,
 };
 use crate::curve::{Point, Scalar};
-use crate::paillier::{Ciphertext, PaillierParams, RandomizerMod};
+use crate::paillier::{Ciphertext, PaillierParams, Randomizer, RandomizerMod};
 use crate::tools::collections::{HoleRange, HoleVec};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{CheckedMul, FromScalar, Signed};
+use crate::uint::{Bounded, FromScalar, Signed};
 
 fn uint_from_scalar<P: SchemeParams>(
     x: &Scalar,
@@ -31,7 +31,7 @@ fn uint_from_scalar<P: SchemeParams>(
 pub struct PresigningResult<P: SchemeParams>(PhantomData<P>);
 
 impl<P: SchemeParams> ProtocolResult for PresigningResult<P> {
-    type Success = PresigningData;
+    type Success = PresigningData<P>;
     type ProvableError = PresigningError;
     type CorrectnessProof = PresigningProof<P>;
 }
@@ -269,7 +269,12 @@ pub struct Round2<P: SchemeParams> {
 pub struct Round2Artefact<P: SchemeParams> {
     beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
     beta_hat: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
+    r: Randomizer<P::Paillier>,                          // TODO: secret
+    s: Randomizer<P::Paillier>,                          // TODO: secret
+    hat_r: Randomizer<P::Paillier>,                      // TODO: secret
+    hat_s: Randomizer<P::Paillier>,                      // TODO: secret
     cap_f: Ciphertext<P::Paillier>,
+    hat_cap_f: Ciphertext<P::Paillier>,
 }
 
 pub struct Round2Payload<P: SchemeParams> {
@@ -277,6 +282,7 @@ pub struct Round2Payload<P: SchemeParams> {
     alpha: Signed<<P::Paillier as PaillierParams>::Uint>,
     alpha_hat: Scalar,
     cap_d: Ciphertext<P::Paillier>,
+    hat_cap_d: Ciphertext<P::Paillier>,
 }
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
@@ -317,16 +323,16 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
         let idx = destination.as_usize();
 
+        let target_pk = &self.context.key_share.public_aux[idx].paillier_pk;
+
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
         let beta_hat = Signed::random_bounded_bits(rng, P::LP_BOUND);
         let r = RandomizerMod::random(rng, pk);
-        let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r.retrieve());
-
-        let target_pk = &self.context.key_share.public_aux[idx].paillier_pk;
-
         let s = RandomizerMod::random(rng, target_pk);
         let r_hat = RandomizerMod::random(rng, pk);
         let s_hat = RandomizerMod::random(rng, target_pk);
+
+        let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r.retrieve());
 
         let d = self.k_ciphertexts[idx]
             .homomorphic_mul(target_pk, &Signed::from_scalar(&self.context.gamma))
@@ -390,7 +396,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             d,
             f: cap_f.clone(),
             d_hat,
-            f_hat,
+            f_hat: f_hat.clone(),
             psi,
             psi_hat,
             psi_hat_prime,
@@ -399,7 +405,12 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let artefact = Round2Artefact {
             beta,
             beta_hat,
+            r: r.retrieve(),
+            s: s.retrieve(),
+            hat_r: r_hat.retrieve(),
+            hat_s: s_hat.retrieve(),
             cap_f,
+            hat_cap_f: f_hat,
         };
 
         Ok((msg, artefact))
@@ -484,6 +495,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             alpha,
             alpha_hat,
             cap_d: msg.d,
+            hat_cap_d: msg.d_hat,
         })
     }
 }
@@ -519,6 +531,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
             + beta_hat_sum.to_scalar();
 
         let cap_ds = dm_payloads.map_ref(|payload| payload.cap_d.clone());
+        let hat_cap_d = dm_payloads.map_ref(|payload| payload.hat_cap_d.clone());
 
         Ok(Round3 {
             context: self.context,
@@ -529,6 +542,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
             k_ciphertexts: self.k_ciphertexts,
             g_ciphertexts: self.g_ciphertexts,
             cap_ds,
+            hat_cap_d,
             round2_artefacts: dm_artefacts,
         })
     }
@@ -552,6 +566,7 @@ pub struct Round3<P: SchemeParams> {
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
     cap_ds: HoleVec<Ciphertext<P::Paillier>>,
+    hat_cap_d: HoleVec<Ciphertext<P::Paillier>>,
     round2_artefacts: HoleVec<Round2Artefact<P>>,
 }
 
@@ -652,8 +667,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PresigningProof<P: SchemeParams> {
-    // TODO: attach the aff-g proofs
-    // Check: do we actually need to create them for every set of aux parameters?
+    aff_g_proofs: Vec<(PartyIdx, PartyIdx, AffGProof<P>)>,
     mul_proof: MulProof<P>,
     dec_proofs: Vec<(PartyIdx, DecProof<P>)>,
 }
@@ -677,45 +691,92 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         let big_delta: Point = big_deltas.iter().sum();
         let big_delta = big_delta + self.big_delta;
 
+        let my_idx = self.context.key_share.party_index().as_usize();
+
         if delta.mul_by_generator() == big_delta {
             // TODO: seems like we only need the x-coordinate of this (as a Scalar)
             let nonce = &self.big_gamma * &delta.invert().unwrap();
+
+            let hat_beta = self.round2_artefacts.map_ref(|artefact| artefact.beta_hat);
+            let hat_r = self
+                .round2_artefacts
+                .map_ref(|artefact| artefact.hat_r.clone());
+            let hat_s = self
+                .round2_artefacts
+                .map_ref(|artefact| artefact.hat_s.clone());
+            let hat_cap_f = self
+                .round2_artefacts
+                .map_ref(|artefact| artefact.hat_cap_f.clone());
 
             return Ok(PresigningData {
                 nonce,
                 ephemeral_scalar_share: self.context.ephemeral_scalar_share,
                 product_share: self.product_share,
+
+                hat_beta,
+                hat_r,
+                hat_s,
+                cap_k: self.k_ciphertexts[my_idx].clone(),
+                hat_cap_d: self.hat_cap_d,
+                hat_cap_f,
             });
         }
 
         // Construct the correctness proofs
 
-        // Mul proof
-
         let sk = &self.context.key_share.secret_aux.paillier_sk;
         let pk = sk.public_key();
-        let my_idx = self.context.key_share.party_index().as_usize();
-
-        let rho_h = RandomizerMod::random(rng, pk);
-        let cap_h = Ciphertext::new_with_randomizer(
-            pk,
-            &uint_from_scalar::<P>(&self.context.ephemeral_scalar_share)
-                .checked_mul(&uint_from_scalar::<P>(&self.context.gamma))
-                .unwrap(),
-            &rho_h.retrieve(),
-        );
+        let num_parties = self.context.key_share.num_parties();
 
         let aux = (
             &self.context.shared_randomness,
             &self.context.key_share.party_index(),
         );
 
+        // Aff-g proofs
+
+        let mut aff_g_proofs = Vec::new();
+
+        let beta = self.round2_artefacts.map_ref(|artefact| artefact.beta);
+        let r = self.round2_artefacts.map_ref(|artefact| artefact.r.clone());
+        let s = self.round2_artefacts.map_ref(|artefact| artefact.s.clone());
+
+        for j in HoleRange::new(num_parties, my_idx) {
+            // TODO: can exclude `j` in addition to `my_idx`.
+            // Should we have a "double hole vec" for that?
+            for l in HoleRange::new(num_parties, my_idx) {
+                let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
+                let aux_rp = &self.context.key_share.public_aux[l].aux_rp_params;
+
+                let p_aff_g = AffGProof::<P>::random(
+                    rng,
+                    &Signed::from_scalar(&self.context.gamma),
+                    beta.get(j).unwrap(),
+                    &s.get(j).unwrap().to_mod(target_pk),
+                    &r.get(j).unwrap().to_mod(pk),
+                    target_pk,
+                    pk,
+                    &self.k_ciphertexts[j],
+                    aux_rp,
+                    &aux,
+                );
+
+                aff_g_proofs.push((PartyIdx::from_usize(j), PartyIdx::from_usize(l), p_aff_g));
+            }
+        }
+
+        // Mul proof
+
+        let rho = RandomizerMod::random(rng, pk);
+        let cap_h = self.k_ciphertexts[my_idx]
+            .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&self.context.gamma))
+            .mul_randomizer(pk, &rho.retrieve());
+
         let p_mul = MulProof::<P>::random(
             rng,
             &Signed::from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
-            &self.context.nu,
-            &rho_h,
+            &rho,
             pk,
             &self.g_ciphertexts[my_idx],
             &aux,
@@ -763,6 +824,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         }
 
         Err(FinalizeError::Proof(PresigningProof {
+            aff_g_proofs,
             dec_proofs,
             mul_proof: p_mul,
         }))
