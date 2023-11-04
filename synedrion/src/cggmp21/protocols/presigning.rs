@@ -269,6 +269,8 @@ pub struct Round2<P: SchemeParams> {
 pub struct Round2Artefact<P: SchemeParams> {
     beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
     beta_hat: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
+    r: Randomizer<P::Paillier>,                          // TODO: secret
+    s: Randomizer<P::Paillier>,                          // TODO: secret
     hat_r: Randomizer<P::Paillier>,                      // TODO: secret
     hat_s: Randomizer<P::Paillier>,                      // TODO: secret
     cap_f: Ciphertext<P::Paillier>,
@@ -403,6 +405,8 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let artefact = Round2Artefact {
             beta,
             beta_hat,
+            r: r.retrieve(),
+            s: s.retrieve(),
             hat_r: r_hat.retrieve(),
             hat_s: s_hat.retrieve(),
             cap_f,
@@ -663,8 +667,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PresigningProof<P: SchemeParams> {
-    // TODO: attach the aff-g proofs
-    // Check: do we actually need to create them for every set of aux parameters?
+    aff_g_proofs: Vec<(PartyIdx, PartyIdx, AffGProof<P>)>,
     mul_proof: MulProof<P>,
     dec_proofs: Vec<(PartyIdx, DecProof<P>)>,
 }
@@ -721,20 +724,53 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         // Construct the correctness proofs
 
-        // Mul proof
-
         let sk = &self.context.key_share.secret_aux.paillier_sk;
         let pk = sk.public_key();
-
-        let rho = RandomizerMod::random(rng, pk);
-        let cap_h = self.k_ciphertexts[my_idx]
-            .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&self.context.gamma))
-            .mul_randomizer(pk, &rho.retrieve());
+        let num_parties = self.context.key_share.num_parties();
 
         let aux = (
             &self.context.shared_randomness,
             &self.context.key_share.party_index(),
         );
+
+        // Aff-g proofs
+
+        let mut aff_g_proofs = Vec::new();
+
+        let beta = self.round2_artefacts.map_ref(|artefact| artefact.beta);
+        let r = self.round2_artefacts.map_ref(|artefact| artefact.r.clone());
+        let s = self.round2_artefacts.map_ref(|artefact| artefact.s.clone());
+
+        for j in HoleRange::new(num_parties, my_idx) {
+            // TODO: can exclude `j` in addition to `my_idx`.
+            // Should we have a "double hole vec" for that?
+            for l in HoleRange::new(num_parties, my_idx) {
+                let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
+                let aux_rp = &self.context.key_share.public_aux[l].aux_rp_params;
+
+                let p_aff_g = AffGProof::<P>::random(
+                    rng,
+                    &Signed::from_scalar(&self.context.gamma),
+                    beta.get(j).unwrap(),
+                    &s.get(j).unwrap().to_mod(target_pk),
+                    &r.get(j).unwrap().to_mod(pk),
+                    target_pk,
+                    pk,
+                    &self.k_ciphertexts[j],
+                    aux_rp,
+                    &aux,
+                );
+
+                aff_g_proofs.push((PartyIdx::from_usize(j), PartyIdx::from_usize(l), p_aff_g));
+            }
+        }
+
+        // Mul proof
+
+        let rho = RandomizerMod::random(rng, pk);
+        let cap_h = self.k_ciphertexts[my_idx]
+            .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&self.context.gamma))
+            .mul_randomizer(pk, &rho.retrieve());
 
         let p_mul = MulProof::<P>::random(
             rng,
@@ -788,6 +824,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         }
 
         Err(FinalizeError::Proof(PresigningProof {
+            aff_g_proofs,
             dec_proofs,
             mul_proof: p_mul,
         }))

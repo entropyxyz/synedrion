@@ -13,7 +13,7 @@ use crate::uint::{
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct Randomizer<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> Randomizer<P> {
