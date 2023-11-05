@@ -90,9 +90,6 @@ pub(crate) struct PublicAuxInfo<P: SchemeParams> {
     pub(crate) el_gamal_pk: Point, // `Y_i`
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
-    /// Auxiliary public key and ring-Pedersen parameters (for ZK proofs).
-    pub(crate) aux_paillier_pk: PublicKeyPaillier<P::Paillier>,
-    pub(crate) aux_rp_params: RPParams<P::Paillier>,
     /// The ring-Pedersen parameters.
     pub(crate) rp_params: RPParams<P::Paillier>, // `s_i` and `t_i`
 }
@@ -118,8 +115,6 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
     #[allow(dead_code)]
     pub(crate) el_gamal_pk: Point,
     pub(crate) paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
-    pub(crate) aux_rp_params: RPParamsMod<P::Paillier>,
-    #[allow(dead_code)]
     pub(crate) rp_params: RPParamsMod<P::Paillier>,
 }
 
@@ -243,12 +238,10 @@ impl<P: SchemeParams> KeyShare<P> {
                 .iter()
                 .map(|public_aux| {
                     let paillier_pk = public_aux.paillier_pk.to_precomputed();
-                    let aux_paillier_pk = public_aux.aux_paillier_pk.to_precomputed();
                     PublicAuxInfoPrecomputed {
                         el_gamal_pk: public_aux.el_gamal_pk,
                         paillier_pk: paillier_pk.clone(),
                         rp_params: public_aux.rp_params.to_mod(&paillier_pk),
-                        aux_rp_params: public_aux.aux_rp_params.to_mod(&aux_paillier_pk),
                     }
                 })
                 .collect(),
@@ -454,11 +447,8 @@ pub(crate) fn make_aux_info<P: SchemeParams>(
         .iter()
         .map(|secret| {
             let sk = secret.paillier_sk.to_precomputed();
-            let aux_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
             PublicAuxInfo {
                 paillier_pk: sk.public_key().to_minimal(),
-                aux_paillier_pk: aux_sk.public_key().to_minimal(),
-                aux_rp_params: RPParamsMod::random(rng, &aux_sk).retrieve(),
                 el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
                 rp_params: RPParamsMod::random(rng, &sk).retrieve(),
             }

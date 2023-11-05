@@ -159,7 +159,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             // Should we have a "double hole vec" for that?
             for l in HoleRange::new(num_parties, my_idx) {
                 let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
-                let aux_rp = &self.context.key_share.public_aux[l].aux_rp_params;
+                let rp = &self.context.key_share.public_aux[l].rp_params;
 
                 let p_aff_g = AffGProof::<P>::random(
                     rng,
@@ -176,7 +176,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                     target_pk,
                     pk,
                     &self.context.presigning.cap_k,
-                    aux_rp,
+                    rp,
                     &aux,
                 );
 
@@ -210,7 +210,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 &rho,
                 pk,
                 &self.context.presigning.cap_k,
-                &self.context.key_share.public_aux[l].aux_rp_params,
+                &self.context.key_share.public_aux[l].rp_params,
                 &aux,
             );
 
