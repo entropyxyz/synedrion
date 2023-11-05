@@ -337,8 +337,10 @@ impl<P: PaillierParams> Hashable for Ciphertext<P> {
 mod tests {
     use rand_core::OsRng;
 
+    use super::super::params::PaillierTest;
+    use super::super::{PaillierParams, SecretKeyPaillier};
     use super::{Ciphertext, RandomizerMod};
-    use crate::paillier::{PaillierParams, PaillierTest, SecretKeyPaillier};
+
     use crate::uint::{
         subtle::ConditionallyNegatable, HasWide, NonZero, RandomMod, Signed, UintLike,
     };

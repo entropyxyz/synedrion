@@ -289,8 +289,8 @@ impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {
 mod tests {
     use rand_core::OsRng;
 
+    use super::super::params::PaillierTest;
     use super::SecretKeyPaillier;
-    use crate::paillier::PaillierTest;
 
     #[test]
     fn basics() {
