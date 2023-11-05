@@ -179,7 +179,7 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
             &Signed::from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
             &self.context.key_share.secret_aux.paillier_sk,
-            &self.context.key_share.public_aux[destination.as_usize()].aux_rp_params,
+            &self.context.key_share.public_aux[destination.as_usize()].rp_params,
             &aux,
         );
         Ok((Round1Direct(proof), ()))
@@ -218,7 +218,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
             if !proof.0.verify(
                 &self.context.key_share.public_aux[from].paillier_pk,
                 &ciphertexts.k_ciphertext,
-                &public_aux.aux_rp_params,
+                &public_aux.rp_params,
                 &aux,
             ) {
                 return Err(FinalizeError::Provable {
@@ -353,7 +353,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let f_hat = Ciphertext::new_with_randomizer_signed(pk, &beta_hat, &r_hat.retrieve());
 
         let public_aux = &self.context.key_share.public_aux[idx];
-        let aux_rp = &public_aux.aux_rp_params;
+        let rp = &public_aux.rp_params;
 
         let psi = AffGProof::random(
             rng,
@@ -364,7 +364,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             target_pk,
             pk,
             &self.k_ciphertexts[idx],
-            aux_rp,
+            rp,
             &aux,
         );
 
@@ -377,7 +377,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             target_pk,
             pk,
             &self.k_ciphertexts[idx],
-            aux_rp,
+            rp,
             &aux,
         );
 
@@ -387,7 +387,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             &self.context.nu,
             pk,
             &Point::GENERATOR,
-            aux_rp,
+            rp,
             &aux,
         );
 
@@ -429,7 +429,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
 
         let public_aux =
             &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
-        let aux_rp = &public_aux.aux_rp_params;
+        let rp = &public_aux.rp_params;
 
         if !msg.psi.verify(
             pk,
@@ -438,7 +438,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             &msg.d,
             &msg.f,
             &msg.gamma,
-            aux_rp,
+            rp,
             &aux,
         ) {
             return Err(ReceiveError::Provable(PresigningError::Round2(
@@ -453,7 +453,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             &msg.d_hat,
             &msg.f_hat,
             &big_x,
-            aux_rp,
+            rp,
             &aux,
         ) {
             return Err(ReceiveError::Provable(PresigningError::Round2(
@@ -466,7 +466,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             &self.g_ciphertexts[from.as_usize()],
             &Point::GENERATOR,
             &msg.gamma,
-            aux_rp,
+            rp,
             &aux,
         ) {
             return Err(ReceiveError::Provable(PresigningError::Round2(
@@ -612,7 +612,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         let idx = destination.as_usize();
 
         let public_aux = &self.context.key_share.public_aux[idx];
-        let aux_rp = &public_aux.aux_rp_params;
+        let rp = &public_aux.rp_params;
 
         let psi_hat_pprime = LogStarProof::random(
             rng,
@@ -620,7 +620,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             &self.context.rho,
             pk,
             &self.big_gamma,
-            aux_rp,
+            rp,
             &aux,
         );
         let message = Round3Direct {
@@ -642,14 +642,14 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 
         let public_aux =
             &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
-        let aux_rp = &public_aux.aux_rp_params;
+        let rp = &public_aux.rp_params;
 
         if !msg.psi_hat_pprime.verify(
             from_pk,
             &self.k_ciphertexts[from.as_usize()],
             &self.big_gamma,
             &msg.big_delta,
-            aux_rp,
+            rp,
             &aux,
         ) {
             return Err(ReceiveError::Provable(PresigningError::Round3(
@@ -746,7 +746,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             // Should we have a "double hole vec" for that?
             for l in HoleRange::new(num_parties, my_idx) {
                 let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
-                let aux_rp = &self.context.key_share.public_aux[l].aux_rp_params;
+                let rp = &self.context.key_share.public_aux[l].rp_params;
 
                 let p_aff_g = AffGProof::<P>::random(
                     rng,
@@ -757,7 +757,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                     target_pk,
                     pk,
                     &self.k_ciphertexts[j],
-                    aux_rp,
+                    rp,
                     &aux,
                 );
 

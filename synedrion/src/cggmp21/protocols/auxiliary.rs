@@ -62,16 +62,13 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
 #[serde(bound(serialize = "PrmProof<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
 pub struct FullData<P: SchemeParams> {
-    xs_public: Vec<Point>,                           // $\bm{X}_i$
-    sch_commitments_x: Vec<SchCommitment>,           // $\bm{A}_i$
-    el_gamal_pk: Point,                              // $Y_i$,
-    el_gamal_commitment: SchCommitment,              // $B_i$
-    paillier_pk: PublicKeyPaillier<P::Paillier>,     // $N_i$
-    aux_paillier_pk: PublicKeyPaillier<P::Paillier>, // $\hat{N}_i$
-    rp_params: RPParams<P::Paillier>,                // $s_i$ and $t_i$
-    prm_proof: PrmProof<P>,                          // $\hat{\psi}_i$
-    aux_rp_params: RPParams<P::Paillier>, // setup parameters($s_i$ and $t_i$ for $\hat{N}$)
-    aux_prm_proof: PrmProof<P>,           // a proof for the setup parameters
+    xs_public: Vec<Point>,                       // $\bm{X}_i$
+    sch_commitments_x: Vec<SchCommitment>,       // $\bm{A}_i$
+    el_gamal_pk: Point,                          // $Y_i$,
+    el_gamal_commitment: SchCommitment,          // $B_i$
+    paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
+    rp_params: RPParams<P::Paillier>,            // $s_i$ and $t_i$
+    prm_proof: PrmProof<P>,                      // $\hat{\psi}_i$
     #[serde(with = "serde_bytes::as_base64")]
     rho_bits: Box<[u8]>, // $\rho_i$
     #[serde(with = "serde_bytes::as_base64")]
@@ -83,14 +80,11 @@ pub struct FullData<P: SchemeParams> {
 pub struct FullDataPrecomp<P: SchemeParams> {
     data: FullData<P>,
     paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>, // $N_i$
-    aux_paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>, // $\hat{N}_i$
     rp_params: RPParamsMod<P::Paillier>,                    // $s_i$ and $t_i$
-    aux_rp_params: RPParamsMod<P::Paillier>, // setup parameters($s_i$ and $t_i$ for $\hat{N}$)
 }
 
 struct Context<P: SchemeParams> {
     paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
-    aux_paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
     el_gamal_sk: Scalar,
     xs_secret: Vec<Scalar>,
     el_gamal_proof_secret: SchSecret,
@@ -109,11 +103,8 @@ impl<P: SchemeParams> Hashable for FullData<P> {
             .chain(&self.el_gamal_pk)
             .chain(&self.el_gamal_commitment)
             .chain(&self.paillier_pk)
-            .chain(&self.aux_paillier_pk)
             .chain(&self.rp_params)
             .chain(&self.prm_proof)
-            .chain(&self.aux_rp_params)
-            .chain(&self.aux_prm_proof)
             .chain(&self.rho_bits)
             .chain(&self.u_bits)
     }
@@ -160,20 +151,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let rp_secret = RPSecret::random(rng, &paillier_sk);
         let rp_params = RPParamsMod::random_with_secret(rng, &rp_secret, paillier_pk);
 
-        // CHECK: This is not a part of the KeyRefresh/Aux protocol in Fig.6, but according to
-        // "Generating the Setup Parameter for the Range Proofs" in Section 2.3,
-        // the verifier generates the auxiliary RP params (and the corresponding
-        // P^{mod} and P^{prm} proofs), so this seems like the right place to do it.
-        let aux_paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
-        let aux_paillier_pk = aux_paillier_sk.public_key();
-        let aux_rp_secret = RPSecret::random(rng, &aux_paillier_sk);
-        let aux_rp_params = RPParamsMod::random_with_secret(rng, &aux_rp_secret, aux_paillier_pk);
-
         let aux = (&shared_randomness, &party_idx);
         let prm_proof = PrmProof::<P>::random(rng, &paillier_sk, &rp_secret, &rp_params, &aux);
-
-        let aux_prm_proof =
-            PrmProof::<P>::random(rng, &aux_paillier_sk, &aux_rp_secret, &aux_rp_params, &aux);
 
         // $\tau_j$
         let sch_secrets_x: Vec<SchSecret> =
@@ -191,11 +170,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             el_gamal_pk,
             el_gamal_commitment,
             paillier_pk: paillier_pk.to_minimal(),
-            aux_paillier_pk: aux_paillier_pk.to_minimal(),
             rp_params: rp_params.retrieve(),
-            aux_rp_params: aux_rp_params.retrieve(),
             prm_proof,
-            aux_prm_proof,
             rho_bits: rho_bits.clone(),
             u_bits: u_bits.clone(),
         };
@@ -203,14 +179,11 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let data_precomp = FullDataPrecomp {
             data,
             paillier_pk: paillier_pk.clone(),
-            aux_paillier_pk: aux_paillier_pk.clone(),
             rp_params,
-            aux_rp_params,
         };
 
         let context = Context {
             paillier_sk,
-            aux_paillier_sk,
             el_gamal_sk,
             xs_secret,
             sch_secrets_x,
@@ -378,20 +351,10 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
             )));
         }
 
-        let aux_paillier_pk = msg.data.aux_paillier_pk.to_precomputed();
-        let aux_rp_params = msg.data.aux_rp_params.to_mod(&aux_paillier_pk);
-        if !msg.data.aux_prm_proof.verify(&aux_rp_params, &aux) {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("PRM verification (setup parameters) failed".into()),
-            )));
-        }
-
         Ok(FullDataPrecomp {
             data: msg.data,
             paillier_pk,
-            aux_paillier_pk,
             rp_params,
-            aux_rp_params,
         })
     }
 }
@@ -426,7 +389,6 @@ pub struct Round3<P: SchemeParams> {
     rho: Box<[u8]>,
     datas: HoleVec<FullDataPrecomp<P>>,
     mod_proof: ModProof<P>,
-    aux_mod_proof: ModProof<P>,
     sch_proof_y: SchProof,
 }
 
@@ -439,7 +401,6 @@ pub struct Round3<P: SchemeParams> {
     Ciphertext<P::Paillier>: for<'x> Deserialize<'x>"))]
 pub struct FullData2<P: SchemeParams> {
     mod_proof: ModProof<P>,                  // `psi_j`
-    aux_mod_proof: ModProof<P>,              // $P^{mod}$ for the setup parameters
     fac_proof: FacProof<P>,                  // `phi_j,i`
     sch_proof_y: SchProof,                   // `pi_i`
     paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
@@ -463,8 +424,6 @@ impl<P: SchemeParams> Round3<P> {
         let aux = (&context.shared_randomness, &rho, &context.party_idx);
         let mod_proof = ModProof::random(rng, &context.paillier_sk, &aux);
 
-        let aux_mod_proof = ModProof::random(rng, &context.aux_paillier_sk, &aux);
-
         let sch_proof_y = SchProof::new(
             &context.el_gamal_proof_secret,
             &context.el_gamal_sk,
@@ -478,7 +437,6 @@ impl<P: SchemeParams> Round3<P> {
             datas,
             rho,
             mod_proof,
-            aux_mod_proof,
             sch_proof_y,
         }
     }
@@ -525,7 +483,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         let fac_proof = FacProof::random(
             rng,
             &self.context.paillier_sk,
-            &self.datas.get(idx).unwrap().aux_rp_params,
+            &self.datas.get(idx).unwrap().rp_params,
             &aux,
         );
 
@@ -543,7 +501,6 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 
         let data2 = FullData2 {
             mod_proof: self.mod_proof.clone(),
-            aux_mod_proof: self.aux_mod_proof.clone(),
             fac_proof,
             sch_proof_y: self.sch_proof_y.clone(),
             paillier_enc_x: ciphertext,
@@ -590,21 +547,9 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             )));
         }
 
-        if !msg
-            .data2
-            .aux_mod_proof
-            .verify(&sender_data.aux_paillier_pk, &aux)
-        {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3(
-                    "Mod proof (setup parameters) verification failed".into(),
-                ),
-            )));
-        }
-
         if !msg.data2.fac_proof.verify(
             &sender_data.paillier_pk,
-            &self.context.data_precomp.aux_rp_params,
+            &self.context.data_precomp.rp_params,
             &aux,
         ) {
             return Err(ReceiveError::Provable(KeyRefreshError(
@@ -665,9 +610,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             .map(|data| PublicAuxInfo {
                 el_gamal_pk: data.data.el_gamal_pk,
                 paillier_pk: data.paillier_pk.to_minimal(),
-                aux_paillier_pk: data.aux_paillier_pk.to_minimal(),
                 rp_params: data.rp_params.retrieve(),
-                aux_rp_params: data.aux_rp_params.retrieve(),
             })
             .collect();
 
