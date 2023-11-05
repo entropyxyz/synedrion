@@ -8,5 +8,5 @@ pub(crate) use keys::{
     PublicKeyPaillier, PublicKeyPaillierPrecomputed, SecretKeyPaillier,
     SecretKeyPaillierPrecomputed,
 };
-pub(crate) use params::{PaillierParams, PaillierProduction, PaillierTest};
+pub(crate) use params::PaillierParams;
 pub(crate) use ring_pedersen::{RPCommitment, RPParams, RPParamsMod, RPSecret};
