@@ -2,10 +2,10 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use digest::{Digest, XofReader};
-use rand_core::SeedableRng;
+use digest::{Digest, ExtendableOutput, Update, XofReader};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use sha3::{Shake256, Shake256Reader};
 
 use crate::curve::Scalar;
 use crate::tools::serde_bytes;
@@ -79,9 +79,30 @@ impl Hash {
     pub fn finalize_to_scalar(self) -> Scalar {
         Scalar::from_digest(self.0)
     }
+}
 
-    pub fn finalize_to_rng(self) -> rand_chacha::ChaCha8Rng {
-        rand_chacha::ChaCha8Rng::from_seed(self.0.finalize().into())
+/// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
+pub struct XofHash(Shake256);
+
+impl Chain for XofHash {
+    fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
+        let mut digest = self.0;
+        digest.update(bytes);
+        Self(digest)
+    }
+}
+
+impl XofHash {
+    fn new() -> Self {
+        Self(Shake256::default())
+    }
+
+    pub fn new_with_dst(dst: &[u8]) -> Self {
+        Self::new().chain_bytes(dst)
+    }
+
+    pub fn finalize_to_reader(self) -> Shake256Reader {
+        self.0.finalize_xof()
     }
 }
 

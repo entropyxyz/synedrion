@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::tools::hashing::{Chain, Hash, Hashable};
-use crate::uint::{JacobiSymbol, JacobiSymbolTrait, RandomMod, Retrieve, UintModLike};
+use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::uint::{JacobiSymbol, JacobiSymbolTrait, RandomMod, Retrieve, UintLike, UintModLike};
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -35,10 +35,13 @@ struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>)
 
 impl<P: SchemeParams> ModChallenge<P> {
     fn new(aux: &impl Hashable, pk: &PublicKeyPaillierPrecomputed<P::Paillier>) -> Self {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
+
         let modulus = pk.modulus_nonzero();
         let ys = (0..P::SECURITY_PARAMETER)
-            .map(|_| <P::Paillier as PaillierParams>::Uint::random_mod(&mut aux_rng, &modulus))
+            .map(|_| <P::Paillier as PaillierParams>::Uint::from_xof(&mut reader, &modulus))
             .collect();
         Self(ys)
     }

@@ -7,8 +7,8 @@ use crypto_bigint::{
     },
     nlimbs,
     subtle::{self, Choice, ConstantTimeLess, CtOption},
-    Encoding, Integer, Invert, Limb, NonZero, PowBoundedExp, Random, RandomMod, Uint, Word, Zero,
-    U1024, U2048, U4096, U512, U8192,
+    Encoding, Integer, Invert, NonZero, PowBoundedExp, Random, RandomMod, Uint, Zero, U1024, U2048,
+    U4096, U512, U8192,
 };
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
@@ -45,8 +45,7 @@ pub trait UintLike:
     + Random
     + subtle::ConditionallySelectable
 {
-    // TODO: do we really need this? Or can we just use a simple RNG and `random_mod()`?
-    fn hash_into_mod(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self;
+    fn from_xof(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self;
     fn add_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self;
     fn sub_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self;
     fn trailing_zeros(&self) -> usize;
@@ -79,25 +78,21 @@ pub trait HasWide: Sized + Zero {
     }
 }
 
-impl<const L: usize> UintLike for Uint<L> {
-    fn hash_into_mod(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self {
-        // TODO: The algorithm taken from `impl RandomMod for crypto_bigint::Uint<L>`.
-        // Consider if this functionality can be added to `crypto_bigint`.
-        let mut n = Uint::<L>::ZERO;
+impl<const L: usize> UintLike for Uint<L>
+where
+    Uint<L>: Encoding,
+{
+    fn from_xof(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self {
         let backend_modulus = modulus.as_ref();
 
         let n_bits = backend_modulus.bits_vartime();
-        let n_limbs = (n_bits + Limb::BITS - 1) / Limb::BITS;
-        let mask = Limb::MAX >> (Limb::BITS * n_limbs - n_bits);
+        let n_bytes = (n_bits + 7) / 8; // ceiling division by 8
 
-        let mut limb_bytes = [0u8; Limb::BYTES];
+        let mut bytes = Uint::<L>::ZERO.to_le_bytes();
 
         loop {
-            for i in 0..n_limbs {
-                reader.read(&mut limb_bytes);
-                n.as_limbs_mut()[i] = Limb(Word::from_be_bytes(limb_bytes));
-            }
-            n.as_limbs_mut()[n_limbs - 1] = n.as_limbs()[n_limbs - 1] & mask;
+            reader.read(&mut (bytes.as_mut()[0..n_bytes]));
+            let n = Uint::<L>::from_le_bytes(bytes);
 
             if n.ct_lt(backend_modulus).into() {
                 return n;
@@ -167,21 +162,12 @@ impl<const L: usize> UintLike for Uint<L> {
     }
 }
 
-impl<const L: usize> Hashable for Uint<L> {
+impl<const L: usize> Hashable for Uint<L>
+where
+    Uint<L>: Encoding,
+{
     fn chain<C: Chain>(&self, digest: C) -> C {
-        // NOTE: This relies on the fact that `as_words()` returns words
-        // starting from the least significant one.
-        // So when we hash them like that it is equivalent to hashing the whole thing
-        // in the big endian bytes representation.
-        // We don't need the length into the digest since it is fixed.
-        // TODO: This may be replaced with `to_be_bytes()` call when we have it;
-        // right now `Encoding::to_be_bytes()` is only implemented for specific
-        // `crypto_bigint::Uint<L>`, but there is no generic implementation.
-        let mut digest = digest;
-        for word in self.as_words().iter().rev() {
-            digest = digest.chain_constant_sized_bytes(&word.to_be_bytes());
-        }
-        digest
+        digest.chain_constant_sized_bytes(&self.to_be_bytes())
     }
 }
 
@@ -242,7 +228,10 @@ pub trait UintModLike:
     fn square(&self) -> Self;
 }
 
-impl<const L: usize> UintModLike for DynResidue<L> {
+impl<const L: usize> UintModLike for DynResidue<L>
+where
+    Uint<L>: Encoding,
+{
     type RawUint = Uint<L>;
     type Precomputed = DynResidueParams<L>;
 
@@ -319,7 +308,10 @@ where
     T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
 
-impl<const L: usize> Hashable for DynResidue<L> {
+impl<const L: usize> Hashable for DynResidue<L>
+where
+    Uint<L>: Encoding,
+{
     fn chain<C: Chain>(&self, digest: C) -> C {
         // TODO: I don't think we really need `retrieve()` here,
         // but `DynResidue` objects are not serializable at the moment.

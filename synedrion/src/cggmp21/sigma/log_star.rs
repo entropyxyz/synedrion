@@ -9,7 +9,7 @@ use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
     Randomizer, RandomizerMod,
 };
-use crate::tools::hashing::{Chain, Hash, Hashable};
+use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{FromScalar, NonZero, Signed};
 
 const HASH_TAG: &[u8] = b"P_log*";
@@ -36,10 +36,13 @@ impl<P: SchemeParams> LogStarProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>,                 // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e =
+            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
 
@@ -78,10 +81,13 @@ impl<P: SchemeParams> LogStarProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e =
+            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // enc_0(z1, z2) == A (+) C (*) e
         let c = Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.z2);

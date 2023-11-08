@@ -2,6 +2,7 @@ use core::fmt;
 use core::marker::PhantomData;
 use core::ops::{Add, Mul, Neg, Not, Sub};
 
+use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{
     de, de::Error, ser::SerializeTupleStruct, Deserialize, Deserializer, Serialize, Serializer,
@@ -158,8 +159,28 @@ impl<T: UintLike> Signed<T> {
         let bound_bits = bound.as_ref().bits_vartime();
         assert!(bound_bits < <T as Integer>::BITS);
         // Will not overflow because of the assertion above
-        let positive_bound = (*bound.as_ref() << 1).checked_add(&T::ONE).unwrap();
+        let positive_bound = bound.as_ref().shl_vartime(1).checked_add(&T::ONE).unwrap();
         let positive_result = T::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+        // Will not panic because of the assertion above
+        Self::new_from_unsigned(
+            positive_result.wrapping_sub(bound.as_ref()),
+            bound_bits as u32,
+        )
+        .unwrap()
+    }
+
+    /// Returns a value in range `[-bound, bound]` derived from an extendable-output hash.
+    ///
+    /// This method should be used for deriving non-interactive challenges,
+    /// since it is guaranteed to produce the same results on 32- and 64-bit platforms.
+    ///
+    /// Note: variable time in bit size of `bound`.
+    pub fn from_xof_reader_bounded(rng: &mut impl XofReader, bound: &NonZero<T>) -> Self {
+        let bound_bits = bound.as_ref().bits_vartime();
+        assert!(bound_bits < <T as Integer>::BITS);
+        // Will not overflow because of the assertion above
+        let positive_bound = bound.as_ref().shl_vartime(1).checked_add(&T::ONE).unwrap();
+        let positive_result = T::from_xof(rng, &NonZero::new(positive_bound).unwrap());
         // Will not panic because of the assertion above
         Self::new_from_unsigned(
             positive_result.wrapping_sub(bound.as_ref()),
