@@ -5,8 +5,8 @@
 
 use alloc::{vec, vec::Vec};
 
-use rand_core::{CryptoRngCore, RngCore};
-
+use digest::XofReader;
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
@@ -14,7 +14,7 @@ use crate::paillier::{
     PaillierParams, PublicKeyPaillierPrecomputed, RPParamsMod, RPSecret,
     SecretKeyPaillierPrecomputed,
 };
-use crate::tools::hashing::{Chain, Hash, Hashable};
+use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, Retrieve, UintModLike,
@@ -73,12 +73,12 @@ struct PrmChallenge(Vec<bool>);
 impl PrmChallenge {
     fn new<P: SchemeParams>(aux: &impl Hashable, commitment: &PrmCommitment<P>) -> Self {
         // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG)
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(aux)
             .chain(commitment)
-            .finalize_to_rng();
+            .finalize_to_reader();
         let mut bytes = vec![0u8; P::SECURITY_PARAMETER];
-        aux_rng.fill_bytes(&mut bytes);
+        reader.read(&mut bytes);
         Self(bytes.iter().map(|b| b & 1 == 1).collect())
     }
 }

@@ -9,7 +9,7 @@ use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
     Randomizer, RandomizerMod,
 };
-use crate::tools::hashing::{Chain, Hash, Hashable};
+use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{FromScalar, NonZero, Signed};
 
 const HASH_TAG: &[u8] = b"P_aff_g";
@@ -45,10 +45,13 @@ impl<P: SchemeParams> AffGProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>,    // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e =
+            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
         let e_wide = e.into_wide();
 
         let hat_cap_n = &aux_rp.public_key().modulus_nonzero();
@@ -128,12 +131,15 @@ impl<P: SchemeParams> AffGProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
-
-        let aux_pk = aux_rp.public_key();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e =
+            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+
+        let aux_pk = aux_rp.public_key();
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e

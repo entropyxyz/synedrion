@@ -8,7 +8,7 @@ use crate::paillier::{
     PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
     SecretKeyPaillierPrecomputed,
 };
-use crate::tools::hashing::{Chain, Hash, Hashable};
+use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{HasWide, Integer, NonZero, Signed};
 
 const HASH_TAG: &[u8] = b"P_fac";
@@ -35,10 +35,13 @@ impl<P: SchemeParams> FacProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e =
+            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
         let e_wide = e.into_wide();
 
         let pk = sk.public_key();
@@ -109,10 +112,13 @@ impl<P: SchemeParams> FacProof<P> {
         aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e =
+            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let aux_pk = aux_rp.public_key();
 

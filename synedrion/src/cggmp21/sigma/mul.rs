@@ -7,7 +7,7 @@ use super::super::SchemeParams;
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer, RandomizerMod,
 };
-use crate::tools::hashing::{Chain, Hash, Hashable};
+use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{Bounded, NonZero, Retrieve, Signed};
 
 const HASH_TAG: &[u8] = b"P_mul";
@@ -32,10 +32,13 @@ impl<P: SchemeParams> MulProof<P> {
         cap_y: &Ciphertext<P::Paillier>,                        // $Y$
         aux: &impl Hashable,
     ) -> Self {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e =
+            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let alpha_mod = pk.random_invertible_group_elem(rng);
         let r_mod = RandomizerMod::random(rng, pk);
@@ -75,10 +78,13 @@ impl<P: SchemeParams> MulProof<P> {
         cap_c: &Ciphertext<P::Paillier>,                // $C = (Y (*) x) * \rho^N$
         aux: &impl Hashable,
     ) -> bool {
-        let mut aux_rng = Hash::new_with_dst(HASH_TAG).chain(aux).finalize_to_rng();
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::random_bounded(&mut aux_rng, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e =
+            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         // Y^z u^N = A * C^e \mod N^2
         if cap_y
