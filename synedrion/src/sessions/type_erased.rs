@@ -19,7 +19,7 @@ use crate::cggmp21::{
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 
 pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, LocalError> {
-    rmp_serde::encode::to_vec(message)
+    bincode::serialize(message)
         .map(|serialized| serialized.into_boxed_slice())
         .map_err(|err| LocalError(format!("Failed to serialize: {err:?}")))
 }
@@ -27,7 +27,7 @@ pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, L
 pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
     message_bytes: &[u8],
 ) -> Result<M, String> {
-    rmp_serde::decode::from_slice(message_bytes).map_err(|err| err.to_string())
+    bincode::deserialize(message_bytes).map_err(|err| err.to_string())
 }
 
 pub(crate) enum FinalizeOutcome<Res: ProtocolResult> {

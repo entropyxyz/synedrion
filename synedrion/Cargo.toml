@@ -23,7 +23,7 @@ crypto-bigint = { version = "0.5.3", features = ["serde"] }
 crypto-primes = "0.5"
 
 serde = { version = "1", features = ["derive"] }
-rmp-serde = "1"
+bincode = "1"
 cfg-if = "1"
 itertools = { version = "0.11", default-features = false, optional = true }
 
