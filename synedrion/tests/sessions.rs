@@ -17,6 +17,10 @@ use synedrion::{
 type MessageOut = (VerifyingKey, VerifyingKey, SignedMessage<Signature>);
 type MessageIn = (VerifyingKey, SignedMessage<Signature>);
 
+fn key_to_str(key: &VerifyingKey) -> String {
+    hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])
+}
+
 async fn run_session<Res: ProtocolResult>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
@@ -28,9 +32,13 @@ async fn run_session<Res: ProtocolResult>(
     let mut cached_messages = Vec::<(VerifyingKey, SignedMessage<Signature>)>::new();
 
     let key = session.verifier();
+    let key_str = key_to_str(&key);
 
     loop {
-        println!("*** {key:?}: starting round {:?}", session.current_round());
+        println!(
+            "{key_str}: *** starting round {:?} ***",
+            session.current_round()
+        );
 
         // This is kept in the main task since it's mutable,
         // and we don't want to bother with synchronization.
@@ -45,7 +53,10 @@ async fn run_session<Res: ProtocolResult>(
             // In production usage, this will happen in a spawned task
             let message = session.make_broadcast(&mut OsRng).unwrap();
             for destination in destinations.iter() {
-                println!("{key:?}: sending a broadcast to {destination:?}");
+                println!(
+                    "{key_str}: sending a broadcast to {}",
+                    key_to_str(destination)
+                );
                 tx.send((key, *destination, message.clone())).await.unwrap();
             }
         }
@@ -60,7 +71,10 @@ async fn run_session<Res: ProtocolResult>(
                 let (message, artefact) = session
                     .make_direct_message(&mut OsRng, destination)
                     .unwrap();
-                println!("{key:?}: sending a direct message to {destination:?}");
+                println!(
+                    "{key_str}: sending a direct message to {}",
+                    key_to_str(destination)
+                );
                 tx.send((key, *destination, message)).await.unwrap();
 
                 // This will happen in a host task
@@ -70,7 +84,10 @@ async fn run_session<Res: ProtocolResult>(
 
         for (from, message) in cached_messages {
             // In production usage, this will happen in a spawned task.
-            println!("{key:?}: applying a cached message from {from:?}");
+            println!(
+                "{key_str}: applying a cached message from {}",
+                key_to_str(&from)
+            );
             let result = session.verify_message(&from, message).unwrap();
 
             // This will happen in a host task.
@@ -78,21 +95,21 @@ async fn run_session<Res: ProtocolResult>(
         }
 
         while !session.can_finalize(&accum).unwrap() {
-            println!("{key:?}: waiting for a message");
+            println!("{key_str}: waiting for a message");
             let (from, message) = rx.recv().await.unwrap();
 
             // TODO: check here that the message from this origin hasn't been already processed
             // if accum.already_processed(message) { ... }
 
             // In production usage, this will happen in a spawned task.
-            println!("{key:?}: applying a message from {from:?}");
+            println!("{key_str}: applying a message from {}", key_to_str(&from));
             let result = session.verify_message(&from, message).unwrap();
 
             // This will happen in a host task.
             accum.add_processed_message(result).unwrap().unwrap();
         }
 
-        println!("{key:?}: finalizing the round");
+        println!("{key_str}: finalizing the round");
 
         match session.finalize_round(&mut OsRng, accum).unwrap() {
             FinalizeOutcome::Success(res) => break res,
