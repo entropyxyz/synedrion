@@ -9,7 +9,7 @@ use crate::paillier::{
     SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{HasWide, Integer, NonZero, Signed};
+use crate::uint::{Bounded, Integer, NonZero, Signed};
 
 const HASH_TAG: &[u8] = b"P_fac";
 
@@ -45,12 +45,13 @@ impl<P: SchemeParams> FacProof<P> {
         let e_wide = e.into_wide();
 
         let pk = sk.public_key();
-        let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
+        let hat_cap_n = &aux_rp.public_key().modulus_bounded(); // $\hat{N}$
 
         // CHECK: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
-        let sqrt_cap_n = NonZero::new(
+        let sqrt_cap_n = Bounded::new(
             <P::Paillier as PaillierParams>::Uint::ONE
                 << (<P::Paillier as PaillierParams>::PRIME_BITS - 1),
+            <P::Paillier as PaillierParams>::PRIME_BITS as u32,
         )
         .unwrap();
 
@@ -60,7 +61,7 @@ impl<P: SchemeParams> FacProof<P> {
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // N_0 \hat{N}
-        let scale = NonZero::new(pk.modulus().mul_wide(hat_cap_n.as_ref())).unwrap();
+        let scale = pk.modulus_bounded().mul_wide(hat_cap_n);
 
         let sigma =
             Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(

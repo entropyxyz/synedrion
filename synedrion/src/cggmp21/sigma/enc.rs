@@ -41,7 +41,7 @@ impl<P: SchemeParams> EncProof<P> {
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
         let pk = sk.public_key();
-        let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
+        let hat_cap_n = &aux_rp.public_key().modulus_bounded(); // $\hat{N}$
 
         // CHECK: should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
         // This will ensure that the range check on the prover side will pass.

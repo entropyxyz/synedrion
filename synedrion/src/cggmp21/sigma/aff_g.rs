@@ -54,7 +54,7 @@ impl<P: SchemeParams> AffGProof<P> {
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
         let e_wide = e.into_wide();
 
-        let hat_cap_n = &aux_rp.public_key().modulus_nonzero();
+        let hat_cap_n = &aux_rp.public_key().modulus_bounded();
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND + P::EPS_BOUND);

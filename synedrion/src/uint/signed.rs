@@ -258,7 +258,7 @@ impl<T: UintLike + HasWide> Signed<T> {
     pub fn random_bounded_bits_scaled(
         rng: &mut impl CryptoRngCore,
         bound_bits: usize,
-        scale: &NonZero<T>,
+        scale: &Bounded<T>,
     ) -> Signed<T::Wide> {
         assert!(bound_bits < <T as Integer>::BITS - 1);
         let bound = T::ONE.shl_vartime(bound_bits);
@@ -269,7 +269,7 @@ impl<T: UintLike + HasWide> Signed<T> {
         let scaled_bound = scale.as_ref().into_wide().shl_vartime(bound_bits);
 
         Signed {
-            bound: (bound_bits + scale.bits_vartime()) as u32,
+            bound: bound_bits as u32 + scale.bound(),
             value: scaled_positive_result.wrapping_sub(&scaled_bound),
         }
     }
@@ -300,7 +300,7 @@ where
     pub fn random_bounded_bits_scaled_wide(
         rng: &mut impl CryptoRngCore,
         bound_bits: usize,
-        scale: &NonZero<<T as HasWide>::Wide>,
+        scale: &Bounded<<T as HasWide>::Wide>,
     ) -> Signed<<<T as HasWide>::Wide as HasWide>::Wide> {
         assert!(bound_bits < <T as Integer>::BITS - 1);
         let bound = T::ONE.shl_vartime(bound_bits);
@@ -309,11 +309,11 @@ where
 
         let positive_result = positive_result.into_wide();
 
-        let scaled_positive_result = positive_result.mul_wide(scale);
+        let scaled_positive_result = positive_result.mul_wide(scale.as_ref());
         let scaled_bound = scale.as_ref().into_wide().shl_vartime(bound_bits);
 
         Signed {
-            bound: (bound_bits + scale.bits_vartime()) as u32,
+            bound: bound_bits as u32 + scale.bound(),
             value: scaled_positive_result.wrapping_sub(&scaled_bound),
         }
     }
