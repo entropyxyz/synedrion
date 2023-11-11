@@ -38,6 +38,7 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1
 
 pub trait UintLike:
     Integer
+    + Encoding
     + JacobiSymbolTrait
     + Hashable
     + RandomPrimeWithRng

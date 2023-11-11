@@ -1,74 +1,74 @@
-use core::fmt;
-use core::marker::PhantomData;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
 use core::ops::{Add, Mul, Neg, Not, Sub};
 
 use digest::XofReader;
 use rand_core::CryptoRngCore;
-use serde::{
-    de, de::Error, ser::SerializeTupleStruct, Deserialize, Deserializer, Serialize, Serializer,
-};
+use serde::{Deserialize, Serialize};
 
 use super::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
     Bounded, CheckedAdd, CheckedMul, FromScalar, HasWide, Integer, NonZero, UintLike, UintModLike,
 };
 use crate::curve::{Scalar, ORDER};
+use crate::tools::serde_bytes;
+
+/// A packed representation for serializing Signed objects.
+/// Usually they have the bound much lower than the full size of the integer,
+/// so thiw way we avoid serializing a bunch of zeros.
+#[derive(Serialize, Deserialize)]
+struct PackedSigned {
+    is_negative: bool,
+    bound: u32,
+    #[serde(with = "serde_bytes::as_hex")]
+    bytes: Box<[u8]>,
+}
+
+impl<T: UintLike> From<Signed<T>> for PackedSigned {
+    fn from(val: Signed<T>) -> Self {
+        let repr = val.abs().to_be_bytes();
+        let bound_bytes = (val.bound() + 7) / 8;
+        let slice = &repr.as_ref()[(repr.as_ref().len() - bound_bytes as usize)..];
+        Self {
+            is_negative: val.is_negative().into(),
+            bound: val.bound(),
+            bytes: slice.into(),
+        }
+    }
+}
+
+impl<T: UintLike> TryFrom<PackedSigned> for Signed<T> {
+    type Error = String;
+    fn try_from(val: PackedSigned) -> Result<Self, Self::Error> {
+        let mut repr = T::ZERO.to_be_bytes();
+        let bytes_len: usize = val.bytes.len();
+        let repr_len: usize = repr.as_ref().len();
+
+        if repr_len < bytes_len {
+            return Err(format!(
+                "The bytestring of length {} does not fit the expected integer size {}",
+                bytes_len, repr_len
+            ));
+        }
+
+        repr.as_mut()[(repr_len - bytes_len)..].copy_from_slice(&val.bytes);
+        let abs_value = T::from_be_bytes(repr);
+
+        Self::new_from_abs(abs_value, val.bound, Choice::from(val.is_negative as u8))
+            .ok_or_else(|| "Invalid values for the signed integer".into())
+    }
+}
 
 /// A wrapper over unsigned integers that treats two's complement numbers as negative.
 // In principle, Bounded could be separate from Signed, but we only use it internally,
 // and pretty much every time we need a bounded value, it's also signed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "PackedSigned", into = "PackedSigned")]
 pub struct Signed<T: UintLike> {
     /// bound on the bit size of the absolute value
     bound: u32,
     value: T,
-}
-
-impl<'de, T: UintLike + Deserialize<'de>> Deserialize<'de> for Signed<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct SignedVisitor<T: UintLike>(PhantomData<T>);
-
-        impl<'de, T: UintLike + Deserialize<'de>> de::Visitor<'de> for SignedVisitor<T> {
-            type Value = Signed<T>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a tuple struct Signed")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Signed<T>, A::Error>
-            where
-                A: de::SeqAccess<'de>,
-            {
-                let bound: u32 = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
-                let value: T = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
-
-                Signed::new_from_unsigned(value, bound)
-                    .ok_or_else(|| A::Error::custom("The integer is over the declared bound"))
-            }
-        }
-
-        deserializer.deserialize_tuple_struct("Signed", 2, SignedVisitor::<T>(PhantomData))
-    }
-}
-
-impl<T: UintLike + Serialize> Serialize for Signed<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // TODO: save just the `bound` bytes? That will save some bandwidth.
-        let mut ts = serializer.serialize_tuple_struct("Signed", 2)?;
-        ts.serialize_field(&self.bound)?;
-        ts.serialize_field(&self.value)?;
-        ts.end()
-    }
 }
 
 impl<T: UintLike> Signed<T> {
