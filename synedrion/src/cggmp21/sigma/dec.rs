@@ -42,7 +42,7 @@ impl<P: SchemeParams> DecProof<P> {
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        let hat_cap_n = &aux_rp.public_key().modulus_nonzero(); // $\hat{N}$
+        let hat_cap_n = &aux_rp.public_key().modulus_bounded(); // $\hat{N}$
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);

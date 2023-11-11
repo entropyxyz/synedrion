@@ -116,6 +116,14 @@ impl<T: UintLike + HasWide> Bounded<T> {
             bound: self.bound,
         }
     }
+
+    pub fn mul_wide(&self, rhs: &Self) -> Bounded<T::Wide> {
+        let result = self.value.mul_wide(&rhs.value);
+        Bounded {
+            value: result,
+            bound: self.bound + rhs.bound,
+        }
+    }
 }
 
 impl<T: UintLike + FromScalar> FromScalar for Bounded<T> {
