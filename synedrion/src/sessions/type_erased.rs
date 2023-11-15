@@ -236,6 +236,24 @@ impl DynRoundAccum {
         }
     }
 
+    pub fn contains(&self, from: PartyIdx, broadcast: bool) -> bool {
+        if broadcast {
+            return self
+                .bc_payloads
+                .as_ref()
+                .unwrap()
+                .contains(from.as_usize())
+                .unwrap();
+        } else {
+            return self
+                .dm_payloads
+                .as_ref()
+                .unwrap()
+                .contains(from.as_usize())
+                .unwrap();
+        }
+    }
+
     pub fn add_bc_payload(
         &mut self,
         from: PartyIdx,

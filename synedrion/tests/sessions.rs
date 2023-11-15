@@ -29,7 +29,7 @@ async fn run_session<Res: ProtocolResult>(
     let mut rx = rx;
 
     let mut session = session;
-    let mut cached_messages = Vec::<(VerifyingKey, SignedMessage<Signature>)>::new();
+    let mut cached_messages = Vec::new();
 
     let key = session.verifier();
     let key_str = key_to_str(&key);
@@ -44,9 +44,9 @@ async fn run_session<Res: ProtocolResult>(
         // and we don't want to bother with synchronization.
         let mut accum = session.make_accumulator();
 
-        // Note: generating/sending messages, verifying cached messages,
-        // and verifying newly received messages can be done in parallel,
-        // with the results being assembled into `accum` sequentially in the host task.
+        // Note: generating/sending messages and verifying newly received messages
+        // can be done in parallel, with the results being assembled into `accum`
+        // sequentially in the host task.
 
         let destinations = session.broadcast_destinations();
         if let Some(destinations) = destinations {
@@ -82,13 +82,10 @@ async fn run_session<Res: ProtocolResult>(
             }
         }
 
-        for (from, message) in cached_messages {
+        for preprocessed in cached_messages {
             // In production usage, this will happen in a spawned task.
-            println!(
-                "{key_str}: applying a cached message from {}",
-                key_to_str(&from)
-            );
-            let result = session.verify_message(&from, message).unwrap();
+            println!("{key_str}: applying a cached message");
+            let result = session.process_message(preprocessed).unwrap();
 
             // This will happen in a host task.
             accum.add_processed_message(result).unwrap().unwrap();
@@ -98,15 +95,19 @@ async fn run_session<Res: ProtocolResult>(
             println!("{key_str}: waiting for a message");
             let (from, message) = rx.recv().await.unwrap();
 
-            // TODO: check here that the message from this origin hasn't been already processed
-            // if accum.already_processed(message) { ... }
+            // Perform quick checks before proceeding with the verification.
+            let preprocessed = session
+                .preprocess_message(&mut accum, &from, message)
+                .unwrap();
 
-            // In production usage, this will happen in a spawned task.
-            println!("{key_str}: applying a message from {}", key_to_str(&from));
-            let result = session.verify_message(&from, message).unwrap();
+            if let Some(preprocessed) = preprocessed {
+                // In production usage, this will happen in a spawned task.
+                println!("{key_str}: applying a message from {}", key_to_str(&from));
+                let result = session.process_message(preprocessed).unwrap();
 
-            // This will happen in a host task.
-            accum.add_processed_message(result).unwrap().unwrap();
+                // This will happen in a host task.
+                accum.add_processed_message(result).unwrap().unwrap();
+            }
         }
 
         println!("{key_str}: finalizing the round");
