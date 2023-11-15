@@ -98,6 +98,12 @@ impl BcConsensusAccum {
         }
     }
 
+    pub fn contains(&self, party_idx: PartyIdx) -> bool {
+        self.received_echo_from
+            .contains(party_idx.as_usize())
+            .unwrap()
+    }
+
     pub fn add_echo_received(&mut self, from: PartyIdx) -> Option<()> {
         self.received_echo_from.insert(from.as_usize(), ())
     }

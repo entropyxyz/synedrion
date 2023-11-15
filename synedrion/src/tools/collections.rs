@@ -24,16 +24,24 @@ impl<T> HoleVecAccum<T> {
         Self { hole_at, elems }
     }
 
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut Option<T>> {
-        if index == self.hole_at {
+    fn shifted_index(&self, index: usize) -> Option<usize> {
+        if index == self.hole_at || index > self.elems.len() {
             return None;
         }
-        let index = if index > self.hole_at {
+        Some(if index > self.hole_at {
             index - 1
         } else {
             index
-        };
-        self.elems.get_mut(index)
+        })
+    }
+
+    pub fn contains(&self, index: usize) -> Option<bool> {
+        Some(self.elems[self.shifted_index(index)?].is_some())
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Option<T>> {
+        let idx = self.shifted_index(index)?;
+        self.elems.get_mut(idx)
     }
 
     pub fn insert(&mut self, index: usize, value: T) -> Option<()> {
