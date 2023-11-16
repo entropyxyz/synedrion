@@ -129,8 +129,6 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let s: Scalar = shares.iter().sum();
         let s = s + self.s_part;
 
-        // CHECK: should `s` be normalized here?
-
         let sig = RecoverableSignature::from_scalars(
             &self.r,
             &s,

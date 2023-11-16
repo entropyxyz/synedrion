@@ -11,7 +11,7 @@ categories = ["cryptography", "no-std"]
 [dependencies]
 signature = { version = "2", default-features = false, features = ["alloc"] }
 # TODO: we only need `serde` feature in tests
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "serde"] }
+k256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "arithmetic", "serde"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["getrandom"] }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }

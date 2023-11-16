@@ -16,9 +16,13 @@ impl RecoverableSignature {
         vkey: &Point,
         message: &Scalar,
     ) -> Option<Self> {
-        // TODO: call `normalize_s()` on the result?
-        // TODO: pass a message too and derive the recovery byte?
         let signature = BackendSignature::from_scalars(r.to_backend(), s.to_backend()).ok()?;
+
+        // Normalize the `s` component.
+        // `BackendSignature`'s constructor does not require `s` to be normalized,
+        // but consequent usage of it may fail otherwise.
+        let signature = signature.normalize_s().unwrap_or(signature);
+
         let message_bytes = message.to_be_bytes();
         let recovery_id = RecoveryId::trial_recovery_from_prehash(
             &VerifyingKey::from_affine(vkey.to_backend().to_affine()).ok()?,
