@@ -20,11 +20,17 @@ struct Message<Sig> {
     broadcasts: Vec<(PartyIdx, SignedMessage<Sig>)>,
 }
 
+/// Errors that can occur during broadcast consesnsus check.
 #[derive(Debug, Clone)]
 pub enum ConsensusError {
+    /// Cannot deserialize the message.
     CannotDeserialize(String),
+    /// Unexpected number of broadcasts in the message.
     UnexpectedNumberOfBroadcasts,
+    /// A broadcast from one of the parties is missing.
     MissingBroadcast,
+    /// The broadcasts received during the consensus round
+    /// do not match the ones received previously.
     ConflictingBroadcasts,
 }
 
