@@ -237,7 +237,7 @@ async fn keygen_and_aux() {
     let key_shares = run_nodes(sessions).await;
 
     for (idx, key_share) in key_shares.iter().enumerate() {
-        assert_eq!(key_share.party_index().as_usize(), idx);
+        assert_eq!(key_share.party_index(), idx);
         assert_eq!(key_share.num_parties(), num_parties);
         assert_eq!(key_share.verifying_key(), key_shares[0].verifying_key());
     }

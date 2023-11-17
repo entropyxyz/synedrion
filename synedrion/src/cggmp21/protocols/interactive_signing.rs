@@ -212,7 +212,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
             rng,
             &self.context.shared_randomness,
             num_parties,
-            party_idx,
+            PartyIdx::from_usize(party_idx),
             signing_context,
         )
         .map_err(FinalizeError::Init)?;
