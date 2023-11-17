@@ -21,6 +21,8 @@ pub(crate) use protocols::{
     ToNextRound, ToResult,
 };
 pub use protocols::{
-    InteractiveSigningResult, KeyRefreshResult, KeyShare, KeyShareChange, KeygenAndAuxResult,
-    PartyIdx, ProtocolResult, ThresholdKeyShare,
+    InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyRefreshResult,
+    KeyShare, KeyShareChange, KeygenAndAuxError, KeygenAndAuxProof, KeygenAndAuxResult,
+    KeygenError, KeygenResult, PartyIdx, PresigningError, PresigningProof, PresigningResult,
+    ProtocolResult, SigningProof, SigningResult, ThresholdKeyShare,
 };
