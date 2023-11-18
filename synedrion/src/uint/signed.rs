@@ -204,12 +204,9 @@ impl<T: UintLike> Signed<T> {
         self.abs() <= bound
     }
 
-    pub fn to_mod<V>(self, precomputed: &V::Precomputed) -> V
-    where
-        V: UintModLike<RawUint = T>,
-    {
-        let abs_mod = V::new(&self.abs(), precomputed);
-        V::conditional_select(&abs_mod, &-abs_mod, self.is_negative())
+    pub fn to_mod(self, precomputed: &<T::ModUint as UintModLike>::Precomputed) -> T::ModUint {
+        let abs_mod = self.abs().to_mod(precomputed);
+        T::ModUint::conditional_select(&abs_mod, &-abs_mod, self.is_negative())
     }
 }
 

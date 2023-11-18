@@ -40,7 +40,9 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         };
         let public_key = public_key.to_precomputed();
 
-        let inv_totient = P::UintMod::new(totient.as_ref(), public_key.precomputed_modulus())
+        let inv_totient = totient
+            .as_ref()
+            .to_mod(public_key.precomputed_modulus())
             .invert()
             .unwrap();
 
@@ -51,9 +53,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         )
         .unwrap();
 
-        let inv_p_mod_q = P::HalfUintMod::new(&self.p, &precomputed_mod_q)
-            .invert()
-            .unwrap();
+        let inv_p_mod_q = self.p.to_mod(&precomputed_mod_q).invert().unwrap();
 
         SecretKeyPaillierPrecomputed {
             sk: self.clone(),
@@ -140,8 +140,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         let p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
         let q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
 
-        let p_rem_mod = P::HalfUintMod::new(&p_rem_half, self.precomputed_mod_p());
-        let q_rem_mod = P::HalfUintMod::new(&q_rem_half, self.precomputed_mod_q());
+        let p_rem_mod = p_rem_half.to_mod(self.precomputed_mod_p());
+        let q_rem_mod = q_rem_half.to_mod(self.precomputed_mod_q());
         (p_rem_mod, q_rem_mod)
     }
 
@@ -184,7 +184,7 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         let (a_mod_p, b_mod_q) = *rns;
 
         let a_half = a_mod_p.retrieve();
-        let a_mod_q = P::HalfUintMod::new(&a_half, &self.precomputed_mod_q);
+        let a_mod_q = a_half.to_mod(&self.precomputed_mod_q);
         let x = ((b_mod_q - a_mod_q) * self.inv_p_mod_q).retrieve();
         let a = a_half.into_wide();
 
@@ -264,14 +264,14 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
     #[allow(dead_code)]
     pub fn random_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
         let r = P::Uint::random_mod(rng, &self.modulus_nonzero());
-        P::UintMod::new(&r, self.precomputed_modulus())
+        r.to_mod(self.precomputed_modulus())
     }
 
     pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
         // TODO: is there a faster way? How many loops on average does it take?
         loop {
             let r = P::Uint::random_mod(rng, &self.modulus_nonzero());
-            let r_m = P::UintMod::new(&r, self.precomputed_modulus());
+            let r_m = r.to_mod(self.precomputed_modulus());
             if r_m.invert().is_some().into() {
                 return r_m;
             }

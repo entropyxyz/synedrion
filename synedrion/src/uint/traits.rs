@@ -46,6 +46,7 @@ pub trait UintLike:
     + Random
     + subtle::ConditionallySelectable
 {
+    type ModUint: UintModLike<RawUint = Self>;
     fn from_xof(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self;
     fn add_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self;
     fn sub_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self;
@@ -62,6 +63,9 @@ pub trait UintLike:
     fn neg_mod(&self, modulus: &Self) -> Self;
     fn shl_vartime(&self, shift: usize) -> Self;
     fn shr_vartime(&self, shift: usize) -> Self;
+    fn to_mod(&self, precomputed: &<Self::ModUint as UintModLike>::Precomputed) -> Self::ModUint {
+        Self::ModUint::new(self, precomputed)
+    }
 }
 
 pub trait HasWide: Sized + Zero {
@@ -83,6 +87,8 @@ impl<const L: usize> UintLike for Uint<L>
 where
     Uint<L>: Encoding,
 {
+    type ModUint = DynResidue<L>;
+
     fn from_xof(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self {
         let backend_modulus = modulus.as_ref();
 
@@ -192,7 +198,7 @@ pub trait UintModLike:
     + subtle::ConditionallySelectable
 {
     /// The corresponding regular integer type.
-    type RawUint: UintLike;
+    type RawUint: UintLike<ModUint = Self>;
 
     /// Precomputed data for converting a regular integer to the modulo representation.
     type Precomputed: Clone + Copy + core::fmt::Debug + PartialEq + Eq + Send;

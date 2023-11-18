@@ -108,10 +108,7 @@ impl<P: SchemeParams> ModProof<P> {
                 let y_4th_parts = sk.sqrt(&y_sqrt).unwrap();
                 let y_4th = sk.rns_join(&y_4th_parts);
 
-                let y = <P::Paillier as PaillierParams>::UintMod::new(
-                    &challenge.0[i],
-                    pk.precomputed_modulus(),
-                );
+                let y = challenge.0[i].to_mod(pk.precomputed_modulus());
                 let z = y.pow_bounded(sk.inv_modulus());
 
                 ModProofElem {
@@ -140,11 +137,11 @@ impl<P: SchemeParams> ModProof<P> {
             return false;
         }
 
-        let modulus = pk.precomputed_modulus();
-        let omega_mod = <P::Paillier as PaillierParams>::UintMod::new(&self.commitment.0, modulus);
+        let precomputed = pk.precomputed_modulus();
+        let omega_mod = self.commitment.0.to_mod(precomputed);
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
-            let z_m = <P::Paillier as PaillierParams>::UintMod::new(&elem.z, modulus);
-            let mut y_m = <P::Paillier as PaillierParams>::UintMod::new(y, modulus);
+            let z_m = elem.z.to_mod(precomputed);
+            let mut y_m = y.to_mod(precomputed);
             if z_m.pow_bounded(&pk.modulus_bounded()) != y_m {
                 return false;
             }
@@ -155,7 +152,7 @@ impl<P: SchemeParams> ModProof<P> {
             if elem.b {
                 y_m = y_m * omega_mod;
             }
-            let x = <P::Paillier as PaillierParams>::UintMod::new(&elem.x, modulus);
+            let x = elem.x.to_mod(precomputed);
             let x_4 = x.square().square();
             if y_m != x_4 {
                 return false;

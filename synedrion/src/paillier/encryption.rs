@@ -23,7 +23,7 @@ impl<P: PaillierParams> Randomizer<P> {
 
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
         // TODO: check that the value is within the modulus?
-        RandomizerMod(P::UintMod::new(&self.0, pk.precomputed_modulus()))
+        RandomizerMod(self.0.to_mod(pk.precomputed_modulus()))
     }
 }
 
@@ -35,7 +35,7 @@ impl<P: PaillierParams> RandomizerMod<P> {
         // TODO: is there a faster way? How many loops on average does it take?
         loop {
             let r = P::Uint::random_mod(rng, &pk.modulus_nonzero());
-            let r_m = P::UintMod::new(&r, pk.precomputed_modulus());
+            let r_m = r.to_mod(pk.precomputed_modulus());
             if r_m.invert().is_some().into() {
                 return Self(r_m);
             }
@@ -119,12 +119,13 @@ impl<P: PaillierParams> Ciphertext<P> {
         // Since `m` can be negative, we calculate `m * N +- 1` (never overflows since `m < N`),
         // then conditionally negate modulo N^2
         let prod = abs_plaintext.mul_wide(pk.modulus());
-        let mut prod_mod = P::WideUintMod::new(&prod, pk.precomputed_modulus_squared());
+        let mut prod_mod = prod.to_mod(pk.precomputed_modulus_squared());
         prod_mod.conditional_negate(plaintext_is_negative);
 
         let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared());
 
-        let factor2 = P::WideUintMod::new(&randomizer, pk.precomputed_modulus_squared())
+        let factor2 = randomizer
+            .to_mod(pk.precomputed_modulus_squared())
             .pow_bounded(&pk.modulus_bounded().into_wide());
 
         let ciphertext = (factor1 * factor2).retrieve();
@@ -194,8 +195,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // `N` is the Paillier composite modulus,
         // `phi` is the Euler totient of `N`, and `mu = phi^(-1) mod N`.
 
-        let ciphertext_mod =
-            P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
+        let ciphertext_mod = self.ciphertext.to_mod(pk.precomputed_modulus_squared());
 
         // `C^phi mod N^2` may be 0 if `C == N`, which is very unlikely for large `N`.
         let x = P::Uint::try_from_wide(
@@ -205,7 +205,7 @@ impl<P: PaillierParams> Ciphertext<P> {
                 / modulus_wide,
         )
         .unwrap();
-        let x_mod = P::UintMod::new(&x, pk.precomputed_modulus());
+        let x_mod = x.to_mod(pk.precomputed_modulus());
 
         (x_mod * sk.inv_totient()).retrieve()
     }
@@ -243,7 +243,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // where `k` is some integer.
         // Therefore `C mod N = rho^N mod N`.
         let ciphertext_mod_n = P::Uint::try_from_wide(self.ciphertext % modulus_wide).unwrap();
-        let ciphertext_mod_n = P::UintMod::new(&ciphertext_mod_n, pk.precomputed_modulus());
+        let ciphertext_mod_n = ciphertext_mod_n.to_mod(pk.precomputed_modulus());
 
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
@@ -260,8 +260,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         rhs: &Signed<P::Uint>,
     ) -> Self {
-        let ciphertext_mod =
-            P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
+        let ciphertext_mod = self.ciphertext.to_mod(pk.precomputed_modulus_squared());
         // This will not panic as long as the randomizer was chosen to be invertible.
         let ciphertext = ciphertext_mod.pow_signed(&rhs.into_wide()).retrieve();
         Self {
@@ -275,8 +274,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         rhs: &Signed<P::WideUint>,
     ) -> Self {
-        let ciphertext_mod =
-            P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
+        let ciphertext_mod = self.ciphertext.to_mod(pk.precomputed_modulus_squared());
         // This will not panic as long as the randomizer was chosen to be invertible.
         let ciphertext = ciphertext_mod.pow_signed(rhs).retrieve();
         Self {
@@ -290,8 +288,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         rhs: &Bounded<P::Uint>,
     ) -> Self {
-        let ciphertext_mod =
-            P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
+        let ciphertext_mod = self.ciphertext.to_mod(pk.precomputed_modulus_squared());
         // This will not panic as long as the randomizer was chosen to be invertible.
         let ciphertext = ciphertext_mod.pow_bounded(&rhs.into_wide()).retrieve();
         Self {
@@ -301,8 +298,8 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     pub fn homomorphic_add(&self, pk: &PublicKeyPaillierPrecomputed<P>, rhs: &Self) -> Self {
-        let lhs_mod = P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
-        let rhs_mod = P::WideUintMod::new(&rhs.ciphertext, pk.precomputed_modulus_squared());
+        let lhs_mod = self.ciphertext.to_mod(pk.precomputed_modulus_squared());
+        let rhs_mod = rhs.ciphertext.to_mod(pk.precomputed_modulus_squared());
         Self {
             ciphertext: (lhs_mod * rhs_mod).retrieve(),
             phantom: PhantomData,
@@ -314,10 +311,11 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         randomizer: &Randomizer<P>,
     ) -> Self {
-        let ciphertext_mod =
-            P::WideUintMod::new(&self.ciphertext, pk.precomputed_modulus_squared());
-        let randomizer_mod =
-            P::WideUintMod::new(&randomizer.0.into_wide(), pk.precomputed_modulus_squared());
+        let ciphertext_mod = self.ciphertext.to_mod(pk.precomputed_modulus_squared());
+        let randomizer_mod = randomizer
+            .0
+            .into_wide()
+            .to_mod(pk.precomputed_modulus_squared());
         let ciphertext_mod =
             ciphertext_mod * randomizer_mod.pow_bounded(&pk.modulus_bounded().into_wide());
         Self {

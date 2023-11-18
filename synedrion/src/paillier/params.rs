@@ -11,11 +11,11 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     /// The size of the RSA modulus (a product of two primes).
     const MODULUS_BITS: usize = Self::PRIME_BITS * 2;
     /// An integer that fits a single RSA prime.
-    type HalfUint: UintLike + HasWide<Wide = Self::Uint>;
+    type HalfUint: UintLike<ModUint = Self::HalfUintMod> + HasWide<Wide = Self::Uint>;
     /// A modulo-residue counterpart of `HalfUint`.
     type HalfUintMod: UintModLike<RawUint = Self::HalfUint>;
     /// An integer that fits the RSA modulus.
-    type Uint: UintLike
+    type Uint: UintLike<ModUint = Self::UintMod>
         + FromScalar
         + HasWide<Wide = Self::WideUint>
         + Serialize
@@ -24,7 +24,7 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     type UintMod: UintModLike<RawUint = Self::Uint>;
     /// An integer that fits the squared RSA modulus.
     /// Used for Paillier ciphertexts.
-    type WideUint: UintLike
+    type WideUint: UintLike<ModUint = Self::WideUintMod>
         + Serialize
         + for<'de> Deserialize<'de>
         + HasWide<Wide = Self::ExtraWideUint>;
