@@ -92,6 +92,16 @@ async fn run_session<Res: ProtocolResult>(
         }
 
         while !session.can_finalize(&accum).unwrap() {
+            // TODO: can we have a situation where the message is being processed
+            // just as the timeout expires? Unlikely, but possible.
+            // We would probably want to somehow delay the loop
+            // until all the processing tasks return, and don't report the corresponding nodes
+            // as unresponsive.
+
+            // This can be checked if a timeout expired, to see which nodes have not responded yet.
+            let unresponsive_parties = session.missing_messages(&accum);
+            assert!(!unresponsive_parties.is_empty());
+
             println!("{key_str}: waiting for a message");
             let (from, message) = rx.recv().await.unwrap();
 

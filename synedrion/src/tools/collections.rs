@@ -62,6 +62,16 @@ impl<T> HoleVecAccum<T> {
         self.elems.iter().all(|elem| elem.is_none())
     }
 
+    fn len(&self) -> usize {
+        self.elems.len() + 1
+    }
+
+    pub fn missing(&self) -> Vec<usize> {
+        HoleRange::new(self.len(), self.hole_at)
+            .filter(|idx| !self.contains(*idx).unwrap())
+            .collect()
+    }
+
     pub fn finalize(self) -> Result<HoleVec<T>, Self> {
         if self.can_finalize() {
             let elems = self

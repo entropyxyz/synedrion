@@ -215,6 +215,15 @@ where
         }
     }
 
+    /// Returns a list of parties whose messages for this round have not been received yet.
+    pub fn missing_messages(&self, accum: &RoundAccumulator<Sig>) -> Vec<Verifier> {
+        accum
+            .missing_messages()
+            .into_iter()
+            .map(|idx| self.context.verifiers[idx.as_usize()].clone())
+            .collect()
+    }
+
     fn is_broadcast_consensus_round(&self) -> bool {
         match &self.tp {
             SessionType::Normal(_) => false,
@@ -598,6 +607,14 @@ impl<Sig> RoundAccumulator<Sig> {
             } else {
                 None
             },
+        }
+    }
+
+    fn missing_messages(&self) -> Vec<PartyIdx> {
+        if let Some(accum) = &self.bc_accum {
+            accum.missing_messages()
+        } else {
+            self.processed.missing_messages()
         }
     }
 

@@ -4,8 +4,10 @@ This way they can be used in a state machine loop without code repetition.
 */
 
 use alloc::boxed::Box;
+use alloc::collections::BTreeSet;
 use alloc::format;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::any::Any;
 
 use rand_core::CryptoRngCore;
@@ -252,6 +254,21 @@ impl DynRoundAccum {
                 .contains(from.as_usize())
                 .unwrap();
         }
+    }
+
+    pub fn missing_messages(&self) -> Vec<PartyIdx> {
+        let mut idxs = BTreeSet::new();
+        if let Some(payloads) = &self.bc_payloads {
+            for idx in payloads.missing() {
+                idxs.insert(idx);
+            }
+        }
+        if let Some(payloads) = &self.dm_payloads {
+            for idx in payloads.missing() {
+                idxs.insert(idx);
+            }
+        }
+        idxs.into_iter().map(PartyIdx::from_usize).collect()
     }
 
     pub fn add_bc_payload(
