@@ -7,7 +7,7 @@ use bincode::{
 };
 use js_sys::Error;
 use rand_core::OsRng;
-use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
+use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 use wasm_bindgen_derive::TryFromJsValue;
 
 use synedrion::TestParams;
@@ -19,9 +19,6 @@ const MAX_MSG_LEN: u64 = 1000 * 1000; // 1 MB
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(typescript_type = "KeyShare[]")]
-    pub type KeyShareArray;
-
     #[wasm_bindgen(typescript_type = "SigningKey | undefined")]
     pub type OptionalSigningKey;
 }
@@ -66,7 +63,7 @@ impl KeyShare {
     pub fn new_centralized(
         num_parties: usize,
         signing_key: &OptionalSigningKey,
-    ) -> Result<KeyShareArray, Error> {
+    ) -> Result<Vec<KeyShare>, Error> {
         let sk_js: &JsValue = signing_key.as_ref();
         let typed_sk: Option<SigningKey> = if sk_js.is_undefined() {
             None
@@ -81,13 +78,7 @@ impl KeyShare {
             num_parties,
             backend_sk.as_ref(),
         );
-        Ok(shares
-            .into_vec()
-            .into_iter()
-            .map(KeyShare)
-            .map(JsValue::from)
-            .collect::<js_sys::Array>()
-            .unchecked_into::<KeyShareArray>())
+        Ok(shares.into_vec().into_iter().map(KeyShare).collect())
     }
 }
 
