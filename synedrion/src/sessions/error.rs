@@ -7,7 +7,6 @@ use crate::cggmp21::ProtocolResult;
 #[derive(Clone, Debug)]
 pub enum Error<Res: ProtocolResult, Verifier> {
     /// Indicates an error on this party's side.
-    /// Can be caused by an incorrect usage, a bug in the implementation, or some environment error.
     Local(LocalError),
     /// A provable fault of another party.
     // TODO: attach the party's messages up to this round for this to be verifiable by a third party
@@ -32,27 +31,40 @@ pub enum Error<Res: ProtocolResult, Verifier> {
     Remote(RemoteError<Verifier>),
 }
 
+/// An error on this party's side.
+/// Can be caused by an incorrect usage, a bug in the implementation, or some environment error.
 #[derive(Clone, Debug)]
 pub struct LocalError(pub(crate) String);
 
 /// An unprovable fault of another party.
 #[derive(Clone, Debug)]
 pub struct RemoteError<Verifier> {
+    /// The offending party.
     pub party: Verifier,
+    /// The error type
     pub error: RemoteErrorEnum,
 }
 
+/// Types of unprovable faults of another party.
 #[derive(Clone, Debug)]
 pub enum RemoteErrorEnum {
+    /// Session ID does not match the one provided to the local session constructor.
     UnexpectedSessionId,
+    /// A message is intended for an unexpected round (not the current one or the next one).
     OutOfOrderMessage,
+    /// A message from this party has already been received.
     DuplicateMessage,
+    /// The message signature does not match its contents.
     InvalidSignature(String),
 }
 
+/// A provable fault of another party.
 #[derive(Clone, Debug)]
 pub enum ProvableError<Res: ProtocolResult> {
+    /// A protocol error.
     Protocol(Res::ProvableError),
+    /// Failed to deserialize the message.
     CannotDeserialize(String),
+    /// Broadcast consensus check failed.
     Consensus(ConsensusError),
 }

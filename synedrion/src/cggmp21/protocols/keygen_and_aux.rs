@@ -15,7 +15,7 @@ use super::wrappers::{wrap_finalize_error, wrap_receive_error, ResultWrapper};
 use crate::cggmp21::SchemeParams;
 use crate::tools::collections::{HoleRange, HoleVec};
 
-/// Possible results of merged KeyGen and KeyRefresh protocols.
+/// Possible results of the merged KeyGen and KeyRefresh protocols.
 #[derive(Debug, Clone, Copy)]
 pub struct KeygenAndAuxResult<P: SchemeParams>(PhantomData<P>);
 
@@ -25,15 +25,21 @@ impl<P: SchemeParams> ProtocolResult for KeygenAndAuxResult<P> {
     type CorrectnessProof = KeygenAndAuxProof<P>;
 }
 
+/// Possible verifiable errors of the merged KeyGen and KeyRefresh protocols.
 #[derive(Debug, Clone)]
 pub enum KeygenAndAuxError<P: SchemeParams> {
+    /// An error in the KeyGen part of the protocol.
     Keygen(<KeygenResult as ProtocolResult>::ProvableError),
+    /// An error in the KeyRefresh part of the protocol.
     KeyRefresh(<KeyRefreshResult<P> as ProtocolResult>::ProvableError),
 }
 
+/// A proof of a node's correct behavior for the merged KeyGen and KeyRefresh protocols.
 #[derive(Debug, Clone)]
 pub enum KeygenAndAuxProof<P: SchemeParams> {
+    /// A proof for the KeyGen part of the protocol.
     Keygen(<KeygenResult as ProtocolResult>::CorrectnessProof),
+    /// A proof for the KeyRefresh part of the protocol.
     KeyRefresh(<KeyRefreshResult<P> as ProtocolResult>::CorrectnessProof),
 }
 

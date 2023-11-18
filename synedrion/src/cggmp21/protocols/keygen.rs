@@ -22,6 +22,7 @@ use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
 
+/// Possible results of the KeyGen protocol.
 #[derive(Debug, Clone, Copy)]
 pub struct KeygenResult;
 
@@ -31,9 +32,12 @@ impl ProtocolResult for KeygenResult {
     type CorrectnessProof = ();
 }
 
+/// Possible verifiable errors of the KeyGen protocol.
 #[derive(Debug, Clone, Copy)]
 pub enum KeygenError {
+    /// A hash mismatch in Round 2.
     R2HashMismatch,
+    /// Failed to verify `П^{sch}` in Round 3.
     R3InvalidSchProof,
 }
 

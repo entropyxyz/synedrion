@@ -27,6 +27,7 @@ fn uint_from_scalar<P: SchemeParams>(
     <<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(x)
 }
 
+/// Possible results of the Presigning protocol.
 #[derive(Debug, Clone, Copy)]
 pub struct PresigningResult<P: SchemeParams>(PhantomData<P>);
 
@@ -36,10 +37,14 @@ impl<P: SchemeParams> ProtocolResult for PresigningResult<P> {
     type CorrectnessProof = PresigningProof<P>;
 }
 
+/// Possible verifiable errors of the Presigning protocol.
 #[derive(Debug, Clone)]
 pub enum PresigningError {
+    /// An error in Round 1.
     Round1(String),
+    /// An error in Round 2.
     Round2(String),
+    /// An error in Round 3.
     Round3(String),
 }
 
@@ -663,8 +668,8 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     }
 }
 
-// TODO: this can be removed when error verification is added
-#[allow(dead_code)]
+/// A proof of a node's correct behavior for the Presigning protocol.
+#[allow(dead_code)] // TODO: this can be removed when error verification is added
 #[derive(Debug, Clone)]
 pub struct PresigningProof<P: SchemeParams> {
     aff_g_proofs: Vec<(PartyIdx, PartyIdx, AffGProof<P>)>,

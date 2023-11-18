@@ -568,6 +568,7 @@ where
     }
 }
 
+/// A mutable accumulator created for each round to assemble processed messages from other parties.
 pub struct RoundAccumulator<Sig> {
     received_direct_messages: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
     received_broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
@@ -618,7 +619,7 @@ impl<Sig> RoundAccumulator<Sig> {
             })
     }
 
-    /// Save a processed message produced by [`Session::verify_message`].
+    /// Save a processed message produced by [`Session::process_message`].
     pub fn add_processed_message<Verifier>(
         &mut self,
         pm: ProcessedMessage<Sig, Verifier>,
@@ -698,17 +699,21 @@ impl<Sig> RoundAccumulator<Sig> {
     }
 }
 
+/// Data produced when creating a direct message to another party
+/// that has to be preserved for further processing.
 pub struct Artefact<Verifier> {
     destination: Verifier,
     destination_idx: PartyIdx,
     artefact: DynDmArtefact,
 }
 
+/// A message that passed initial validity checks.
 pub struct PreprocessedMessage<Sig> {
     from_idx: PartyIdx,
     message: VerifiedMessage<Sig>,
 }
 
+/// A processed message from another party.
 pub struct ProcessedMessage<Sig, Verifier> {
     from: Verifier,
     from_idx: PartyIdx,

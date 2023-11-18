@@ -20,6 +20,7 @@ use crate::paillier::RandomizerMod;
 use crate::tools::collections::{HoleRange, HoleVec};
 use crate::uint::{Bounded, FromScalar, Signed};
 
+/// Possible results of the Signing protocol.
 #[derive(Debug, Clone, Copy)]
 pub struct SigningResult<P: SchemeParams>(PhantomData<P>);
 
@@ -29,8 +30,8 @@ impl<P: SchemeParams> ProtocolResult for SigningResult<P> {
     type CorrectnessProof = SigningProof<P>;
 }
 
-// TODO: this can be removed when error verification is added
-#[allow(dead_code)]
+/// A proof of a node's correct behavior for the Signing protocol.
+#[allow(dead_code)] // TODO: this can be removed when error verification is added
 #[derive(Debug, Clone)]
 pub struct SigningProof<P: SchemeParams> {
     aff_g_proofs: Vec<(PartyIdx, PartyIdx, AffGProof<P>)>,

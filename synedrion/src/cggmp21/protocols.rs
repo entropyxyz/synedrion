@@ -23,6 +23,11 @@ pub(crate) use common::PresigningData;
 pub use auxiliary::KeyRefreshResult;
 pub use common::{KeyShare, KeyShareChange, KeyShareSeed, PartyIdx};
 pub use generic::ProtocolResult;
-pub use interactive_signing::InteractiveSigningResult;
-pub use keygen_and_aux::KeygenAndAuxResult;
+pub use interactive_signing::{
+    InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult,
+};
+pub use keygen::{KeygenError, KeygenResult};
+pub use keygen_and_aux::{KeygenAndAuxError, KeygenAndAuxProof, KeygenAndAuxResult};
+pub use presigning::{PresigningError, PresigningProof, PresigningResult};
+pub use signing::{SigningProof, SigningResult};
 pub use threshold::ThresholdKeyShare;

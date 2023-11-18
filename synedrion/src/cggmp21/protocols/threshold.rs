@@ -96,10 +96,10 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     }
 
     /// Returns the index of this share's party.
-    pub fn party_index(&self) -> PartyIdx {
+    pub fn party_index(&self) -> usize {
         // TODO: technically it is the share index, but for now we are equating the two,
         // since we assume that one party has one share.
-        self.index
+        self.index.as_usize()
     }
 
     /// Converts a t-of-n key share into a t-of-t key share

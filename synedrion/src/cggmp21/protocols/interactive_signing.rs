@@ -15,7 +15,7 @@ use crate::cggmp21::params::SchemeParams;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::tools::collections::HoleVec;
 
-/// Possible results of merged Presigning and Signing protocols.
+/// Possible results of the merged Presigning and Signing protocols.
 #[derive(Debug, Clone, Copy)]
 pub struct InteractiveSigningResult<P: SchemeParams>(PhantomData<P>);
 
@@ -25,15 +25,21 @@ impl<P: SchemeParams> ProtocolResult for InteractiveSigningResult<P> {
     type CorrectnessProof = InteractiveSigningProof<P>;
 }
 
+/// Possible verifiable errors of the merged Presigning and Signing protocols.
 #[derive(Debug, Clone)]
 pub enum InteractiveSigningError<P: SchemeParams> {
+    /// An error in the Presigning part of the protocol.
     Presigning(<PresigningResult<P> as ProtocolResult>::ProvableError),
+    /// An error in the Signing part of the protocol.
     Signing(<SigningResult<P> as ProtocolResult>::ProvableError),
 }
 
+/// A proof of a node's correct behavior for the merged Presigning and Signing protocols.
 #[derive(Debug, Clone)]
 pub enum InteractiveSigningProof<P: SchemeParams> {
+    /// A proof for the Presigning part of the protocol.
     Presigning(<PresigningResult<P> as ProtocolResult>::CorrectnessProof),
+    /// A proof for the Signing part of the protocol.
     Signing(<SigningResult<P> as ProtocolResult>::CorrectnessProof),
 }
 
@@ -212,7 +218,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
             rng,
             &self.context.shared_randomness,
             num_parties,
-            party_idx,
+            PartyIdx::from_usize(party_idx),
             signing_context,
         )
         .map_err(FinalizeError::Init)?;
