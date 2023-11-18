@@ -14,4 +14,6 @@ pub use constructors::{
 };
 pub use error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
 pub use signed_message::SignedMessage;
-pub use states::{FinalizeOutcome, Session};
+pub use states::{
+    Artefact, FinalizeOutcome, PreprocessedMessage, ProcessedMessage, RoundAccumulator, Session,
+};
