@@ -17,7 +17,7 @@ use crate::paillier::{
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
-    Bounded, Retrieve, UintModLike,
+    Bounded, Retrieve, UintLike, UintModLike,
 };
 
 const HASH_TAG: &[u8] = b"P_prm";
@@ -132,7 +132,7 @@ impl<P: SchemeParams> PrmProof<P> {
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
     pub(crate) fn verify(&self, rp: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
-        let modulus = rp.public_key().precomputed_modulus();
+        let precomputed = rp.public_key().precomputed_modulus();
 
         let challenge = PrmChallenge::new(aux, &self.commitment);
         if challenge != self.challenge {
@@ -142,7 +142,7 @@ impl<P: SchemeParams> PrmProof<P> {
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a = <P::Paillier as PaillierParams>::UintMod::new(&self.commitment.0[i], modulus);
+            let a = self.commitment.0[i].to_mod(precomputed);
             let pwr = rp.base.pow_bounded(&z);
             let test = if e { pwr == a * rp.power } else { pwr == a };
             if !test {

@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{pow_signed_extra_wide, pow_signed_wide, Bounded, Retrieve, Signed, UintModLike};
+use crate::uint::{
+    pow_signed_extra_wide, pow_signed_wide, Bounded, Retrieve, Signed, UintLike, UintModLike,
+};
 
 pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
 
@@ -127,8 +129,8 @@ impl<P: PaillierParams> RPParams<P> {
         // TODO: check that the base and the power are within the modulus?
         RPParamsMod {
             pk: pk.clone(),
-            base: P::UintMod::new(&self.base, pk.precomputed_modulus()),
-            power: P::UintMod::new(&self.power, pk.precomputed_modulus()),
+            base: self.base.to_mod(pk.precomputed_modulus()),
+            power: self.power.to_mod(pk.precomputed_modulus()),
         }
     }
 }
@@ -174,6 +176,6 @@ pub(crate) struct RPCommitment<P: PaillierParams>(P::Uint);
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
         // TODO: check that `self.0` is within the modulus?
-        RPCommitmentMod(P::UintMod::new(&self.0, pk.precomputed_modulus()))
+        RPCommitmentMod(self.0.to_mod(pk.precomputed_modulus()))
     }
 }
