@@ -104,6 +104,14 @@ impl BcConsensusAccum {
         }
     }
 
+    pub fn missing_messages(&self) -> Vec<PartyIdx> {
+        self.received_echo_from
+            .missing()
+            .into_iter()
+            .map(PartyIdx::from_usize)
+            .collect()
+    }
+
     pub fn contains(&self, party_idx: PartyIdx) -> bool {
         self.received_echo_from
             .contains(party_idx.as_usize())
