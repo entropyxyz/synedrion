@@ -12,7 +12,7 @@ use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points, shamir_sp
 
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
-// TODO: Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
+// TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretAuxInfo<P>: Serialize,
@@ -21,7 +21,7 @@ use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points, shamir_sp
         PublicAuxInfo<P>: for <'x> Deserialize<'x>"))]
 pub struct ThresholdKeyShare<P: SchemeParams> {
     pub(crate) index: PartyIdx,
-    pub(crate) threshold: u32, // TODO: make typed? Can it be `ShareIdx`?
+    pub(crate) threshold: u32, // TODO (#31): make typed? Can it be `ShareIdx`?
     pub(crate) secret_share: Scalar,
     pub(crate) public_shares: Box<[Point]>,
     pub(crate) secret_aux: SecretAuxInfo<P>,
@@ -37,7 +37,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
         num_parties: usize,
         signing_key: Option<&k256::ecdsa::SigningKey>,
     ) -> Box<[Self]> {
-        debug_assert!(threshold <= num_parties);
+        debug_assert!(threshold <= num_parties); // TODO (#68): make the method fallible
 
         let secret = match signing_key {
             None => Scalar::random(rng),
@@ -63,7 +63,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .enumerate()
             .map(|(idx, secret_aux)| ThresholdKeyShare {
                 index: PartyIdx::from_usize(idx),
-                threshold: threshold as u32, // TODO: fallible conversion?
+                threshold: threshold as u32,
                 secret_share: secret_shares[idx],
                 public_shares: public_shares.clone(),
                 secret_aux,
@@ -83,21 +83,21 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
 
     /// Return the verifying key to which this set of shares corresponds.
     pub fn verifying_key(&self) -> VerifyingKey {
-        // TODO: need to ensure on creation of the share that the verifying key actually exists
+        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
     /// Returns the number of parties in this set of shares.
     pub fn num_parties(&self) -> usize {
-        // TODO: technically it is `num_shares`, but for now we are equating the two,
+        // TODO (#31): technically it is `num_shares`, but for now we are equating the two,
         // since we assume that one party has one share.
         self.public_shares.len()
     }
 
     /// Returns the index of this share's party.
     pub fn party_index(&self) -> usize {
-        // TODO: technically it is the share index, but for now we are equating the two,
+        // TODO (#31): technically it is the share index, but for now we are equating the two,
         // since we assume that one party has one share.
         self.index.as_usize()
     }
@@ -107,7 +107,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     /// that can be used in the presigning/signing protocols.
     pub fn to_key_share(&self, party_idxs: &[PartyIdx]) -> KeyShare<P> {
         debug_assert!(party_idxs.len() == self.threshold as usize);
-        // TODO: assert that all indices are distinct
+        // TODO (#68): assert that all indices are distinct
         let mapped_idx = party_idxs
             .iter()
             .position(|idx| idx == &self.index)
@@ -119,7 +119,6 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .map(|idx| all_points[idx.as_usize()])
             .collect::<Vec<_>>();
 
-        // TODO: make the rescaling a method of KeyShareSecret?
         let secret_share = self.secret_share * interpolation_coeff(&points, mapped_idx);
         let public_shares = party_idxs
             .iter()

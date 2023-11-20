@@ -311,7 +311,7 @@ impl DynRoundAccum {
     }
 
     pub fn can_finalize(&self) -> bool {
-        // TODO: should this be the job of the round itself?
+        // TODO (#85): should this be the job of the round itself?
         self.bc_payloads
             .as_ref()
             .map_or(true, |accum| accum.can_finalize())

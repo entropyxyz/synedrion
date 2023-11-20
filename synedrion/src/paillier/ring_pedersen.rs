@@ -13,10 +13,9 @@ pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
 
 impl<P: PaillierParams> RPSecret<P> {
     pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P>) -> Self {
-        // CHECK: `lambda` will be reduced modulo phi(N) implicitly
+        // The random value will be reduced modulo `phi(N)` implicitly
         // when used as an exponent modulo N later.
-        // So can we just sample a random modulo N, or modulo the whole size of Uint instead?
-        // This way we won't need the secret key here.
+        // So we are sampling it from this range to begin with.
         Self(sk.random_field_elem(rng))
     }
 }
@@ -27,7 +26,6 @@ impl<P: PaillierParams> AsRef<Bounded<P::Uint>> for RPSecret<P> {
     }
 }
 
-// TODO: should this struct have Paillier public key bundled?
 #[derive(Debug, Clone)]
 pub(crate) struct RPParamsMod<P: PaillierParams> {
     pub(crate) pk: PublicKeyPaillierPrecomputed<P>,
@@ -68,7 +66,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ///
     /// Both will be effectively reduced modulo `totient(N)`
     /// (that is, commitments produced for `x` and `x + totient(N)` are equal).
-    // TODO: swap randomizer and secret?
+    // TODO (#81): swap randomizer and secret?
     // - this will match the order for Ciphertext,
     // - this will match the order in the paper
     pub fn commit(
@@ -115,7 +113,6 @@ impl<P: PaillierParams> RPParamsMod<P> {
     }
 }
 
-// TODO: should this struct have Paillier public key bundled?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct RPParams<P: PaillierParams> {
     /// The ring-Pedersen base.
@@ -126,7 +123,6 @@ pub(crate) struct RPParams<P: PaillierParams> {
 
 impl<P: PaillierParams> RPParams<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPParamsMod<P> {
-        // TODO: check that the base and the power are within the modulus?
         RPParamsMod {
             pk: pk.clone(),
             base: self.base.to_mod(pk.precomputed_modulus()),
@@ -141,7 +137,6 @@ impl<P: PaillierParams> Hashable for RPParams<P> {
     }
 }
 
-// TODO: should this struct have Paillier public key bundled?
 #[derive(PartialEq, Eq)]
 pub(crate) struct RPCommitmentMod<P: PaillierParams>(P::UintMod);
 
@@ -175,7 +170,6 @@ pub(crate) struct RPCommitment<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
-        // TODO: check that `self.0` is within the modulus?
         RPCommitmentMod(self.0.to_mod(pk.precomputed_modulus()))
     }
 }

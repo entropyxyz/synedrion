@@ -6,9 +6,11 @@ use crate::curve::Scalar;
 
 pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<Scalar> {
     // For now we are hardcoding the points to be 1, 2, ..., n.
-    // CHECK: it should be still secure, right?
+    // TODO (#87): it should be still secure, right?
     // Potentially we can derive them from Session ID.
-    (1..=num_shares).map(Scalar::from).collect()
+    (1..=u32::try_from(num_shares).expect("The number of shares cannot be over 2^32-1"))
+        .map(Scalar::from)
+        .collect()
 }
 
 pub(crate) fn shamir_split(

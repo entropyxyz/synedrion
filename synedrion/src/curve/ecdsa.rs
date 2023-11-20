@@ -23,7 +23,7 @@ impl RecoverableSignature {
         // but consequent usage of it may fail otherwise.
         let signature = signature.normalize_s().unwrap_or(signature);
 
-        let message_bytes = message.to_be_bytes();
+        let message_bytes = message.to_bytes();
         let recovery_id = RecoveryId::trial_recovery_from_prehash(
             &VerifyingKey::from_affine(vkey.to_backend().to_affine()).ok()?,
             &message_bytes,

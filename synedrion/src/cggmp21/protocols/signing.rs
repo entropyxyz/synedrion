@@ -31,7 +31,7 @@ impl<P: SchemeParams> ProtocolResult for SigningResult<P> {
 }
 
 /// A proof of a node's correct behavior for the Signing protocol.
-#[allow(dead_code)] // TODO: this can be removed when error verification is added
+#[allow(dead_code)] // TODO (#43): this can be removed when error verification is added
 #[derive(Debug, Clone)]
 pub struct SigningProof<P: SchemeParams> {
     aff_g_proofs: Vec<(PartyIdx, PartyIdx, AffGProof<P>)>,
@@ -154,9 +154,10 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let mut aff_g_proofs = Vec::new();
 
         for j in HoleRange::new(num_parties, my_idx) {
-            // TODO: can exclude `j` in addition to `my_idx`.
-            // Should we have a "double hole vec" for that?
             for l in HoleRange::new(num_parties, my_idx) {
+                if l == j {
+                    continue;
+                }
                 let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
                 let rp = &self.context.key_share.public_aux[l].rp_params;
 
@@ -310,11 +311,11 @@ mod tests {
             let vkey = key_shares[0].verifying_key();
 
             // Check that the signature can be verified
-            vkey.verify_prehash(&message.to_be_bytes(), &sig).unwrap();
+            vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();
 
             // Check that the key can be recovered
             let recovered_key =
-                VerifyingKey::recover_from_prehash(&message.to_be_bytes(), &sig, rec_id).unwrap();
+                VerifyingKey::recover_from_prehash(&message.to_bytes(), &sig, rec_id).unwrap();
             assert_eq!(recovered_key, vkey);
         }
     }

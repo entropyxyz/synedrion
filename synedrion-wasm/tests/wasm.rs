@@ -23,5 +23,5 @@ fn test_make_key_shares() {
         .iter()
         .map(|share| share.to_bytes())
         .collect::<Vec<_>>();
-    // TODO: serialize synedrion::KeyShare and compare sizes?
+    // TODO (#84): some assertions needed here. Serialize synedrion::KeyShare and compare sizes?
 }

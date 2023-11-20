@@ -1,7 +1,5 @@
 //! Multiplication Paillier vs Group ($\Pi^{mul}$, Section C.6, Fig. 31)
 
-#![allow(dead_code)] // TODO: to be used on erros in Signing protocol
-
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -39,11 +37,10 @@ impl<P: SchemeParams> MulStarProof<P> {
         aux: &impl Hashable,
     ) -> Self {
         /*
-        CHECK: Several issues with the proof description in the paper:
-        - the prover creates $B_x$, but sends $B$ - probably a typo, and they're the same thing
-        - the prover creates $r_y$, but it is unused - probably a typo
-        - $\beta$ used to create $A$ is not mentioned anywhere else
-          (and judging by the condition the verifier checks, it should be == 0)
+        NOTE: Several issues with the proof description in the paper:
+        - the prover creates $B_x$, but sends $B$ - a typo, and they're the same thing
+        - the prover creates $r_y$, but it is unused - a typo
+        - $\beta$ used to create $A$ is not mentioned anywhere else - a typo, it is effectively == 0
         */
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -83,6 +80,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
     }
 
+    #[allow(dead_code)] // TODO (#43): this can be removed when error verification is added
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
@@ -154,7 +152,6 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        // TODO: use full range (0 to N)
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho = RandomizerMod::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_signed(&mut OsRng, pk, &secret);

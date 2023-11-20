@@ -28,14 +28,6 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1
     Uint::from_words(result_words)
 }
 
-// TODO: currently in Rust bounds on `&Self` are not propagated,
-// so we can't say "an UintLike x, y support &x + &y" -
-// we would have to specify this bound at every place it is used (and it is a long one).
-// We can specify the bound saying "an UintLike x, y support x + &y" though,
-// which means that we will have to either clone or copy `x`.
-// Copying `x` when the underlying operations really support taking it by reference
-// involves a slight overhead, but it's better than monstrous trait bounds everywhere.
-
 pub trait UintLike:
     Integer
     + Encoding
@@ -267,7 +259,7 @@ where
     let (hi, lo) = T::RawUint::from_wide(*exponent);
     let lo_res = base.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
 
-    // TODO: this may be faster if we could get access to Uint's pow_bounded_exp() that takes
+    // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
     // exponents of any size - it keeps the base^(2^k) already.
     if bound > bits {
         base.pow_bounded_exp(&hi, bound - bits).pow_2k(bits) * lo_res
@@ -390,7 +382,7 @@ impl HasWide for U4096 {
     }
 }
 
-// TODO: use regular From?
+// TODO (#63): this should be moved out of Uint layer.
 pub trait FromScalar {
     fn from_scalar(value: &Scalar) -> Self;
     fn to_scalar(&self) -> Scalar;
@@ -400,7 +392,7 @@ pub trait FromScalar {
 impl FromScalar for U1024 {
     fn from_scalar(value: &Scalar) -> Self {
         // TODO: can we cast Scalar to Uint and use to_words()?
-        let scalar_bytes = value.to_be_bytes();
+        let scalar_bytes = value.to_bytes();
         let mut repr = Self::ZERO.to_be_bytes();
 
         let uint_len = repr.as_ref().len();
@@ -428,7 +420,7 @@ impl FromScalar for U1024 {
         let scalar_len = Scalar::repr_len();
 
         // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).unwrap()
+        Scalar::try_from_bytes(&repr[repr.len() - scalar_len..]).unwrap()
     }
 }
 
@@ -436,7 +428,7 @@ impl FromScalar for U1024 {
 impl FromScalar for U2048 {
     fn from_scalar(value: &Scalar) -> Self {
         // TODO: can we cast Scalar to Uint and use to_words()?
-        let scalar_bytes = value.to_be_bytes();
+        let scalar_bytes = value.to_bytes();
         let mut repr = Self::ZERO.to_be_bytes();
 
         let uint_len = repr.as_ref().len();
@@ -464,7 +456,7 @@ impl FromScalar for U2048 {
         let scalar_len = Scalar::repr_len();
 
         // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).unwrap()
+        Scalar::try_from_bytes(&repr[repr.len() - scalar_len..]).unwrap()
     }
 }
 

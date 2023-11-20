@@ -4,7 +4,7 @@
 #![deny(unsafe_code)]
 #![warn(
     clippy::mod_module_files,
-    // TODO: handle unwraps gracefully and enable this lint
+    // TODO (#76): handle unwraps gracefully and enable this lint
     // clippy::unwrap_used,
     missing_docs,
     missing_copy_implementations,
