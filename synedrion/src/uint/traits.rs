@@ -198,6 +198,7 @@ pub trait UintModLike:
     fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed;
     fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self;
     fn one(precomputed: &Self::Precomputed) -> Self;
+
     fn pow_signed_vartime(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound_usize());
@@ -207,15 +208,72 @@ pub trait UintModLike:
             abs_result
         }
     }
+
     fn pow_signed(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound_usize());
         let inv_result = abs_result.invert().unwrap();
         Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
+
     fn pow_bounded(&self, exponent: &Bounded<Self::RawUint>) -> Self {
         self.pow_bounded_exp(exponent.as_ref(), exponent.bound_usize())
     }
+    fn pow_signed_wide(&self, exponent: &Signed<<Self::RawUint as HasWide>::Wide>) -> Self
+    where
+        Self::RawUint: HasWide,
+    {
+        let abs_exponent = exponent.abs();
+        let abs_result = self.pow_wide(&abs_exponent, exponent.bound_usize());
+        let inv_result = abs_result.invert().unwrap();
+        Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
+    fn pow_wide(&self, exponent: &<Self::RawUint as HasWide>::Wide, bound: usize) -> Self
+    where
+        Self::RawUint: HasWide,
+    {
+        let bits = <Self::RawUint as Integer>::BITS;
+        let bound = bound % (2 * bits + 1);
+
+        let (hi, lo) = Self::RawUint::from_wide(*exponent);
+        let lo_res = self.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
+
+        // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
+        // exponents of any size - it keeps the self^(2^k) already.
+        if bound > bits {
+            self.pow_bounded_exp(&hi, bound - bits).pow_2k(bits) * lo_res
+        } else {
+            lo_res
+        }
+    }
+
+    fn pow_signed_extra_wide(
+        &self,
+        exponent: &Signed<<<Self::RawUint as HasWide>::Wide as HasWide>::Wide>,
+    ) -> Self
+    where
+        Self::RawUint: HasWide,
+        <Self::RawUint as HasWide>::Wide: HasWide,
+    {
+        let bits = <<Self::RawUint as HasWide>::Wide as Integer>::BITS;
+        let bound = exponent.bound_usize();
+
+        let abs_exponent = exponent.abs();
+        let (whi, wlo) = <Self::RawUint as HasWide>::Wide::from_wide(abs_exponent);
+
+        let lo_res = self.pow_wide(&wlo, core::cmp::min(bits, bound));
+
+        let abs_result = if bound > bits {
+            self.pow_wide(&whi, bound - bits).pow_2k(bits) * lo_res
+        } else {
+            lo_res
+        };
+
+        let inv_result = abs_result.invert().unwrap();
+        Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
     /// Calculates `self^{2^k}`
     fn pow_2k(&self, k: usize) -> Self {
         let mut result = *self;
@@ -246,65 +304,6 @@ where
     fn square(&self) -> Self {
         self.square()
     }
-}
-
-fn pow_wide<T>(base: &T, exponent: &<T::RawUint as HasWide>::Wide, bound: usize) -> T
-where
-    T: UintModLike,
-    T::RawUint: HasWide,
-{
-    let bits = <T::RawUint as Integer>::BITS;
-    let bound = bound % (2 * bits + 1);
-
-    let (hi, lo) = T::RawUint::from_wide(*exponent);
-    let lo_res = base.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
-
-    // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
-    // exponents of any size - it keeps the base^(2^k) already.
-    if bound > bits {
-        base.pow_bounded_exp(&hi, bound - bits).pow_2k(bits) * lo_res
-    } else {
-        lo_res
-    }
-}
-
-// TODO: can it be made a method in UintModLike?
-pub(crate) fn pow_signed_wide<T>(base: &T, exponent: &Signed<<T::RawUint as HasWide>::Wide>) -> T
-where
-    T: UintModLike,
-    T::RawUint: HasWide,
-{
-    let abs_exponent = exponent.abs();
-    let abs_result = pow_wide(base, &abs_exponent, exponent.bound_usize());
-    let inv_result = abs_result.invert().unwrap();
-    T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
-}
-
-pub(crate) fn pow_signed_extra_wide<T>(
-    base: &T,
-    exponent: &Signed<<<T::RawUint as HasWide>::Wide as HasWide>::Wide>,
-) -> T
-where
-    T: UintModLike,
-    T::RawUint: HasWide,
-    <T::RawUint as HasWide>::Wide: HasWide,
-{
-    let bits = <<T::RawUint as HasWide>::Wide as Integer>::BITS;
-    let bound = exponent.bound_usize();
-
-    let abs_exponent = exponent.abs();
-    let (whi, wlo) = <T::RawUint as HasWide>::Wide::from_wide(abs_exponent);
-
-    let lo_res = pow_wide(base, &wlo, core::cmp::min(bits, bound));
-
-    let abs_result = if bound > bits {
-        pow_wide(base, &whi, bound - bits).pow_2k(bits) * lo_res
-    } else {
-        lo_res
-    };
-
-    let inv_result = abs_result.invert().unwrap();
-    T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
 
 impl<const L: usize> Hashable for DynResidue<L>

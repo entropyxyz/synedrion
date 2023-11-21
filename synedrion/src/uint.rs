@@ -13,6 +13,5 @@ pub(crate) use bounded::Bounded;
 pub(crate) use jacobi::{JacobiSymbol, JacobiSymbolTrait};
 pub(crate) use signed::Signed;
 pub(crate) use traits::{
-    pow_signed_extra_wide, pow_signed_wide, upcast_uint, FromScalar, HasWide, U1024Mod, U2048Mod,
-    U4096Mod, U512Mod, UintLike, UintModLike,
+    upcast_uint, FromScalar, HasWide, U1024Mod, U2048Mod, U4096Mod, U512Mod, UintLike, UintModLike,
 };
