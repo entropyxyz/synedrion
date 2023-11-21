@@ -98,7 +98,7 @@ where
         let payloads = if accum.is_empty() {
             None
         } else {
-            Some(accum.finalize().map_err(|_| StepError::AccumFinalize)?)
+            Some(accum.finalize().ok_or(StepError::AccumFinalize)?)
         };
         dm_payloads.push(payloads);
     }
@@ -108,7 +108,7 @@ where
         let artefacts = if accum.is_empty() {
             None
         } else {
-            Some(accum.finalize().map_err(|_| StepError::AccumFinalize)?)
+            Some(accum.finalize().ok_or(StepError::AccumFinalize)?)
         };
         dm_artefacts.push(artefacts);
     }
@@ -118,7 +118,7 @@ where
         let payloads = if accum.is_empty() {
             None
         } else {
-            Some(accum.finalize().map_err(|_| StepError::AccumFinalize)?)
+            Some(accum.finalize().ok_or(StepError::AccumFinalize)?)
         };
         bc_payloads.push(payloads);
     }

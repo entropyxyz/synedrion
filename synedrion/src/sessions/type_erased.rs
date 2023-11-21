@@ -335,7 +335,7 @@ impl DynRoundAccum {
             Some(accum) => {
                 let hvec = accum
                     .finalize()
-                    .map_err(|_| AccumFinalizeError::NotEnoughMessages)?;
+                    .ok_or(AccumFinalizeError::NotEnoughMessages)?;
                 Some(hvec.map_fallible(|elem| downcast::<<R as BroadcastRound>::Payload>(elem.0))?)
             }
             None => None,
@@ -344,7 +344,7 @@ impl DynRoundAccum {
             Some(accum) => {
                 let hvec = accum
                     .finalize()
-                    .map_err(|_| AccumFinalizeError::NotEnoughMessages)?;
+                    .ok_or(AccumFinalizeError::NotEnoughMessages)?;
                 Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Payload>(elem.0))?)
             }
             None => None,
@@ -353,7 +353,7 @@ impl DynRoundAccum {
             Some(accum) => {
                 let hvec = accum
                     .finalize()
-                    .map_err(|_| AccumFinalizeError::NotEnoughMessages)?;
+                    .ok_or(AccumFinalizeError::NotEnoughMessages)?;
                 Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Artefact>(elem.0))?)
             }
             None => None,

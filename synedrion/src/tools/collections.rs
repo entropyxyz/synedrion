@@ -72,19 +72,15 @@ impl<T> HoleVecAccum<T> {
             .collect()
     }
 
-    pub fn finalize(self) -> Result<HoleVec<T>, Self> {
+    pub fn finalize(self) -> Option<HoleVec<T>> {
         if self.can_finalize() {
-            let elems = self
-                .elems
-                .into_iter()
-                .map(|value| value.unwrap()) // TODO: return Self if there is an error
-                .collect();
-            Ok(HoleVec {
+            let elems = self.elems.into_iter().collect::<Option<Vec<_>>>()?;
+            Some(HoleVec {
                 hole_at: self.hole_at.try_into().unwrap(),
                 elems,
             })
         } else {
-            Err(self)
+            None
         }
     }
 }
