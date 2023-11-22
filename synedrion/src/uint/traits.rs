@@ -306,17 +306,6 @@ where
     }
 }
 
-impl<const L: usize> Hashable for DynResidue<L>
-where
-    Uint<L>: Encoding,
-{
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        // TODO: I don't think we really need `retrieve()` here,
-        // but `DynResidue` objects are not serializable at the moment.
-        digest.chain(&self.retrieve())
-    }
-}
-
 impl HasWide for U512 {
     type Wide = U1024;
     fn mul_wide(&self, other: &Self) -> Self::Wide {
