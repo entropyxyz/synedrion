@@ -1,4 +1,4 @@
-use core::ops::{Add, Mul, Neg, Rem, Sub};
+use core::ops::{Add, Mul, Neg, Sub};
 
 use crypto_bigint::{
     modular::{
@@ -376,10 +376,8 @@ pub trait FromScalar {
     fn to_scalar(&self) -> Scalar;
 }
 
-// TODO: can we generalize it? Or put it in a macro?
-impl FromScalar for U1024 {
+impl<T: UintLike> FromScalar for T {
     fn from_scalar(value: &Scalar) -> Self {
-        // TODO: can we cast Scalar to Uint and use to_words()?
         let scalar_bytes = value.to_bytes();
         let mut repr = Self::ZERO.to_be_bytes();
 
@@ -392,59 +390,15 @@ impl FromScalar for U1024 {
     }
 
     fn to_scalar(&self) -> Scalar {
-        // TODO: better as a method of Signed?
-        // TODO: can be precomputed
         let p = NonZero::new(Self::from_scalar(&-Scalar::ONE).wrapping_add(&Self::ONE)).unwrap();
-        let mut r = self.rem(&p);
-
-        // Treating the values over Self::MAX / 2 as negative ones.
-        if self.bit(Self::BITS - 1).into() {
-            // TODO: can be precomputed
-            let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);
-            r = r.add_mod(&n_mod_p, &p);
-        }
+        let r = self.rem(p);
 
         let repr = r.to_be_bytes();
-        let scalar_len = Scalar::repr_len();
-
-        // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_bytes(&repr[repr.len() - scalar_len..]).unwrap()
-    }
-}
-
-// TODO: can we generalize it? Or put it in a macro?
-impl FromScalar for U2048 {
-    fn from_scalar(value: &Scalar) -> Self {
-        // TODO: can we cast Scalar to Uint and use to_words()?
-        let scalar_bytes = value.to_bytes();
-        let mut repr = Self::ZERO.to_be_bytes();
-
         let uint_len = repr.as_ref().len();
-        let scalar_len = scalar_bytes.len();
-
-        debug_assert!(uint_len >= scalar_len);
-        repr.as_mut()[uint_len - scalar_len..].copy_from_slice(&scalar_bytes);
-        Self::from_be_bytes(repr)
-    }
-
-    fn to_scalar(&self) -> Scalar {
-        // TODO: better as a method of Signed?
-        // TODO: can be precomputed
-        let p = NonZero::new(Self::from_scalar(&-Scalar::ONE).wrapping_add(&Self::ONE)).unwrap();
-        let mut r = self.rem(&p);
-
-        // Treating the values over Self::MAX / 2 as negative ones.
-        if self.bit(Self::BITS - 1).into() {
-            // TODO: can be precomputed
-            let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);
-            r = r.add_mod(&n_mod_p, &p);
-        }
-
-        let repr = r.to_be_bytes();
         let scalar_len = Scalar::repr_len();
 
         // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_bytes(&repr[repr.len() - scalar_len..]).unwrap()
+        Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..]).unwrap()
     }
 }
 
