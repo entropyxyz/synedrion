@@ -1,4 +1,4 @@
-use core::ops::{Add, Mul, Neg, Rem, Sub};
+use core::ops::{Add, Mul, Neg, Sub};
 
 use crypto_bigint::{
     modular::{
@@ -27,14 +27,6 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1
     }
     Uint::from_words(result_words)
 }
-
-// TODO: currently in Rust bounds on `&Self` are not propagated,
-// so we can't say "an UintLike x, y support &x + &y" -
-// we would have to specify this bound at every place it is used (and it is a long one).
-// We can specify the bound saying "an UintLike x, y support x + &y" though,
-// which means that we will have to either clone or copy `x`.
-// Copying `x` when the underlying operations really support taking it by reference
-// involves a slight overhead, but it's better than monstrous trait bounds everywhere.
 
 pub trait UintLike:
     Integer
@@ -206,6 +198,7 @@ pub trait UintModLike:
     fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed;
     fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self;
     fn one(precomputed: &Self::Precomputed) -> Self;
+
     fn pow_signed_vartime(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound_usize());
@@ -215,15 +208,72 @@ pub trait UintModLike:
             abs_result
         }
     }
+
     fn pow_signed(&self, exponent: &Signed<Self::RawUint>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound_usize());
         let inv_result = abs_result.invert().unwrap();
         Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
+
     fn pow_bounded(&self, exponent: &Bounded<Self::RawUint>) -> Self {
         self.pow_bounded_exp(exponent.as_ref(), exponent.bound_usize())
     }
+    fn pow_signed_wide(&self, exponent: &Signed<<Self::RawUint as HasWide>::Wide>) -> Self
+    where
+        Self::RawUint: HasWide,
+    {
+        let abs_exponent = exponent.abs();
+        let abs_result = self.pow_wide(&abs_exponent, exponent.bound_usize());
+        let inv_result = abs_result.invert().unwrap();
+        Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
+    fn pow_wide(&self, exponent: &<Self::RawUint as HasWide>::Wide, bound: usize) -> Self
+    where
+        Self::RawUint: HasWide,
+    {
+        let bits = <Self::RawUint as Integer>::BITS;
+        let bound = bound % (2 * bits + 1);
+
+        let (hi, lo) = Self::RawUint::from_wide(*exponent);
+        let lo_res = self.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
+
+        // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
+        // exponents of any size - it keeps the self^(2^k) already.
+        if bound > bits {
+            self.pow_bounded_exp(&hi, bound - bits).pow_2k(bits) * lo_res
+        } else {
+            lo_res
+        }
+    }
+
+    fn pow_signed_extra_wide(
+        &self,
+        exponent: &Signed<<<Self::RawUint as HasWide>::Wide as HasWide>::Wide>,
+    ) -> Self
+    where
+        Self::RawUint: HasWide,
+        <Self::RawUint as HasWide>::Wide: HasWide,
+    {
+        let bits = <<Self::RawUint as HasWide>::Wide as Integer>::BITS;
+        let bound = exponent.bound_usize();
+
+        let abs_exponent = exponent.abs();
+        let (whi, wlo) = <Self::RawUint as HasWide>::Wide::from_wide(abs_exponent);
+
+        let lo_res = self.pow_wide(&wlo, core::cmp::min(bits, bound));
+
+        let abs_result = if bound > bits {
+            self.pow_wide(&whi, bound - bits).pow_2k(bits) * lo_res
+        } else {
+            lo_res
+        };
+
+        let inv_result = abs_result.invert().unwrap();
+        Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
     /// Calculates `self^{2^k}`
     fn pow_2k(&self, k: usize) -> Self {
         let mut result = *self;
@@ -253,76 +303,6 @@ where
     }
     fn square(&self) -> Self {
         self.square()
-    }
-}
-
-fn pow_wide<T>(base: &T, exponent: &<T::RawUint as HasWide>::Wide, bound: usize) -> T
-where
-    T: UintModLike,
-    T::RawUint: HasWide,
-{
-    let bits = <T::RawUint as Integer>::BITS;
-    let bound = bound % (2 * bits + 1);
-
-    let (hi, lo) = T::RawUint::from_wide(*exponent);
-    let lo_res = base.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
-
-    // TODO: this may be faster if we could get access to Uint's pow_bounded_exp() that takes
-    // exponents of any size - it keeps the base^(2^k) already.
-    if bound > bits {
-        base.pow_bounded_exp(&hi, bound - bits).pow_2k(bits) * lo_res
-    } else {
-        lo_res
-    }
-}
-
-// TODO: can it be made a method in UintModLike?
-pub(crate) fn pow_signed_wide<T>(base: &T, exponent: &Signed<<T::RawUint as HasWide>::Wide>) -> T
-where
-    T: UintModLike,
-    T::RawUint: HasWide,
-{
-    let abs_exponent = exponent.abs();
-    let abs_result = pow_wide(base, &abs_exponent, exponent.bound_usize());
-    let inv_result = abs_result.invert().unwrap();
-    T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
-}
-
-pub(crate) fn pow_signed_extra_wide<T>(
-    base: &T,
-    exponent: &Signed<<<T::RawUint as HasWide>::Wide as HasWide>::Wide>,
-) -> T
-where
-    T: UintModLike,
-    T::RawUint: HasWide,
-    <T::RawUint as HasWide>::Wide: HasWide,
-{
-    let bits = <<T::RawUint as HasWide>::Wide as Integer>::BITS;
-    let bound = exponent.bound_usize();
-
-    let abs_exponent = exponent.abs();
-    let (whi, wlo) = <T::RawUint as HasWide>::Wide::from_wide(abs_exponent);
-
-    let lo_res = pow_wide(base, &wlo, core::cmp::min(bits, bound));
-
-    let abs_result = if bound > bits {
-        pow_wide(base, &whi, bound - bits).pow_2k(bits) * lo_res
-    } else {
-        lo_res
-    };
-
-    let inv_result = abs_result.invert().unwrap();
-    T::conditional_select(&abs_result, &inv_result, exponent.is_negative())
-}
-
-impl<const L: usize> Hashable for DynResidue<L>
-where
-    Uint<L>: Encoding,
-{
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        // TODO: I don't think we really need `retrieve()` here,
-        // but `DynResidue` objects are not serializable at the moment.
-        digest.chain(&self.retrieve())
     }
 }
 
@@ -390,17 +370,15 @@ impl HasWide for U4096 {
     }
 }
 
-// TODO: use regular From?
+// TODO (#63): this should be moved out of Uint layer.
 pub trait FromScalar {
     fn from_scalar(value: &Scalar) -> Self;
     fn to_scalar(&self) -> Scalar;
 }
 
-// TODO: can we generalize it? Or put it in a macro?
-impl FromScalar for U1024 {
+impl<T: UintLike> FromScalar for T {
     fn from_scalar(value: &Scalar) -> Self {
-        // TODO: can we cast Scalar to Uint and use to_words()?
-        let scalar_bytes = value.to_be_bytes();
+        let scalar_bytes = value.to_bytes();
         let mut repr = Self::ZERO.to_be_bytes();
 
         let uint_len = repr.as_ref().len();
@@ -412,59 +390,15 @@ impl FromScalar for U1024 {
     }
 
     fn to_scalar(&self) -> Scalar {
-        // TODO: better as a method of Signed?
-        // TODO: can be precomputed
         let p = NonZero::new(Self::from_scalar(&-Scalar::ONE).wrapping_add(&Self::ONE)).unwrap();
-        let mut r = self.rem(&p);
-
-        // Treating the values over Self::MAX / 2 as negative ones.
-        if self.bit(Self::BITS - 1).into() {
-            // TODO: can be precomputed
-            let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);
-            r = r.add_mod(&n_mod_p, &p);
-        }
+        let r = self.rem(p);
 
         let repr = r.to_be_bytes();
-        let scalar_len = Scalar::repr_len();
-
-        // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).unwrap()
-    }
-}
-
-// TODO: can we generalize it? Or put it in a macro?
-impl FromScalar for U2048 {
-    fn from_scalar(value: &Scalar) -> Self {
-        // TODO: can we cast Scalar to Uint and use to_words()?
-        let scalar_bytes = value.to_be_bytes();
-        let mut repr = Self::ZERO.to_be_bytes();
-
         let uint_len = repr.as_ref().len();
-        let scalar_len = scalar_bytes.len();
-
-        debug_assert!(uint_len >= scalar_len);
-        repr.as_mut()[uint_len - scalar_len..].copy_from_slice(&scalar_bytes);
-        Self::from_be_bytes(repr)
-    }
-
-    fn to_scalar(&self) -> Scalar {
-        // TODO: better as a method of Signed?
-        // TODO: can be precomputed
-        let p = NonZero::new(Self::from_scalar(&-Scalar::ONE).wrapping_add(&Self::ONE)).unwrap();
-        let mut r = self.rem(&p);
-
-        // Treating the values over Self::MAX / 2 as negative ones.
-        if self.bit(Self::BITS - 1).into() {
-            // TODO: can be precomputed
-            let n_mod_p = Self::MAX.rem(&p).add_mod(&Self::ONE, &p);
-            r = r.add_mod(&n_mod_p, &p);
-        }
-
-        let repr = r.to_be_bytes();
         let scalar_len = Scalar::repr_len();
 
         // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_be_bytes(&repr[repr.len() - scalar_len..]).unwrap()
+        Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..]).unwrap()
     }
 }
 

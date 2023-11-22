@@ -47,7 +47,7 @@ impl Hashable for PartyIdx {
 }
 
 /// The result of the Keygen protocol.
-// TODO: Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
+// TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
 #[derive(Clone)]
 pub struct KeyShareSeed {
@@ -58,7 +58,7 @@ pub struct KeyShareSeed {
 }
 
 /// The full key share with auxiliary parameters.
-// TODO: Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
+// TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretAuxInfo<P>: Serialize,
@@ -73,7 +73,7 @@ pub struct KeyShare<P: SchemeParams> {
     pub(crate) public_aux: Box<[PublicAuxInfo<P>]>,
 }
 
-// TODO: Debug can be derived automatically here if `el_gamal_sk` is wrapped in its own struct,
+// TODO (#77): Debug can be derived automatically here if `el_gamal_sk` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
@@ -106,13 +106,13 @@ pub(crate) struct KeySharePrecomputed<P: SchemeParams> {
 #[derive(Clone)]
 pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
     pub(crate) el_gamal_sk: Scalar,
 }
 
 #[derive(Clone)]
 pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
     pub(crate) el_gamal_pk: Point,
     pub(crate) paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
     pub(crate) rp_params: RPParamsMod<P::Paillier>,
@@ -133,7 +133,7 @@ pub struct KeyShareChange<P: SchemeParams> {
 /// The result of the Presigning protocol.
 #[derive(Debug, Clone)]
 pub struct PresigningData<P: SchemeParams> {
-    // CHECK: can we store nonce as a scalar?
+    // TODO (#79): can we store nonce as a scalar?
     pub(crate) nonce: Point, // `R`
     /// An additive share of the ephemeral scalar `k`.
     pub(crate) ephemeral_scalar_share: Scalar, // `k_i`
@@ -153,7 +153,7 @@ impl<P: SchemeParams> KeyShare<P> {
     /// Creates a key share out of the seed (obtained from the KeyGen protocol)
     /// and the share change (obtained from the KeyRefresh+Auxiliary protocol).
     pub(crate) fn new(seed: KeyShareSeed, change: KeyShareChange<P>) -> Self {
-        // TODO: check that party_idx is the same for both, and the number of parties is the same
+        // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
         let secret_share = seed.secret_share + change.secret_share_change;
         let public_shares = seed
             .public_shares
@@ -207,7 +207,7 @@ impl<P: SchemeParams> KeyShare<P> {
     /// Return the updated key share using the share change
     /// obtained from the KeyRefresh+Auxiliary protocol).
     pub fn update(self, change: KeyShareChange<P>) -> Self {
-        // TODO: check that party_idx is the same for both, and the number of parties is the same
+        // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
         let secret_share = self.secret_share + change.secret_share_change;
         let public_shares = self
             .public_shares
@@ -254,21 +254,21 @@ impl<P: SchemeParams> KeyShare<P> {
 
     /// Return the verifying key to which this set of shares corresponds.
     pub fn verifying_key(&self) -> VerifyingKey {
-        // TODO: need to ensure on creation of the share that the verifying key actually exists
+        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
     /// Returns the number of parties in this set of shares.
     pub fn num_parties(&self) -> usize {
-        // TODO: technically it is `num_shares`, but for now we are equating the two,
+        // TODO (#31): technically it is `num_shares`, but for now we are equating the two,
         // since we assume that one party has one share.
         self.public_shares.len()
     }
 
     /// Returns the index of this share's party.
     pub fn party_index(&self) -> usize {
-        // TODO: technically it is the share index, but for now we are equating the two,
+        // TODO (#31): technically it is the share index, but for now we are equating the two,
         // since we assume that one party has one share.
         self.index.as_usize()
     }
@@ -277,14 +277,14 @@ impl<P: SchemeParams> KeyShare<P> {
 impl<P: SchemeParams> KeySharePrecomputed<P> {
     /// Returns the number of parties in this set of shares.
     pub fn num_parties(&self) -> usize {
-        // TODO: technically it is `num_shares`, but for now we are equating the two,
+        // TODO (#31): technically it is `num_shares`, but for now we are equating the two,
         // since we assume that one party has one share.
         self.public_shares.len()
     }
 
     /// Returns the index of this share's party.
     pub fn party_index(&self) -> PartyIdx {
-        // TODO: technically it is the share index, but for now we are equating the two,
+        // TODO (#31): technically it is the share index, but for now we are equating the two,
         // since we assume that one party has one share.
         self.index
     }

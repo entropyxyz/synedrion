@@ -1,6 +1,6 @@
 //! Convenience functions to serialize byte sequences efficiently
 //! both in binary and human-readable formats.
-//! TODO: make a separate crate.
+//! TODO (#83): make a separate crate.
 
 use alloc::format;
 use core::any::type_name;

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use k256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, SigningKey, VerifyingKey};
-use rand::seq::SliceRandom;
+use rand::Rng;
 use rand_core::OsRng;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
@@ -92,12 +92,6 @@ async fn run_session<Res: ProtocolResult>(
         }
 
         while !session.can_finalize(&accum).unwrap() {
-            // TODO: can we have a situation where the message is being processed
-            // just as the timeout expires? Unlikely, but possible.
-            // We would probably want to somehow delay the loop
-            // until all the processing tasks return, and don't report the corresponding nodes
-            // as unresponsive.
-
             // This can be checked if a timeout expired, to see which nodes have not responded yet.
             let unresponsive_parties = session.missing_messages(&accum);
             assert!(!unresponsive_parties.is_empty());
@@ -151,9 +145,13 @@ async fn message_dispatcher(
         while let Ok(msg) = rx.try_recv() {
             messages.push(msg)
         }
-        messages.shuffle(&mut rand::thread_rng());
 
-        while let Some((id_from, id_to, message)) = messages.pop() {
+        while !messages.is_empty() {
+            // Pull a random message from the list,
+            // to increase the chances that they are delivered out of order.
+            let message_idx = rand::thread_rng().gen_range(0..messages.len());
+            let (id_from, id_to, message) = messages.swap_remove(message_idx);
+
             txs[&id_to].send((id_from, message)).await.unwrap();
 
             // Give up execution so that the tasks could process messages.
@@ -161,8 +159,6 @@ async fn message_dispatcher(
 
             if let Ok(msg) = rx.try_recv() {
                 messages.push(msg);
-                // TODO: we can just pull a random message instead of reshuffling
-                messages.shuffle(&mut rand::thread_rng());
             };
         }
     }

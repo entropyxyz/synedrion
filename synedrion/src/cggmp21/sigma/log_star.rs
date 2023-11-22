@@ -29,7 +29,7 @@ impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn random(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$                                 // `x`
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
         rho: &RandomizerMod<P::Paillier>,                  // $\rho$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
         g: &Point,                                         // $g$

@@ -49,7 +49,7 @@ pub struct KeyRefreshError<P: SchemeParams>(KeyRefreshErrorEnum<P>);
 enum KeyRefreshErrorEnum<P: SchemeParams> {
     Round2(String),
     Round3(String),
-    // TODO: this can be removed when error verification is added
+    // TODO (#43): this can be removed when error verification is added
     #[allow(dead_code)]
     Round3MismatchedSecret {
         cap_c: Ciphertext<P::Paillier>,
@@ -75,7 +75,6 @@ pub struct FullData<P: SchemeParams> {
     u_bits: Box<[u8]>, // $u_i$
 }
 
-// TODO: some of the fields may be unused
 #[derive(Debug, Clone)]
 pub struct FullDataPrecomp<P: SchemeParams> {
     data: FullData<P>,
@@ -372,7 +371,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         assert!(dm_artefacts.is_none());
         let messages = bc_payloads.unwrap();
         // XOR the vectors together
-        // TODO: is there a better way?
+        // TODO (#61): is there a better way?
         let mut rho = self.context.data_precomp.data.rho_bits.clone();
         for data in messages.iter() {
             for (i, x) in data.data.rho_bits.iter().enumerate() {
@@ -562,8 +561,6 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             &sender_data.data.el_gamal_pk,
             &aux,
         ) {
-            // CHECK: not sending the commitment the second time in `msg`,
-            // since we already got it from the previous round.
             return Err(ReceiveError::Provable(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3("Sch proof verification (Y) failed".into()),
             )));
@@ -574,10 +571,8 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             &sender_data.data.xs_public[self.context.party_idx.as_usize()],
             &aux,
         ) {
-            // CHECK: not sending the commitment the second time in `msg`,
-            // since we already got it from the previous round.
             return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Sch proof verification (Y) failed".into()),
+                KeyRefreshErrorEnum::Round3("Sch proof verification (X) failed".into()),
             )));
         }
 

@@ -39,7 +39,6 @@ where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
     pub fn new(broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>) -> Self {
-        // TODO: don't have to clone `verifiers` here, can just keep a ref.
         Self { broadcasts }
     }
 
@@ -60,23 +59,18 @@ where
         from: PartyIdx,
         verified_message: VerifiedMessage<Sig>,
     ) -> Result<(), ConsensusError> {
-        // TODO: check that `from` is valid here?
         let message: Message<Sig> = deserialize_message(verified_message.payload())
             .map_err(|err| ConsensusError::CannotDeserialize(err.to_string()))?;
 
-        // TODO: check that there are no repeating indices?
+        // TODO (#68): check that there are no repeating indices, and the indices are in range.
         let bc_map = message.broadcasts.into_iter().collect::<BTreeMap<_, _>>();
 
         if bc_map.len() != self.broadcasts.len() {
             return Err(ConsensusError::UnexpectedNumberOfBroadcasts);
         }
 
-        // CHECK: should we save our own broadcast,
-        // and check that the other nodes received it?
-        // Or is this excessive since they are signed by us anyway?
-
         for (idx, broadcast) in self.broadcasts.iter() {
-            // CHECK: the party `from` won't send us its own broadcast the second time.
+            // The party `from` won't send us its own broadcast the second time.
             // It gives no additional assurance.
             if idx == &from {
                 continue;

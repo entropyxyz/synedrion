@@ -99,7 +99,7 @@ fn wrap_receive_result<Res: ProtocolResult, Verifier: Clone, T>(
     from: &Verifier,
     result: Result<T, ReceiveError<Res>>,
 ) -> Result<T, Error<Res, Verifier>> {
-    // TODO: we need to attach all the necessary messages here,
+    // TODO (#43): we need to attach all the necessary messages here,
     // to make sure that every provable error can be independently verified
     // given the party's verifying key.
     result.map_err(|err| match err {
@@ -157,8 +157,8 @@ where
                 "The given signer's verifying key is not among the verifiers".into(),
             ))?;
 
-        // CHECK: is this enough? Do we need to hash in e.g. the verifier public keys?
-        // TODO: Need to specify the requirements for the shared randomness in the docstring.
+        // TODO (#3): Is this enough? Do we need to hash in e.g. the verifier public keys?
+        //            Need to specify the requirements for the shared randomness in the docstring.
         let session_id = SessionId::from_seed(shared_randomness);
         let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, context)
             .map_err(|err| LocalError(format!("Failed to initialize the protocol: {err:?}")))?;
@@ -241,8 +241,8 @@ where
                     .collect()
             }),
             SessionType::Bc { .. } => {
-                // TODO: technically we should remember the range to which the initial broadcasts
-                // were sent to and use that.
+                // TODO (#82): technically we should remember the range
+                // to which the initial broadcasts were sent to and use that.
                 let range = HoleRange::new(
                     self.context.verifiers.len(),
                     self.context.party_idx.as_usize(),
@@ -434,36 +434,29 @@ where
         let from = self.context.verifiers[preprocessed.from_idx.as_usize()].clone();
         let message = preprocessed.message;
         match &self.tp {
-            SessionType::Normal(round) => {
-                match message.message_type() {
-                    MessageType::Direct => {
-                        let result = round.verify_direct_message(from_idx, message.payload());
-                        let payload = wrap_receive_result(&from, result)?;
-                        Ok(ProcessedMessage {
-                            from: from.clone(),
-                            from_idx,
-                            message: ProcessedMessageEnum::DmPayload { payload, message },
-                        })
-                    }
-                    MessageType::Broadcast => {
-                        let result = round.verify_broadcast(from_idx, message.payload());
-                        let payload = wrap_receive_result(&from, result)?;
-                        Ok(ProcessedMessage {
-                            from: from.clone(),
-                            from_idx,
-                            message: ProcessedMessageEnum::BcPayload { payload, message },
-                        })
-                    }
-                    _ => {
-                        // TODO: this branch will never really be reached because we already routed
-                        // the message in the calling method.
-                        // Can we modify the code so that this branch is eliminated?
-                        Err(Error::Local(LocalError(
-                            "Unexpected broadcast consensus message".into(),
-                        )))
-                    }
+            SessionType::Normal(round) => match message.message_type() {
+                MessageType::Direct => {
+                    let result = round.verify_direct_message(from_idx, message.payload());
+                    let payload = wrap_receive_result(&from, result)?;
+                    Ok(ProcessedMessage {
+                        from: from.clone(),
+                        from_idx,
+                        message: ProcessedMessageEnum::DmPayload { payload, message },
+                    })
                 }
-            }
+                MessageType::Broadcast => {
+                    let result = round.verify_broadcast(from_idx, message.payload());
+                    let payload = wrap_receive_result(&from, result)?;
+                    Ok(ProcessedMessage {
+                        from: from.clone(),
+                        from_idx,
+                        message: ProcessedMessageEnum::BcPayload { payload, message },
+                    })
+                }
+                _ => Err(Error::Local(LocalError(
+                    "Unexpected broadcast consensus message".into(),
+                ))),
+            },
             SessionType::Bc { bc, .. } => {
                 bc.verify_broadcast(from_idx, message)
                     .map_err(|err| Error::Provable {
@@ -595,7 +588,7 @@ impl<Sig> RoundAccumulator<Sig> {
         is_dm_round: bool,
         is_bc_consensus_round: bool,
     ) -> Self {
-        // TODO: can return an error if party_idx is out of bounds
+        // TODO (#68): can return an error if party_idx is out of bounds
         Self {
             received_direct_messages: Vec::new(),
             received_broadcasts: Vec::new(),

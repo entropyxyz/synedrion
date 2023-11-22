@@ -85,8 +85,7 @@ impl Scalar {
         Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr))
     }
 
-    pub fn to_be_bytes(self) -> k256::FieldBytes {
-        // TODO: add a test that it really is a big endian representation - docs don't guarantee it.
+    pub fn to_bytes(self) -> k256::FieldBytes {
         self.0.to_bytes()
     }
 
@@ -98,8 +97,7 @@ impl Scalar {
         self.0
     }
 
-    // TODO: replace with try_from_be_array()
-    pub(crate) fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let arr =
             GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
                 .ok_or("Invalid length of a curve scalar")?;
@@ -110,7 +108,7 @@ impl Scalar {
     }
 
     pub(crate) fn split(&self, rng: &mut impl CryptoRngCore, num: usize) -> Vec<Scalar> {
-        // CHECK: do all the parts have to be non-zero?
+        // TODO (#5): do all the parts have to be non-zero?
         if num == 1 {
             return vec![*self];
         }
@@ -127,7 +125,7 @@ impl Scalar {
 impl<'a> TryFrom<&'a [u8]> for Scalar {
     type Error = String;
     fn try_from(val: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::try_from_be_bytes(val)
+        Self::try_from_bytes(val)
     }
 }
 
@@ -145,7 +143,7 @@ impl ConditionallySelectable for Scalar {
 
 impl Serialize for Scalar {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serde_bytes::as_hex::serialize(&self.to_be_bytes(), serializer)
+        serde_bytes::as_hex::serialize(&self.to_bytes(), serializer)
     }
 }
 
@@ -163,8 +161,6 @@ impl Point {
 
     pub const IDENTITY: Self = Self(BackendPoint::IDENTITY);
 
-    // TODO: technically it can be any hash function from Point to Scalar, right?
-    // so we can just rename it to `to_scalar()` or something.
     pub fn x_coordinate(&self) -> Scalar {
         let bytes = self.0.to_affine().x();
         Scalar(<BackendScalar as Reduce<U256>>::reduce_bytes(&bytes))
@@ -228,10 +224,9 @@ impl Default for Point {
     }
 }
 
-impl From<usize> for Scalar {
-    fn from(val: usize) -> Self {
-        // TODO: add a check that usize <= u64?
-        Self(BackendScalar::from(val as u64))
+impl From<u32> for Scalar {
+    fn from(val: u32) -> Self {
+        Self(BackendScalar::from(val))
     }
 }
 

@@ -9,7 +9,7 @@ use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    Bounded, HasWide, Invert, NonZero, RandomMod, Retrieve, Signed, UintLike, UintModLike,
+    Bounded, HasWide, NonZero, Retrieve, Signed, UintLike, UintModLike,
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
@@ -22,7 +22,6 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
-        // TODO: check that the value is within the modulus?
         RandomizerMod(self.0.to_mod(pk.precomputed_modulus()))
     }
 }
@@ -32,14 +31,7 @@ pub(crate) struct RandomizerMod<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> RandomizerMod<P> {
     pub fn random(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillierPrecomputed<P>) -> Self {
-        // TODO: is there a faster way? How many loops on average does it take?
-        loop {
-            let r = P::Uint::random_mod(rng, &pk.modulus_nonzero());
-            let r_m = r.to_mod(pk.precomputed_modulus());
-            if r_m.invert().is_some().into() {
-                return Self(r_m);
-            }
-        }
+        Self(pk.random_invertible_group_elem(rng))
     }
 
     pub fn retrieve(&self) -> Randomizer<P> {
@@ -92,8 +84,8 @@ impl<P: PaillierParams> AsRef<P::UintMod> for RandomizerMod<P> {
 /// Paillier ciphertext.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct Ciphertext<P: PaillierParams> {
-    // TODO: should we have CiphertextMod, to streamline multiple operations on the ciphertext?
-    // How much performance will that gain us?
+    // TODO (#59): should we have CiphertextMod, to streamline multiple operations
+    // on the ciphertext? How much performance will that gain us?
     ciphertext: P::WideUint,
     phantom: PhantomData<P>,
 }
@@ -106,9 +98,17 @@ impl<P: PaillierParams> Ciphertext<P> {
         randomizer: &Randomizer<P>,
         plaintext_is_negative: Choice,
     ) -> Self {
-        // TODO: check that `abs_plaintext` is in range (< N)
+        // Technically if `abs_plaintext` is greater than the modulus of `pk`,
+        // it will be effectively reduced modulo `pk`.
+        // But some ZK proofs with `TestParams` may still supply a value larger than `pk`
+        // because they are not planning on decrypting the resulting ciphertext;
+        // they just construct an encryption of the same value in two different ways
+        // and then compare the results.
+        // (And the value can be larger than `pk` because of some restrictions on
+        // `SchemeParameters`/`PaillierParameters` values in tests, which can only
+        // be overcome by fixing #27 and using a small 32- or 64-bit curve for tests)
 
-        // TODO: wrap in Secret
+        // TODO (#77): wrap in Secret
         let randomizer = randomizer.0.into_wide();
 
         // Calculate the ciphertext `C = (N + 1)^m * rho^N mod N^2`
@@ -158,7 +158,6 @@ impl<P: PaillierParams> Ciphertext<P> {
         plaintext: &Signed<P::WideUint>,
         randomizer: &Randomizer<P>,
     ) -> Self {
-        // TODO: ensure this is constant-time
         let plaintext_reduced = P::Uint::try_from_wide(
             plaintext.abs() % NonZero::new(pk.modulus().into_wide()).unwrap(),
         )
@@ -228,13 +227,11 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Derive the randomizer used to create this ciphertext.
-    #[allow(dead_code)] // TODO: to be used to create an error report on bad decryption
     pub fn derive_randomizer(&self, sk: &SecretKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
         let pk = sk.public_key();
         let modulus_wide = NonZero::new(pk.modulus().into_wide()).unwrap();
 
-        // CHECK: the paper has a more complicated formula,
-        // but this one seems to work just as well.
+        // NOTE: the paper has a more complicated formula, but this one works just as well.
 
         // Remember that the ciphertext
         //     C = (N + 1)^m * rho^N mod N^2
@@ -347,10 +344,11 @@ mod tests {
     where
         T: UintLike + HasWide,
     {
-        // TODO: move to crypto-bigint, and make more efficient (e.g. Barrett reduction)
-        // CHECK: check the constraints on rhs: do we need rhs < modulus,
-        // or will it be reduced all the same?
+        // There may be more efficient ways to do this (e.g. Barrett reduction),
+        // but it's only used in tests.
+
         // Note that modulus here may be even, so we can't use Montgomery representation
+
         let wide_product = lhs.mul_wide(&rhs.abs());
         let wide_modulus = modulus.as_ref().into_wide();
         let result = T::try_from_wide(wide_product % NonZero::new(wide_modulus).unwrap()).unwrap();

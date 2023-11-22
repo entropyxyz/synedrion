@@ -90,7 +90,7 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     pub fn primes(&self) -> (Signed<P::Uint>, Signed<P::Uint>) {
         // The primes are positive, but where this method is used Signed is needed,
         // so we return that for convenience.
-        // TODO: must be wrapped in a Secret
+        // TODO (#77): must be wrapped in a Secret
         (
             Signed::new_positive(self.sk.p.into_wide(), P::PRIME_BITS as u32).unwrap(),
             Signed::new_positive(self.sk.q.into_wide(), P::PRIME_BITS as u32).unwrap(),
@@ -98,19 +98,19 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     }
 
     pub fn totient(&self) -> &Bounded<P::Uint> {
-        // TODO: must be wrapped in a Secret
+        // TODO (#77): must be wrapped in a Secret
         &self.totient
     }
 
     /// Returns Euler's totient function of the modulus.
     pub fn totient_nonzero(&self) -> NonZero<P::Uint> {
-        // TODO: must be wrapped in a Secret
+        // TODO (#77): must be wrapped in a Secret
         NonZero::new(*self.totient.as_ref()).unwrap()
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
     pub fn inv_totient(&self) -> &P::UintMod {
-        // TODO: must be wrapped in a Secret
+        // TODO (#77): must be wrapped in a Secret
         &self.inv_totient
     }
 
@@ -132,9 +132,10 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     }
 
     pub fn rns_split(&self, elem: &P::Uint) -> (P::HalfUintMod, P::HalfUintMod) {
-        // TODO: speed up potential here since we know p and q are small
-        // TODO: make sure this is constant-time
-        // TODO: zeroize intermediate values
+        // TODO (#77): zeroize intermediate values
+
+        // May be some speed up potential here since we know p and q are small,
+        // but it needs to be supported by `crypto-bigint`.
         let p_rem = *elem % NonZero::new(self.sk.p.into_wide()).unwrap();
         let q_rem = *elem % NonZero::new(self.sk.q.into_wide()).unwrap();
         let p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
@@ -165,7 +166,7 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         &self,
         rns: &(P::HalfUintMod, P::HalfUintMod),
     ) -> Option<(P::HalfUintMod, P::HalfUintMod)> {
-        // TODO: when we can extract the modulus from `HalfUintMod`, this can be moved there.
+        // TODO (#73): when we can extract the modulus from `HalfUintMod`, this can be moved there.
         // For now we have to keep this a method of SecretKey to have access to `p` and `q`.
         let (p_part, q_part) = *rns;
         let p_res = self.sqrt_part(&p_part, &self.sk.p);
@@ -244,7 +245,6 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
     }
 
     pub fn modulus_nonzero(&self) -> NonZero<P::Uint> {
-        // TODO: or just store it as NonZero to begin with?
         NonZero::new(*self.modulus()).unwrap()
     }
 
@@ -258,17 +258,8 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
         &self.precomputed_modulus_squared
     }
 
-    // TODO: clippy started marking this as unused starting from Rust 1.72
-    // It is used in one of the presigning rounds. Is it a bug, or are the presigning rounds
-    // somehow not considered publicly visible? Figure it out later.
-    #[allow(dead_code)]
-    pub fn random_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
-        let r = P::Uint::random_mod(rng, &self.modulus_nonzero());
-        r.to_mod(self.precomputed_modulus())
-    }
-
     pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
-        // TODO: is there a faster way? How many loops on average does it take?
+        // Finding an invertible element via rejection sampling.
         loop {
             let r = P::Uint::random_mod(rng, &self.modulus_nonzero());
             let r_m = r.to_mod(self.precomputed_modulus());

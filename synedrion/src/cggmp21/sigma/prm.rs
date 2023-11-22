@@ -72,7 +72,7 @@ struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
     fn new<P: SchemeParams>(aux: &impl Hashable, commitment: &PrmCommitment<P>) -> Self {
-        // TODO: generate m/8 random bytes instead and fill the vector bit by bit.
+        // TODO (#61): generate m/8 random bytes instead and fill the vector bit by bit.
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(aux)
             .chain(commitment)

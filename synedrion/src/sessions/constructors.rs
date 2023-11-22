@@ -66,7 +66,8 @@ where
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
     Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
-    // TODO: check that key share party index corresponds to the signer's position among the verifiers
+    // TODO (#68): check that key share party index corresponds to the signer's position
+    // among the verifiers
     if verifiers.len() != key_share.num_parties() {
         return Err(LocalError(format!(
             concat![

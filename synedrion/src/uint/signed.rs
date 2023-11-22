@@ -1,5 +1,3 @@
-use alloc::boxed::Box;
-use alloc::format;
 use alloc::string::String;
 use core::ops::{Add, Mul, Neg, Not, Sub};
 
@@ -8,11 +6,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    bounded::PackedBounded,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
     Bounded, CheckedAdd, CheckedMul, FromScalar, HasWide, Integer, NonZero, UintLike, UintModLike,
 };
 use crate::curve::{Scalar, ORDER};
-use crate::tools::serde_bytes;
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound much lower than the full size of the integer,
@@ -20,20 +18,14 @@ use crate::tools::serde_bytes;
 #[derive(Serialize, Deserialize)]
 struct PackedSigned {
     is_negative: bool,
-    bound: u32,
-    #[serde(with = "serde_bytes::as_hex")]
-    bytes: Box<[u8]>,
+    abs_value: PackedBounded,
 }
 
 impl<T: UintLike> From<Signed<T>> for PackedSigned {
     fn from(val: Signed<T>) -> Self {
-        let repr = val.abs().to_be_bytes();
-        let bound_bytes = (val.bound() + 7) / 8;
-        let slice = &repr.as_ref()[(repr.as_ref().len() - bound_bytes as usize)..];
         Self {
             is_negative: val.is_negative().into(),
-            bound: val.bound(),
-            bytes: slice.into(),
+            abs_value: PackedBounded::from(val.abs_bounded()),
         }
     }
 }
@@ -41,22 +33,13 @@ impl<T: UintLike> From<Signed<T>> for PackedSigned {
 impl<T: UintLike> TryFrom<PackedSigned> for Signed<T> {
     type Error = String;
     fn try_from(val: PackedSigned) -> Result<Self, Self::Error> {
-        let mut repr = T::ZERO.to_be_bytes();
-        let bytes_len: usize = val.bytes.len();
-        let repr_len: usize = repr.as_ref().len();
-
-        if repr_len < bytes_len {
-            return Err(format!(
-                "The bytestring of length {} does not fit the expected integer size {}",
-                bytes_len, repr_len
-            ));
-        }
-
-        repr.as_mut()[(repr_len - bytes_len)..].copy_from_slice(&val.bytes);
-        let abs_value = T::from_be_bytes(repr);
-
-        Self::new_from_abs(abs_value, val.bound, Choice::from(val.is_negative as u8))
-            .ok_or_else(|| "Invalid values for the signed integer".into())
+        let abs_value = Bounded::try_from(val.abs_value)?;
+        Self::new_from_abs(
+            *abs_value.as_ref(),
+            abs_value.bound(),
+            Choice::from(val.is_negative as u8),
+        )
+        .ok_or_else(|| "Invalid values for the signed integer".into())
     }
 }
 

@@ -74,7 +74,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     ) -> Result<Self, InitError> {
         let key_share = context.to_precomputed();
 
-        // TODO: check that KeyShare is consistent with num_parties/party_idx
+        // TODO (#68): check that KeyShare is consistent with num_parties/party_idx
 
         let ephemeral_scalar_share = Scalar::random(rng);
         let gamma = Scalar::random(rng);
@@ -272,12 +272,12 @@ pub struct Round2<P: SchemeParams> {
 
 #[derive(Debug, Clone)]
 pub struct Round2Artefact<P: SchemeParams> {
-    beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
-    beta_hat: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO: secret
-    r: Randomizer<P::Paillier>,                          // TODO: secret
-    s: Randomizer<P::Paillier>,                          // TODO: secret
-    hat_r: Randomizer<P::Paillier>,                      // TODO: secret
-    hat_s: Randomizer<P::Paillier>,                      // TODO: secret
+    beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO (#77): secret
+    beta_hat: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO (#77): secret
+    r: Randomizer<P::Paillier>,                          // TODO (#77): secret
+    s: Randomizer<P::Paillier>,                          // TODO (#77): secret
+    hat_r: Randomizer<P::Paillier>,                      // TODO (#77): secret
+    hat_s: Randomizer<P::Paillier>,                      // TODO (#77): secret
     cap_f: Ciphertext<P::Paillier>,
     hat_cap_f: Ciphertext<P::Paillier>,
 }
@@ -669,7 +669,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 }
 
 /// A proof of a node's correct behavior for the Presigning protocol.
-#[allow(dead_code)] // TODO: this can be removed when error verification is added
+#[allow(dead_code)] // TODO (#43): this can be removed when error verification is added
 #[derive(Debug, Clone)]
 pub struct PresigningProof<P: SchemeParams> {
     aff_g_proofs: Vec<(PartyIdx, PartyIdx, AffGProof<P>)>,
@@ -699,7 +699,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         let my_idx = self.context.key_share.party_index().as_usize();
 
         if delta.mul_by_generator() == big_delta {
-            // TODO: seems like we only need the x-coordinate of this (as a Scalar)
+            // TODO (#79): seems like we only need the x-coordinate of this (as a Scalar)
             let nonce = &self.big_gamma * &delta.invert().unwrap();
 
             let hat_beta = self.round2_artefacts.map_ref(|artefact| artefact.beta_hat);
@@ -747,9 +747,10 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         let s = self.round2_artefacts.map_ref(|artefact| artefact.s.clone());
 
         for j in HoleRange::new(num_parties, my_idx) {
-            // TODO: can exclude `j` in addition to `my_idx`.
-            // Should we have a "double hole vec" for that?
             for l in HoleRange::new(num_parties, my_idx) {
+                if l == j {
+                    continue;
+                }
                 let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
                 let rp = &self.context.key_share.public_aux[l].rp_params;
 

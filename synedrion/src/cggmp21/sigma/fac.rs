@@ -47,7 +47,7 @@ impl<P: SchemeParams> FacProof<P> {
         let pk = sk.public_key();
         let hat_cap_n = &aux_rp.public_key().modulus_bounded(); // $\hat{N}$
 
-        // CHECK: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
+        // NOTE: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
         let sqrt_cap_n = Bounded::new(
             <P::Paillier as PaillierParams>::Uint::ONE
                 << (<P::Paillier as PaillierParams>::PRIME_BITS - 1),

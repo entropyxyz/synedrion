@@ -43,7 +43,7 @@ impl<P: SchemeParams> EncProof<P> {
         let pk = sk.public_key();
         let hat_cap_n = &aux_rp.public_key().modulus_bounded(); // $\hat{N}$
 
-        // CHECK: should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
+        // TODO (#86): should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
         // This will ensure that the range check on the prover side will pass.
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
@@ -73,7 +73,7 @@ impl<P: SchemeParams> EncProof<P> {
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // `N_0`
         ciphertext: &Ciphertext<P::Paillier>,           // `K`
         aux_rp: &RPParamsMod<P::Paillier>,              // $s$, $t$
-        aux: &impl Hashable,                            // CHECK: used to derive `\hat{N}, s, t`
+        aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(aux)

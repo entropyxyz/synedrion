@@ -51,7 +51,7 @@ impl KeyShare {
     /// Serializes the key share to bytes using standard Entropy format.
     #[wasm_bindgen(js_name = toBytes)]
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        // TODO: can we ensure consistency here?
+        // TODO (#71): can we ensure consistency here?
         // Should `entropy-core` expose the serialization function?
         bincoder()
             .serialize(&self.0)

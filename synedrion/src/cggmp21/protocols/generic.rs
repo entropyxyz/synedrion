@@ -108,7 +108,7 @@ pub(crate) trait BaseRound {
     type Type: FinalizableType;
     type Result: ProtocolResult;
     const ROUND_NUM: u8;
-    // TODO: find a way to derive it from `ROUND_NUM`
+    // TODO (#78): find a way to derive it from `ROUND_NUM`
     const NEXT_ROUND_NUM: Option<u8>;
 }
 

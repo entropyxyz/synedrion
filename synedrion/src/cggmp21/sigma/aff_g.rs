@@ -77,13 +77,13 @@ impl<P: SchemeParams> AffGProof<P> {
         let cap_s = aux_rp.commit(&m, x).retrieve();
         let cap_f = aux_rp.commit(&delta, &beta).retrieve();
 
-        // CHECK: deviation from the paper to support a different $D$
+        // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
         // Original: $s^y$. Modified: $s^{-y}$
         let cap_t = aux_rp.commit(&mu, &-y).retrieve();
 
         let z1 = alpha + e * *x;
 
-        // CHECK: deviation from the paper to support a different $D$
+        // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
         // Original: $z_2 = \beta + e y$
         // Modified: $z_2 = \beta - e y$
         let z2 = beta + e * (-y);
@@ -93,7 +93,7 @@ impl<P: SchemeParams> AffGProof<P> {
 
         let omega = (r_mod * rho_mod.pow_signed_vartime(&e)).retrieve();
 
-        // CHECK: deviation from the paper to support a different $D$
+        // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
         // Original: $\rho_y^e$. Modified: $\rho_y^{-e}$.
         let omega_y = (r_y_mod * rho_y_mod.pow_signed_vartime(&-e)).retrieve();
 
@@ -120,7 +120,7 @@ impl<P: SchemeParams> AffGProof<P> {
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
         cap_c: &Ciphertext<P::Paillier>,
-        // CHECK: deviation from the paper here.
+        // NOTE: deviation from the paper here.
         // The proof in the paper assumes $D = C (*) x (+) enc_0(y, \rho)$.
         // But the way it is used in the Presigning, $D$ will actually be $... (+) enc_0(-y, \rho)$.
         // So we have to negate several variables when constructing the proof
@@ -158,7 +158,7 @@ impl<P: SchemeParams> AffGProof<P> {
             return false;
         }
 
-        // CHECK: deviation from the paper to support a different `D`
+        // NOTE: deviation from the paper to support a different `D` (see the comment in `verify()`)
         // Original: `Y^e`. Modified `Y^{-e}`.
         // (1 + N_1)^{z_2} \omega_y^{N_1} = B_y Y^(-e) \mod N_1^2
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)

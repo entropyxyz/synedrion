@@ -1,9 +1,8 @@
-use core::fmt;
-use core::marker::PhantomData;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
 
-use serde::{
-    de, de::Error, ser::SerializeTupleStruct, Deserialize, Deserializer, Serialize, Serializer,
-};
+use serde::{Deserialize, Serialize};
 
 use super::{
     subtle::{Choice, ConditionallySelectable, CtOption},
@@ -11,8 +10,54 @@ use super::{
 };
 use crate::curve::{Scalar, ORDER};
 use crate::tools::hashing::{Chain, Hashable};
+use crate::tools::serde_bytes;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A packed representation for serializing Bounded objects.
+/// Usually they have the bound much lower than the full size of the integer,
+/// so thiw way we avoid serializing a bunch of zeros.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct PackedBounded {
+    bound: u32,
+    #[serde(with = "serde_bytes::as_hex")]
+    bytes: Box<[u8]>,
+}
+
+impl<T: UintLike> From<Bounded<T>> for PackedBounded {
+    fn from(val: Bounded<T>) -> Self {
+        let repr = val.as_ref().to_be_bytes();
+        let bound_bytes = (val.bound() + 7) / 8;
+        let slice = &repr.as_ref()[(repr.as_ref().len() - bound_bytes as usize)..];
+        Self {
+            bound: val.bound(),
+            bytes: slice.into(),
+        }
+    }
+}
+
+impl<T: UintLike> TryFrom<PackedBounded> for Bounded<T> {
+    type Error = String;
+    fn try_from(val: PackedBounded) -> Result<Self, Self::Error> {
+        let mut repr = T::ZERO.to_be_bytes();
+        let bytes_len: usize = val.bytes.len();
+        let repr_len: usize = repr.as_ref().len();
+
+        if repr_len < bytes_len {
+            return Err(format!(
+                "The bytestring of length {} does not fit the expected integer size {}",
+                bytes_len, repr_len
+            ));
+        }
+
+        repr.as_mut()[(repr_len - bytes_len)..].copy_from_slice(&val.bytes);
+        let abs_value = T::from_be_bytes(repr);
+
+        Self::new(abs_value, val.bound)
+            .ok_or_else(|| "Invalid values for the signed integer".into())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "PackedBounded", into = "PackedBounded")]
 pub struct Bounded<T: UintLike> {
     /// bound on the bit size of the value
     bound: u32,
@@ -22,53 +67,6 @@ pub struct Bounded<T: UintLike> {
 impl<T: UintLike> Hashable for Bounded<T> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.bound).chain(&self.value)
-    }
-}
-
-impl<'de, T: UintLike + Deserialize<'de>> Deserialize<'de> for Bounded<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct BoundedVisitor<T: UintLike>(PhantomData<T>);
-
-        impl<'de, T: UintLike + Deserialize<'de>> de::Visitor<'de> for BoundedVisitor<T> {
-            type Value = Bounded<T>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a tuple struct Bounded")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Bounded<T>, A::Error>
-            where
-                A: de::SeqAccess<'de>,
-            {
-                let bound: u32 = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
-                let value: T = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
-
-                Bounded::new(value, bound)
-                    .ok_or_else(|| A::Error::custom("The integer is over the declared bound"))
-            }
-        }
-
-        deserializer.deserialize_tuple_struct("Bounded", 2, BoundedVisitor::<T>(PhantomData))
-    }
-}
-
-impl<T: UintLike + Serialize> Serialize for Bounded<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // TODO: save just the `bound` bytes? That will save some bandwidth.
-        let mut ts = serializer.serialize_tuple_struct("Bounded", 2)?;
-        ts.serialize_field(&self.bound)?;
-        ts.serialize_field(&self.value)?;
-        ts.end()
     }
 }
 

@@ -9,7 +9,8 @@ pub enum Error<Res: ProtocolResult, Verifier> {
     /// Indicates an error on this party's side.
     Local(LocalError),
     /// A provable fault of another party.
-    // TODO: attach the party's messages up to this round for this to be verifiable by a third party
+    // TODO (#43): attach the party's messages up to this round
+    // for this to be verifiable by a third party
     Provable {
         /// The index of the failed party.
         party: Verifier,
@@ -19,7 +20,7 @@ pub enum Error<Res: ProtocolResult, Verifier> {
     /// An error occurred, but the fault of a specific party cannot be immediately proven.
     /// This structure instead proves that this party performed its calculations correctly.
     Proof {
-        // TODO: attach all received messages from other parties.
+        // TODO (#43): attach all received messages from other parties.
         // What else do we need to verify it?
         /// The proof of correctness.
         proof: Res::CorrectnessProof,

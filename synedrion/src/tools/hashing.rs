@@ -126,7 +126,7 @@ impl Hashable for u8 {
     }
 }
 
-// TODO: we use it for Vec<bool>. Inefficient, but works for now.
+// TODO (#61): we use it for Vec<bool>. Inefficient, but works for now.
 // Replace with packing boolean vectors into bytes, perhaps? Maybe there is a crate for that.
 impl Hashable for bool {
     fn chain<C: Chain>(&self, digest: C) -> C {

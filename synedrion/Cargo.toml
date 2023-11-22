@@ -10,8 +10,7 @@ categories = ["cryptography", "no-std"]
 
 [dependencies]
 signature = { version = "2", default-features = false, features = ["alloc"] }
-# TODO: we only need `serde` feature in tests
-k256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "arithmetic", "serde"] }
+k256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "arithmetic"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["getrandom"] }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
@@ -36,6 +35,7 @@ rand = "0.8"
 criterion = "0.5"
 itertools = "0.11"
 hex = "0.4"
+k256 = { version = "0.13.2", default-features = false, features = ["serde"] }
 
 [features]
 bench-internals = ["itertools"] # makes some internal functions public to allow external benchmarks

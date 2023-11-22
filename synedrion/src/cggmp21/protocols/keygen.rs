@@ -41,11 +41,6 @@ pub enum KeygenError {
     R3InvalidSchProof,
 }
 
-// CHECK: note that we don't include `sid` (shared randomness) or `i` (party idx) here.
-// Since `sid` is shared, every node already has it,
-// so there's no need to include it in the message.
-// And `i` we get as `from` when we receive a message.
-// Although these will be still added to the hash and auxiliary params of proofs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullData {
     #[serde(with = "serde_bytes::as_base64")]
@@ -77,7 +72,7 @@ impl FullData {
 }
 
 struct Context {
-    // TODO: probably just a Scalar, since it will have a random mask added later,
+    // TODO (#5): probably just a Scalar, since it will have a random mask added later,
     // and we cannot ensure it won't turn it into zero.
     key_share: Scalar,
     sch_secret: SchSecret,
@@ -265,7 +260,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         assert!(dm_artefacts.is_none());
         let bc_payloads = bc_payloads.unwrap();
         // XOR the vectors together
-        // TODO: is there a better way?
+        // TODO (#61): is there a better way?
         let mut rid = self.context.data.rid.clone();
         for data in bc_payloads.iter() {
             for (i, x) in data.rid.iter().enumerate() {
