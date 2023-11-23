@@ -1,4 +1,5 @@
 use alloc::string::String;
+use core::fmt;
 
 use super::broadcast::ConsensusError;
 use crate::cggmp21::ProtocolResult;
@@ -68,4 +69,25 @@ pub enum ProvableError<Res: ProtocolResult> {
     CannotDeserialize(String),
     /// Broadcast consensus check failed.
     Consensus(ConsensusError),
+}
+
+// TODO (#88): add a customized impl, don't just use `Debug`.
+impl fmt::Display for LocalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{:?}", self)
+    }
+}
+
+// TODO (#88): add a customized impl, don't just use `Debug`.
+impl<Verifier: fmt::Debug> fmt::Display for RemoteError<Verifier> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{:?}", self)
+    }
+}
+
+// TODO (#88): add a customized impl, don't just use `Debug`.
+impl<Res: ProtocolResult, Verifier: fmt::Debug> fmt::Display for Error<Res, Verifier> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{:?}", self)
+    }
 }
