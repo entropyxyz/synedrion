@@ -18,7 +18,9 @@ digest = { version = "0.10", default-features = false, features = ["alloc"]}
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 base64 = { version = "0.21", default-features = false, features = ["alloc"] }
 
-crypto-bigint = { version = "0.5.3", features = ["serde"] }
+# Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
+# to serialize Uints in human-readable formats.
+crypto-bigint = { version = "0.5.3", features = ["serde", "alloc"] }
 crypto-primes = "0.5"
 
 serde = { version = "1", features = ["derive"] }
