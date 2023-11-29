@@ -66,9 +66,9 @@ async fn run_session<Res: ProtocolResult>(
             for destination in destinations.iter() {
                 // In production usage, this will happen in a spawned task
                 // (since it can take some time to create a message),
-                // and the artefact will be sent back to the host task
+                // and the artifact will be sent back to the host task
                 // to be added to the accumulator.
-                let (message, artefact) = session
+                let (message, artifact) = session
                     .make_direct_message(&mut OsRng, destination)
                     .unwrap();
                 println!(
@@ -78,7 +78,7 @@ async fn run_session<Res: ProtocolResult>(
                 tx.send((key, *destination, message)).await.unwrap();
 
                 // This will happen in a host task
-                accum.add_artefact(artefact).unwrap();
+                accum.add_artifact(artifact).unwrap();
             }
         }
 

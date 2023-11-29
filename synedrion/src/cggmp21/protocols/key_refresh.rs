@@ -222,7 +222,7 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
 impl<P: SchemeParams> DirectRound for Round1<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> BroadcastRound for Round1<P> {
@@ -263,10 +263,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         _rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         Ok(Round2 {
             context: self.context,
             hashes: bc_payloads.unwrap(),
@@ -296,7 +296,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 impl<P: SchemeParams> DirectRound for Round2<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> BroadcastRound for Round2<P> {
@@ -369,10 +369,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         let messages = bc_payloads.unwrap();
         // XOR the vectors together
         // TODO (#61): is there a better way?
@@ -460,7 +460,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
 impl<P: SchemeParams> DirectRound for Round3<P> {
     type Message = Round3Direct<P>;
     type Payload = Scalar;
-    type Artefact = ();
+    type Artifact = ();
 
     fn direct_message_destinations(&self) -> Option<HoleRange> {
         Some(HoleRange::new(
@@ -473,7 +473,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artefact), String> {
+    ) -> Result<(Self::Message, Self::Artifact), String> {
         let aux = (
             &self.context.shared_randomness,
             &self.rho,
@@ -590,7 +590,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         _rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        _dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         assert!(bc_payloads.is_none());
         let secrets = dm_payloads

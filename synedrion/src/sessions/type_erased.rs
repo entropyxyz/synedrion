@@ -93,7 +93,7 @@ pub(crate) struct DynBcPayload(Box<dyn Any + Send>);
 
 pub(crate) struct DynDmPayload(Box<dyn Any + Send>);
 
-pub(crate) struct DynDmArtefact(Box<dyn Any + Send>);
+pub(crate) struct DynDmArtifact(Box<dyn Any + Send>);
 
 /// An object-safe trait wrapping `Round`.
 pub(crate) trait DynRound<Res: ProtocolResult>: Send {
@@ -108,7 +108,7 @@ pub(crate) trait DynRound<Res: ProtocolResult>: Send {
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, DynDmArtefact), LocalError>;
+    ) -> Result<(Box<[u8]>, DynDmArtifact), LocalError>;
 
     fn verify_broadcast(
         &self,
@@ -127,7 +127,7 @@ where
     R: Round + Send,
     <R as BroadcastRound>::Payload: 'static + Send,
     <R as DirectRound>::Payload: 'static + Send,
-    <R as DirectRound>::Artefact: 'static + Send,
+    <R as DirectRound>::Artifact: 'static + Send,
 {
     fn round_num(&self) -> u8 {
         R::ROUND_NUM
@@ -195,26 +195,26 @@ where
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, DynDmArtefact), LocalError> {
+    ) -> Result<(Box<[u8]>, DynDmArtifact), LocalError> {
         let mut boxed_rng = BoxedRng(rng);
-        let (typed_message, typed_artefact) = self
+        let (typed_message, typed_artifact) = self
             .make_direct_message(&mut boxed_rng, destination)
             .map_err(|err| LocalError(format!("Failed to make a direct message: {err:?}")))?;
         let message = serialize_message(&typed_message)?;
-        Ok((message, DynDmArtefact(Box::new(typed_artefact))))
+        Ok((message, DynDmArtifact(Box::new(typed_artifact))))
     }
 }
 
 pub(crate) struct DynRoundAccum {
     bc_payloads: Option<HoleVecAccum<DynBcPayload>>,
     dm_payloads: Option<HoleVecAccum<DynDmPayload>>,
-    dm_artefacts: Option<HoleVecAccum<DynDmArtefact>>,
+    dm_artifacts: Option<HoleVecAccum<DynDmArtifact>>,
 }
 
 struct RoundAccum<R: Round> {
     bc_payloads: Option<HoleVec<<R as BroadcastRound>::Payload>>,
     dm_payloads: Option<HoleVec<<R as DirectRound>::Payload>>,
-    dm_artefacts: Option<HoleVec<<R as DirectRound>::Artefact>>,
+    dm_artifacts: Option<HoleVec<<R as DirectRound>::Artifact>>,
 }
 
 impl DynRoundAccum {
@@ -230,7 +230,7 @@ impl DynRoundAccum {
             } else {
                 None
             },
-            dm_artefacts: if is_dm_round {
+            dm_artifacts: if is_dm_round {
                 Some(HoleVecAccum::new(num_parties, idx.as_usize()))
             } else {
                 None
@@ -297,14 +297,14 @@ impl DynRoundAccum {
         }
     }
 
-    pub fn add_dm_artefact(
+    pub fn add_dm_artifact(
         &mut self,
         destination: PartyIdx,
-        artefact: DynDmArtefact,
+        artifact: DynDmArtifact,
     ) -> Result<(), AccumAddError> {
-        match &mut self.dm_artefacts {
-            Some(artefacts) => artefacts
-                .insert(destination.as_usize(), artefact)
+        match &mut self.dm_artifacts {
+            Some(artifacts) => artifacts
+                .insert(destination.as_usize(), artifact)
                 .ok_or(AccumAddError::SlotTaken),
             None => Err(AccumAddError::NoAccumulator),
         }
@@ -320,7 +320,7 @@ impl DynRoundAccum {
                 .as_ref()
                 .map_or(true, |accum| accum.can_finalize())
             && self
-                .dm_artefacts
+                .dm_artifacts
                 .as_ref()
                 .map_or(true, |accum| accum.can_finalize())
     }
@@ -329,7 +329,7 @@ impl DynRoundAccum {
     where
         <R as BroadcastRound>::Payload: 'static,
         <R as DirectRound>::Payload: 'static,
-        <R as DirectRound>::Artefact: 'static,
+        <R as DirectRound>::Artifact: 'static,
     {
         let bc_payloads = match self.bc_payloads {
             Some(accum) => {
@@ -349,19 +349,19 @@ impl DynRoundAccum {
             }
             None => None,
         };
-        let dm_artefacts = match self.dm_artefacts {
+        let dm_artifacts = match self.dm_artifacts {
             Some(accum) => {
                 let hvec = accum
                     .finalize()
                     .ok_or(AccumFinalizeError::NotEnoughMessages)?;
-                Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Artefact>(elem.0))?)
+                Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Artifact>(elem.0))?)
             }
             None => None,
         };
         Ok(RoundAccum {
             bc_payloads,
             dm_payloads,
-            dm_artefacts,
+            dm_artifacts,
         })
     }
 }
@@ -408,7 +408,7 @@ const _: () = {
         R: Round + Send + 'static,
         <R as BroadcastRound>::Payload: Send,
         <R as DirectRound>::Payload: Send,
-        <R as DirectRound>::Artefact: Send,
+        <R as DirectRound>::Artifact: Send,
         Self: _DynFinalizable<R::Result, R::Type>,
     {
         fn finalize(
@@ -438,7 +438,7 @@ const _: () = {
                     &mut boxed_rng,
                     typed_accum.bc_payloads,
                     typed_accum.dm_payloads,
-                    typed_accum.dm_artefacts,
+                    typed_accum.dm_artifacts,
                 )
                 .map_err(FinalizeError::Protocol)?;
             Ok(FinalizeOutcome::Success(result))
@@ -462,7 +462,7 @@ const _: () = {
                     &mut boxed_rng,
                     typed_accum.bc_payloads,
                     typed_accum.dm_payloads,
-                    typed_accum.dm_artefacts,
+                    typed_accum.dm_artifacts,
                 )
                 .map_err(FinalizeError::Protocol)?;
             Ok(FinalizeOutcome::AnotherRound(Box::new(next_round)))

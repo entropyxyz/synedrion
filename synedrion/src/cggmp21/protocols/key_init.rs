@@ -172,7 +172,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
 impl<P: SchemeParams> DirectRound for Round1<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
@@ -182,10 +182,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         _rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         Ok(Round2 {
             hashes: bc_payloads.unwrap(),
             context: self.context,
@@ -246,7 +246,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
 impl<P: SchemeParams> DirectRound for Round2<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
@@ -256,10 +256,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         _rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         let bc_payloads = bc_payloads.unwrap();
         // XOR the vectors together
         // TODO (#61): is there a better way?
@@ -347,7 +347,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
 impl<P: SchemeParams> DirectRound for Round3<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> FinalizableToResult for Round3<P> {
@@ -356,10 +356,10 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         _rng: &mut impl CryptoRngCore,
         _bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         let datas = self.datas.into_vec(self.context.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
         Ok(KeyShareSeed {

@@ -129,11 +129,11 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let round = self
             .round
-            .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artefacts)
+            .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artifacts)
             .map_err(wrap_finalize_error)?;
         Ok(Round2 {
             round,
@@ -165,11 +165,11 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let round = self
             .round
-            .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artefacts)
+            .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artifacts)
             .map_err(wrap_finalize_error)?;
         Ok(Round3 {
             round,
@@ -201,11 +201,11 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let presigning_data = self
             .round
-            .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artefacts)
+            .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artifacts)
             .map_err(wrap_finalize_error)?;
         let num_parties = self.context.key_share.num_parties();
         let party_idx = self.context.key_share.party_index();
@@ -252,10 +252,10 @@ impl<P: SchemeParams> FinalizableToResult for Round4<P> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         self.round
-            .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artefacts)
+            .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artifacts)
             .map_err(wrap_finalize_error)
     }
 }

@@ -117,7 +117,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
 impl<P: SchemeParams> DirectRound for Round1<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> FinalizableToResult for Round1<P> {
@@ -126,7 +126,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         _dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        _dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         let shares = bc_payloads.unwrap();
         let s: Scalar = shares.iter().sum();
