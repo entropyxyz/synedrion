@@ -181,7 +181,7 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
         destination: PartyIdx,
     ) -> Result<(Self::Message, Self::Artifact), String> {
         let aux = (&self.context.shared_randomness, &destination);
-        let proof = EncProof::random(
+        let proof = EncProof::new(
             rng,
             &Signed::from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
@@ -362,7 +362,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let public_aux = &self.context.key_share.public_aux[idx];
         let rp = &public_aux.rp_params;
 
-        let psi = AffGProof::random(
+        let psi = AffGProof::new(
             rng,
             &Signed::from_scalar(&self.context.gamma),
             &beta,
@@ -375,7 +375,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             &aux,
         );
 
-        let psi_hat = AffGProof::random(
+        let psi_hat = AffGProof::new(
             rng,
             &Signed::from_scalar(&self.context.key_share.secret_share),
             &beta_hat,
@@ -388,7 +388,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             &aux,
         );
 
-        let psi_hat_prime = LogStarProof::random(
+        let psi_hat_prime = LogStarProof::new(
             rng,
             &Signed::from_scalar(&self.context.gamma),
             &self.context.nu,
@@ -621,7 +621,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         let public_aux = &self.context.key_share.public_aux[idx];
         let rp = &public_aux.rp_params;
 
-        let psi_hat_pprime = LogStarProof::random(
+        let psi_hat_pprime = LogStarProof::new(
             rng,
             &Signed::from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
@@ -756,7 +756,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
                 let rp = &self.context.key_share.public_aux[l].rp_params;
 
-                let p_aff_g = AffGProof::<P>::random(
+                let p_aff_g = AffGProof::<P>::new(
                     rng,
                     &Signed::from_scalar(&self.context.gamma),
                     beta.get(j).unwrap(),
@@ -780,7 +780,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&self.context.gamma))
             .mul_randomizer(pk, &rho.retrieve());
 
-        let p_mul = MulProof::<P>::random(
+        let p_mul = MulProof::<P>::new(
             rng,
             &Signed::from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
@@ -813,7 +813,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         let mut dec_proofs = Vec::new();
         for j in range {
-            let p_dec = DecProof::<P>::random(
+            let p_dec = DecProof::<P>::new(
                 rng,
                 &self.delta,
                 &rho,

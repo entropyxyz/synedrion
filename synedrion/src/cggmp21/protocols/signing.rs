@@ -163,7 +163,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
                 let rp = &self.context.key_share.public_aux[l].rp_params;
 
-                let p_aff_g = AffGProof::<P>::random(
+                let p_aff_g = AffGProof::<P>::new(
                     rng,
                     &Signed::from_scalar(&self.context.key_share.secret_share),
                     self.context.presigning.hat_beta.get(j).unwrap(),
@@ -206,7 +206,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let mut mul_star_proofs = Vec::new();
 
         for l in HoleRange::new(num_parties, my_idx) {
-            let p_mul = MulStarProof::<P>::random(
+            let p_mul = MulStarProof::<P>::new(
                 rng,
                 &Signed::from_scalar(&x),
                 &rho,
@@ -240,7 +240,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let mut dec_proofs = Vec::new();
         for l in HoleRange::new(num_parties, my_idx) {
-            let p_dec = DecProof::<P>::random(
+            let p_dec = DecProof::<P>::new(
                 rng,
                 &Signed::from_scalar(&s),
                 &rho,

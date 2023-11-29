@@ -27,7 +27,7 @@ pub(crate) struct LogStarProof<P: SchemeParams> {
 
 impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
         rho: &RandomizerMod<P::Paillier>,                  // $\rho$
@@ -143,7 +143,7 @@ mod tests {
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho.retrieve());
         let cap_x = &g * &x.to_scalar();
 
-        let proof = LogStarProof::<Params>::random(&mut OsRng, &x, &rho, pk, &g, &setup, &aux);
+        let proof = LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &g, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &g, &cap_x, &setup, &aux));
     }
 }

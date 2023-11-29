@@ -26,7 +26,7 @@ pub(crate) struct DecProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> DecProof<P> {
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
         rho: &RandomizerMod<P::Paillier>,
@@ -142,7 +142,7 @@ mod tests {
         let rho = RandomizerMod::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho.retrieve());
 
-        let proof = DecProof::<Params>::random(&mut OsRng, &y, &rho, pk, &setup, &aux);
+        let proof = DecProof::<Params>::new(&mut OsRng, &y, &rho, pk, &setup, &aux);
         assert!(proof.verify(pk, &x, &cap_c, &setup, &aux));
     }
 }

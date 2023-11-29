@@ -33,7 +33,7 @@ pub(crate) struct AffGProof<P: SchemeParams> {
 
 impl<P: SchemeParams> AffGProof<P> {
     #[allow(clippy::too_many_arguments)]
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
@@ -229,7 +229,7 @@ mod tests {
         let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
         let cap_x = &Point::GENERATOR * &x.to_scalar();
 
-        let proof = AffGProof::<Params>::random(
+        let proof = AffGProof::<Params>::new(
             &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &setup, &aux,
         );
         assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux));

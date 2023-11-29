@@ -67,7 +67,7 @@ pub(crate) struct ModProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> ModProof<P> {
-    pub(crate) fn random(
+    pub(crate) fn new(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
         aux: &impl Hashable,
@@ -180,7 +180,7 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let proof = ModProof::<Params>::random(&mut OsRng, &sk, &aux);
+        let proof = ModProof::<Params>::new(&mut OsRng, &sk, &aux);
         assert!(proof.verify(pk, &aux));
     }
 }

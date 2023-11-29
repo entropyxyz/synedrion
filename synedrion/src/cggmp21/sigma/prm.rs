@@ -101,7 +101,7 @@ pub(crate) struct PrmProof<P: SchemeParams> {
 impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
     /// (the power that was used to create RP parameters).
-    pub(crate) fn random(
+    pub(crate) fn new(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
         setup_secret: &RPSecret<P::Paillier>,
@@ -180,7 +180,7 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let proof = PrmProof::<Params>::random(&mut OsRng, &sk, &setup_secret, &setup, &aux);
+        let proof = PrmProof::<Params>::new(&mut OsRng, &sk, &setup_secret, &setup, &aux);
         assert!(proof.verify(&setup, &aux));
     }
 }

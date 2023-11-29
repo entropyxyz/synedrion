@@ -155,7 +155,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let rp_params = RPParamsMod::random_with_secret(rng, &rp_secret, paillier_pk);
 
         let aux = (&shared_randomness, &party_idx);
-        let prm_proof = PrmProof::<P>::random(rng, &paillier_sk, &rp_secret, &rp_params, &aux);
+        let prm_proof = PrmProof::<P>::new(rng, &paillier_sk, &rp_secret, &rp_params, &aux);
 
         // $\tau_j$
         let sch_secrets_x: Vec<SchSecret> =
@@ -425,7 +425,7 @@ impl<P: SchemeParams> Round3<P> {
         rho: Box<[u8]>,
     ) -> Self {
         let aux = (&context.shared_randomness, &rho, &context.party_idx);
-        let mod_proof = ModProof::random(rng, &context.paillier_sk, &aux);
+        let mod_proof = ModProof::new(rng, &context.paillier_sk, &aux);
 
         let sch_proof_y = SchProof::new(
             &context.el_gamal_proof_secret,
@@ -483,7 +483,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         let idx = destination.as_usize();
         let data = self.datas.get(idx).unwrap();
 
-        let fac_proof = FacProof::random(
+        let fac_proof = FacProof::new(
             rng,
             &self.context.paillier_sk,
             &self.datas.get(idx).unwrap().rp_params,

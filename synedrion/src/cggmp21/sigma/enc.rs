@@ -24,7 +24,7 @@ pub(crate) struct EncProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> EncProof<P> {
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // $k$
         randomizer_mod: &RandomizerMod<P::Paillier>,            // $\rho$
@@ -135,7 +135,7 @@ mod tests {
         let ciphertext =
             Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer.retrieve());
 
-        let proof = EncProof::<Params>::random(&mut OsRng, &secret, &randomizer, &sk, &setup, &aux);
+        let proof = EncProof::<Params>::new(&mut OsRng, &secret, &randomizer, &sk, &setup, &aux);
         assert!(proof.verify(pk, &ciphertext, &setup, &aux));
     }
 }

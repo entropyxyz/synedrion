@@ -29,7 +29,7 @@ pub(crate) struct FacProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FacProof<P> {
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
@@ -191,7 +191,7 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let proof = FacProof::<Params>::random(&mut OsRng, &sk, &setup, &aux);
+        let proof = FacProof::<Params>::new(&mut OsRng, &sk, &setup, &aux);
         assert!(proof.verify(pk, &setup, &aux));
     }
 }

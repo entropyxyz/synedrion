@@ -23,7 +23,7 @@ pub(crate) struct MulProof<P: SchemeParams> {
 
 impl<P: SchemeParams> MulProof<P> {
     #[allow(clippy::too_many_arguments)]
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x$
         rho_x_mod: &RandomizerMod<P::Paillier>,                 // $\rho_x$
@@ -141,7 +141,7 @@ mod tests {
             .homomorphic_mul(pk, &x)
             .mul_randomizer(pk, &rho.retrieve());
 
-        let proof = MulProof::<Params>::random(&mut OsRng, &x, &rho_x, &rho, pk, &cap_y, &aux);
+        let proof = MulProof::<Params>::new(&mut OsRng, &x, &rho_x, &rho, pk, &cap_y, &aux);
         assert!(proof.verify(pk, &cap_x, &cap_y, &cap_c, &aux));
     }
 }

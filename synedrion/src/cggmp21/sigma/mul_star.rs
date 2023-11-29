@@ -27,7 +27,7 @@ pub(crate) struct MulStarProof<P: SchemeParams> {
 
 impl<P: SchemeParams> MulStarProof<P> {
     #[allow(clippy::too_many_arguments)]
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
         rho: &RandomizerMod<P::Paillier>,                  // $\rho \in \mathbb{Z}_{N_0}$
@@ -160,7 +160,7 @@ mod tests {
             .mul_randomizer(pk, &rho.retrieve());
         let cap_x = &Point::GENERATOR * &x.to_scalar();
 
-        let proof = MulStarProof::<Params>::random(&mut OsRng, &x, &rho, pk, &cap_c, &setup, &aux);
+        let proof = MulStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &setup, &aux));
     }
 }
