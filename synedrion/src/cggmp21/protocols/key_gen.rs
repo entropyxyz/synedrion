@@ -4,13 +4,13 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::auxiliary::{self, KeyRefreshResult};
 use super::common::{KeyShare, PartyIdx};
 use super::generic::{
     BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
     FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
-use super::keygen::{self, KeygenResult};
+use super::key_init::{self, KeygenResult};
+use super::key_refresh::{self, KeyRefreshResult};
 use super::wrappers::{wrap_finalize_error, wrap_receive_error, ResultWrapper};
 use crate::cggmp21::SchemeParams;
 use crate::tools::collections::{HoleRange, HoleVec};
@@ -68,8 +68,8 @@ impl<P: SchemeParams> ResultWrapper<KeyRefreshResult<P>> for KeygenAndAuxResult<
 }
 
 pub(crate) struct Round1<P: SchemeParams> {
-    keygen_round: keygen::Round1<P>,
-    aux_round: auxiliary::Round1<P>,
+    keygen_round: key_init::Round1<P>,
+    aux_round: key_refresh::Round1<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
@@ -81,8 +81,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         party_idx: PartyIdx,
         _context: Self::Context,
     ) -> Result<Self, InitError> {
-        let keygen_round = keygen::Round1::new(rng, shared_randomness, num_parties, party_idx, ())?;
-        let aux_round = auxiliary::Round1::new(rng, shared_randomness, num_parties, party_idx, ())?;
+        let keygen_round =
+            key_init::Round1::new(rng, shared_randomness, num_parties, party_idx, ())?;
+        let aux_round =
+            key_refresh::Round1::new(rng, shared_randomness, num_parties, party_idx, ())?;
         Ok(Self {
             keygen_round,
             aux_round,
@@ -92,16 +94,16 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(
-    serialize = "<keygen::Round1<P> as BroadcastRound>::Message: Serialize,
-    <auxiliary::Round1<P> as BroadcastRound>::Message: Serialize"
+    serialize = "<key_init::Round1<P> as BroadcastRound>::Message: Serialize,
+    <key_refresh::Round1<P> as BroadcastRound>::Message: Serialize"
 ))]
 #[serde(bound(
-    deserialize = "<keygen::Round1<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>,
-    <auxiliary::Round1<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>"
+    deserialize = "<key_init::Round1<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>,
+    <key_refresh::Round1<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>"
 ))]
 pub struct Round1Message<P: SchemeParams> {
-    keygen_message: <keygen::Round1<P> as BroadcastRound>::Message,
-    aux_message: <auxiliary::Round1<P> as BroadcastRound>::Message,
+    keygen_message: <key_init::Round1<P> as BroadcastRound>::Message,
+    aux_message: <key_refresh::Round1<P> as BroadcastRound>::Message,
 }
 
 impl<P: SchemeParams> BaseRound for Round1<P> {
@@ -112,12 +114,12 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
 }
 
 impl<P: SchemeParams> BroadcastRound for Round1<P> {
-    const REQUIRES_CONSENSUS: bool = <keygen::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS
-        || <auxiliary::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS;
+    const REQUIRES_CONSENSUS: bool = <key_init::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS
+        || <key_refresh::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS;
     type Message = Round1Message<P>;
     type Payload = (
-        <keygen::Round1<P> as BroadcastRound>::Payload,
-        <auxiliary::Round1<P> as BroadcastRound>::Payload,
+        <key_init::Round1<P> as BroadcastRound>::Payload,
+        <key_refresh::Round1<P> as BroadcastRound>::Payload,
     );
     fn broadcast_destinations(&self) -> Option<HoleRange> {
         let keygen_dest = self.keygen_round.broadcast_destinations();
@@ -187,22 +189,22 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
 }
 
 pub(crate) struct Round2<P: SchemeParams> {
-    keygen_round: keygen::Round2<P>,
-    aux_round: auxiliary::Round2<P>,
+    keygen_round: key_init::Round2<P>,
+    aux_round: key_refresh::Round2<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(
-    serialize = "<keygen::Round2<P> as BroadcastRound>::Message: Serialize,
-    <auxiliary::Round2<P> as BroadcastRound>::Message: Serialize"
+    serialize = "<key_init::Round2<P> as BroadcastRound>::Message: Serialize,
+    <key_refresh::Round2<P> as BroadcastRound>::Message: Serialize"
 ))]
 #[serde(bound(
-    deserialize = "<keygen::Round2<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>,
-    <auxiliary::Round2<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>"
+    deserialize = "<key_init::Round2<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>,
+    <key_refresh::Round2<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>"
 ))]
 pub struct Round2Message<P: SchemeParams> {
-    keygen_message: <keygen::Round2<P> as BroadcastRound>::Message,
-    aux_message: <auxiliary::Round2<P> as BroadcastRound>::Message,
+    keygen_message: <key_init::Round2<P> as BroadcastRound>::Message,
+    aux_message: <key_refresh::Round2<P> as BroadcastRound>::Message,
 }
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
@@ -213,12 +215,12 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 }
 
 impl<P: SchemeParams> BroadcastRound for Round2<P> {
-    const REQUIRES_CONSENSUS: bool = <keygen::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS
-        || <auxiliary::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS;
+    const REQUIRES_CONSENSUS: bool = <key_init::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS
+        || <key_refresh::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS;
     type Message = Round2Message<P>;
     type Payload = (
-        <keygen::Round2<P> as BroadcastRound>::Payload,
-        <auxiliary::Round2<P> as BroadcastRound>::Payload,
+        <key_init::Round2<P> as BroadcastRound>::Payload,
+        <key_refresh::Round2<P> as BroadcastRound>::Payload,
     );
 
     fn broadcast_destinations(&self) -> Option<HoleRange> {
@@ -290,8 +292,8 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
 }
 
 pub(crate) struct Round3<P: SchemeParams> {
-    keygen_round: keygen::Round3<P>,
-    aux_round: auxiliary::Round3<P>,
+    keygen_round: key_init::Round3<P>,
+    aux_round: key_refresh::Round3<P>,
 }
 
 impl<P: SchemeParams> BaseRound for Round3<P> {
@@ -302,9 +304,9 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
 }
 
 impl<P: SchemeParams> BroadcastRound for Round3<P> {
-    const REQUIRES_CONSENSUS: bool = keygen::Round3::<P>::REQUIRES_CONSENSUS;
-    type Message = <keygen::Round3<P> as BroadcastRound>::Message;
-    type Payload = <keygen::Round3<P> as BroadcastRound>::Payload;
+    const REQUIRES_CONSENSUS: bool = key_init::Round3::<P>::REQUIRES_CONSENSUS;
+    type Message = <key_init::Round3<P> as BroadcastRound>::Message;
+    type Payload = <key_init::Round3<P> as BroadcastRound>::Payload;
 
     fn broadcast_destinations(&self) -> Option<HoleRange> {
         self.keygen_round.broadcast_destinations()
@@ -325,9 +327,9 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
 }
 
 impl<P: SchemeParams> DirectRound for Round3<P> {
-    type Artefact = <auxiliary::Round3<P> as DirectRound>::Artefact;
-    type Message = <auxiliary::Round3<P> as DirectRound>::Message;
-    type Payload = <auxiliary::Round3<P> as DirectRound>::Payload;
+    type Artefact = <key_refresh::Round3<P> as DirectRound>::Artefact;
+    type Message = <key_refresh::Round3<P> as DirectRound>::Message;
+    type Payload = <key_refresh::Round3<P> as DirectRound>::Payload;
 
     fn direct_message_destinations(&self) -> Option<HoleRange> {
         self.aux_round.direct_message_destinations()

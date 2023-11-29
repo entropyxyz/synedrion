@@ -11,7 +11,7 @@ use signature::{
 use super::error::LocalError;
 use super::states::Session;
 use crate::cggmp21::{
-    auxiliary, interactive_signing, keygen_and_aux, InteractiveSigningResult, KeyRefreshResult,
+    interactive_signing, key_gen, key_refresh, InteractiveSigningResult, KeyRefreshResult,
     KeyShare, KeygenAndAuxResult, SchemeParams,
 };
 use crate::curve::Scalar;
@@ -32,7 +32,7 @@ where
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
     Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
-    Session::new::<keygen_and_aux::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<key_gen::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
 
 /// Creates the initial state for the KeyRefresh+Auxiliary protocol.
@@ -48,7 +48,7 @@ where
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
     Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
-    Session::new::<auxiliary::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<key_refresh::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
 
 /// Creates the initial state for the joined Presigning and Signing protocols.
