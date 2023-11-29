@@ -32,7 +32,7 @@ impl<P: SchemeParams> FacProof<P> {
     pub fn random(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -45,7 +45,7 @@ impl<P: SchemeParams> FacProof<P> {
         let e_wide = e.into_wide();
 
         let pk = sk.public_key();
-        let hat_cap_n = &aux_rp.public_key().modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         // NOTE: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
         let sqrt_cap_n = Bounded::new(
@@ -79,11 +79,11 @@ impl<P: SchemeParams> FacProof<P> {
 
         let (p, q) = sk.primes();
 
-        let cap_p = aux_rp.commit(&mu, &p).retrieve();
-        let cap_q = aux_rp.commit(&nu, &q);
-        let cap_a = aux_rp.commit_wide(&x, &alpha).retrieve();
-        let cap_b = aux_rp.commit_wide(&y, &beta).retrieve();
-        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &aux_rp.commit_base_xwide(&r)).retrieve();
+        let cap_p = setup.commit(&mu, &p).retrieve();
+        let cap_q = setup.commit(&nu, &q);
+        let cap_a = setup.commit_wide(&x, &alpha).retrieve();
+        let cap_b = setup.commit_wide(&y, &beta).retrieve();
+        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_base_xwide(&r)).retrieve();
 
         let hat_sigma = sigma - (nu * p.into_wide()).into_wide();
         let z1 = alpha + (e * p).into_wide();
@@ -110,7 +110,7 @@ impl<P: SchemeParams> FacProof<P> {
     pub fn verify(
         &self,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        aux_rp: &RPParamsMod<P::Paillier>, // $s$, $t$
+        setup: &RPParamsMod<P::Paillier>, // $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -121,15 +121,15 @@ impl<P: SchemeParams> FacProof<P> {
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        let aux_pk = aux_rp.public_key();
+        let aux_pk = setup.public_key();
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &aux_rp.commit_xwide(&self.sigma, &pk.modulus_bounded());
+        let cap_r = &setup.commit_xwide(&self.sigma, &pk.modulus_bounded());
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a_mod = self.cap_a.to_mod(aux_pk);
         let cap_p_mod = self.cap_p.to_mod(aux_pk);
-        if aux_rp.commit_wide(&self.omega1, &self.z1)
+        if setup.commit_wide(&self.omega1, &self.z1)
             != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e)
         {
             return false;
@@ -138,7 +138,7 @@ impl<P: SchemeParams> FacProof<P> {
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
         let cap_b_mod = self.cap_b.to_mod(aux_pk);
         let cap_q_mod = self.cap_q.to_mod(aux_pk);
-        if aux_rp.commit_wide(&self.omega2, &self.z2)
+        if setup.commit_wide(&self.omega2, &self.z2)
             != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e)
         {
             return false;
@@ -146,7 +146,7 @@ impl<P: SchemeParams> FacProof<P> {
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
         let cap_t_mod = self.cap_t.to_mod(aux_pk);
-        if &cap_q_mod.pow_signed_wide(&self.z1) * &aux_rp.commit_base_xwide(&self.v)
+        if &cap_q_mod.pow_signed_wide(&self.z1) * &setup.commit_base_xwide(&self.v)
             != &cap_t_mod * &cap_r.pow_signed_vartime(&e)
         {
             return false;
@@ -187,11 +187,11 @@ mod tests {
         let pk = sk.public_key();
 
         let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
 
-        let proof = FacProof::<Params>::random(&mut OsRng, &sk, &aux_rp, &aux);
-        assert!(proof.verify(pk, &aux_rp, &aux));
+        let proof = FacProof::<Params>::random(&mut OsRng, &sk, &setup, &aux);
+        assert!(proof.verify(pk, &setup, &aux));
     }
 }
