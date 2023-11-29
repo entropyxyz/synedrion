@@ -46,7 +46,7 @@ impl Hashable for PartyIdx {
     }
 }
 
-/// The result of the Keygen protocol.
+/// The result of the KeyInit protocol.
 // TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
 #[derive(Clone)]

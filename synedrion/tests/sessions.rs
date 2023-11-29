@@ -8,7 +8,7 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     sessions::{
-        make_interactive_signing_session, make_keygen_and_aux_session, FinalizeOutcome, Session,
+        make_interactive_signing_session, make_key_gen_session, FinalizeOutcome, Session,
         SignedMessage,
     },
     KeyShare, ProtocolResult, TestParams,
@@ -230,7 +230,7 @@ async fn keygen_and_aux() {
     let sessions = signers
         .into_iter()
         .map(|signer| {
-            make_keygen_and_aux_session::<TestParams, Signature, _, _>(
+            make_key_gen_session::<TestParams, Signature, _, _>(
                 &mut OsRng,
                 shared_randomness,
                 signer,

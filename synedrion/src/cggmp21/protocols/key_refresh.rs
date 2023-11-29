@@ -1,3 +1,7 @@
+//! KeyRefresh protocol, in the paper Auxiliary Info. & Key Refresh in Three Rounds (Fig. 6).
+//! This protocol generates an update to the secret key shares and new auxiliary parameters
+//! for ZK proofs (e.g. Paillier keys).
+
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;

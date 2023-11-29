@@ -11,8 +11,8 @@ use signature::{
 use super::error::LocalError;
 use super::states::Session;
 use crate::cggmp21::{
-    interactive_signing, key_gen, key_refresh, InteractiveSigningResult, KeyRefreshResult,
-    KeyShare, KeygenAndAuxResult, SchemeParams,
+    interactive_signing, key_gen, key_refresh, InteractiveSigningResult, KeyGenResult,
+    KeyRefreshResult, KeyShare, SchemeParams,
 };
 use crate::curve::Scalar;
 
@@ -20,12 +20,12 @@ use crate::curve::Scalar;
 pub type PrehashedMessage = [u8; 32];
 
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
-pub fn make_keygen_and_aux_session<P, Sig, Signer, Verifier>(
+pub fn make_key_gen_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
     shared_randomness: &[u8],
     signer: Signer,
     verifiers: &[Verifier],
-) -> Result<Session<KeygenAndAuxResult<P>, Sig, Signer, Verifier>, LocalError>
+) -> Result<Session<KeyGenResult<P>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,

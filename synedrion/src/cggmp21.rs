@@ -20,8 +20,8 @@ pub(crate) use protocols::{
     FinalizableToResult, FinalizeError, FirstRound, ReceiveError, Round, ToNextRound, ToResult,
 };
 pub use protocols::{
-    InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyRefreshResult,
-    KeyShare, KeyShareChange, KeygenAndAuxError, KeygenAndAuxProof, KeygenAndAuxResult,
-    KeygenError, KeygenResult, PartyIdx, PresigningError, PresigningProof, PresigningResult,
-    ProtocolResult, SigningProof, SigningResult, ThresholdKeyShare,
+    InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyGenError,
+    KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, KeyShare,
+    KeyShareChange, PartyIdx, PresigningError, PresigningProof, PresigningResult, ProtocolResult,
+    SigningProof, SigningResult, ThresholdKeyShare,
 };

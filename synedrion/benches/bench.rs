@@ -10,7 +10,7 @@ fn bench_happy_paths(c: &mut Criterion) {
     let key_shares = KeyShare::new_centralized(&mut OsRng, 2, None);
 
     group.bench_function("KeyGen, 2 parties", |b| {
-        b.iter(|| benches::keygen::<Params>(&mut OsRng, 2))
+        b.iter(|| benches::key_init::<Params>(&mut OsRng, 2))
     });
 
     group.bench_function("Signing, 2 parties", |b| {

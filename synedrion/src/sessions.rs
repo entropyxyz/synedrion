@@ -9,7 +9,7 @@ mod type_erased;
 
 pub use broadcast::ConsensusError;
 pub use constructors::{
-    make_interactive_signing_session, make_key_refresh_session, make_keygen_and_aux_session,
+    make_interactive_signing_session, make_key_gen_session, make_key_refresh_session,
     PrehashedMessage,
 };
 pub use error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};

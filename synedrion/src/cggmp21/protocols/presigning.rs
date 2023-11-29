@@ -1,3 +1,5 @@
+//! Presigning protocol, in the paper ECDSA Pre-Signing (Fig. 7).
+
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;

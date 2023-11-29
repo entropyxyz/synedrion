@@ -25,8 +25,8 @@ pub use generic::ProtocolResult;
 pub use interactive_signing::{
     InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult,
 };
-pub use key_gen::{KeygenAndAuxError, KeygenAndAuxProof, KeygenAndAuxResult};
-pub use key_init::{KeygenError, KeygenResult};
+pub use key_gen::{KeyGenError, KeyGenProof, KeyGenResult};
+pub use key_init::{KeyInitError, KeyInitResult};
 pub use key_refresh::KeyRefreshResult;
 pub use presigning::{PresigningError, PresigningProof, PresigningResult};
 pub use signing::{SigningProof, SigningResult};

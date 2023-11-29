@@ -14,7 +14,7 @@ use super::{
 use crate::curve::Scalar;
 
 /// A sequential execution of the KeyGen protocol for all parties.
-pub fn keygen<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: usize) {
+pub fn key_init<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: usize) {
     let mut shared_randomness = [0u8; 32];
     rng.fill_bytes(&mut shared_randomness);
 

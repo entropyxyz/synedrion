@@ -1,3 +1,5 @@
+//! Signing using previously calculated presigning data, in the paper ECDSA Signing (Fig. 8).
+
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
