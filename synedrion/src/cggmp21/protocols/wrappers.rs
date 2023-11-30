@@ -76,7 +76,7 @@ impl<T: RoundWrapper> BroadcastRound for T {
 impl<T: RoundWrapper> DirectRound for T {
     type Message = <T::InnerRound as DirectRound>::Message;
     type Payload = <T::InnerRound as DirectRound>::Payload;
-    type Artefact = <T::InnerRound as DirectRound>::Artefact;
+    type Artifact = <T::InnerRound as DirectRound>::Artifact;
     fn direct_message_destinations(&self) -> Option<HoleRange> {
         self.inner_round().direct_message_destinations()
     }
@@ -84,7 +84,7 @@ impl<T: RoundWrapper> DirectRound for T {
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artefact), String> {
+    ) -> Result<(Self::Message, Self::Artifact), String> {
         self.inner_round().make_direct_message(rng, destination)
     }
     fn verify_direct_message(

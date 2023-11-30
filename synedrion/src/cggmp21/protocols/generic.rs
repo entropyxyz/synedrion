@@ -51,7 +51,7 @@ pub(crate) trait DirectRound: BaseRound {
     type Payload;
 
     /// Data created when creating a direct message, to be preserved until the finalization stage.
-    type Artefact;
+    type Artifact;
 
     /// The indices of the parties that should receive the direct messages,
     /// or `None` if this round does not send any direct messages.
@@ -64,7 +64,7 @@ pub(crate) trait DirectRound: BaseRound {
         &self,
         #[allow(unused_variables)] rng: &mut impl CryptoRngCore,
         #[allow(unused_variables)] destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artefact), String> {
+    ) -> Result<(Self::Message, Self::Artifact), String> {
         Err("This round does not send out direct messages".into())
     }
 
@@ -122,7 +122,7 @@ pub(crate) trait FinalizableToResult: Round + BaseRound<Type = ToResult> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>>;
 }
 
@@ -133,7 +133,7 @@ pub(crate) trait FinalizableToNextRound: Round + BaseRound<Type = ToNextRound> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>>;
 }
 

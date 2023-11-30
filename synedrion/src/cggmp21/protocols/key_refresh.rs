@@ -1,3 +1,7 @@
+//! KeyRefresh protocol, in the paper Auxiliary Info. & Key Refresh in Three Rounds (Fig. 6).
+//! This protocol generates an update to the secret key shares and new auxiliary parameters
+//! for ZK proofs (e.g. Paillier keys).
+
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -151,7 +155,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let rp_params = RPParamsMod::random_with_secret(rng, &rp_secret, paillier_pk);
 
         let aux = (&shared_randomness, &party_idx);
-        let prm_proof = PrmProof::<P>::random(rng, &paillier_sk, &rp_secret, &rp_params, &aux);
+        let prm_proof = PrmProof::<P>::new(rng, &paillier_sk, &rp_secret, &rp_params, &aux);
 
         // $\tau_j$
         let sch_secrets_x: Vec<SchSecret> =
@@ -218,7 +222,7 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
 impl<P: SchemeParams> DirectRound for Round1<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> BroadcastRound for Round1<P> {
@@ -259,10 +263,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         _rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         Ok(Round2 {
             context: self.context,
             hashes: bc_payloads.unwrap(),
@@ -292,7 +296,7 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 impl<P: SchemeParams> DirectRound for Round2<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> BroadcastRound for Round2<P> {
@@ -365,10 +369,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         let messages = bc_payloads.unwrap();
         // XOR the vectors together
         // TODO (#61): is there a better way?
@@ -421,7 +425,7 @@ impl<P: SchemeParams> Round3<P> {
         rho: Box<[u8]>,
     ) -> Self {
         let aux = (&context.shared_randomness, &rho, &context.party_idx);
-        let mod_proof = ModProof::random(rng, &context.paillier_sk, &aux);
+        let mod_proof = ModProof::new(rng, &context.paillier_sk, &aux);
 
         let sch_proof_y = SchProof::new(
             &context.el_gamal_proof_secret,
@@ -456,7 +460,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
 impl<P: SchemeParams> DirectRound for Round3<P> {
     type Message = Round3Direct<P>;
     type Payload = Scalar;
-    type Artefact = ();
+    type Artifact = ();
 
     fn direct_message_destinations(&self) -> Option<HoleRange> {
         Some(HoleRange::new(
@@ -469,7 +473,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artefact), String> {
+    ) -> Result<(Self::Message, Self::Artifact), String> {
         let aux = (
             &self.context.shared_randomness,
             &self.rho,
@@ -479,7 +483,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         let idx = destination.as_usize();
         let data = self.datas.get(idx).unwrap();
 
-        let fac_proof = FacProof::random(
+        let fac_proof = FacProof::new(
             rng,
             &self.context.paillier_sk,
             &self.datas.get(idx).unwrap().rp_params,
@@ -586,7 +590,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         _rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        _dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         assert!(bc_payloads.is_none());
         let secrets = dm_payloads

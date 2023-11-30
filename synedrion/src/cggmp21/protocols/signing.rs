@@ -1,3 +1,5 @@
+//! Signing using previously calculated presigning data, in the paper ECDSA Signing (Fig. 8).
+
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -115,7 +117,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
 impl<P: SchemeParams> DirectRound for Round1<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> FinalizableToResult for Round1<P> {
@@ -124,7 +126,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         _dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        _dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        _dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         let shares = bc_payloads.unwrap();
         let s: Scalar = shares.iter().sum();
@@ -161,7 +163,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
                 let rp = &self.context.key_share.public_aux[l].rp_params;
 
-                let p_aff_g = AffGProof::<P>::random(
+                let p_aff_g = AffGProof::<P>::new(
                     rng,
                     &Signed::from_scalar(&self.context.key_share.secret_share),
                     self.context.presigning.hat_beta.get(j).unwrap(),
@@ -204,7 +206,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let mut mul_star_proofs = Vec::new();
 
         for l in HoleRange::new(num_parties, my_idx) {
-            let p_mul = MulStarProof::<P>::random(
+            let p_mul = MulStarProof::<P>::new(
                 rng,
                 &Signed::from_scalar(&x),
                 &rho,
@@ -238,7 +240,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let mut dec_proofs = Vec::new();
         for l in HoleRange::new(num_parties, my_idx) {
-            let p_dec = DecProof::<P>::random(
+            let p_dec = DecProof::<P>::new(
                 rng,
                 &Signed::from_scalar(&s),
                 &rho,

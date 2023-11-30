@@ -33,7 +33,7 @@ pub(crate) struct AffGProof<P: SchemeParams> {
 
 impl<P: SchemeParams> AffGProof<P> {
     #[allow(clippy::too_many_arguments)]
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
@@ -42,7 +42,7 @@ impl<P: SchemeParams> AffGProof<P> {
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_1$
         cap_c: &Ciphertext<P::Paillier>,      // a ciphertext encrypted with `pk0`
-        aux_rp: &RPParamsMod<P::Paillier>,    // $\hat{N}$, $s$, $t$
+        setup: &RPParamsMod<P::Paillier>,     // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -54,7 +54,7 @@ impl<P: SchemeParams> AffGProof<P> {
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
         let e_wide = e.into_wide();
 
-        let hat_cap_n = &aux_rp.public_key().modulus_bounded();
+        let hat_cap_n = &setup.public_key().modulus_bounded();
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND + P::EPS_BOUND);
@@ -73,13 +73,13 @@ impl<P: SchemeParams> AffGProof<P> {
         );
         let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
         let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
-        let cap_e = aux_rp.commit(&gamma, &alpha).retrieve();
-        let cap_s = aux_rp.commit(&m, x).retrieve();
-        let cap_f = aux_rp.commit(&delta, &beta).retrieve();
+        let cap_e = setup.commit(&gamma, &alpha).retrieve();
+        let cap_s = setup.commit(&m, x).retrieve();
+        let cap_f = setup.commit(&delta, &beta).retrieve();
 
         // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
         // Original: $s^y$. Modified: $s^{-y}$
-        let cap_t = aux_rp.commit(&mu, &-y).retrieve();
+        let cap_t = setup.commit(&mu, &-y).retrieve();
 
         let z1 = alpha + e * *x;
 
@@ -128,7 +128,7 @@ impl<P: SchemeParams> AffGProof<P> {
         cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x (+) enc_0(-y, \rho)$
         cap_y: &Ciphertext<P::Paillier>, // $Y = enc_1(y, \rho_y)$
         cap_x: &Point,                   // $X = g * x$, where $g$ is the curve generator
-        aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -139,7 +139,7 @@ impl<P: SchemeParams> AffGProof<P> {
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        let aux_pk = aux_rp.public_key();
+        let aux_pk = setup.public_key();
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
@@ -173,14 +173,14 @@ impl<P: SchemeParams> AffGProof<P> {
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
         let cap_e_mod = self.cap_e.to_mod(aux_pk);
         let cap_s_mod = self.cap_s.to_mod(aux_pk);
-        if aux_rp.commit(&self.z3, &self.z1) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z3, &self.z1) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
         let cap_f_mod = self.cap_f.to_mod(aux_pk);
         let cap_t_mod = self.cap_t.to_mod(aux_pk);
-        if aux_rp.commit(&self.z4, &self.z2) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z4, &self.z2) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e) {
             return false;
         }
 
@@ -210,7 +210,7 @@ mod tests {
         let pk1 = sk1.public_key();
 
         let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
 
@@ -229,9 +229,9 @@ mod tests {
         let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
         let cap_x = &Point::GENERATOR * &x.to_scalar();
 
-        let proof = AffGProof::<Params>::random(
-            &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &aux_rp, &aux,
+        let proof = AffGProof::<Params>::new(
+            &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &setup, &aux,
         );
-        assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &aux_rp, &aux));
+        assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux));
     }
 }

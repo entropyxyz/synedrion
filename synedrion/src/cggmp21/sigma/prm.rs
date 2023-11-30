@@ -101,15 +101,15 @@ pub(crate) struct PrmProof<P: SchemeParams> {
 impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
     /// (the power that was used to create RP parameters).
-    pub(crate) fn random(
+    pub(crate) fn new(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        rp_secret: &RPSecret<P::Paillier>,
-        rp: &RPParamsMod<P::Paillier>,
+        setup_secret: &RPSecret<P::Paillier>,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let proof_secret = PrmSecret::<P>::random(rng, sk);
-        let commitment = PrmCommitment::new(&proof_secret, &rp.base);
+        let commitment = PrmCommitment::new(&proof_secret, &setup.base);
 
         let totient = sk.totient_nonzero();
         let challenge = PrmChallenge::new(aux, &commitment);
@@ -118,7 +118,7 @@ impl<P: SchemeParams> PrmProof<P> {
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| {
-                let x = a.add_mod(rp_secret.as_ref(), &totient);
+                let x = a.add_mod(setup_secret.as_ref(), &totient);
                 let choice = Choice::from(*e as u8);
                 Bounded::conditional_select(a, &x, choice)
             })
@@ -131,8 +131,8 @@ impl<P: SchemeParams> PrmProof<P> {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
-    pub(crate) fn verify(&self, rp: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
-        let precomputed = rp.public_key().precomputed_modulus();
+    pub(crate) fn verify(&self, setup: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
+        let precomputed = setup.public_key().precomputed_modulus();
 
         let challenge = PrmChallenge::new(aux, &self.commitment);
         if challenge != self.challenge {
@@ -143,8 +143,8 @@ impl<P: SchemeParams> PrmProof<P> {
             let z = self.proof[i];
             let e = challenge.0[i];
             let a = self.commitment.0[i].to_mod(precomputed);
-            let pwr = rp.base.pow_bounded(&z);
-            let test = if e { pwr == a * rp.power } else { pwr == a };
+            let pwr = setup.base.pow_bounded(&z);
+            let test = if e { pwr == a * setup.power } else { pwr == a };
             if !test {
                 return false;
             }
@@ -175,12 +175,12 @@ mod tests {
         let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk = sk.public_key();
 
-        let rp_secret = RPSecret::random(&mut OsRng, &sk);
-        let rp = RPParamsMod::random_with_secret(&mut OsRng, &rp_secret, pk);
+        let setup_secret = RPSecret::random(&mut OsRng, &sk);
+        let setup = RPParamsMod::random_with_secret(&mut OsRng, &setup_secret, pk);
 
         let aux: &[u8] = b"abcde";
 
-        let proof = PrmProof::<Params>::random(&mut OsRng, &sk, &rp_secret, &rp, &aux);
-        assert!(proof.verify(&rp, &aux));
+        let proof = PrmProof::<Params>::new(&mut OsRng, &sk, &setup_secret, &setup, &aux);
+        assert!(proof.verify(&setup, &aux));
     }
 }

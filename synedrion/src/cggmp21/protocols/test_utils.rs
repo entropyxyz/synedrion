@@ -21,7 +21,7 @@ pub(crate) struct AssembledRound<R: Round> {
     round: R,
     bc_payloads: Option<HoleVec<<R as BroadcastRound>::Payload>>,
     dm_payloads: Option<HoleVec<<R as DirectRound>::Payload>>,
-    dm_artefacts: Option<HoleVec<<R as DirectRound>::Artefact>>,
+    dm_artifacts: Option<HoleVec<<R as DirectRound>::Artifact>>,
 }
 
 pub(crate) fn step_round<R>(
@@ -34,8 +34,8 @@ where
 {
     // Collect outgoing messages
 
-    let mut dm_artefact_accums = (0..rounds.len())
-        .map(|idx| HoleVecAccum::<<R as DirectRound>::Artefact>::new(rounds.len(), idx))
+    let mut dm_artifact_accums = (0..rounds.len())
+        .map(|idx| HoleVecAccum::<<R as DirectRound>::Artifact>::new(rounds.len(), idx))
         .collect::<Vec<_>>();
 
     // `to, from, message`
@@ -47,12 +47,12 @@ where
 
         if let Some(destinations) = round.direct_message_destinations() {
             for idx_to in destinations {
-                let (message, artefact) = round
+                let (message, artifact) = round
                     .make_direct_message(rng, PartyIdx::from_usize(idx_to))
                     .unwrap();
                 direct_messages.push((PartyIdx::from_usize(idx_to), idx_from, message));
-                dm_artefact_accums[idx_from.as_usize()]
-                    .insert(idx_to, artefact)
+                dm_artifact_accums[idx_from.as_usize()]
+                    .insert(idx_to, artifact)
                     .unwrap();
             }
         }
@@ -103,14 +103,14 @@ where
         dm_payloads.push(payloads);
     }
 
-    let mut dm_artefacts = Vec::new();
-    for accum in dm_artefact_accums.into_iter() {
-        let artefacts = if accum.is_empty() {
+    let mut dm_artifacts = Vec::new();
+    for accum in dm_artifact_accums.into_iter() {
+        let artifacts = if accum.is_empty() {
             None
         } else {
             Some(accum.finalize().ok_or(StepError::AccumFinalize)?)
         };
-        dm_artefacts.push(artefacts);
+        dm_artifacts.push(artifacts);
     }
 
     let mut bc_payloads = Vec::new();
@@ -126,14 +126,14 @@ where
     // Assemble
 
     let mut assembled = Vec::new();
-    for (round, bc_payloads, dm_payloads, dm_artefacts) in
-        izip!(rounds, bc_payloads, dm_payloads, dm_artefacts)
+    for (round, bc_payloads, dm_payloads, dm_artifacts) in
+        izip!(rounds, bc_payloads, dm_payloads, dm_artifacts)
     {
         assembled.push(AssembledRound {
             round,
             bc_payloads,
             dm_payloads,
-            dm_artefacts,
+            dm_artifacts,
         });
     }
     Ok(assembled)
@@ -149,7 +149,7 @@ pub(crate) fn step_next_round<R: FinalizableToNextRound>(
             rng,
             assembled_round.bc_payloads,
             assembled_round.dm_payloads,
-            assembled_round.dm_artefacts,
+            assembled_round.dm_artifacts,
         )?;
         results.push(next_round);
     }
@@ -166,7 +166,7 @@ pub(crate) fn step_result<R: FinalizableToResult>(
             rng,
             assembled_round.bc_payloads,
             assembled_round.dm_payloads,
-            assembled_round.dm_artefacts,
+            assembled_round.dm_artifacts,
         )?;
         results.push(result);
     }

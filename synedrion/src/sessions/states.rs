@@ -15,7 +15,7 @@ use super::broadcast::{BcConsensusAccum, BroadcastConsensus};
 use super::error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
 use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
-    self, AccumAddError, DynBcPayload, DynDmArtefact, DynDmPayload, DynFinalizable, DynRoundAccum,
+    self, AccumAddError, DynBcPayload, DynDmArtifact, DynDmPayload, DynFinalizable, DynRoundAccum,
     ReceiveError,
 };
 use crate::cggmp21::{self, FirstRound, PartyIdx, ProtocolResult, Round};
@@ -307,7 +307,7 @@ where
         &self,
         rng: &mut impl CryptoRngCore,
         destination: &Verifier,
-    ) -> Result<(SignedMessage<Sig>, Artefact<Verifier>), LocalError> {
+    ) -> Result<(SignedMessage<Sig>, Artifact<Verifier>), LocalError> {
         match &self.tp {
             SessionType::Normal(round) => {
                 let destination_idx = *self
@@ -316,7 +316,7 @@ where
                     .get(destination)
                     .ok_or(LocalError(format!("Verifier not found: {destination:?}")))?;
                 let round_num = round.round_num();
-                let (payload, artefact) = round.make_direct_message(rng, destination_idx)?;
+                let (payload, artifact) = round.make_direct_message(rng, destination_idx)?;
                 let message = VerifiedMessage::new(
                     rng,
                     &self.context.signer,
@@ -328,10 +328,10 @@ where
                 .into_unverified();
                 Ok((
                     message,
-                    Artefact {
+                    Artifact {
                         destination: destination.clone(),
                         destination_idx,
-                        artefact,
+                        artifact,
                     },
                 ))
             }
@@ -611,17 +611,17 @@ impl<Sig> RoundAccumulator<Sig> {
         }
     }
 
-    /// Save an artefact produced by [`Session::make_direct_message`].
-    pub fn add_artefact<Verifier: Debug>(
+    /// Save an artifact produced by [`Session::make_direct_message`].
+    pub fn add_artifact<Verifier: Debug>(
         &mut self,
-        artefact: Artefact<Verifier>,
+        artifact: Artifact<Verifier>,
     ) -> Result<(), LocalError> {
         self.processed
-            .add_dm_artefact(artefact.destination_idx, artefact.artefact)
+            .add_dm_artifact(artifact.destination_idx, artifact.artifact)
             .map_err(|err| match err {
                 AccumAddError::SlotTaken => LocalError(format!(
-                    "Artefact for the destination {:?} was already added",
-                    artefact.destination
+                    "Artifact for the destination {:?} was already added",
+                    artifact.destination
                 )),
                 AccumAddError::NoAccumulator => {
                     LocalError("This round does not send out direct messages".into())
@@ -711,10 +711,10 @@ impl<Sig> RoundAccumulator<Sig> {
 
 /// Data produced when creating a direct message to another party
 /// that has to be preserved for further processing.
-pub struct Artefact<Verifier> {
+pub struct Artifact<Verifier> {
     destination: Verifier,
     destination_idx: PartyIdx,
-    artefact: DynDmArtefact,
+    artifact: DynDmArtifact,
 }
 
 /// A message that passed initial validity checks.

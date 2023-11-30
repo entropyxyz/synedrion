@@ -27,13 +27,13 @@ pub(crate) struct MulStarProof<P: SchemeParams> {
 
 impl<P: SchemeParams> MulStarProof<P> {
     #[allow(clippy::too_many_arguments)]
-    pub fn random(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
         rho: &RandomizerMod<P::Paillier>,                  // $\rho \in \mathbb{Z}_{N_0}$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
         cap_c: &Ciphertext<P::Paillier>,                   // $C$, a ciphertext encrypted with `pk`
-        aux_rp: &RPParamsMod<P::Paillier>,                 // $\hat{N}$, $s$, $t$
+        setup: &RPParamsMod<P::Paillier>,                  // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         /*
@@ -51,7 +51,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        let hat_cap_n = &aux_rp.public_key().modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         let r = RandomizerMod::random(rng, pk);
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
@@ -62,8 +62,8 @@ impl<P: SchemeParams> MulStarProof<P> {
             .homomorphic_mul(pk, &alpha)
             .mul_randomizer(pk, &r.retrieve());
         let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
-        let cap_e = aux_rp.commit(&gamma, &alpha).retrieve();
-        let cap_s = aux_rp.commit(&m, x).retrieve();
+        let cap_e = setup.commit(&gamma, &alpha).retrieve();
+        let cap_s = setup.commit(&m, x).retrieve();
 
         let z1 = alpha + e * *x;
         let z2 = gamma + e.into_wide() * m;
@@ -88,7 +88,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         cap_c: &Ciphertext<P::Paillier>, // $C$, a ciphertext encrypted with `pk`
         cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x * \rho^{N_0} \mod N_0^2$
         cap_x: &Point,                   // $X = g * x$, where `g` is the curve generator
-        aux_rp: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -99,7 +99,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
 
-        let aux_pk = aux_rp.public_key();
+        let aux_pk = setup.public_key();
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
         if cap_c
@@ -120,7 +120,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         // s^{z_1} t^{z_2} == E S^e
         let cap_e_mod = self.cap_e.to_mod(aux_pk);
         let cap_s_mod = self.cap_s.to_mod(aux_pk);
-        if aux_rp.commit(&self.z2, &self.z1) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z2, &self.z1) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
@@ -147,7 +147,7 @@ mod tests {
         let pk = sk.public_key();
 
         let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let aux_rp = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
 
         let aux: &[u8] = b"abcde";
 
@@ -160,7 +160,7 @@ mod tests {
             .mul_randomizer(pk, &rho.retrieve());
         let cap_x = &Point::GENERATOR * &x.to_scalar();
 
-        let proof = MulStarProof::<Params>::random(&mut OsRng, &x, &rho, pk, &cap_c, &aux_rp, &aux);
-        assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &aux_rp, &aux));
+        let proof = MulStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &setup, &aux);
+        assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &setup, &aux));
     }
 }

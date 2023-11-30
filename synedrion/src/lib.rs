@@ -37,10 +37,9 @@ pub use k256::ecdsa;
 pub use signature;
 
 pub use cggmp21::{
-    InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyRefreshResult,
-    KeyShare, KeyShareChange, KeygenAndAuxError, KeygenAndAuxProof, KeygenAndAuxResult,
-    KeygenError, KeygenResult, PresigningError, PresigningProof, PresigningResult,
-    ProductionParams, ProtocolResult, SchemeParams, SigningProof, SigningResult, TestParams,
-    ThresholdKeyShare,
+    InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyGenError,
+    KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, KeyShare,
+    KeyShareChange, PresigningError, PresigningProof, PresigningResult, ProductionParams,
+    ProtocolResult, SchemeParams, SigningProof, SigningResult, TestParams, ThresholdKeyShare,
 };
 pub use curve::RecoverableSignature;

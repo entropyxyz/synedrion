@@ -5,7 +5,7 @@ use rand_core::CryptoRngCore;
 
 use super::{
     protocols::{
-        auxiliary, keygen, presigning, signing,
+        key_init, key_refresh, presigning, signing,
         test_utils::{step_next_round, step_result, step_round},
         FirstRound, PartyIdx, PresigningData,
     },
@@ -14,13 +14,13 @@ use super::{
 use crate::curve::Scalar;
 
 /// A sequential execution of the KeyGen protocol for all parties.
-pub fn keygen<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: usize) {
+pub fn key_init<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: usize) {
     let mut shared_randomness = [0u8; 32];
     rng.fill_bytes(&mut shared_randomness);
 
     let r1 = (0..num_parties)
         .map(|idx| {
-            keygen::Round1::<P>::new(
+            key_init::Round1::<P>::new(
                 rng,
                 &shared_randomness,
                 num_parties,
@@ -46,7 +46,7 @@ pub fn key_refresh<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: u
 
     let r1 = (0..num_parties)
         .map(|idx| {
-            auxiliary::Round1::<P>::new(
+            key_refresh::Round1::<P>::new(
                 rng,
                 &shared_randomness,
                 num_parties,

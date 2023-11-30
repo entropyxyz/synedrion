@@ -1,4 +1,6 @@
-//! ECDSA key generation (Fig. 5).
+//! KeyInit protocol, in the paper ECDSA Key-Generation (Fig. 5).
+//! Note that this protocol only generates the key itself which is not enough to perform signing;
+//! auxiliary parameters need to be generated as well (during the KeyRefresh protocol).
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -24,17 +26,17 @@ use crate::tools::serde_bytes;
 
 /// Possible results of the KeyGen protocol.
 #[derive(Debug, Clone, Copy)]
-pub struct KeygenResult;
+pub struct KeyInitResult;
 
-impl ProtocolResult for KeygenResult {
+impl ProtocolResult for KeyInitResult {
     type Success = KeyShareSeed;
-    type ProvableError = KeygenError;
+    type ProvableError = KeyInitError;
     type CorrectnessProof = ();
 }
 
 /// Possible verifiable errors of the KeyGen protocol.
 #[derive(Debug, Clone, Copy)]
-pub enum KeygenError {
+pub enum KeyInitError {
     /// A hash mismatch in Round 2.
     R2HashMismatch,
     /// Failed to verify `П^{sch}` in Round 3.
@@ -63,7 +65,7 @@ impl Hashable for FullData {
 
 impl FullData {
     fn hash(&self, shared_randomness: &[u8], party_idx: PartyIdx) -> HashOutput {
-        Hash::new_with_dst(b"Keygen")
+        Hash::new_with_dst(b"KeyInit")
             .chain(&shared_randomness)
             .chain(&party_idx)
             .chain(self)
@@ -135,7 +137,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 
 impl<P: SchemeParams> BaseRound for Round1<P> {
     type Type = ToNextRound;
-    type Result = KeygenResult;
+    type Result = KeyInitResult;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 }
@@ -170,7 +172,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
 impl<P: SchemeParams> DirectRound for Round1<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
@@ -180,10 +182,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         _rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         Ok(Round2 {
             hashes: bc_payloads.unwrap(),
             context: self.context,
@@ -205,7 +207,7 @@ pub struct Round2Bcast {
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
     type Type = ToNextRound;
-    type Result = KeygenResult;
+    type Result = KeyInitResult;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
 }
@@ -234,7 +236,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         if &msg.data.hash(&self.context.shared_randomness, from)
             != self.hashes.get(from.as_usize()).unwrap()
         {
-            return Err(ReceiveError::Provable(KeygenError::R2HashMismatch));
+            return Err(ReceiveError::Provable(KeyInitError::R2HashMismatch));
         }
 
         Ok(msg.data)
@@ -244,7 +246,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
 impl<P: SchemeParams> DirectRound for Round2<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
@@ -254,10 +256,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         _rng: &mut impl CryptoRngCore,
         bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         let bc_payloads = bc_payloads.unwrap();
         // XOR the vectors together
         // TODO (#61): is there a better way?
@@ -291,7 +293,7 @@ pub struct Round3Bcast {
 
 impl<P: SchemeParams> BaseRound for Round3<P> {
     type Type = ToResult;
-    type Result = KeygenResult;
+    type Result = KeyInitResult;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
 }
@@ -336,7 +338,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
             .proof
             .verify(&party_data.commitment, &party_data.public, &aux)
         {
-            return Err(ReceiveError::Provable(KeygenError::R3InvalidSchProof));
+            return Err(ReceiveError::Provable(KeyInitError::R3InvalidSchProof));
         }
         Ok(())
     }
@@ -345,7 +347,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
 impl<P: SchemeParams> DirectRound for Round3<P> {
     type Message = ();
     type Payload = ();
-    type Artefact = ();
+    type Artifact = ();
 }
 
 impl<P: SchemeParams> FinalizableToResult for Round3<P> {
@@ -354,10 +356,10 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         _rng: &mut impl CryptoRngCore,
         _bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
         dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artefacts: Option<HoleVec<<Self as DirectRound>::Artefact>>,
+        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         assert!(dm_payloads.is_none());
-        assert!(dm_artefacts.is_none());
+        assert!(dm_artifacts.is_none());
         let datas = self.datas.into_vec(self.context.data);
         let public_keys = datas.into_iter().map(|data| data.public).collect();
         Ok(KeyShareSeed {
