@@ -34,6 +34,8 @@ async fn run_session<Res: ProtocolResult>(
     let key = session.verifier();
     let key_str = key_to_str(&key);
 
+    println!("Running a session");
+
     loop {
         println!(
             "{key_str}: *** starting round {:?} ***",
