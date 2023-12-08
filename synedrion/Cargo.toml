@@ -1,5 +1,6 @@
 [package]
 name = "synedrion"
+authors = ['Entropy Cryptography <engineering@entropy.xyz>']
 version = "0.0.12"
 edition = "2021"
 license = "AGPL-3.0-or-later"
