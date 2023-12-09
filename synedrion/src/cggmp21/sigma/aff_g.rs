@@ -73,13 +73,13 @@ impl<P: SchemeParams> AffGProof<P> {
         );
         let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
         let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
-        let cap_e = setup.commit(&gamma, &alpha).retrieve();
-        let cap_s = setup.commit(&m, x).retrieve();
-        let cap_f = setup.commit(&delta, &beta).retrieve();
+        let cap_e = setup.commit(&alpha, &gamma).retrieve();
+        let cap_s = setup.commit(x, &m).retrieve();
+        let cap_f = setup.commit(&beta, &delta).retrieve();
 
         // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
         // Original: $s^y$. Modified: $s^{-y}$
-        let cap_t = setup.commit(&mu, &-y).retrieve();
+        let cap_t = setup.commit(&-y, &mu).retrieve();
 
         let z1 = alpha + e * *x;
 
@@ -173,14 +173,14 @@ impl<P: SchemeParams> AffGProof<P> {
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
         let cap_e_mod = self.cap_e.to_mod(aux_pk);
         let cap_s_mod = self.cap_s.to_mod(aux_pk);
-        if setup.commit(&self.z3, &self.z1) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z1, &self.z3) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
         let cap_f_mod = self.cap_f.to_mod(aux_pk);
         let cap_t_mod = self.cap_t.to_mod(aux_pk);
-        if setup.commit(&self.z4, &self.z2) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z2, &self.z4) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e) {
             return false;
         }
 

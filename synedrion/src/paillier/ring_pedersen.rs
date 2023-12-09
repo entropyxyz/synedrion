@@ -69,8 +69,8 @@ impl<P: PaillierParams> RPParamsMod<P> {
     // - this will match the order in the paper
     pub fn commit(
         &self,
-        randomizer: &Signed<P::WideUint>,
         secret: &Signed<P::Uint>,
+        randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed(secret))
@@ -78,8 +78,8 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn commit_wide(
         &self,
-        randomizer: &Signed<P::WideUint>,
         secret: &Signed<P::WideUint>,
+        randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed_wide(secret))
@@ -87,8 +87,8 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn commit_xwide(
         &self,
-        randomizer: &Signed<P::ExtraWideUint>,
         secret: &Bounded<P::Uint>,
+        randomizer: &Signed<P::ExtraWideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(

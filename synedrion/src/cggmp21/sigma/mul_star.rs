@@ -62,8 +62,8 @@ impl<P: SchemeParams> MulStarProof<P> {
             .homomorphic_mul(pk, &alpha)
             .mul_randomizer(pk, &r.retrieve());
         let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
-        let cap_e = setup.commit(&gamma, &alpha).retrieve();
-        let cap_s = setup.commit(&m, x).retrieve();
+        let cap_e = setup.commit(&alpha, &gamma).retrieve();
+        let cap_s = setup.commit(x, &m).retrieve();
 
         let z1 = alpha + e * *x;
         let z2 = gamma + e.into_wide() * m;
@@ -120,7 +120,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         // s^{z_1} t^{z_2} == E S^e
         let cap_e_mod = self.cap_e.to_mod(aux_pk);
         let cap_s_mod = self.cap_s.to_mod(aux_pk);
-        if setup.commit(&self.z2, &self.z1) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z1, &self.z2) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
