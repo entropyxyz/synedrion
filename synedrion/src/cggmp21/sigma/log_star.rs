@@ -51,10 +51,10 @@ impl<P: SchemeParams> LogStarProof<P> {
         let r = RandomizerMod::random(rng, pk);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        let cap_s = setup.commit(&mu, x).retrieve();
+        let cap_s = setup.commit(x, &mu).retrieve();
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
         let cap_y = g * &alpha.to_scalar();
-        let cap_d = setup.commit(&gamma, &alpha).retrieve();
+        let cap_d = setup.commit(&alpha, &gamma).retrieve();
 
         let z1 = alpha + e * *x;
         let z2 = (r * rho.pow_signed_vartime(&e)).retrieve();
@@ -106,7 +106,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         // s^{z_1} t^{z_3} == D S^e \mod \hat{N}
         let cap_d_mod = self.cap_d.to_mod(setup.public_key());
         let cap_s_mod = self.cap_s.to_mod(setup.public_key());
-        if setup.commit(&self.z3, &self.z1) != &cap_d_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z1, &self.z3) != &cap_d_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
