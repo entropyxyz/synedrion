@@ -1,4 +1,5 @@
-# Threshold signing library based on CGGMP'21 scheme.
+# Synedrion
+
 
 [![crate][crate-image]][crate-link]
 [![Docs][docs-image]][docs-link]
@@ -13,6 +14,7 @@
 [coverage-image]: https://codecov.io/gh/entropyxyz/synedrion/branch/master/graph/badge.svg
 [coverage-link]: https://codecov.io/gh/entropyxyz/synedrion
 
+### A threshold signing library based on the CGGMP'21 scheme.
 
 **WARNING:** the library is a work in progress (see [Issues](https://github.com/entropyxyz/synedrion/issues)), and has not been audited. Use at your own risk.
 
