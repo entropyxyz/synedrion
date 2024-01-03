@@ -20,7 +20,7 @@ pub(crate) mod test_utils;
 #[cfg(feature = "bench-internals")]
 pub(crate) use common::PresigningData;
 
-pub use common::{KeyShare, KeyShareChange, KeyShareSeed, PartyIdx};
+pub use common::{KeyShare, KeyShareChange, PartyIdx};
 pub use generic::ProtocolResult;
 pub use interactive_signing::{
     InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult,
