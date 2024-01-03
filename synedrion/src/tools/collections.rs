@@ -141,7 +141,7 @@ pub(crate) struct HoleVec<T> {
 
 impl<T> HoleVec<T> {
     pub fn hole_at(&self) -> usize {
-        self.hole_at.try_into().unwrap()
+        self.hole_at.into()
     }
 
     pub fn len(&self) -> usize {
