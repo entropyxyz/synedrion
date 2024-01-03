@@ -53,7 +53,7 @@ The initial state for each protocol is instantiated by calling a function from t
 Note that the order of the verifiers corresponds to the order of parties in the [`KeyShare`](https://docs.rs/synedrion/latest/synedrion/struct.KeyShare.html) object. That is, if you are executing a KeyGen protocol, the returned `KeyShare` will have shares in the order of the given `verifiers`, and if you are executing a KeyRefresh or InteractiveSigning protocol (which take a `KeyShare` as one of the inputs), the order of the shares in the used `KeyShare` must match the order in `verifiers`.
 
 After the initial state is created, it goes through several rounds, in each of which it is used to create outgoing messages, verify and process the incoming messages, and finalize the round, creating a new state or the result. This would typically happen in a loop:
-```rust
+```ignore
 // <<< `session` was created by one of the constructors >>>
 
 let mut session = session;
