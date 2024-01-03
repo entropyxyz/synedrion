@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareChange, PartyIdx, PublicAuxInfo, SecretAuxInfo};
 use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
-    FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
+    all_parties_except, BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError,
+    ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
@@ -24,7 +25,7 @@ use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
     RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
-use crate::tools::collections::{HoleRange, HoleVec};
+use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
@@ -230,10 +231,10 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
     type Message = Round1Bcast;
     type Payload = HashOutput;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.num_parties,
-            self.context.party_idx.as_usize(),
+            self.context.party_idx,
         ))
     }
 
@@ -304,10 +305,10 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
     type Message = Round2Bcast<P>;
     type Payload = FullDataPrecomp<P>;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.num_parties,
-            self.context.party_idx.as_usize(),
+            self.context.party_idx,
         ))
     }
 
@@ -462,10 +463,10 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     type Payload = Scalar;
     type Artifact = ();
 
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.num_parties,
-            self.context.party_idx.as_usize(),
+            self.context.party_idx,
         ))
     }
 

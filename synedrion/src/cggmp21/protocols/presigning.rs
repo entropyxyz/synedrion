@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, KeySharePrecomputed, PartyIdx, PresigningData};
 use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
-    FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
+    all_parties_except, BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError,
+    ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
@@ -140,10 +141,10 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
     type Message = Round1Bcast<P::Paillier>;
     type Payload = Round1Bcast<P::Paillier>;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.key_share.num_parties(),
-            self.context.key_share.party_index().as_usize(),
+            self.context.key_share.party_index(),
         ))
     }
 
@@ -168,10 +169,10 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
     type Payload = Round1Direct<P>;
     type Artifact = ();
 
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.key_share.num_parties(),
-            self.context.key_share.party_index().as_usize(),
+            self.context.key_share.party_index(),
         ))
     }
 
@@ -309,10 +310,10 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
     type Payload = Round2Payload<P>;
     type Artifact = Round2Artifact<P>;
 
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.key_share.num_parties(),
-            self.context.key_share.party_index().as_usize(),
+            self.context.key_share.party_index(),
         ))
     }
 
@@ -599,10 +600,10 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     type Payload = Round3Payload;
     type Artifact = ();
 
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.key_share.num_parties(),
-            self.context.key_share.party_index().as_usize(),
+            self.context.key_share.party_index(),
         ))
     }
 

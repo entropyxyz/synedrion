@@ -1,4 +1,5 @@
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
@@ -20,7 +21,7 @@ pub(crate) trait BroadcastRound: BaseRound {
 
     /// The indices of the parties that should receive the broadcast,
     /// or `None` if this round does not send any broadcasts.
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         None
     }
 
@@ -55,7 +56,7 @@ pub(crate) trait DirectRound: BaseRound {
 
     /// The indices of the parties that should receive the direct messages,
     /// or `None` if this round does not send any direct messages.
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
         None
     }
 
@@ -169,4 +170,10 @@ pub(crate) trait FirstRound: Round + Sized {
         party_idx: PartyIdx,
         context: Self::Context,
     ) -> Result<Self, InitError>;
+}
+
+pub(crate) fn all_parties_except(num_parties: usize, party_idx: PartyIdx) -> Vec<PartyIdx> {
+    HoleRange::new(num_parties, party_idx.as_usize())
+        .map(PartyIdx::from_usize)
+        .collect()
 }

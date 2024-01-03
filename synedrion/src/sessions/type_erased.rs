@@ -18,7 +18,7 @@ use crate::cggmp21::{
     self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, PartyIdx,
     ProtocolResult, Round, ToNextRound, ToResult,
 };
-use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
+use crate::tools::collections::{HoleVec, HoleVecAccum};
 
 pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, LocalError> {
     bincode::serialize(message)
@@ -100,10 +100,10 @@ pub(crate) trait DynRound<Res: ProtocolResult>: Send {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange>;
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>>;
     fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, LocalError>;
     fn requires_broadcast_consensus(&self) -> bool;
-    fn direct_message_destinations(&self) -> Option<HoleRange>;
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>>;
     fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
@@ -171,7 +171,7 @@ where
         Ok(DynDmPayload(Box::new(payload)))
     }
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.broadcast_destinations()
     }
 
@@ -187,7 +187,7 @@ where
         <R as BroadcastRound>::REQUIRES_CONSENSUS
     }
 
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.direct_message_destinations()
     }
 

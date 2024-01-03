@@ -237,7 +237,8 @@ where
         match &self.tp {
             SessionType::Normal(round) => round.broadcast_destinations().map(|range| {
                 range
-                    .map(|idx| self.context.verifiers[idx].clone())
+                    .iter()
+                    .map(|idx| self.context.verifiers[idx.as_usize()].clone())
                     .collect()
             }),
             SessionType::Bc { .. } => {
@@ -294,7 +295,8 @@ where
         match &self.tp {
             SessionType::Normal(round) => round.direct_message_destinations().map(|range| {
                 range
-                    .map(|idx| self.context.verifiers[idx].clone())
+                    .iter()
+                    .map(|idx| self.context.verifiers[idx.as_usize()].clone())
                     .collect()
             }),
             _ => None,

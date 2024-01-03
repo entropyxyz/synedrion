@@ -4,6 +4,7 @@
 
 use alloc::boxed::Box;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
@@ -11,15 +12,16 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareSeed, PartyIdx};
 use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
-    FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
+    all_parties_except, BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError,
+    ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{SchCommitment, SchProof, SchSecret},
     SchemeParams,
 };
 use crate::curve::{Point, Scalar};
-use crate::tools::collections::{HoleRange, HoleVec};
+use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
@@ -147,10 +149,10 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
     type Message = Round1Bcast;
     type Payload = HashOutput;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.num_parties,
-            self.context.party_idx.as_usize(),
+            self.context.party_idx,
         ))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
@@ -217,10 +219,10 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
     type Message = Round2Bcast;
     type Payload = FullData;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.num_parties,
-            self.context.party_idx.as_usize(),
+            self.context.party_idx,
         ))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
@@ -303,10 +305,10 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
     type Message = Round3Bcast;
     type Payload = ();
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(
             self.context.num_parties,
-            self.context.party_idx.as_usize(),
+            self.context.party_idx,
         ))
     }
 

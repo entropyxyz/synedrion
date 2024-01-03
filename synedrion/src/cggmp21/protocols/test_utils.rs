@@ -47,12 +47,10 @@ where
 
         if let Some(destinations) = round.direct_message_destinations() {
             for idx_to in destinations {
-                let (message, artifact) = round
-                    .make_direct_message(rng, PartyIdx::from_usize(idx_to))
-                    .unwrap();
-                direct_messages.push((PartyIdx::from_usize(idx_to), idx_from, message));
+                let (message, artifact) = round.make_direct_message(rng, idx_to).unwrap();
+                direct_messages.push((idx_to, idx_from, message));
                 dm_artifact_accums[idx_from.as_usize()]
-                    .insert(idx_to, artifact)
+                    .insert(idx_to.as_usize(), artifact)
                     .unwrap();
             }
         }
@@ -60,7 +58,7 @@ where
         if let Some(destinations) = round.broadcast_destinations() {
             let message = round.make_broadcast(rng).unwrap();
             for idx_to in destinations {
-                broadcasts.push((PartyIdx::from_usize(idx_to), idx_from, message.clone()));
+                broadcasts.push((idx_to, idx_from, message.clone()));
             }
         }
     }

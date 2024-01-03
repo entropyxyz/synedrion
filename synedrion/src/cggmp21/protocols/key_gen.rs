@@ -2,6 +2,7 @@
 //! Since both take three rounds and are independent, we can execute them in parallel.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
@@ -16,7 +17,7 @@ use super::key_init::{self, KeyInitResult};
 use super::key_refresh::{self, KeyRefreshResult};
 use super::wrappers::{wrap_finalize_error, wrap_receive_error, ResultWrapper};
 use crate::cggmp21::SchemeParams;
-use crate::tools::collections::{HoleRange, HoleVec};
+use crate::tools::collections::HoleVec;
 
 /// Possible results of the merged KeyGen and KeyRefresh protocols.
 #[derive(Debug, Clone, Copy)]
@@ -124,7 +125,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         <key_init::Round1<P> as BroadcastRound>::Payload,
         <key_refresh::Round1<P> as BroadcastRound>::Payload,
     );
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         let key_init_dest = self.key_init_round.broadcast_destinations();
         let key_refresh_dest = self.key_refresh_round.broadcast_destinations();
         assert!(key_init_dest == key_refresh_dest);
@@ -226,7 +227,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         <key_refresh::Round2<P> as BroadcastRound>::Payload,
     );
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         let key_init_dest = self.key_init_round.broadcast_destinations();
         let key_refresh_dest = self.key_refresh_round.broadcast_destinations();
         assert!(key_init_dest == key_refresh_dest);
@@ -311,7 +312,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
     type Message = <key_init::Round3<P> as BroadcastRound>::Message;
     type Payload = <key_init::Round3<P> as BroadcastRound>::Payload;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.key_init_round.broadcast_destinations()
     }
     fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
@@ -334,7 +335,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     type Message = <key_refresh::Round3<P> as DirectRound>::Message;
     type Payload = <key_refresh::Round3<P> as DirectRound>::Payload;
 
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.key_refresh_round.direct_message_destinations()
     }
     fn make_direct_message(

@@ -1,4 +1,5 @@
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
 
@@ -7,7 +8,6 @@ use super::generic::{
     BaseRound, BroadcastRound, DirectRound, FinalizableType, FinalizeError, ProtocolResult,
     ReceiveError, Round,
 };
-use crate::tools::collections::HoleRange;
 
 pub(crate) trait ResultWrapper<Res: ProtocolResult>: ProtocolResult {
     fn wrap_error(error: Res::ProvableError) -> Self::ProvableError;
@@ -56,7 +56,7 @@ impl<T: RoundWrapper> BroadcastRound for T {
     const REQUIRES_CONSENSUS: bool = T::InnerRound::REQUIRES_CONSENSUS;
     type Message = <T::InnerRound as BroadcastRound>::Message;
     type Payload = <T::InnerRound as BroadcastRound>::Payload;
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.inner_round().broadcast_destinations()
     }
     fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
@@ -77,7 +77,7 @@ impl<T: RoundWrapper> DirectRound for T {
     type Message = <T::InnerRound as DirectRound>::Message;
     type Payload = <T::InnerRound as DirectRound>::Payload;
     type Artifact = <T::InnerRound as DirectRound>::Artifact;
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.inner_round().direct_message_destinations()
     }
     fn make_direct_message(

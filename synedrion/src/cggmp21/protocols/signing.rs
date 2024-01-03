@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeySharePrecomputed, PartyIdx, PresigningData};
 use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, FinalizableToResult, FinalizeError, FirstRound,
-    InitError, ProtocolResult, ReceiveError, ToResult,
+    all_parties_except, BaseRound, BroadcastRound, DirectRound, FinalizableToResult, FinalizeError,
+    FirstRound, InitError, ProtocolResult, ReceiveError, ToResult,
 };
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, MulStarProof},
@@ -96,8 +96,8 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
     const REQUIRES_CONSENSUS: bool = false;
     type Message = Round1Bcast;
     type Payload = Scalar;
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(self.num_parties, self.party_idx.as_usize()))
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(self.num_parties, self.party_idx))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
         Ok(Round1Bcast {
