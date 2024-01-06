@@ -3,6 +3,7 @@
 //! for ZK proofs (e.g. Paillier keys).
 
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -12,9 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShareChange, PartyIdx, PublicAuxInfo, SecretAuxInfo};
 use super::generic::{
-    all_parties_except, BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound,
-    FinalizableToResult, FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError,
-    ToNextRound, ToResult,
+    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
+    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
+    FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
 use crate::cggmp21::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
@@ -218,6 +219,14 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
+
+    fn num_parties(&self) -> usize {
+        self.context.num_parties
+    }
+
+    fn party_idx(&self) -> PartyIdx {
+        self.context.party_idx
+    }
 }
 
 impl<P: SchemeParams> DirectRound for Round1<P> {
@@ -257,20 +266,26 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
     }
 }
 
+impl<P: SchemeParams> Finalizable for Round1<P> {
+    fn requirement() -> FinalizationRequirement {
+        FinalizationRequirement::AllBroadcasts
+    }
+}
+
 impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     type NextRound = Round2<P>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        assert!(dm_payloads.is_none());
-        assert!(dm_artifacts.is_none());
+        let num_parties = self.num_parties();
+        let party_idx = self.party_idx();
         Ok(Round2 {
             context: self.context,
-            hashes: bc_payloads.unwrap(),
+            hashes: try_to_holevec(bc_payloads, num_parties, party_idx).unwrap(),
         })
     }
 }
@@ -292,6 +307,14 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
+
+    fn num_parties(&self) -> usize {
+        self.context.num_parties
+    }
+
+    fn party_idx(&self) -> PartyIdx {
+        self.context.party_idx
+    }
 }
 
 impl<P: SchemeParams> DirectRound for Round2<P> {
@@ -363,18 +386,22 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
     }
 }
 
+impl<P: SchemeParams> Finalizable for Round2<P> {
+    fn requirement() -> FinalizationRequirement {
+        FinalizationRequirement::AllBroadcasts
+    }
+}
+
 impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     type NextRound = Round3<P>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        assert!(dm_payloads.is_none());
-        assert!(dm_artifacts.is_none());
-        let messages = bc_payloads.unwrap();
+        let messages = try_to_holevec(bc_payloads, self.num_parties(), self.party_idx()).unwrap();
         // XOR the vectors together
         // TODO (#61): is there a better way?
         let mut rho = self.context.data_precomp.data.rho_bits.clone();
@@ -451,6 +478,14 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
+
+    fn num_parties(&self) -> usize {
+        self.context.num_parties
+    }
+
+    fn party_idx(&self) -> PartyIdx {
+        self.context.party_idx
+    }
 }
 
 impl<P: SchemeParams> BroadcastRound for Round3<P> {
@@ -585,16 +620,21 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     }
 }
 
+impl<P: SchemeParams> Finalizable for Round3<P> {
+    fn requirement() -> FinalizationRequirement {
+        FinalizationRequirement::AllDms
+    }
+}
+
 impl<P: SchemeParams> FinalizableToResult for Round3<P> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        _dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        _bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        assert!(bc_payloads.is_none());
-        let secrets = dm_payloads
+        let secrets = try_to_holevec(dm_payloads, self.num_parties(), self.party_idx())
             .unwrap()
             .into_vec(self.context.xs_secret[self.context.party_idx.as_usize()]);
         let secret_share_change = secrets.iter().sum();

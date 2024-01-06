@@ -5,8 +5,8 @@ use rand_core::CryptoRngCore;
 
 use super::common::PartyIdx;
 use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, FinalizableType, FinalizeError, ProtocolResult,
-    ReceiveError, Round,
+    BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableType, FinalizationRequirement,
+    FinalizeError, ProtocolResult, ReceiveError, Round,
 };
 
 pub(crate) trait ResultWrapper<Res: ProtocolResult>: ProtocolResult {
@@ -50,6 +50,13 @@ impl<T: RoundWrapper> BaseRound for T {
     type Result = T::Result;
     const ROUND_NUM: u8 = T::ROUND_NUM;
     const NEXT_ROUND_NUM: Option<u8> = T::NEXT_ROUND_NUM;
+
+    fn num_parties(&self) -> usize {
+        self.inner_round().num_parties()
+    }
+    fn party_idx(&self) -> PartyIdx {
+        self.inner_round().party_idx()
+    }
 }
 
 impl<T: RoundWrapper> BroadcastRound for T {
@@ -95,5 +102,11 @@ impl<T: RoundWrapper> DirectRound for T {
         self.inner_round()
             .verify_direct_message(from, msg)
             .map_err(wrap_receive_error)
+    }
+}
+
+impl<T: RoundWrapper> Finalizable for T {
+    fn requirement() -> FinalizationRequirement {
+        T::InnerRound::requirement()
     }
 }

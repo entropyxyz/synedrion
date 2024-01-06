@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
@@ -13,7 +14,6 @@ use super::signing::{self, SigningResult};
 use super::wrappers::{wrap_finalize_error, ResultWrapper, RoundWrapper};
 use crate::cggmp21::params::SchemeParams;
 use crate::curve::{RecoverableSignature, Scalar};
-use crate::tools::collections::HoleVec;
 
 /// Possible results of the merged Presigning and Signing protocols.
 #[derive(Debug, Clone, Copy)]
@@ -127,9 +127,9 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let round = self
             .round
@@ -163,9 +163,9 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let round = self
             .round
@@ -199,9 +199,9 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let presigning_data = self
             .round
@@ -250,9 +250,9 @@ impl<P: SchemeParams> FinalizableToResult for Round4<P> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         self.round
             .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artifacts)

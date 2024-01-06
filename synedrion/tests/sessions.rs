@@ -93,7 +93,7 @@ async fn run_session<Res: ProtocolResult>(
 
         while !session.can_finalize(&accum).unwrap() {
             // This can be checked if a timeout expired, to see which nodes have not responded yet.
-            let unresponsive_parties = session.missing_messages(&accum);
+            let unresponsive_parties = session.missing_messages(&accum).unwrap();
             assert!(!unresponsive_parties.is_empty());
 
             println!("{key_str}: waiting for a message");

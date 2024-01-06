@@ -194,8 +194,6 @@ where
         RoundAccumulator::new(
             self.context.verifiers.len(),
             self.context.party_idx,
-            self.broadcast_destinations().is_some(),
-            self.direct_message_destinations().is_some(),
             self.is_broadcast_consensus_round(),
         )
     }
@@ -203,7 +201,7 @@ where
     /// Returns `true` if the round can be finalized.
     pub fn can_finalize(&self, accum: &RoundAccumulator<Sig>) -> Result<bool, LocalError> {
         match &self.tp {
-            SessionType::Normal(_) => Ok(accum.processed.can_finalize()),
+            SessionType::Normal(round) => Ok(round.can_finalize(&accum.processed)),
             SessionType::Bc { .. } => Ok(accum
                 .bc_accum
                 .as_ref()
@@ -216,12 +214,29 @@ where
     }
 
     /// Returns a list of parties whose messages for this round have not been received yet.
-    pub fn missing_messages(&self, accum: &RoundAccumulator<Sig>) -> Vec<Verifier> {
-        accum
-            .missing_messages()
-            .into_iter()
-            .map(|idx| self.context.verifiers[idx.as_usize()].clone())
-            .collect()
+    pub fn missing_messages(
+        &self,
+        accum: &RoundAccumulator<Sig>,
+    ) -> Result<Vec<Verifier>, LocalError> {
+        let missing = match &self.tp {
+            SessionType::Normal(round) => Ok(round
+                .missing_payloads(&accum.processed)
+                .into_iter()
+                .collect()),
+            SessionType::Bc { .. } => {
+                let bc_accum = accum.bc_accum.as_ref().ok_or(LocalError(
+                    "This is a BC consensus round, but the accumulator is in an invalid state"
+                        .into(),
+                ))?;
+                Ok(bc_accum.missing_messages())
+            }
+        };
+
+        missing.map(|set| {
+            set.into_iter()
+                .map(|idx| self.context.verifiers[idx.as_usize()].clone())
+                .collect()
+        })
     }
 
     fn is_broadcast_consensus_round(&self) -> bool {
@@ -583,18 +598,12 @@ pub struct RoundAccumulator<Sig> {
 }
 
 impl<Sig> RoundAccumulator<Sig> {
-    fn new(
-        num_parties: usize,
-        party_idx: PartyIdx,
-        is_bc_round: bool,
-        is_dm_round: bool,
-        is_bc_consensus_round: bool,
-    ) -> Self {
+    fn new(num_parties: usize, party_idx: PartyIdx, is_bc_consensus_round: bool) -> Self {
         // TODO (#68): can return an error if party_idx is out of bounds
         Self {
             received_direct_messages: Vec::new(),
             received_broadcasts: Vec::new(),
-            processed: DynRoundAccum::new(num_parties, party_idx, is_bc_round, is_dm_round),
+            processed: DynRoundAccum::new(),
             cached_messages: Vec::new(),
             cached_message_count: vec![0; num_parties],
             bc_accum: if is_bc_consensus_round {
@@ -602,14 +611,6 @@ impl<Sig> RoundAccumulator<Sig> {
             } else {
                 None
             },
-        }
-    }
-
-    fn missing_messages(&self) -> Vec<PartyIdx> {
-        if let Some(accum) = &self.bc_accum {
-            accum.missing_messages()
-        } else {
-            self.processed.missing_messages()
         }
     }
 
@@ -625,9 +626,6 @@ impl<Sig> RoundAccumulator<Sig> {
                     "Artifact for the destination {:?} was already added",
                     artifact.destination
                 )),
-                AccumAddError::NoAccumulator => {
-                    LocalError("This round does not send out direct messages".into())
-                }
             })
     }
 
@@ -638,37 +636,25 @@ impl<Sig> RoundAccumulator<Sig> {
     ) -> Result<Result<(), RemoteError<Verifier>>, LocalError> {
         match pm.message {
             ProcessedMessageEnum::BcPayload { payload, message } => {
-                match self.processed.add_bc_payload(pm.from_idx, payload) {
-                    Err(AccumAddError::SlotTaken) => {
-                        return Ok(Err(RemoteError {
-                            party: pm.from,
-                            error: RemoteErrorEnum::DuplicateMessage,
-                        }))
-                    }
-                    Err(AccumAddError::NoAccumulator) => {
-                        return Err(LocalError(
-                            "This round does not send out broadcast messages".into(),
-                        ))
-                    }
-                    Ok(()) => {}
-                };
+                if let Err(AccumAddError::SlotTaken) =
+                    self.processed.add_bc_payload(pm.from_idx, payload)
+                {
+                    return Ok(Err(RemoteError {
+                        party: pm.from,
+                        error: RemoteErrorEnum::DuplicateMessage,
+                    }));
+                }
                 self.received_broadcasts.push((pm.from_idx, message));
             }
             ProcessedMessageEnum::DmPayload { payload, message } => {
-                match self.processed.add_dm_payload(pm.from_idx, payload) {
-                    Err(AccumAddError::SlotTaken) => {
-                        return Ok(Err(RemoteError {
-                            party: pm.from,
-                            error: RemoteErrorEnum::DuplicateMessage,
-                        }))
-                    }
-                    Err(AccumAddError::NoAccumulator) => {
-                        return Err(LocalError(
-                            "This round does not send out direct messages".into(),
-                        ))
-                    }
-                    Ok(()) => {}
-                };
+                if let Err(AccumAddError::SlotTaken) =
+                    self.processed.add_dm_payload(pm.from_idx, payload)
+                {
+                    return Ok(Err(RemoteError {
+                        party: pm.from,
+                        error: RemoteErrorEnum::DuplicateMessage,
+                    }));
+                }
                 self.received_direct_messages.push((pm.from_idx, message));
             }
             ProcessedMessageEnum::Bc => match &mut self.bc_accum {
