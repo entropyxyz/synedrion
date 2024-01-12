@@ -33,7 +33,7 @@ pub(crate) type CompressedPointSize =
 
 pub(crate) const ORDER: U256 = Secp256k1::ORDER;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub struct Scalar(BackendScalar);
 
 impl Scalar {
@@ -227,6 +227,12 @@ impl Default for Point {
 impl From<u32> for Scalar {
     fn from(val: u32) -> Self {
         Self(BackendScalar::from(val))
+    }
+}
+
+impl From<usize> for Scalar {
+    fn from(val: usize) -> Self {
+        Self(BackendScalar::from(u64::try_from(val).unwrap()))
     }
 }
 

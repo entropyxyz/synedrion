@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use alloc::vec::Vec;
+use alloc::collections::BTreeMap;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use super::common::{make_aux_info, KeyShare, PartyIdx, PublicAuxInfo, SecretAuxInfo};
 use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
-use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points, shamir_split};
+use crate::tools::sss::{
+    interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx,
+};
 
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
@@ -20,12 +22,12 @@ use crate::tools::sss::{interpolation_coeff, shamir_evaluation_points, shamir_sp
 #[serde(bound(deserialize = "SecretAuxInfo<P>: for <'x> Deserialize<'x>,
         PublicAuxInfo<P>: for <'x> Deserialize<'x>"))]
 pub struct ThresholdKeyShare<P: SchemeParams> {
-    pub(crate) index: PartyIdx,
-    pub(crate) threshold: u32, // TODO (#31): make typed? Can it be `ShareIdx`?
+    pub(crate) index: ShareIdx,
+    pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
-    pub(crate) public_shares: Box<[Point]>,
+    pub(crate) public_shares: BTreeMap<ShareIdx, Point>,
     pub(crate) secret_aux: SecretAuxInfo<P>,
-    pub(crate) public_aux: Box<[PublicAuxInfo<P>]>,
+    pub(crate) public_aux: BTreeMap<ShareIdx, PublicAuxInfo<P>>,
 }
 
 impl<P: SchemeParams> ThresholdKeyShare<P> {
@@ -44,27 +46,30 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
         };
 
-        let secret_shares = shamir_split(
-            rng,
-            &secret,
-            threshold,
-            &shamir_evaluation_points(num_parties),
-        );
+        let share_idxs = shamir_evaluation_points(num_parties);
+        let secret_shares = shamir_split(rng, &secret, threshold, &share_idxs);
         let public_shares = secret_shares
             .iter()
-            .map(|s| s.mul_by_generator())
-            .collect::<Box<_>>();
+            .map(|(idx, share)| (*idx, share.mul_by_generator()))
+            .collect::<BTreeMap<_, _>>();
 
         let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
+
+        let public_aux = public_aux
+            .into_vec()
+            .into_iter()
+            .enumerate()
+            .map(|(idx, public)| (share_idxs[idx], public))
+            .collect::<BTreeMap<_, _>>();
 
         secret_aux
             .into_vec()
             .into_iter()
             .enumerate()
             .map(|(idx, secret_aux)| ThresholdKeyShare {
-                index: PartyIdx::from_usize(idx),
+                index: share_idxs[idx],
                 threshold: threshold as u32,
-                secret_share: secret_shares[idx],
+                secret_share: secret_shares[&share_idxs[idx]],
                 public_shares: public_shares.clone(),
                 secret_aux,
                 public_aux: public_aux.clone(),
@@ -73,12 +78,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     }
 
     pub(crate) fn verifying_key_as_point(&self) -> Point {
-        let points = shamir_evaluation_points(self.num_parties());
-        self.public_shares[0..self.threshold as usize]
-            .iter()
-            .enumerate()
-            .map(|(idx, p)| p * &interpolation_coeff(&points[0..self.threshold as usize], idx))
-            .sum()
+        shamir_join_points(self.public_shares.iter().take(self.threshold as usize))
     }
 
     /// Return the verifying key to which this set of shares corresponds.
@@ -88,52 +88,42 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
-    /// Returns the number of parties in this set of shares.
-    pub fn num_parties(&self) -> usize {
-        // TODO (#31): technically it is `num_shares`, but for now we are equating the two,
-        // since we assume that one party has one share.
-        self.public_shares.len()
-    }
-
     /// Returns the index of this share's party.
-    pub fn party_index(&self) -> usize {
-        // TODO (#31): technically it is the share index, but for now we are equating the two,
-        // since we assume that one party has one share.
-        self.index.as_usize()
+    pub fn index(&self) -> ShareIdx {
+        self.index
     }
 
     /// Converts a t-of-n key share into a t-of-t key share
-    /// (for the `t` parties supplied as `party_idxs`)
+    /// (for the `t` share indices supplied as `share_idxs`)
     /// that can be used in the presigning/signing protocols.
-    pub fn to_key_share(&self, party_idxs: &[PartyIdx]) -> KeyShare<P> {
-        debug_assert!(party_idxs.len() == self.threshold as usize);
+    pub fn to_key_share(&self, share_idxs: &[ShareIdx]) -> KeyShare<P> {
+        debug_assert!(share_idxs.len() == self.threshold as usize);
         // TODO (#68): assert that all indices are distinct
-        let mapped_idx = party_idxs
+        let my_idx_position = share_idxs
             .iter()
             .position(|idx| idx == &self.index)
             .unwrap();
 
-        let all_points = shamir_evaluation_points(self.num_parties());
-        let points = party_idxs
-            .iter()
-            .map(|idx| all_points[idx.as_usize()])
-            .collect::<Vec<_>>();
-
-        let secret_share = self.secret_share * interpolation_coeff(&points, mapped_idx);
-        let public_shares = party_idxs
+        let secret_share = self.secret_share * interpolation_coeff(share_idxs, my_idx_position);
+        let public_shares = share_idxs
             .iter()
             .enumerate()
-            .map(|(mapped_idx, idx)| {
-                &self.public_shares[idx.as_usize()] * &interpolation_coeff(&points, mapped_idx)
+            .map(|(position, share_idx)| {
+                &self.public_shares[share_idx] * &interpolation_coeff(share_idxs, position)
             })
             .collect();
 
+        let public_aux = share_idxs
+            .iter()
+            .map(|idx| self.public_aux[idx].clone())
+            .collect();
+
         KeyShare {
-            index: PartyIdx::from_usize(mapped_idx),
+            index: PartyIdx::from_usize(my_idx_position),
             secret_share,
             public_shares,
             secret_aux: self.secret_aux.clone(),
-            public_aux: self.public_aux.clone(),
+            public_aux,
         }
     }
 }
@@ -164,17 +154,23 @@ mod tests {
     use rand_core::OsRng;
 
     use super::ThresholdKeyShare;
-    use crate::cggmp21::{PartyIdx, TestParams};
+    use crate::cggmp21::TestParams;
     use crate::curve::Scalar;
 
     #[test]
     fn threshold_key_share_centralized() {
         let sk = SigningKey::random(&mut OsRng);
         let shares = ThresholdKeyShare::<TestParams>::new_centralized(&mut OsRng, 2, 3, Some(&sk));
+
+        assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
+        assert_eq!(&shares[1].verifying_key(), sk.verifying_key());
+        assert_eq!(&shares[2].verifying_key(), sk.verifying_key());
+
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
 
-        let nt_share0 = shares[0].to_key_share(&[PartyIdx::from_usize(2), PartyIdx::from_usize(0)]);
-        let nt_share1 = shares[2].to_key_share(&[PartyIdx::from_usize(2), PartyIdx::from_usize(0)]);
+        let share_idxs = [shares[2].index(), shares[0].index()];
+        let nt_share0 = shares[0].to_key_share(&share_idxs);
+        let nt_share1 = shares[2].to_key_share(&share_idxs);
 
         assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
         assert_eq!(&nt_share1.verifying_key(), sk.verifying_key());
