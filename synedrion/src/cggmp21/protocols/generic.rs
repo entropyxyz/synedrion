@@ -126,6 +126,7 @@ pub(crate) enum FinalizationRequirement {
     AllBroadcasts,
     AllDms,
     AllBroadcastsAndDms,
+    Custom,
 }
 
 pub(crate) trait Finalizable: BroadcastRound + DirectRound {
@@ -150,6 +151,7 @@ pub(crate) trait Finalizable: BroadcastRound + DirectRound {
                     && contains_all_except(dm_payloads, self.num_parties(), self.party_idx())
                     && contains_all_except(dm_artifacts, self.num_parties(), self.party_idx())
             }
+            FinalizationRequirement::Custom => panic!("`can_finalize` must be implemented"),
         }
     }
 
@@ -188,6 +190,7 @@ pub(crate) trait Finalizable: BroadcastRound + DirectRound {
                 ));
                 missing
             }
+            FinalizationRequirement::Custom => panic!("`missing_payloads` must be implemented"),
         }
     }
 }

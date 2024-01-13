@@ -45,6 +45,34 @@ impl Polynomial {
         }
         res
     }
+
+    pub fn public(&self) -> PublicPolynomial {
+        PublicPolynomial(
+            self.0
+                .iter()
+                .map(|coeff| coeff.mul_by_generator())
+                .collect(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PublicPolynomial(Vec<Point>);
+
+impl PublicPolynomial {
+    pub fn evaluate(&self, x: &ShareIdx) -> Point {
+        let mut res = self.0[0];
+        let mut xp = x.0;
+        for coeff in self.0[1..].iter() {
+            res = res + coeff * &xp;
+            xp = xp * x.0;
+        }
+        res
+    }
+
+    pub fn coeff0(&self) -> Point {
+        self.0[0]
+    }
 }
 
 pub(crate) fn shamir_split(
@@ -60,17 +88,13 @@ pub(crate) fn shamir_split(
         .collect()
 }
 
-pub(crate) fn interpolation_coeff(idxs: &[ShareIdx], exclude_idx: usize) -> Scalar {
-    // TODO: the inversions can be precalculated if we calculate multiple interpolation coeffs
-    // for the same set of shares.
+pub(crate) fn interpolation_coeff(idxs: &[ShareIdx], exclude_idx: &ShareIdx) -> Scalar {
     idxs.iter()
-        .enumerate()
-        .filter(|(i, _)| i != &exclude_idx)
-        .map(|(_, idx)| idx.0 * (idx.0 - idxs[exclude_idx].0).invert().unwrap())
+        .filter(|idx| idx != &exclude_idx)
+        .map(|idx| idx.0 * (idx.0 - exclude_idx.0).invert().unwrap())
         .product()
 }
 
-#[cfg(test)]
 pub(crate) fn shamir_join_scalars<'a>(
     pairs: impl Iterator<Item = (&'a ShareIdx, &'a Scalar)>,
 ) -> Scalar {
@@ -78,7 +102,7 @@ pub(crate) fn shamir_join_scalars<'a>(
     values
         .iter()
         .enumerate()
-        .map(|(i, val)| val * &interpolation_coeff(&share_idxs, i))
+        .map(|(i, val)| val * &interpolation_coeff(&share_idxs, &share_idxs[i]))
         .sum()
 }
 
@@ -89,7 +113,7 @@ pub(crate) fn shamir_join_points<'a>(
     values
         .iter()
         .enumerate()
-        .map(|(i, val)| val * &interpolation_coeff(&share_idxs, i))
+        .map(|(i, val)| val * &interpolation_coeff(&share_idxs, &share_idxs[i]))
         .sum()
 }
 

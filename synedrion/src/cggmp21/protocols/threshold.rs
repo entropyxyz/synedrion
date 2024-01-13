@@ -12,6 +12,67 @@ use crate::tools::sss::{
     interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx,
 };
 
+#[derive(Clone)]
+pub struct ThresholdKeyShareSeed {
+    pub(crate) index: ShareIdx,
+    pub(crate) threshold: u32,
+    pub(crate) secret_share: Scalar,
+    pub(crate) public_shares: BTreeMap<ShareIdx, Point>,
+}
+
+impl ThresholdKeyShareSeed {
+    pub fn index(&self) -> ShareIdx {
+        self.index
+    }
+
+    pub fn secret(&self) -> Scalar {
+        self.secret_share
+    }
+
+    #[allow(dead_code)]
+    pub fn new_centralized(
+        rng: &mut impl CryptoRngCore,
+        threshold: usize,
+        num_parties: usize,
+        signing_key: Option<&k256::ecdsa::SigningKey>,
+    ) -> Box<[Self]> {
+        debug_assert!(threshold <= num_parties); // TODO (#68): make the method fallible
+
+        let secret = match signing_key {
+            None => Scalar::random(rng),
+            Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
+        };
+
+        let share_idxs = shamir_evaluation_points(num_parties);
+        let secret_shares = shamir_split(rng, &secret, threshold, &share_idxs);
+        let public_shares = secret_shares
+            .iter()
+            .map(|(idx, share)| (*idx, share.mul_by_generator()))
+            .collect::<BTreeMap<_, _>>();
+
+        (0..num_parties)
+            .map(|idx| Self {
+                index: share_idxs[idx],
+                threshold: threshold as u32,
+                secret_share: secret_shares[&share_idxs[idx]],
+                public_shares: public_shares.clone(),
+            })
+            .collect()
+    }
+
+    pub(crate) fn verifying_key_as_point(&self) -> Point {
+        shamir_join_points(self.public_shares.iter().take(self.threshold as usize))
+    }
+
+    /// Return the verifying key to which this set of shares corresponds.
+    #[allow(dead_code)]
+    pub fn verifying_key(&self) -> VerifyingKey {
+        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
+        // (that is, the sum of public keys does not evaluate to the infinity point)
+        self.verifying_key_as_point().to_verifying_key().unwrap()
+    }
+}
+
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
 // TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
@@ -104,12 +165,11 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .position(|idx| idx == &self.index)
             .unwrap();
 
-        let secret_share = self.secret_share * interpolation_coeff(share_idxs, my_idx_position);
+        let secret_share = self.secret_share * interpolation_coeff(share_idxs, &self.index);
         let public_shares = share_idxs
             .iter()
-            .enumerate()
-            .map(|(position, share_idx)| {
-                &self.public_shares[share_idx] * &interpolation_coeff(share_idxs, position)
+            .map(|share_idx| {
+                &self.public_shares[share_idx] * &interpolation_coeff(share_idxs, share_idx)
             })
             .collect();
 

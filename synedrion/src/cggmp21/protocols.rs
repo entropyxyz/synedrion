@@ -4,6 +4,7 @@ pub(crate) mod interactive_signing;
 pub(crate) mod key_gen;
 pub(crate) mod key_init;
 pub(crate) mod key_refresh;
+pub(crate) mod key_resharing;
 pub(crate) mod presigning;
 pub(crate) mod signing;
 mod threshold;
