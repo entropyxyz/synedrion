@@ -2,7 +2,7 @@ use alloc::string::String;
 use core::fmt;
 
 use super::broadcast::ConsensusError;
-use crate::cggmp21::ProtocolResult;
+use crate::rounds::ProtocolResult;
 
 /// Possible errors returned by session methods.
 #[derive(Clone, Debug)]

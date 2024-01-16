@@ -3,10 +3,9 @@ use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
 
-use super::common::PartyIdx;
 use super::generic::{
     BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableType, FinalizationRequirement,
-    FinalizeError, ProtocolResult, ReceiveError, Round,
+    FinalizeError, PartyIdx, ProtocolResult, ReceiveError, Round,
 };
 
 pub(crate) trait ResultWrapper<Res: ProtocolResult>: ProtocolResult {

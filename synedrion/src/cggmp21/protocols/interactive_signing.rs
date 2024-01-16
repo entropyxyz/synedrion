@@ -4,16 +4,16 @@ use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 
-use super::common::{KeyShare, PartyIdx};
-use super::generic::{
-    BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, ProtocolResult, ToNextRound, ToResult,
-};
+use super::common::KeyShare;
 use super::presigning::{self, PresigningResult};
 use super::signing::{self, SigningResult};
-use super::wrappers::{wrap_finalize_error, ResultWrapper, RoundWrapper};
 use crate::cggmp21::params::SchemeParams;
 use crate::curve::{RecoverableSignature, Scalar};
+use crate::rounds::{
+    wrap_finalize_error, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
+    FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, ResultWrapper, RoundWrapper,
+    ToNextRound, ToResult,
+};
 
 /// Possible results of the merged Presigning and Signing protocols.
 #[derive(Debug, Clone, Copy)]

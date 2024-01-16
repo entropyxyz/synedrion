@@ -14,7 +14,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
-use crate::cggmp21::{
+use crate::rounds::{
     self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, PartyIdx,
     ProtocolResult, Round, ToNextRound, ToResult,
 };
@@ -52,13 +52,13 @@ pub(crate) enum ReceiveError<Res: ProtocolResult> {
     /// Error while deserializing the given message.
     CannotDeserialize(String),
     /// An error from the protocol level
-    Protocol(cggmp21::ReceiveError<Res>),
+    Protocol(rounds::ReceiveError<Res>),
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum FinalizeError<Res: ProtocolResult> {
     /// An error from the protocol level
-    Protocol(cggmp21::FinalizeError<Res>),
+    Protocol(rounds::FinalizeError<Res>),
     /// Cannot finalize (an accumulator still has empty slots).
     Accumulator(AccumFinalizeError),
 }

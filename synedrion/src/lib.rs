@@ -27,6 +27,7 @@ cfg_if::cfg_if! {
 
 mod curve;
 mod paillier;
+mod rounds;
 pub mod sessions;
 mod tools;
 mod uint;
@@ -40,6 +41,7 @@ pub use cggmp21::{
     InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyGenError,
     KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, KeyShare,
     KeyShareChange, PresigningError, PresigningProof, PresigningResult, ProductionParams,
-    ProtocolResult, SchemeParams, SigningProof, SigningResult, TestParams, ThresholdKeyShare,
+    SchemeParams, SigningProof, SigningResult, TestParams, ThresholdKeyShare,
 };
 pub use curve::RecoverableSignature;
+pub use rounds::ProtocolResult;

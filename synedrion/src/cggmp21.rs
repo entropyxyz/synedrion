@@ -15,13 +15,10 @@ mod sigma;
 pub mod benches;
 
 pub use params::{ProductionParams, SchemeParams, TestParams};
-pub(crate) use protocols::{
-    interactive_signing, key_gen, key_refresh, BroadcastRound, DirectRound, FinalizableToNextRound,
-    FinalizableToResult, FinalizeError, FirstRound, ReceiveError, Round, ToNextRound, ToResult,
-};
+pub(crate) use protocols::{interactive_signing, key_gen, key_refresh};
 pub use protocols::{
     InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyGenError,
     KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, KeyShare,
-    KeyShareChange, PartyIdx, PresigningError, PresigningProof, PresigningResult, ProtocolResult,
-    SigningProof, SigningResult, ThresholdKeyShare,
+    KeyShareChange, PresigningError, PresigningProof, PresigningResult, SigningProof,
+    SigningResult, ThresholdKeyShare,
 };

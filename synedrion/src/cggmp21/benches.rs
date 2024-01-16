@@ -4,14 +4,14 @@
 use rand_core::CryptoRngCore;
 
 use super::{
-    protocols::{
-        key_init, key_refresh, presigning, signing,
-        test_utils::{step_next_round, step_result, step_round},
-        FirstRound, PartyIdx, PresigningData,
-    },
+    protocols::{key_init, key_refresh, presigning, signing, PresigningData},
     KeyShare, SchemeParams,
 };
 use crate::curve::Scalar;
+use crate::rounds::{
+    test_utils::{step_next_round, step_result, step_round},
+    FirstRound, PartyIdx,
+};
 
 /// A sequential execution of the KeyGen protocol for all parties.
 pub fn key_init<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: usize) {
