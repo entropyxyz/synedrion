@@ -26,6 +26,7 @@ cfg_if::cfg_if! {
 }
 
 mod common;
+mod constructors;
 mod curve;
 mod paillier;
 mod rounds;
@@ -47,6 +48,11 @@ pub use cggmp21::{
     TestParams,
 };
 pub use common::{KeyShare, KeyShareChange};
+pub use constructors::{
+    make_interactive_signing_session, make_key_gen_session, make_key_refresh_session,
+    PrehashedMessage,
+};
 pub use curve::RecoverableSignature;
 pub use rounds::ProtocolResult;
+pub use sessions::{FinalizeOutcome, Session, SignedMessage};
 pub use threshold::ThresholdKeyShare;
