@@ -4,10 +4,10 @@ use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 
-use super::common::KeyShare;
 use super::presigning::{self, PresigningResult};
 use super::signing::{self, SigningResult};
 use crate::cggmp21::params::SchemeParams;
+use crate::common::KeyShare;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::rounds::{
     wrap_finalize_error, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,

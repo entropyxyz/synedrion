@@ -9,10 +9,10 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::KeyShare;
 use super::key_init::{self, KeyInitResult};
 use super::key_refresh::{self, KeyRefreshResult};
 use crate::cggmp21::SchemeParams;
+use crate::common::KeyShare;
 use crate::rounds::{
     wrap_finalize_error, wrap_receive_error, BaseRound, BroadcastRound, DirectRound, Finalizable,
     FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,

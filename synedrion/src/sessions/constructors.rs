@@ -12,8 +12,9 @@ use super::error::LocalError;
 use super::states::Session;
 use crate::cggmp21::{
     interactive_signing, key_gen, key_refresh, InteractiveSigningResult, KeyGenResult,
-    KeyRefreshResult, KeyShare, SchemeParams,
+    KeyRefreshResult, SchemeParams,
 };
+use crate::common::KeyShare;
 use crate::curve::Scalar;
 
 /// Prehashed message to sign.

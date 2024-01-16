@@ -18,7 +18,6 @@ pub use params::{ProductionParams, SchemeParams, TestParams};
 pub(crate) use protocols::{interactive_signing, key_gen, key_refresh};
 pub use protocols::{
     InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyGenError,
-    KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, KeyShare,
-    KeyShareChange, PresigningError, PresigningProof, PresigningResult, SigningProof,
-    SigningResult, ThresholdKeyShare,
+    KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, PresigningError,
+    PresigningProof, PresigningResult, SigningProof, SigningResult,
 };

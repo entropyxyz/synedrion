@@ -5,8 +5,8 @@ use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{make_aux_info, KeyShare, PublicAuxInfo, SecretAuxInfo};
 use crate::cggmp21::SchemeParams;
+use crate::common::{make_aux_info, KeyShare, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
 use crate::tools::sss::{

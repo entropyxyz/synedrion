@@ -9,11 +9,11 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeySharePrecomputed, PresigningData};
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, MulStarProof},
     SchemeParams,
 };
+use crate::common::{KeySharePrecomputed, PresigningData};
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
 use crate::rounds::{
@@ -282,9 +282,9 @@ mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::{OsRng, RngCore};
 
-    use super::super::common::PresigningData;
     use super::{Context, Round1};
-    use crate::cggmp21::{KeyShare, TestParams};
+    use crate::cggmp21::TestParams;
+    use crate::common::{KeyShare, PresigningData};
     use crate::curve::Scalar;
     use crate::rounds::{
         test_utils::{step_result, step_round},

@@ -9,11 +9,11 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, KeySharePrecomputed, PresigningData};
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
     SchemeParams,
 };
+use crate::common::{KeyShare, KeySharePrecomputed, PresigningData};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams, Randomizer, RandomizerMod};
 use crate::rounds::{
@@ -913,7 +913,8 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::Round1;
-    use crate::cggmp21::{KeyShare, TestParams};
+    use crate::cggmp21::TestParams;
+    use crate::common::KeyShare;
     use crate::curve::{Point, Scalar};
     use crate::rounds::{
         test_utils::{step_next_round, step_result, step_round},
