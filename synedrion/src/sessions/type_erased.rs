@@ -4,7 +4,7 @@ This way they can be used in a state machine loop without code repetition.
 */
 
 use alloc::boxed::Box;
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -18,7 +18,6 @@ use crate::cggmp21::{
     self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, PartyIdx,
     ProtocolResult, Round, ToNextRound, ToResult,
 };
-use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 
 pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, LocalError> {
     bincode::serialize(message)
@@ -41,13 +40,10 @@ pub(crate) enum FinalizeOutcome<Res: ProtocolResult> {
 pub enum AccumAddError {
     /// An item with the given origin has already been added to the accumulator.
     SlotTaken,
-    /// Trying to add an item to an accumulator that was not initialized on construction.
-    NoAccumulator,
 }
 
 #[derive(Debug, Clone)]
 pub enum AccumFinalizeError {
-    NotEnoughMessages,
     Downcast(String),
 }
 
@@ -100,10 +96,10 @@ pub(crate) trait DynRound<Res: ProtocolResult>: Send {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange>;
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>>;
     fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, LocalError>;
     fn requires_broadcast_consensus(&self) -> bool;
-    fn direct_message_destinations(&self) -> Option<HoleRange>;
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>>;
     fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
@@ -120,6 +116,8 @@ pub(crate) trait DynRound<Res: ProtocolResult>: Send {
         from: PartyIdx,
         message: &[u8],
     ) -> Result<DynDmPayload, ReceiveError<Res>>;
+    fn can_finalize(&self, accum: &DynRoundAccum) -> bool;
+    fn missing_payloads(&self, accum: &DynRoundAccum) -> BTreeSet<PartyIdx>;
 }
 
 impl<R> DynRound<R::Result> for R
@@ -171,7 +169,7 @@ where
         Ok(DynDmPayload(Box::new(payload)))
     }
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.broadcast_destinations()
     }
 
@@ -187,7 +185,7 @@ where
         <R as BroadcastRound>::REQUIRES_CONSENSUS
     }
 
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.direct_message_destinations()
     }
 
@@ -203,72 +201,51 @@ where
         let message = serialize_message(&typed_message)?;
         Ok((message, DynDmArtifact(Box::new(typed_artifact))))
     }
+
+    fn can_finalize(&self, accum: &DynRoundAccum) -> bool {
+        self.can_finalize(
+            accum.bc_payloads.keys(),
+            accum.dm_payloads.keys(),
+            accum.dm_artifacts.keys(),
+        )
+    }
+
+    fn missing_payloads(&self, accum: &DynRoundAccum) -> BTreeSet<PartyIdx> {
+        self.missing_payloads(
+            accum.bc_payloads.keys(),
+            accum.dm_payloads.keys(),
+            accum.dm_artifacts.keys(),
+        )
+    }
 }
 
 pub(crate) struct DynRoundAccum {
-    bc_payloads: Option<HoleVecAccum<DynBcPayload>>,
-    dm_payloads: Option<HoleVecAccum<DynDmPayload>>,
-    dm_artifacts: Option<HoleVecAccum<DynDmArtifact>>,
+    bc_payloads: BTreeMap<PartyIdx, DynBcPayload>,
+    dm_payloads: BTreeMap<PartyIdx, DynDmPayload>,
+    dm_artifacts: BTreeMap<PartyIdx, DynDmArtifact>,
 }
 
 struct RoundAccum<R: Round> {
-    bc_payloads: Option<HoleVec<<R as BroadcastRound>::Payload>>,
-    dm_payloads: Option<HoleVec<<R as DirectRound>::Payload>>,
-    dm_artifacts: Option<HoleVec<<R as DirectRound>::Artifact>>,
+    bc_payloads: BTreeMap<PartyIdx, <R as BroadcastRound>::Payload>,
+    dm_payloads: BTreeMap<PartyIdx, <R as DirectRound>::Payload>,
+    dm_artifacts: BTreeMap<PartyIdx, <R as DirectRound>::Artifact>,
 }
 
 impl DynRoundAccum {
-    pub fn new(num_parties: usize, idx: PartyIdx, is_bc_round: bool, is_dm_round: bool) -> Self {
+    pub fn new() -> Self {
         Self {
-            bc_payloads: if is_bc_round {
-                Some(HoleVecAccum::new(num_parties, idx.as_usize()))
-            } else {
-                None
-            },
-            dm_payloads: if is_dm_round {
-                Some(HoleVecAccum::new(num_parties, idx.as_usize()))
-            } else {
-                None
-            },
-            dm_artifacts: if is_dm_round {
-                Some(HoleVecAccum::new(num_parties, idx.as_usize()))
-            } else {
-                None
-            },
+            bc_payloads: BTreeMap::new(),
+            dm_payloads: BTreeMap::new(),
+            dm_artifacts: BTreeMap::new(),
         }
     }
 
     pub fn contains(&self, from: PartyIdx, broadcast: bool) -> bool {
         if broadcast {
-            return self
-                .bc_payloads
-                .as_ref()
-                .unwrap()
-                .contains(from.as_usize())
-                .unwrap();
+            self.bc_payloads.contains_key(&from)
         } else {
-            return self
-                .dm_payloads
-                .as_ref()
-                .unwrap()
-                .contains(from.as_usize())
-                .unwrap();
+            self.dm_payloads.contains_key(&from)
         }
-    }
-
-    pub fn missing_messages(&self) -> Vec<PartyIdx> {
-        let mut idxs = BTreeSet::new();
-        if let Some(payloads) = &self.bc_payloads {
-            for idx in payloads.missing() {
-                idxs.insert(idx);
-            }
-        }
-        if let Some(payloads) = &self.dm_payloads {
-            for idx in payloads.missing() {
-                idxs.insert(idx);
-            }
-        }
-        idxs.into_iter().map(PartyIdx::from_usize).collect()
     }
 
     pub fn add_bc_payload(
@@ -276,12 +253,11 @@ impl DynRoundAccum {
         from: PartyIdx,
         payload: DynBcPayload,
     ) -> Result<(), AccumAddError> {
-        match &mut self.bc_payloads {
-            Some(payloads) => payloads
-                .insert(from.as_usize(), payload)
-                .ok_or(AccumAddError::SlotTaken),
-            None => Err(AccumAddError::NoAccumulator),
+        if self.bc_payloads.contains_key(&from) {
+            return Err(AccumAddError::SlotTaken);
         }
+        self.bc_payloads.insert(from, payload);
+        Ok(())
     }
 
     pub fn add_dm_payload(
@@ -289,12 +265,11 @@ impl DynRoundAccum {
         from: PartyIdx,
         payload: DynDmPayload,
     ) -> Result<(), AccumAddError> {
-        match &mut self.dm_payloads {
-            Some(payloads) => payloads
-                .insert(from.as_usize(), payload)
-                .ok_or(AccumAddError::SlotTaken),
-            None => Err(AccumAddError::NoAccumulator),
+        if self.dm_payloads.contains_key(&from) {
+            return Err(AccumAddError::SlotTaken);
         }
+        self.dm_payloads.insert(from, payload);
+        Ok(())
     }
 
     pub fn add_dm_artifact(
@@ -302,27 +277,11 @@ impl DynRoundAccum {
         destination: PartyIdx,
         artifact: DynDmArtifact,
     ) -> Result<(), AccumAddError> {
-        match &mut self.dm_artifacts {
-            Some(artifacts) => artifacts
-                .insert(destination.as_usize(), artifact)
-                .ok_or(AccumAddError::SlotTaken),
-            None => Err(AccumAddError::NoAccumulator),
+        if self.dm_artifacts.contains_key(&destination) {
+            return Err(AccumAddError::SlotTaken);
         }
-    }
-
-    pub fn can_finalize(&self) -> bool {
-        // TODO (#85): should this be the job of the round itself?
-        self.bc_payloads
-            .as_ref()
-            .map_or(true, |accum| accum.can_finalize())
-            && self
-                .dm_payloads
-                .as_ref()
-                .map_or(true, |accum| accum.can_finalize())
-            && self
-                .dm_artifacts
-                .as_ref()
-                .map_or(true, |accum| accum.can_finalize())
+        self.dm_artifacts.insert(destination, artifact);
+        Ok(())
     }
 
     fn finalize<R: Round>(self) -> Result<RoundAccum<R>, AccumFinalizeError>
@@ -331,33 +290,27 @@ impl DynRoundAccum {
         <R as DirectRound>::Payload: 'static,
         <R as DirectRound>::Artifact: 'static,
     {
-        let bc_payloads = match self.bc_payloads {
-            Some(accum) => {
-                let hvec = accum
-                    .finalize()
-                    .ok_or(AccumFinalizeError::NotEnoughMessages)?;
-                Some(hvec.map_fallible(|elem| downcast::<<R as BroadcastRound>::Payload>(elem.0))?)
-            }
-            None => None,
-        };
-        let dm_payloads = match self.dm_payloads {
-            Some(accum) => {
-                let hvec = accum
-                    .finalize()
-                    .ok_or(AccumFinalizeError::NotEnoughMessages)?;
-                Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Payload>(elem.0))?)
-            }
-            None => None,
-        };
-        let dm_artifacts = match self.dm_artifacts {
-            Some(accum) => {
-                let hvec = accum
-                    .finalize()
-                    .ok_or(AccumFinalizeError::NotEnoughMessages)?;
-                Some(hvec.map_fallible(|elem| downcast::<<R as DirectRound>::Artifact>(elem.0))?)
-            }
-            None => None,
-        };
+        let bc_payloads = self
+            .bc_payloads
+            .into_iter()
+            .map(|(idx, elem)| {
+                downcast::<<R as BroadcastRound>::Payload>(elem.0).map(|elem| (idx, elem))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let dm_payloads = self
+            .dm_payloads
+            .into_iter()
+            .map(|(idx, elem)| {
+                downcast::<<R as DirectRound>::Payload>(elem.0).map(|elem| (idx, elem))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let dm_artifacts = self
+            .dm_artifacts
+            .into_iter()
+            .map(|(idx, elem)| {
+                downcast::<<R as DirectRound>::Artifact>(elem.0).map(|elem| (idx, elem))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(RoundAccum {
             bc_payloads,
             dm_payloads,

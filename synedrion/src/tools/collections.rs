@@ -57,11 +57,6 @@ impl<T> HoleVecAccum<T> {
         self.elems.iter().all(|elem| elem.is_some())
     }
 
-    #[cfg(any(test, feature = "bench-internals"))]
-    pub fn is_empty(&self) -> bool {
-        self.elems.iter().all(|elem| elem.is_none())
-    }
-
     fn len(&self) -> usize {
         self.elems.len() + 1
     }
@@ -141,7 +136,7 @@ pub(crate) struct HoleVec<T> {
 
 impl<T> HoleVec<T> {
     pub fn hole_at(&self) -> usize {
-        self.hole_at.try_into().unwrap()
+        self.hole_at.into()
     }
 
     pub fn len(&self) -> usize {
@@ -193,20 +188,6 @@ impl<T> HoleVec<T> {
             elems: self.elems.into_iter().map(f).collect(),
             hole_at: self.hole_at,
         }
-    }
-
-    pub fn map_fallible<F, V, E>(self, f: F) -> Result<HoleVec<V>, E>
-    where
-        F: FnMut(T) -> Result<V, E>,
-    {
-        Ok(HoleVec {
-            elems: self
-                .elems
-                .into_iter()
-                .map(f)
-                .collect::<Result<Vec<_>, E>>()?,
-            hole_at: self.hole_at,
-        })
     }
 }
 

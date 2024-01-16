@@ -1,64 +1,128 @@
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
+use serde::{Deserialize, Serialize};
 
-use crate::curve::Scalar;
+use crate::curve::{Point, Scalar};
 
-pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<Scalar> {
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ShareIdx(Scalar);
+
+impl ShareIdx {
+    pub fn new(idx: usize) -> Self {
+        Self(Scalar::from(idx))
+    }
+}
+
+pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareIdx> {
     // For now we are hardcoding the points to be 1, 2, ..., n.
     // TODO (#87): it should be still secure, right?
     // Potentially we can derive them from Session ID.
     (1..=u32::try_from(num_shares).expect("The number of shares cannot be over 2^32-1"))
-        .map(Scalar::from)
+        .map(|idx| ShareIdx(Scalar::from(idx)))
         .collect()
+}
+
+pub(crate) struct Polynomial(Vec<Scalar>);
+
+impl Polynomial {
+    pub fn random(rng: &mut impl CryptoRngCore, coeff0: &Scalar, degree: usize) -> Self {
+        let mut coeffs = Vec::with_capacity(degree);
+        coeffs.push(*coeff0);
+        for _ in 1..degree {
+            coeffs.push(Scalar::random_nonzero(rng));
+        }
+        Self(coeffs)
+    }
+
+    pub fn evaluate(&self, x: &ShareIdx) -> Scalar {
+        let mut res = self.0[0];
+        let mut xp = x.0;
+        for coeff in self.0[1..].iter() {
+            res = res + coeff * &xp;
+            xp = xp * x.0;
+        }
+        res
+    }
+
+    pub fn public(&self) -> PublicPolynomial {
+        PublicPolynomial(
+            self.0
+                .iter()
+                .map(|coeff| coeff.mul_by_generator())
+                .collect(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PublicPolynomial(Vec<Point>);
+
+impl PublicPolynomial {
+    pub fn evaluate(&self, x: &ShareIdx) -> Point {
+        let mut res = self.0[0];
+        let mut xp = x.0;
+        for coeff in self.0[1..].iter() {
+            res = res + coeff * &xp;
+            xp = xp * x.0;
+        }
+        res
+    }
+
+    pub fn coeff0(&self) -> Point {
+        self.0[0]
+    }
 }
 
 pub(crate) fn shamir_split(
     rng: &mut impl CryptoRngCore,
     secret: &Scalar,
     threshold: usize,
-    points: &[Scalar],
-) -> Vec<Scalar> {
-    let coeffs = (0..threshold - 1)
-        .map(|_| Scalar::random_nonzero(rng))
-        .collect::<Vec<_>>();
-    points
+    indices: &[ShareIdx],
+) -> BTreeMap<ShareIdx, Scalar> {
+    let polynomial = Polynomial::random(rng, secret, threshold);
+    indices
         .iter()
-        .map(|x| {
-            let mut res = *secret;
-            let mut xp = *x;
-            for coeff in coeffs.iter() {
-                res = res + coeff * &xp;
-                xp = &xp * x;
-            }
-            res
-        })
+        .map(|idx| (*idx, polynomial.evaluate(idx)))
         .collect()
 }
 
-pub(crate) fn interpolation_coeff(points: &[Scalar], idx: usize) -> Scalar {
-    points
+pub(crate) fn interpolation_coeff(idxs: &[ShareIdx], exclude_idx: &ShareIdx) -> Scalar {
+    idxs.iter()
+        .filter(|idx| idx != &exclude_idx)
+        .map(|idx| idx.0 * (idx.0 - exclude_idx.0).invert().unwrap())
+        .product()
+}
+
+pub(crate) fn shamir_join_scalars<'a>(
+    pairs: impl Iterator<Item = (&'a ShareIdx, &'a Scalar)>,
+) -> Scalar {
+    let (share_idxs, values): (Vec<_>, Vec<_>) = pairs.map(|(k, v)| (*k, *v)).unzip();
+    values
         .iter()
         .enumerate()
-        .filter(|(j, _)| j != &idx)
-        .map(|(_, x)| x * &(x - &points[idx]).invert().unwrap())
-        .product()
+        .map(|(i, val)| val * &interpolation_coeff(&share_idxs, &share_idxs[i]))
+        .sum()
+}
+
+pub(crate) fn shamir_join_points<'a>(
+    pairs: impl Iterator<Item = (&'a ShareIdx, &'a Point)>,
+) -> Point {
+    let (share_idxs, values): (Vec<_>, Vec<_>) = pairs.map(|(k, v)| (*k, *v)).unzip();
+    values
+        .iter()
+        .enumerate()
+        .map(|(i, val)| val * &interpolation_coeff(&share_idxs, &share_idxs[i]))
+        .sum()
 }
 
 #[cfg(test)]
 mod tests {
     use rand_core::OsRng;
 
-    use super::{interpolation_coeff, shamir_evaluation_points, shamir_split};
+    use super::{shamir_evaluation_points, shamir_join_scalars, shamir_split};
     use crate::curve::Scalar;
-
-    fn shamir_join(secrets: &[Scalar], points: &[Scalar]) -> Scalar {
-        secrets
-            .iter()
-            .enumerate()
-            .map(|(idx, secret)| secret * &interpolation_coeff(points, idx))
-            .sum()
-    }
 
     #[test]
     fn split_and_join() {
@@ -66,12 +130,12 @@ mod tests {
         let num_shares = 5;
         let secret = Scalar::random(&mut OsRng);
         let points = shamir_evaluation_points(num_shares);
-        let shares = shamir_split(&mut OsRng, &secret, threshold, &points);
+        let mut shares = shamir_split(&mut OsRng, &secret, threshold, &points);
 
-        let recovered_secret = shamir_join(
-            &[shares[1], shares[2], shares[4]],
-            &[points[1], points[2], points[4]],
-        );
+        shares.remove(&points[0]);
+        shares.remove(&points[3]);
+
+        let recovered_secret = shamir_join_scalars(shares.iter());
         assert_eq!(recovered_secret, secret);
     }
 }

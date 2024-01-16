@@ -1,6 +1,7 @@
 //! Signing using previously calculated presigning data, in the paper ECDSA Signing (Fig. 8).
 
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -10,8 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeySharePrecomputed, PartyIdx, PresigningData};
 use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, FinalizableToResult, FinalizeError, FirstRound,
-    InitError, ProtocolResult, ReceiveError, ToResult,
+    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
+    FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError,
+    ProtocolResult, ReceiveError, ToResult,
 };
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, MulStarProof},
@@ -19,7 +21,7 @@ use crate::cggmp21::{
 };
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
-use crate::tools::collections::{HoleRange, HoleVec};
+use crate::tools::collections::HoleRange;
 use crate::uint::{Bounded, FromScalar, Signed};
 
 /// Possible results of the Signing protocol.
@@ -85,6 +87,14 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     type Result = SigningResult<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = None;
+
+    fn num_parties(&self) -> usize {
+        self.num_parties
+    }
+
+    fn party_idx(&self) -> PartyIdx {
+        self.party_idx
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -96,8 +106,8 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
     const REQUIRES_CONSENSUS: bool = false;
     type Message = Round1Bcast;
     type Payload = Scalar;
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
-        Some(HoleRange::new(self.num_parties, self.party_idx.as_usize()))
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
+        Some(all_parties_except(self.num_parties(), self.party_idx()))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
         Ok(Round1Bcast {
@@ -120,15 +130,21 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
     type Artifact = ();
 }
 
+impl<P: SchemeParams> Finalizable for Round1<P> {
+    fn requirement() -> FinalizationRequirement {
+        FinalizationRequirement::AllBroadcasts
+    }
+}
+
 impl<P: SchemeParams> FinalizableToResult for Round1<P> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        _dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        _dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let shares = bc_payloads.unwrap();
+        let shares = try_to_holevec(bc_payloads, self.num_parties, self.party_idx).unwrap();
         let s: Scalar = shares.iter().sum();
         let s = s + self.s_part;
 

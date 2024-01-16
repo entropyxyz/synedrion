@@ -1,11 +1,13 @@
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::common::PartyIdx;
-use crate::tools::collections::{HoleRange, HoleVec};
+use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
 
 /// A round that sends out a broadcast.
 pub(crate) trait BroadcastRound: BaseRound {
@@ -20,7 +22,7 @@ pub(crate) trait BroadcastRound: BaseRound {
 
     /// The indices of the parties that should receive the broadcast,
     /// or `None` if this round does not send any broadcasts.
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         None
     }
 
@@ -55,7 +57,7 @@ pub(crate) trait DirectRound: BaseRound {
 
     /// The indices of the parties that should receive the direct messages,
     /// or `None` if this round does not send any direct messages.
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
         None
     }
 
@@ -110,19 +112,96 @@ pub(crate) trait BaseRound {
     const ROUND_NUM: u8;
     // TODO (#78): find a way to derive it from `ROUND_NUM`
     const NEXT_ROUND_NUM: Option<u8>;
+
+    fn num_parties(&self) -> usize;
+    fn party_idx(&self) -> PartyIdx;
 }
 
-pub(crate) trait Round: BroadcastRound + DirectRound + BaseRound {}
+pub(crate) trait Round: BroadcastRound + DirectRound + BaseRound + Finalizable {}
 
-impl<R: BroadcastRound + DirectRound + BaseRound> Round for R {}
+impl<R: BroadcastRound + DirectRound + BaseRound + Finalizable> Round for R {}
+
+#[allow(clippy::enum_variant_names)]
+pub(crate) enum FinalizationRequirement {
+    AllBroadcasts,
+    AllDms,
+    AllBroadcastsAndDms,
+    Custom,
+}
+
+pub(crate) trait Finalizable: BroadcastRound + DirectRound {
+    fn requirement() -> FinalizationRequirement;
+
+    fn can_finalize<'a>(
+        &self,
+        bc_payloads: impl Iterator<Item = &'a PartyIdx>,
+        dm_payloads: impl Iterator<Item = &'a PartyIdx>,
+        dm_artifacts: impl Iterator<Item = &'a PartyIdx>,
+    ) -> bool {
+        match Self::requirement() {
+            FinalizationRequirement::AllBroadcasts => {
+                contains_all_except(bc_payloads, self.num_parties(), self.party_idx())
+            }
+            FinalizationRequirement::AllDms => {
+                contains_all_except(dm_payloads, self.num_parties(), self.party_idx())
+                    && contains_all_except(dm_artifacts, self.num_parties(), self.party_idx())
+            }
+            FinalizationRequirement::AllBroadcastsAndDms => {
+                contains_all_except(bc_payloads, self.num_parties(), self.party_idx())
+                    && contains_all_except(dm_payloads, self.num_parties(), self.party_idx())
+                    && contains_all_except(dm_artifacts, self.num_parties(), self.party_idx())
+            }
+            FinalizationRequirement::Custom => panic!("`can_finalize` must be implemented"),
+        }
+    }
+
+    fn missing_payloads<'a>(
+        &self,
+        bc_payloads: impl Iterator<Item = &'a PartyIdx>,
+        dm_payloads: impl Iterator<Item = &'a PartyIdx>,
+        dm_artifacts: impl Iterator<Item = &'a PartyIdx>,
+    ) -> BTreeSet<PartyIdx> {
+        match Self::requirement() {
+            FinalizationRequirement::AllBroadcasts => {
+                missing_payloads(bc_payloads, self.num_parties(), self.party_idx())
+            }
+            FinalizationRequirement::AllDms => {
+                let mut missing =
+                    missing_payloads(dm_payloads, self.num_parties(), self.party_idx());
+                missing.append(&mut missing_payloads(
+                    dm_artifacts,
+                    self.num_parties(),
+                    self.party_idx(),
+                ));
+                missing
+            }
+            FinalizationRequirement::AllBroadcastsAndDms => {
+                let mut missing =
+                    missing_payloads(bc_payloads, self.num_parties(), self.party_idx());
+                missing.append(&mut missing_payloads(
+                    dm_payloads,
+                    self.num_parties(),
+                    self.party_idx(),
+                ));
+                missing.append(&mut missing_payloads(
+                    dm_artifacts,
+                    self.num_parties(),
+                    self.party_idx(),
+                ));
+                missing
+            }
+            FinalizationRequirement::Custom => panic!("`missing_payloads` must be implemented"),
+        }
+    }
+}
 
 pub(crate) trait FinalizableToResult: Round + BaseRound<Type = ToResult> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>>;
 }
 
@@ -131,9 +210,9 @@ pub(crate) trait FinalizableToNextRound: Round + BaseRound<Type = ToNextRound> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>>;
 }
 
@@ -169,4 +248,52 @@ pub(crate) trait FirstRound: Round + Sized {
         party_idx: PartyIdx,
         context: Self::Context,
     ) -> Result<Self, InitError>;
+}
+
+pub(crate) fn all_parties_except(num_parties: usize, party_idx: PartyIdx) -> Vec<PartyIdx> {
+    HoleRange::new(num_parties, party_idx.as_usize())
+        .map(PartyIdx::from_usize)
+        .collect()
+}
+
+fn contains_all_except<'a>(
+    party_idxs: impl Iterator<Item = &'a PartyIdx>,
+    num_parties: usize,
+    party_idx: PartyIdx,
+) -> bool {
+    let set = party_idxs.cloned().collect::<BTreeSet<_>>();
+    for idx in HoleRange::new(num_parties, party_idx.as_usize()) {
+        if !set.contains(&PartyIdx::from_usize(idx)) {
+            return false;
+        }
+    }
+    true
+}
+
+fn missing_payloads<'a>(
+    party_idxs: impl Iterator<Item = &'a PartyIdx>,
+    num_parties: usize,
+    party_idx: PartyIdx,
+) -> BTreeSet<PartyIdx> {
+    let set = party_idxs.cloned().collect::<BTreeSet<_>>();
+    let mut missing = BTreeSet::new();
+    for idx in HoleRange::new(num_parties, party_idx.as_usize()) {
+        let party_idx = PartyIdx::from_usize(idx);
+        if !set.contains(&party_idx) {
+            missing.insert(party_idx);
+        }
+    }
+    missing
+}
+
+pub(crate) fn try_to_holevec<T>(
+    payloads: BTreeMap<PartyIdx, T>,
+    num_parties: usize,
+    party_idx: PartyIdx,
+) -> Option<HoleVec<T>> {
+    let mut accum = HoleVecAccum::new(num_parties, party_idx.as_usize());
+    for (idx, elem) in payloads.into_iter() {
+        accum.insert(idx.as_usize(), elem)?;
+    }
+    accum.finalize()
 }

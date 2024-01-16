@@ -1,7 +1,9 @@
 //! Merged KeyInit and KeyRefresh protocols, to generate a full key share in one go.
 //! Since both take three rounds and are independent, we can execute them in parallel.
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
@@ -9,14 +11,14 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{KeyShare, PartyIdx};
 use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
-    FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
+    BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableToNextRound,
+    FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError,
+    ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
 use super::key_init::{self, KeyInitResult};
 use super::key_refresh::{self, KeyRefreshResult};
 use super::wrappers::{wrap_finalize_error, wrap_receive_error, ResultWrapper};
 use crate::cggmp21::SchemeParams;
-use crate::tools::collections::{HoleRange, HoleVec};
 
 /// Possible results of the merged KeyGen and KeyRefresh protocols.
 #[derive(Debug, Clone, Copy)]
@@ -114,6 +116,14 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     type Result = KeyGenResult<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
+
+    fn num_parties(&self) -> usize {
+        self.key_init_round.num_parties()
+    }
+
+    fn party_idx(&self) -> PartyIdx {
+        self.key_init_round.party_idx()
+    }
 }
 
 impl<P: SchemeParams> BroadcastRound for Round1<P> {
@@ -124,7 +134,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         <key_init::Round1<P> as BroadcastRound>::Payload,
         <key_refresh::Round1<P> as BroadcastRound>::Payload,
     );
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         let key_init_dest = self.key_init_round.broadcast_destinations();
         let key_refresh_dest = self.key_refresh_round.broadcast_destinations();
         assert!(key_init_dest == key_refresh_dest);
@@ -161,28 +171,40 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
     type Artifact = ();
 }
 
+impl<P: SchemeParams> Finalizable for Round1<P> {
+    fn requirement() -> FinalizationRequirement {
+        FinalizationRequirement::AllBroadcasts
+    }
+}
+
 impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     type NextRound = Round2<P>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        assert!(dm_payloads.is_none());
-        assert!(dm_artifacts.is_none());
         let (key_init_bc_payloads, key_refresh_bc_payloads) = bc_payloads
-            .map(|payloads| payloads.unzip())
-            .map_or((None, None), |(x, y)| (Some(x), Some(y)));
+            .into_iter()
+            .map(|(idx, (init_payload, refresh_payload))| {
+                ((idx, init_payload), (idx, refresh_payload))
+            })
+            .unzip();
 
         let key_init_round = self
             .key_init_round
-            .finalize_to_next_round(rng, key_init_bc_payloads, None, None)
+            .finalize_to_next_round(rng, key_init_bc_payloads, BTreeMap::new(), BTreeMap::new())
             .map_err(wrap_finalize_error)?;
         let key_refresh_round = self
             .key_refresh_round
-            .finalize_to_next_round(rng, key_refresh_bc_payloads, None, None)
+            .finalize_to_next_round(
+                rng,
+                key_refresh_bc_payloads,
+                BTreeMap::new(),
+                BTreeMap::new(),
+            )
             .map_err(wrap_finalize_error)?;
         Ok(Round2 {
             key_init_round,
@@ -215,6 +237,14 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     type Result = KeyGenResult<P>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
+
+    fn num_parties(&self) -> usize {
+        self.key_init_round.num_parties()
+    }
+
+    fn party_idx(&self) -> PartyIdx {
+        self.key_init_round.party_idx()
+    }
 }
 
 impl<P: SchemeParams> BroadcastRound for Round2<P> {
@@ -226,7 +256,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         <key_refresh::Round2<P> as BroadcastRound>::Payload,
     );
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         let key_init_dest = self.key_init_round.broadcast_destinations();
         let key_refresh_dest = self.key_refresh_round.broadcast_destinations();
         assert!(key_init_dest == key_refresh_dest);
@@ -264,28 +294,40 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
     type Artifact = ();
 }
 
+impl<P: SchemeParams> Finalizable for Round2<P> {
+    fn requirement() -> FinalizationRequirement {
+        FinalizationRequirement::AllBroadcasts
+    }
+}
+
 impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     type NextRound = Round3<P>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        assert!(dm_payloads.is_none());
-        assert!(dm_artifacts.is_none());
         let (key_init_bc_payloads, key_refresh_bc_payloads) = bc_payloads
-            .map(|payloads| payloads.unzip())
-            .map_or((None, None), |(x, y)| (Some(x), Some(y)));
+            .into_iter()
+            .map(|(idx, (init_payload, refresh_payload))| {
+                ((idx, init_payload), (idx, refresh_payload))
+            })
+            .unzip();
 
         let key_init_round = self
             .key_init_round
-            .finalize_to_next_round(rng, key_init_bc_payloads, None, None)
+            .finalize_to_next_round(rng, key_init_bc_payloads, BTreeMap::new(), BTreeMap::new())
             .map_err(wrap_finalize_error)?;
         let key_refresh_round = self
             .key_refresh_round
-            .finalize_to_next_round(rng, key_refresh_bc_payloads, None, None)
+            .finalize_to_next_round(
+                rng,
+                key_refresh_bc_payloads,
+                BTreeMap::new(),
+                BTreeMap::new(),
+            )
             .map_err(wrap_finalize_error)?;
         Ok(Round3 {
             key_init_round,
@@ -304,6 +346,14 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     type Result = KeyGenResult<P>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
+
+    fn num_parties(&self) -> usize {
+        self.key_init_round.num_parties()
+    }
+
+    fn party_idx(&self) -> PartyIdx {
+        self.key_init_round.party_idx()
+    }
 }
 
 impl<P: SchemeParams> BroadcastRound for Round3<P> {
@@ -311,7 +361,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
     type Message = <key_init::Round3<P> as BroadcastRound>::Message;
     type Payload = <key_init::Round3<P> as BroadcastRound>::Payload;
 
-    fn broadcast_destinations(&self) -> Option<HoleRange> {
+    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.key_init_round.broadcast_destinations()
     }
     fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
@@ -334,7 +384,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     type Message = <key_refresh::Round3<P> as DirectRound>::Message;
     type Payload = <key_refresh::Round3<P> as DirectRound>::Payload;
 
-    fn direct_message_destinations(&self) -> Option<HoleRange> {
+    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
         self.key_refresh_round.direct_message_destinations()
     }
     fn make_direct_message(
@@ -356,21 +406,27 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     }
 }
 
+impl<P: SchemeParams> Finalizable for Round3<P> {
+    fn requirement() -> FinalizationRequirement {
+        FinalizationRequirement::AllBroadcastsAndDms
+    }
+}
+
 impl<P: SchemeParams> FinalizableToResult for Round3<P> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: Option<HoleVec<<Self as BroadcastRound>::Payload>>,
-        dm_payloads: Option<HoleVec<<Self as DirectRound>::Payload>>,
-        dm_artifacts: Option<HoleVec<<Self as DirectRound>::Artifact>>,
+        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
+        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
+        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         let keyshare_seed = self
             .key_init_round
-            .finalize_to_result(rng, bc_payloads, None, None)
+            .finalize_to_result(rng, bc_payloads, BTreeMap::new(), BTreeMap::new())
             .map_err(wrap_finalize_error)?;
         let keyshare_change = self
             .key_refresh_round
-            .finalize_to_result(rng, None, dm_payloads, dm_artifacts)
+            .finalize_to_result(rng, BTreeMap::new(), dm_payloads, dm_artifacts)
             .map_err(wrap_finalize_error)?;
         Ok(KeyShare::new(keyshare_seed, keyshare_change))
     }

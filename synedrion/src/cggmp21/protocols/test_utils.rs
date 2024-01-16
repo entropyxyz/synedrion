@@ -1,3 +1,4 @@
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -9,7 +10,6 @@ use super::generic::{
     BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, ProtocolResult, Round,
 };
 use super::{FinalizeError, PartyIdx};
-use crate::tools::collections::{HoleVec, HoleVecAccum};
 
 #[derive(Debug)]
 pub(crate) enum StepError {
@@ -19,9 +19,9 @@ pub(crate) enum StepError {
 
 pub(crate) struct AssembledRound<R: Round> {
     round: R,
-    bc_payloads: Option<HoleVec<<R as BroadcastRound>::Payload>>,
-    dm_payloads: Option<HoleVec<<R as DirectRound>::Payload>>,
-    dm_artifacts: Option<HoleVec<<R as DirectRound>::Artifact>>,
+    bc_payloads: BTreeMap<PartyIdx, <R as BroadcastRound>::Payload>,
+    dm_payloads: BTreeMap<PartyIdx, <R as DirectRound>::Payload>,
+    dm_artifacts: BTreeMap<PartyIdx, <R as DirectRound>::Artifact>,
 }
 
 pub(crate) fn step_round<R>(
@@ -35,7 +35,7 @@ where
     // Collect outgoing messages
 
     let mut dm_artifact_accums = (0..rounds.len())
-        .map(|idx| HoleVecAccum::<<R as DirectRound>::Artifact>::new(rounds.len(), idx))
+        .map(|_| BTreeMap::new())
         .collect::<Vec<_>>();
 
     // `to, from, message`
@@ -47,20 +47,18 @@ where
 
         if let Some(destinations) = round.direct_message_destinations() {
             for idx_to in destinations {
-                let (message, artifact) = round
-                    .make_direct_message(rng, PartyIdx::from_usize(idx_to))
-                    .unwrap();
-                direct_messages.push((PartyIdx::from_usize(idx_to), idx_from, message));
-                dm_artifact_accums[idx_from.as_usize()]
+                let (message, artifact) = round.make_direct_message(rng, idx_to).unwrap();
+                direct_messages.push((idx_to, idx_from, message));
+                assert!(dm_artifact_accums[idx_from.as_usize()]
                     .insert(idx_to, artifact)
-                    .unwrap();
+                    .is_none());
             }
         }
 
         if let Some(destinations) = round.broadcast_destinations() {
             let message = round.make_broadcast(rng).unwrap();
             for idx_to in destinations {
-                broadcasts.push((PartyIdx::from_usize(idx_to), idx_from, message.clone()));
+                broadcasts.push((idx_to, idx_from, message.clone()));
             }
         }
     }
@@ -68,67 +66,42 @@ where
     // Deliver direct messages
 
     let mut dm_payload_accums = (0..rounds.len())
-        .map(|idx| HoleVecAccum::<<R as DirectRound>::Payload>::new(rounds.len(), idx))
+        .map(|_| BTreeMap::new())
         .collect::<Vec<_>>();
     for (idx_to, idx_from, message) in direct_messages.into_iter() {
         let round = &rounds[idx_to.as_usize()];
         let payload = round
             .verify_direct_message(idx_from, message)
             .map_err(|err| StepError::Receive(format!("{:?}", err)))?;
-        dm_payload_accums[idx_to.as_usize()].insert(idx_from.as_usize(), payload);
+        dm_payload_accums[idx_to.as_usize()].insert(idx_from, payload);
     }
 
     // Deliver broadcasts
 
     let mut bc_payload_accums = (0..rounds.len())
-        .map(|idx| HoleVecAccum::<<R as BroadcastRound>::Payload>::new(rounds.len(), idx))
+        .map(|_| BTreeMap::new())
         .collect::<Vec<_>>();
     for (idx_to, idx_from, message) in broadcasts.into_iter() {
         let round = &rounds[idx_to.as_usize()];
         let payload = round
             .verify_broadcast(idx_from, message)
             .map_err(|err| StepError::Receive(format!("{:?}", err)))?;
-        bc_payload_accums[idx_to.as_usize()].insert(idx_from.as_usize(), payload);
-    }
-
-    // Finalize accumulators
-
-    let mut dm_payloads = Vec::new();
-    for accum in dm_payload_accums.into_iter() {
-        let payloads = if accum.is_empty() {
-            None
-        } else {
-            Some(accum.finalize().ok_or(StepError::AccumFinalize)?)
-        };
-        dm_payloads.push(payloads);
-    }
-
-    let mut dm_artifacts = Vec::new();
-    for accum in dm_artifact_accums.into_iter() {
-        let artifacts = if accum.is_empty() {
-            None
-        } else {
-            Some(accum.finalize().ok_or(StepError::AccumFinalize)?)
-        };
-        dm_artifacts.push(artifacts);
-    }
-
-    let mut bc_payloads = Vec::new();
-    for accum in bc_payload_accums.into_iter() {
-        let payloads = if accum.is_empty() {
-            None
-        } else {
-            Some(accum.finalize().ok_or(StepError::AccumFinalize)?)
-        };
-        bc_payloads.push(payloads);
+        bc_payload_accums[idx_to.as_usize()].insert(idx_from, payload);
     }
 
     // Assemble
 
     let mut assembled = Vec::new();
-    for (round, bc_payloads, dm_payloads, dm_artifacts) in
-        izip!(rounds, bc_payloads, dm_payloads, dm_artifacts)
-    {
+    for (round, bc_payloads, dm_payloads, dm_artifacts) in izip!(
+        rounds,
+        bc_payload_accums,
+        dm_payload_accums,
+        dm_artifact_accums
+    ) {
+        if !round.can_finalize(bc_payloads.keys(), dm_payloads.keys(), dm_artifacts.keys()) {
+            return Err(StepError::AccumFinalize);
+        };
+
         assembled.push(AssembledRound {
             round,
             bc_payloads,

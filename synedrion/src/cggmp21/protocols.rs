@@ -4,6 +4,7 @@ pub(crate) mod interactive_signing;
 pub(crate) mod key_gen;
 pub(crate) mod key_init;
 pub(crate) mod key_refresh;
+pub(crate) mod key_resharing;
 pub(crate) mod presigning;
 pub(crate) mod signing;
 mod threshold;
@@ -20,7 +21,7 @@ pub(crate) mod test_utils;
 #[cfg(feature = "bench-internals")]
 pub(crate) use common::PresigningData;
 
-pub use common::{KeyShare, KeyShareChange, KeyShareSeed, PartyIdx};
+pub use common::{KeyShare, KeyShareChange, PartyIdx};
 pub use generic::ProtocolResult;
 pub use interactive_signing::{
     InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult,
