@@ -11,17 +11,17 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShareSeed, PartyIdx};
-use super::generic::{
-    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
-    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
-    FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
-};
 use crate::cggmp21::{
     sigma::{SchCommitment, SchProof, SchSecret},
     SchemeParams,
 };
+use crate::common::KeyShareSeed;
 use crate::curve::{Point, Scalar};
+use crate::rounds::{
+    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
+    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
+    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ToNextRound, ToResult,
+};
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
@@ -413,12 +413,12 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 mod tests {
     use rand_core::{OsRng, RngCore};
 
-    use super::super::{
-        test_utils::{step_next_round, step_result, step_round},
-        FirstRound,
-    };
     use super::Round1;
-    use crate::cggmp21::{PartyIdx, TestParams};
+    use crate::cggmp21::TestParams;
+    use crate::rounds::{
+        test_utils::{step_next_round, step_result, step_round},
+        FirstRound, PartyIdx,
+    };
 
     #[test]
     fn execute_keygen() {

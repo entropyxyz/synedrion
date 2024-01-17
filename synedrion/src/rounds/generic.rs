@@ -6,8 +6,30 @@ use core::fmt::Debug;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::PartyIdx;
 use crate::tools::collections::{HoleRange, HoleVec, HoleVecAccum};
+use crate::tools::hashing::{Chain, Hashable};
+
+/// A typed integer denoting the index of a party in the group.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PartyIdx(u32);
+
+impl PartyIdx {
+    /// Converts the party index to a regular integer.
+    pub fn as_usize(self) -> usize {
+        self.0.try_into().unwrap()
+    }
+
+    /// Wraps an integers into the party index.
+    pub fn from_usize(val: usize) -> Self {
+        Self(val.try_into().unwrap())
+    }
+}
+
+impl Hashable for PartyIdx {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.0)
+    }
+}
 
 /// A round that sends out a broadcast.
 pub(crate) trait BroadcastRound: BaseRound {

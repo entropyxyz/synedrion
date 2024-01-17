@@ -25,11 +25,16 @@ cfg_if::cfg_if! {
     }
 }
 
+mod common;
+mod constructors;
 mod curve;
 mod paillier;
+mod rounds;
 pub mod sessions;
+mod threshold;
 mod tools;
 mod uint;
+mod www02;
 
 // Some re-exports to avoid the need for version-matching
 pub use k256;
@@ -38,8 +43,16 @@ pub use signature;
 
 pub use cggmp21::{
     InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyGenError,
-    KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, KeyShare,
-    KeyShareChange, PresigningError, PresigningProof, PresigningResult, ProductionParams,
-    ProtocolResult, SchemeParams, SigningProof, SigningResult, TestParams, ThresholdKeyShare,
+    KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, PresigningError,
+    PresigningProof, PresigningResult, ProductionParams, SchemeParams, SigningProof, SigningResult,
+    TestParams,
+};
+pub use common::{KeyShare, KeyShareChange};
+pub use constructors::{
+    make_interactive_signing_session, make_key_gen_session, make_key_refresh_session,
+    PrehashedMessage,
 };
 pub use curve::RecoverableSignature;
+pub use rounds::ProtocolResult;
+pub use sessions::{FinalizeOutcome, Session, SignedMessage};
+pub use threshold::ThresholdKeyShare;

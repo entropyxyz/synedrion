@@ -13,8 +13,8 @@ use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
     RPParamsMod, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
+use crate::rounds::PartyIdx;
 use crate::tools::collections::HoleVec;
-use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::Signed;
 
 #[cfg(any(test, feature = "bench-internals"))]
@@ -23,28 +23,6 @@ use crate::{
     tools::collections::{HoleRange, HoleVecAccum},
     uint::FromScalar,
 };
-
-/// A typed integer denoting the index of a party in the group.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PartyIdx(u32);
-
-impl PartyIdx {
-    /// Converts the party index to a regular integer.
-    pub fn as_usize(self) -> usize {
-        self.0.try_into().unwrap()
-    }
-
-    /// Wraps an integers into the party index.
-    pub fn from_usize(val: usize) -> Self {
-        Self(val.try_into().unwrap())
-    }
-}
-
-impl Hashable for PartyIdx {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
-    }
-}
 
 /// The result of the KeyInit protocol.
 // TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,

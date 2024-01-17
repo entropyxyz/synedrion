@@ -9,16 +9,16 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, PartyIdx};
-use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableToNextRound,
-    FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError,
-    ProtocolResult, ReceiveError, ToNextRound, ToResult,
-};
 use super::key_init::{self, KeyInitResult};
 use super::key_refresh::{self, KeyRefreshResult};
-use super::wrappers::{wrap_finalize_error, wrap_receive_error, ResultWrapper};
 use crate::cggmp21::SchemeParams;
+use crate::common::KeyShare;
+use crate::rounds::{
+    wrap_finalize_error, wrap_receive_error, BaseRound, BroadcastRound, DirectRound, Finalizable,
+    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
+    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ResultWrapper, ToNextRound,
+    ToResult,
+};
 
 /// Possible results of the merged KeyGen and KeyRefresh protocols.
 #[derive(Debug, Clone, Copy)]

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::signed_message::{SignedMessage, VerifiedMessage};
 use super::type_erased::{deserialize_message, serialize_message};
-use crate::cggmp21::PartyIdx;
+use crate::rounds::PartyIdx;
 use crate::tools::collections::HoleVecAccum;
 
 #[derive(Clone)]

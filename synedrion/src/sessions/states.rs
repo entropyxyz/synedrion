@@ -18,7 +18,7 @@ use super::type_erased::{
     self, AccumAddError, DynBcPayload, DynDmArtifact, DynDmPayload, DynFinalizable, DynRoundAccum,
     ReceiveError,
 };
-use crate::cggmp21::{self, FirstRound, PartyIdx, ProtocolResult, Round};
+use crate::rounds::{self, FirstRound, PartyIdx, ProtocolResult, Round};
 use crate::tools::collections::HoleRange;
 
 struct Context<Signer, Verifier> {
@@ -108,13 +108,11 @@ fn wrap_receive_result<Res: ProtocolResult, Verifier: Clone, T>(
             error: ProvableError::CannotDeserialize(msg),
         },
         ReceiveError::Protocol(err) => match err {
-            crate::cggmp21::ReceiveError::Provable(err) => Error::Provable {
+            rounds::ReceiveError::Provable(err) => Error::Provable {
                 party: from.clone(),
                 error: ProvableError::Protocol(err),
             },
-            crate::cggmp21::ReceiveError::InvalidType => {
-                Error::Local(LocalError("Invalid state".into()))
-            }
+            rounds::ReceiveError::InvalidType => Error::Local(LocalError("Invalid state".into())),
         },
     })
 }
@@ -517,17 +515,17 @@ where
             .finalize(rng, accum.processed)
             .map_err(|err| match err {
                 type_erased::FinalizeError::Protocol(err) => match err {
-                    cggmp21::FinalizeError::Provable { party, error } => {
+                    rounds::FinalizeError::Provable { party, error } => {
                         let party = context.verifiers[party.as_usize()].clone();
                         Error::Provable {
                             party,
                             error: ProvableError::Protocol(error),
                         }
                     }
-                    cggmp21::FinalizeError::Init(err) => Error::Local(LocalError(format!(
+                    rounds::FinalizeError::Init(err) => Error::Local(LocalError(format!(
                         "Failed to initialize the protocol: {err:?}"
                     ))),
-                    cggmp21::FinalizeError::Proof(proof) => Error::Proof { proof },
+                    rounds::FinalizeError::Proof(proof) => Error::Proof { proof },
                 },
                 type_erased::FinalizeError::Accumulator(err) => {
                     Error::Local(LocalError(format!("Failed to finalize: {err:?}")))

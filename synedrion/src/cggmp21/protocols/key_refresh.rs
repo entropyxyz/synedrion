@@ -11,20 +11,20 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShareChange, PartyIdx, PublicAuxInfo, SecretAuxInfo};
-use super::generic::{
-    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
-    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
-    FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
-};
 use crate::cggmp21::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
     SchemeParams,
 };
+use crate::common::{KeyShareChange, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
     RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+};
+use crate::rounds::{
+    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
+    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
+    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
@@ -676,13 +676,13 @@ mod tests {
 
     use rand_core::{OsRng, RngCore};
 
-    use super::super::{
-        test_utils::{step_next_round, step_result, step_round},
-        FirstRound,
-    };
     use super::Round1;
-    use crate::cggmp21::{PartyIdx, TestParams};
+    use crate::cggmp21::TestParams;
     use crate::curve::Scalar;
+    use crate::rounds::{
+        test_utils::{step_next_round, step_result, step_round},
+        FirstRound, PartyIdx,
+    };
 
     #[test]
     fn execute_auxiliary() {

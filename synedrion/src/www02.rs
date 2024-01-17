@@ -1,5 +1,4 @@
-//! This protocol is technically not a part of GG'21,
-//! but it is needed to add threshold capabilities.
+//! Threshold key resharing protocol.
 //!
 //! Based on T. M. Wong, C. Wang, J. M. Wing "Verifiable Secret Redistribution for Archive Systems"
 //! https://www.cs.cmu.edu/~wing/publications/Wong-Winga02.pdf
@@ -13,14 +12,13 @@ use alloc::vec::Vec;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::PartyIdx;
-use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableToResult,
-    FinalizationRequirement, FinalizeError, FirstRound, InitError, ProtocolResult, ReceiveError,
-    ToResult,
-};
-use super::threshold::ThresholdKeyShareSeed;
 use crate::curve::{Point, Scalar};
+use crate::rounds::{
+    BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableToResult,
+    FinalizationRequirement, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult,
+    ReceiveError, ToResult,
+};
+use crate::threshold::ThresholdKeyShareSeed;
 use crate::tools::sss::{
     interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial,
     ShareIdx,
@@ -392,13 +390,12 @@ impl FinalizableToResult for Round1 {
 mod tests {
     use rand_core::{OsRng, RngCore};
 
-    use super::super::{
-        test_utils::{step_result, step_round},
-        threshold::ThresholdKeyShareSeed,
-        FirstRound,
-    };
+    use super::super::threshold::ThresholdKeyShareSeed;
     use super::{KeyResharingContext, NewHolder, OldHolder, Round1};
-    use crate::cggmp21::PartyIdx;
+    use crate::rounds::{
+        test_utils::{step_result, step_round},
+        FirstRound, PartyIdx,
+    };
 
     #[test]
     fn execute_key_reshare() {

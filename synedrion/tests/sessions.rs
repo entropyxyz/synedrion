@@ -7,11 +7,8 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    sessions::{
-        make_interactive_signing_session, make_key_gen_session, FinalizeOutcome, Session,
-        SignedMessage,
-    },
-    KeyShare, ProtocolResult, TestParams,
+    make_interactive_signing_session, make_key_gen_session, FinalizeOutcome, KeyShare,
+    ProtocolResult, Session, SignedMessage, TestParams,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, SignedMessage<Signature>);

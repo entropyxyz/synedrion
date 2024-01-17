@@ -9,18 +9,18 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeyShare, KeySharePrecomputed, PartyIdx, PresigningData};
-use super::generic::{
-    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
-    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
-    FirstRound, InitError, ProtocolResult, ReceiveError, ToNextRound, ToResult,
-};
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
     SchemeParams,
 };
+use crate::common::{KeyShare, KeySharePrecomputed, PresigningData};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, PaillierParams, Randomizer, RandomizerMod};
+use crate::rounds::{
+    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
+    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
+    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ToNextRound, ToResult,
+};
 use crate::tools::collections::{HoleRange, HoleVec};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{Bounded, FromScalar, Signed};
@@ -912,13 +912,14 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 mod tests {
     use rand_core::{OsRng, RngCore};
 
-    use super::super::{
-        test_utils::{step_next_round, step_result, step_round},
-        FirstRound,
-    };
     use super::Round1;
-    use crate::cggmp21::{KeyShare, PartyIdx, TestParams};
+    use crate::cggmp21::TestParams;
+    use crate::common::KeyShare;
     use crate::curve::{Point, Scalar};
+    use crate::rounds::{
+        test_utils::{step_next_round, step_result, step_round},
+        FirstRound, PartyIdx,
+    };
 
     #[test]
     fn execute_presigning() {

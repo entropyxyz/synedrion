@@ -9,18 +9,18 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::common::{KeySharePrecomputed, PartyIdx, PresigningData};
-use super::generic::{
-    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
-    FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError,
-    ProtocolResult, ReceiveError, ToResult,
-};
 use crate::cggmp21::{
     sigma::{AffGProof, DecProof, MulStarProof},
     SchemeParams,
 };
+use crate::common::{KeySharePrecomputed, PresigningData};
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
+use crate::rounds::{
+    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
+    FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError, PartyIdx,
+    ProtocolResult, ReceiveError, ToResult,
+};
 use crate::tools::collections::HoleRange;
 use crate::uint::{Bounded, FromScalar, Signed};
 
@@ -282,14 +282,14 @@ mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::{OsRng, RngCore};
 
-    use super::super::{
-        common::PresigningData,
-        test_utils::{step_result, step_round},
-        FirstRound,
-    };
     use super::{Context, Round1};
-    use crate::cggmp21::{KeyShare, PartyIdx, TestParams};
+    use crate::cggmp21::TestParams;
+    use crate::common::{KeyShare, PresigningData};
     use crate::curve::Scalar;
+    use crate::rounds::{
+        test_utils::{step_result, step_round},
+        FirstRound, PartyIdx,
+    };
 
     #[test]
     fn execute_signing() {
