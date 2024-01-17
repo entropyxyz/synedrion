@@ -19,7 +19,7 @@ pub(crate) struct SchSecret(
 );
 
 impl SchSecret {
-    pub(crate) fn random(rng: &mut impl CryptoRngCore) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self(Scalar::random(rng))
     }
 }
@@ -29,7 +29,7 @@ impl SchSecret {
 pub(crate) struct SchCommitment(Point);
 
 impl SchCommitment {
-    pub(crate) fn new(secret: &SchSecret) -> Self {
+    pub fn new(secret: &SchSecret) -> Self {
         Self(secret.0.mul_by_generator())
     }
 }
@@ -64,7 +64,7 @@ pub(crate) struct SchProof {
 
 impl SchProof {
     /// Create a proof that we know the `secret`.
-    pub(crate) fn new(
+    pub fn new(
         proof_secret: &SchSecret,
         secret: &Scalar,
         commitment: &SchCommitment,
@@ -77,12 +77,7 @@ impl SchProof {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given `public`.
-    pub(crate) fn verify(
-        &self,
-        commitment: &SchCommitment,
-        public: &Point,
-        aux: &impl Hashable,
-    ) -> bool {
+    pub fn verify(&self, commitment: &SchCommitment, public: &Point, aux: &impl Hashable) -> bool {
         let challenge = SchChallenge::new(aux, public, commitment);
         challenge == self.challenge
             && self.proof.mul_by_generator() == commitment.0 + public * &challenge.0

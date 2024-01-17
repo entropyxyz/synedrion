@@ -30,7 +30,7 @@ struct PrmSecret<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> PrmSecret<P> {
-    pub(crate) fn random(
+    fn random(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
     ) -> Self {
@@ -48,10 +48,7 @@ impl<P: SchemeParams> PrmSecret<P> {
 struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> PrmCommitment<P> {
-    pub(crate) fn new(
-        secret: &PrmSecret<P>,
-        base: &<P::Paillier as PaillierParams>::UintMod,
-    ) -> Self {
+    fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
         let commitment = secret
             .secret
             .iter()
@@ -101,7 +98,7 @@ pub(crate) struct PrmProof<P: SchemeParams> {
 impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
     /// (the power that was used to create RP parameters).
-    pub(crate) fn new(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
         setup_secret: &RPSecret<P::Paillier>,
@@ -131,7 +128,7 @@ impl<P: SchemeParams> PrmProof<P> {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
-    pub(crate) fn verify(&self, setup: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, setup: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
         let precomputed = setup.public_key().precomputed_modulus();
 
         let challenge = PrmChallenge::new(aux, &self.commitment);
