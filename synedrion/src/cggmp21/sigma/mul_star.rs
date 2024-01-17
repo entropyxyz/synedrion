@@ -16,13 +16,14 @@ const HASH_TAG: &[u8] = b"P_mul*";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
-    cap_a: Ciphertext<P::Paillier>,                        // $A$
-    cap_b_x: Point,                                        // $B_x$
-    cap_e: RPCommitment<P::Paillier>,                      // $E$
-    cap_s: RPCommitment<P::Paillier>,                      // $S$
-    z1: Signed<<P::Paillier as PaillierParams>::Uint>,     // $z_1$
-    z2: Signed<<P::Paillier as PaillierParams>::WideUint>, // $z_2$
-    omega: Randomizer<P::Paillier>,                        // $\omega$
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    cap_a: Ciphertext<P::Paillier>,
+    cap_b_x: Point,
+    cap_e: RPCommitment<P::Paillier>,
+    cap_s: RPCommitment<P::Paillier>,
+    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
+    z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    omega: Randomizer<P::Paillier>,
 }
 
 impl<P: SchemeParams> MulStarProof<P> {
@@ -70,6 +71,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         let omega = (r * rho.pow_signed(&e)).retrieve();
 
         Self {
+            e,
             cap_a,
             cap_b_x,
             cap_e,
@@ -98,6 +100,10 @@ impl<P: SchemeParams> MulStarProof<P> {
         // Non-interactive challenge
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+
+        if e != self.e {
+            return false;
+        }
 
         let aux_pk = setup.public_key();
 

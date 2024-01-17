@@ -16,6 +16,7 @@ const HASH_TAG: &[u8] = b"P_aff_g";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_a: Ciphertext<P::Paillier>,
     cap_b_x: Point,
     cap_b_y: Ciphertext<P::Paillier>,
@@ -98,6 +99,7 @@ impl<P: SchemeParams> AffGProof<P> {
         let omega_y = (r_y_mod * rho_y_mod.pow_signed_vartime(&-e)).retrieve();
 
         Self {
+            e,
             cap_a,
             cap_b_x,
             cap_b_y,
@@ -138,6 +140,10 @@ impl<P: SchemeParams> AffGProof<P> {
         // Non-interactive challenge
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+
+        if e != self.e {
+            return false;
+        }
 
         let aux_pk = setup.public_key();
 

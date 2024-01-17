@@ -14,6 +14,7 @@ const HASH_TAG: &[u8] = b"P_mul";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_a: Ciphertext<P::Paillier>,
     cap_b: Ciphertext<P::Paillier>,
     z: Signed<<P::Paillier as PaillierParams>::WideUint>,
@@ -62,6 +63,7 @@ impl<P: SchemeParams> MulProof<P> {
         let v = (s_mod * rho_x_mod.pow_signed_vartime(&e)).retrieve();
 
         Self {
+            e,
             cap_a,
             cap_b,
             z,
@@ -85,6 +87,10 @@ impl<P: SchemeParams> MulProof<P> {
         // Non-interactive challenge
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+
+        if e != self.e {
+            return false;
+        }
 
         // Y^z u^N = A * C^e \mod N^2
         if cap_y

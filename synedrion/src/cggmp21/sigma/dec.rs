@@ -16,6 +16,7 @@ const HASH_TAG: &[u8] = b"P_dec";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitment<P::Paillier>,
     cap_t: RPCommitment<P::Paillier>,
     cap_a: Ciphertext<P::Paillier>,
@@ -60,6 +61,7 @@ impl<P: SchemeParams> DecProof<P> {
         let omega = (r * rho.pow_signed_vartime(&e)).retrieve();
 
         Self {
+            e,
             cap_s,
             cap_t,
             cap_a,
@@ -85,6 +87,10 @@ impl<P: SchemeParams> DecProof<P> {
         // Non-interactive challenge
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+
+        if e != self.e {
+            return false;
+        }
 
         // enc(z_1, \omega) == A (+) C (*) e
         if Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.omega)

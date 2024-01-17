@@ -15,6 +15,7 @@ const HASH_TAG: &[u8] = b"P_enc";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct EncProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitment<P::Paillier>,
     cap_a: Ciphertext<P::Paillier>,
     cap_c: RPCommitment<P::Paillier>,
@@ -59,6 +60,7 @@ impl<P: SchemeParams> EncProof<P> {
         let z3 = gamma + mu * e.into_wide();
 
         Self {
+            e,
             cap_s,
             cap_a,
             cap_c,
@@ -82,6 +84,10 @@ impl<P: SchemeParams> EncProof<P> {
         // Non-interactive challenge
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+
+        if e != self.e {
+            return false;
+        }
 
         // z_1 \in \pm 2^{\ell + \eps}
         if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {

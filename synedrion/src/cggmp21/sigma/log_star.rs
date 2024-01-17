@@ -16,6 +16,7 @@ const HASH_TAG: &[u8] = b"P_log*";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitment<P::Paillier>,
     cap_a: Ciphertext<P::Paillier>,
     cap_y: Point,
@@ -61,6 +62,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         let z3 = gamma + mu * e.into_wide();
 
         Self {
+            e,
             cap_s,
             cap_a,
             cap_y,
@@ -88,6 +90,10 @@ impl<P: SchemeParams> LogStarProof<P> {
         // Non-interactive challenge
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+
+        if e != self.e {
+            return false;
+        }
 
         // enc_0(z1, z2) == A (+) C (*) e
         let c = Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.z2);

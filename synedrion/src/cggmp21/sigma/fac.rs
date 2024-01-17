@@ -15,6 +15,7 @@ const HASH_TAG: &[u8] = b"P_fac";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_p: RPCommitment<P::Paillier>,
     cap_q: RPCommitment<P::Paillier>,
     cap_a: RPCommitment<P::Paillier>,
@@ -93,6 +94,7 @@ impl<P: SchemeParams> FacProof<P> {
         let v = r + (e_wide.into_wide() * hat_sigma);
 
         Self {
+            e,
             cap_p,
             cap_q: cap_q.retrieve(),
             cap_a,
@@ -120,6 +122,10 @@ impl<P: SchemeParams> FacProof<P> {
         // Non-interactive challenge
         let e =
             Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+
+        if e != self.e {
+            return false;
+        }
 
         let aux_pk = setup.public_key();
 
