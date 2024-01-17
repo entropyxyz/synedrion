@@ -30,9 +30,9 @@ impl<P: SchemeParams> DecProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        rho: &RandomizerMod<P::Paillier>,
+        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
-        setup: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)

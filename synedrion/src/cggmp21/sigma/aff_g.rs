@@ -38,12 +38,12 @@ impl<P: SchemeParams> AffGProof<P> {
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        rho_mod: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
-        rho_y_mod: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_1$
+        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
+        rho_y: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_1$
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_1$
-        cap_c: &Ciphertext<P::Paillier>,      // a ciphertext encrypted with `pk0`
-        setup: &RPParamsMod<P::Paillier>,     // $\hat{N}$, $s$, $t$
+        cap_c: &Ciphertext<P::Paillier>,  // a ciphertext encrypted with `pk0`
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -92,11 +92,11 @@ impl<P: SchemeParams> AffGProof<P> {
         let z3 = gamma + e_wide * m;
         let z4 = delta + e_wide * mu;
 
-        let omega = (r_mod * rho_mod.pow_signed_vartime(&e)).retrieve();
+        let omega = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
 
         // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
         // Original: $\rho_y^e$. Modified: $\rho_y^{-e}$.
-        let omega_y = (r_y_mod * rho_y_mod.pow_signed_vartime(&-e)).retrieve();
+        let omega_y = (r_y_mod * rho_y.pow_signed_vartime(&-e)).retrieve();
 
         Self {
             e,

@@ -32,8 +32,8 @@ pub(crate) struct FacProof<P: SchemeParams> {
 impl<P: SchemeParams> FacProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        setup: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -111,8 +111,8 @@ impl<P: SchemeParams> FacProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>, // $s$, $t$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        setup: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)

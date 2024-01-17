@@ -27,10 +27,10 @@ pub(crate) struct EncProof<P: SchemeParams> {
 impl<P: SchemeParams> EncProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // $k$
-        randomizer_mod: &RandomizerMod<P::Paillier>,            // $\rho$
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,         // $N_0$
-        setup: &RPParamsMod<P::Paillier>,                       // $\hat{N}$, $s$, $t$
+        k: &Signed<<P::Paillier as PaillierParams>::Uint>, // $\k \in +- 2^\ell$
+        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -51,12 +51,12 @@ impl<P: SchemeParams> EncProof<P> {
         let r = RandomizerMod::random(rng, pk);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        let cap_s = setup.commit(secret, &mu).retrieve();
+        let cap_s = setup.commit(k, &mu).retrieve();
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
         let cap_c = setup.commit(&alpha, &gamma).retrieve();
 
-        let z1 = alpha + e * *secret;
-        let z2 = (r * randomizer_mod.pow_signed_vartime(&e)).retrieve();
+        let z1 = alpha + e * *k;
+        let z2 = (r * rho.pow_signed_vartime(&e)).retrieve();
         let z3 = gamma + mu * e.into_wide();
 
         Self {
@@ -72,9 +72,9 @@ impl<P: SchemeParams> EncProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // `N_0`
-        ciphertext: &Ciphertext<P::Paillier>,           // `K`
-        setup: &RPParamsMod<P::Paillier>,               // $s$, $t$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        cap_k: &Ciphertext<P::Paillier>,
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -98,7 +98,7 @@ impl<P: SchemeParams> EncProof<P> {
         let c = Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.z2);
         if c != self
             .cap_a
-            .homomorphic_add(pk, &ciphertext.homomorphic_mul(pk, &e))
+            .homomorphic_add(pk, &cap_k.homomorphic_mul(pk, &e))
         {
             return false;
         }

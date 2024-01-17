@@ -31,10 +31,10 @@ impl<P: SchemeParams> LogStarProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
-        rho: &RandomizerMod<P::Paillier>,                  // $\rho$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
-        g: &Point,                                         // $g$
-        setup: &RPParamsMod<P::Paillier>,                  // $\hat{N}$, $s$, $t$
+        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        g: &Point,
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -77,10 +77,10 @@ impl<P: SchemeParams> LogStarProof<P> {
     pub fn verify(
         &self,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,  // $C = encrypt(x, \rho)$
-        g: &Point,                        // $g$
+        cap_c: &Ciphertext<P::Paillier>, // $C = encrypt(x, \rho)$
+        g: &Point,
         cap_x: &Point,                    // $X = g^x$
-        setup: &RPParamsMod<P::Paillier>, // $s$, $t$
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)

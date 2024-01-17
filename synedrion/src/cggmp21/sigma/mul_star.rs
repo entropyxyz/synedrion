@@ -31,10 +31,10 @@ impl<P: SchemeParams> MulStarProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
-        rho: &RandomizerMod<P::Paillier>,                  // $\rho \in \mathbb{Z}_{N_0}$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
-        cap_c: &Ciphertext<P::Paillier>,                   // $C$, a ciphertext encrypted with `pk`
-        setup: &RPParamsMod<P::Paillier>,                  // $\hat{N}$, $s$, $t$
+        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        cap_c: &Ciphertext<P::Paillier>,  // $C$, a ciphertext encrypted with `pk`
+        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         /*

@@ -26,11 +26,11 @@ impl<P: SchemeParams> MulProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x$
-        rho_x_mod: &RandomizerMod<P::Paillier>,                 // $\rho_x$
-        rho_mod: &RandomizerMod<P::Paillier>,                   // $\rho$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,         // $N$
-        cap_y: &Ciphertext<P::Paillier>,                        // $Y$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        rho_x: &RandomizerMod<P::Paillier>,
+        rho: &RandomizerMod<P::Paillier>,
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
+        cap_y: &Ciphertext<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -58,9 +58,9 @@ impl<P: SchemeParams> MulProof<P> {
             .mul_randomizer(pk, &r);
         let cap_b = Ciphertext::new_with_randomizer(pk, alpha.as_ref(), &s);
 
-        let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(secret);
-        let u = (r_mod * rho_mod.pow_signed_vartime(&e)).retrieve();
-        let v = (s_mod * rho_x_mod.pow_signed_vartime(&e)).retrieve();
+        let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(x);
+        let u = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
+        let v = (s_mod * rho_x.pow_signed_vartime(&e)).retrieve();
 
         Self {
             e,
