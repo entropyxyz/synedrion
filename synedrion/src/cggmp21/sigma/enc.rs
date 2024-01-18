@@ -54,7 +54,7 @@ impl<P: SchemeParams> EncProof<P> {
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
         let cap_c = setup.commit(&alpha, &gamma).retrieve();
 
-        let z1 = alpha + e * *k;
+        let z1 = alpha + e * k;
         let z2 = (r * rho.pow_signed_vartime(&e)).retrieve();
         let z3 = gamma + mu * e.into_wide();
 

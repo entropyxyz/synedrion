@@ -566,16 +566,17 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         let gamma: Point = dm_payloads.iter().map(|payload| payload.gamma).sum();
         let gamma = gamma + self.context.gamma.mul_by_generator();
 
-        let big_delta = &gamma * &self.context.ephemeral_scalar_share;
+        let big_delta = gamma * self.context.ephemeral_scalar_share;
 
+        let alpha_sum: Signed<_> = dm_payloads.iter().map(|p| p.alpha).sum();
+        let beta_sum: Signed<_> = dm_artifacts.iter().map(|p| p.beta).sum();
         let delta = P::signed_from_scalar(&self.context.gamma)
             * P::signed_from_scalar(&self.context.ephemeral_scalar_share)
-            + dm_payloads.iter().map(|p| p.alpha).sum()
-            + dm_artifacts.iter().map(|p| p.beta).sum();
+            + alpha_sum
+            + beta_sum;
 
         let alpha_hat_sum: Scalar = dm_payloads.iter().map(|payload| payload.alpha_hat).sum();
         let beta_hat_sum: Signed<_> = dm_artifacts.iter().map(|artifact| artifact.beta_hat).sum();
-
         let product_share = self.context.key_share.secret_share
             * self.context.ephemeral_scalar_share
             + alpha_hat_sum
@@ -765,7 +766,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         if delta.mul_by_generator() == big_delta {
             // TODO (#79): seems like we only need the x-coordinate of this (as a Scalar)
-            let nonce = &self.big_gamma * &delta.invert().unwrap();
+            let nonce = self.big_gamma * delta.invert().unwrap();
 
             let hat_beta = self.round2_artifacts.map_ref(|artifact| artifact.beta_hat);
             let hat_r = self
@@ -955,7 +956,7 @@ mod tests {
         let x: Scalar = key_shares.iter().map(|share| share.secret_share).sum();
         assert_eq!(x * k, k_times_x);
         assert_eq!(
-            &Point::GENERATOR * &k.invert().unwrap(),
+            Point::GENERATOR * k.invert().unwrap(),
             presigning_datas[0].nonce
         );
     }

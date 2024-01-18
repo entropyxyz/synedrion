@@ -337,8 +337,8 @@ impl FinalizableToResult for Round1 {
         let vkey = bc_payloads
             .values()
             .map(|payload| {
-                &payload.public_polynomial.coeff0()
-                    * &interpolation_coeff(&old_share_idxs, &payload.old_share_idx)
+                payload.public_polynomial.coeff0()
+                    * interpolation_coeff(&old_share_idxs, &payload.old_share_idx)
             })
             .sum();
         if new_holder.context.verifying_key != vkey {

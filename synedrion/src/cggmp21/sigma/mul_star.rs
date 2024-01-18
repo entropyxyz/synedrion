@@ -61,11 +61,11 @@ impl<P: SchemeParams> MulStarProof<P> {
         let cap_a = cap_c
             .homomorphic_mul(pk, &alpha)
             .mul_randomizer(pk, &r.retrieve());
-        let cap_b_x = &Point::GENERATOR * &P::scalar_from_signed(&alpha);
+        let cap_b_x = Point::GENERATOR * P::scalar_from_signed(&alpha);
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
 
-        let z1 = alpha + e * *x;
+        let z1 = alpha + e * x;
         let z2 = gamma + e.into_wide() * m;
         let omega = (r * rho.pow_signed(&e)).retrieve();
 
@@ -117,7 +117,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
 
         // g^{z_1} == B_x X^e
-        if &Point::GENERATOR * &P::scalar_from_signed(&self.z1)
+        if Point::GENERATOR * P::scalar_from_signed(&self.z1)
             != self.cap_b_x + cap_x * &P::scalar_from_signed(&e)
         {
             return false;
@@ -164,7 +164,7 @@ mod tests {
         let cap_d = cap_c
             .homomorphic_mul(pk, &x)
             .mul_randomizer(pk, &rho.retrieve());
-        let cap_x = &Point::GENERATOR * &Params::scalar_from_signed(&x);
+        let cap_x = Point::GENERATOR * Params::scalar_from_signed(&x);
 
         let proof = MulStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &setup, &aux));

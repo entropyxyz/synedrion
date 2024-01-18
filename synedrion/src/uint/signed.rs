@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     bounded::PackedBounded,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
-    Bounded, CheckedAdd, CheckedMul, HasWide, Integer, NonZero, UintLike, UintModLike,
+    Bounded, HasWide, Integer, NonZero, UintLike, UintModLike,
 };
 
 /// A packed representation for serializing Signed objects.
@@ -190,6 +190,46 @@ impl<T: UintLike> Signed<T> {
         let abs_mod = self.abs().to_mod(precomputed);
         T::ModUint::conditional_select(&abs_mod, &-abs_mod, self.is_negative())
     }
+
+    fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
+        let bound = core::cmp::max(self.bound, rhs.bound) + 1;
+        let result = Self {
+            bound,
+            value: self.value.wrapping_add(&rhs.value),
+        };
+        let lhs_neg = self.is_negative();
+        let rhs_neg = rhs.is_negative();
+        let res_neg = result.is_negative();
+
+        // Cannot get overflow from adding values of different signs,
+        // and if for two values of the same sign the sign of the result remains the same
+        // it means there was no overflow.
+        CtOption::new(
+            result,
+            !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)),
+        )
+    }
+
+    fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
+        let bound = self.bound + rhs.bound;
+        let lhs_neg = self.is_negative();
+        let rhs_neg = rhs.is_negative();
+        let lhs = T::conditional_select(&self.value, &self.value.neg(), lhs_neg);
+        let rhs = T::conditional_select(&rhs.value, &rhs.value.neg(), rhs_neg);
+        let result = lhs.checked_mul(&rhs);
+        let result_neg = lhs_neg ^ rhs_neg;
+        result.and_then(|val| {
+            let out_of_range = Choice::from((bound as usize >= <T as Integer>::BITS - 1) as u8);
+            let signed_val = T::conditional_select(&val, &val.neg(), result_neg);
+            CtOption::new(
+                Self {
+                    bound,
+                    value: signed_val,
+                },
+                out_of_range.not(),
+            )
+        })
+    }
 }
 
 impl<T: UintLike> Default for Signed<T> {
@@ -298,55 +338,16 @@ where
     }
 }
 
-impl<T: UintLike> CheckedAdd for Signed<T> {
-    type Output = Self;
-    fn checked_add(&self, rhs: Self) -> CtOption<Self> {
-        let bound = core::cmp::max(self.bound, rhs.bound) + 1;
-        let result = Self {
-            bound,
-            value: self.value.wrapping_add(&rhs.value),
-        };
-        let lhs_neg = self.is_negative();
-        let rhs_neg = rhs.is_negative();
-        let res_neg = result.is_negative();
-
-        // Cannot get overflow from adding values of different signs,
-        // and if for two values of the same sign the sign of the result remains the same
-        // it means there was no overflow.
-        CtOption::new(
-            result,
-            !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)),
-        )
-    }
-}
-
-impl<T: UintLike> CheckedMul for Signed<T> {
-    type Output = Self;
-    fn checked_mul(&self, rhs: Self) -> CtOption<Self> {
-        let bound = self.bound + rhs.bound;
-        let lhs_neg = self.is_negative();
-        let rhs_neg = rhs.is_negative();
-        let lhs = T::conditional_select(&self.value, &self.value.neg(), lhs_neg);
-        let rhs = T::conditional_select(&rhs.value, &rhs.value.neg(), rhs_neg);
-        let result = lhs.checked_mul(&rhs);
-        let result_neg = lhs_neg ^ rhs_neg;
-        result.and_then(|val| {
-            let out_of_range = Choice::from((bound as usize >= <T as Integer>::BITS - 1) as u8);
-            let signed_val = T::conditional_select(&val, &val.neg(), result_neg);
-            CtOption::new(
-                Self {
-                    bound,
-                    value: signed_val,
-                },
-                out_of_range.not(),
-            )
-        })
-    }
-}
-
 impl<T: UintLike> Add<Signed<T>> for Signed<T> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
+        self.checked_add(&rhs).unwrap()
+    }
+}
+
+impl<T: UintLike> Add<&Signed<T>> for Signed<T> {
+    type Output = Self;
+    fn add(self, rhs: &Self) -> Self::Output {
         self.checked_add(rhs).unwrap()
     }
 }
@@ -354,20 +355,27 @@ impl<T: UintLike> Add<Signed<T>> for Signed<T> {
 impl<T: UintLike> Sub<Signed<T>> for Signed<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        self.checked_add(-rhs).unwrap()
+        self.checked_add(&-rhs).unwrap()
     }
 }
 
 impl<T: UintLike> Mul<Signed<T>> for Signed<T> {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
+        self.checked_mul(&rhs).unwrap()
+    }
+}
+
+impl<T: UintLike> Mul<&Signed<T>> for Signed<T> {
+    type Output = Self;
+    fn mul(self, rhs: &Self) -> Self::Output {
         self.checked_mul(rhs).unwrap()
     }
 }
 
 impl<T: UintLike> core::iter::Sum for Signed<T> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(|x, y| x.checked_add(y).unwrap())
+        iter.reduce(|x, y| x.checked_add(&y).unwrap())
             .unwrap_or(Self::default())
     }
 }

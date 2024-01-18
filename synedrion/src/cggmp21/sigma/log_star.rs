@@ -56,7 +56,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         let cap_y = g * &P::scalar_from_signed(&alpha);
         let cap_d = setup.commit(&alpha, &gamma).retrieve();
 
-        let z1 = alpha + e * *x;
+        let z1 = alpha + e * x;
         let z2 = (r * rho.pow_signed_vartime(&e)).retrieve();
         let z3 = gamma + mu * e.into_wide();
 
@@ -141,11 +141,11 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let g = &Point::GENERATOR * &Scalar::random(&mut OsRng);
+        let g = Point::GENERATOR * Scalar::random(&mut OsRng);
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho = RandomizerMod::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho.retrieve());
-        let cap_x = &g * &Params::scalar_from_signed(&x);
+        let cap_x = g * Params::scalar_from_signed(&x);
 
         let proof = LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &g, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &g, &cap_x, &setup, &aux));

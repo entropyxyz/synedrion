@@ -54,7 +54,7 @@ impl<P: SchemeParams> DecProof<P> {
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
         let gamma = P::scalar_from_signed(&alpha);
 
-        let z1 = alpha + e * *y;
+        let z1 = alpha + e * y;
         let z2 = nu + e.into_wide() * mu;
 
         let omega = (r * rho.pow_signed_vartime(&e)).retrieve();

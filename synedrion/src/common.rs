@@ -279,7 +279,7 @@ impl<P: SchemeParams> PresigningData<P> {
         key_shares: &[KeyShare<P>],
     ) -> Box<[Self]> {
         let ephemeral_scalar = Scalar::random(rng);
-        let nonce = &Point::GENERATOR * &ephemeral_scalar.invert().unwrap();
+        let nonce = Point::GENERATOR * ephemeral_scalar.invert().unwrap();
         let ephemeral_scalar_shares = ephemeral_scalar.split(rng, key_shares.len());
         let secret: Scalar = key_shares
             .iter()

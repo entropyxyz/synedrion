@@ -71,7 +71,7 @@ impl<P: SchemeParams> AffGProof<P> {
             pk0,
             &Ciphertext::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()),
         );
-        let cap_b_x = &Point::GENERATOR * &P::scalar_from_signed(&alpha);
+        let cap_b_x = Point::GENERATOR * P::scalar_from_signed(&alpha);
         let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
@@ -81,7 +81,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // Original: $s^y$. Modified: $s^{-y}$
         let cap_t = setup.commit(&-y, &mu).retrieve();
 
-        let z1 = alpha + e * *x;
+        let z1 = alpha + e * x;
 
         // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
         // Original: $z_2 = \beta + e y$
@@ -158,7 +158,7 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // g^{z_1} = B_x X^e
-        if &Point::GENERATOR * &P::scalar_from_signed(&self.z1)
+        if Point::GENERATOR * P::scalar_from_signed(&self.z1)
             != self.cap_b_x + cap_x * &P::scalar_from_signed(&e)
         {
             return false;
@@ -233,7 +233,7 @@ mod tests {
             &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho.retrieve()),
         );
         let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
-        let cap_x = &Point::GENERATOR * &Params::scalar_from_signed(&x);
+        let cap_x = Point::GENERATOR * Params::scalar_from_signed(&x);
 
         let proof = AffGProof::<Params>::new(
             &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &setup, &aux,
