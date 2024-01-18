@@ -22,7 +22,6 @@ use crate::rounds::{
     ProtocolResult, ReceiveError, ToResult,
 };
 use crate::tools::collections::HoleRange;
-use crate::uint::{Bounded, FromScalar, Signed};
 
 /// Possible results of the Signing protocol.
 #[derive(Debug, Clone, Copy)]
@@ -181,7 +180,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
-                    &Signed::from_scalar(&self.context.key_share.secret_share),
+                    &P::signed_from_scalar(&self.context.key_share.secret_share),
                     self.context.presigning.hat_beta.get(j).unwrap(),
                     &self
                         .context
@@ -211,7 +210,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             .context
             .presigning
             .cap_k
-            .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&x))
+            .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&x))
             .mul_randomizer(pk, &rho.retrieve());
 
         let aux = (
@@ -224,7 +223,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         for l in HoleRange::new(num_parties, my_idx) {
             let p_mul = MulStarProof::<P>::new(
                 rng,
-                &Signed::from_scalar(&x),
+                &P::signed_from_scalar(&x),
                 &rho,
                 pk,
                 &self.context.presigning.cap_k,
@@ -243,7 +242,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 .context
                 .presigning
                 .cap_k
-                .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&self.context.message)),
+                .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&self.context.message)),
         );
 
         for j in HoleRange::new(num_parties, my_idx) {
@@ -258,7 +257,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         for l in HoleRange::new(num_parties, my_idx) {
             let p_dec = DecProof::<P>::new(
                 rng,
-                &Signed::from_scalar(&s),
+                &P::signed_from_scalar(&s),
                 &rho,
                 pk,
                 &self.context.key_share.public_aux[l].rp_params,

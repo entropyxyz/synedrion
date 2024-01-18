@@ -23,13 +23,7 @@ use crate::rounds::{
 };
 use crate::tools::collections::{HoleRange, HoleVec};
 use crate::tools::hashing::{Chain, Hashable};
-use crate::uint::{Bounded, FromScalar, Signed};
-
-fn uint_from_scalar<P: SchemeParams>(
-    x: &Scalar,
-) -> <<P as SchemeParams>::Paillier as PaillierParams>::Uint {
-    <<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(x)
-}
+use crate::uint::Signed;
 
 /// Possible results of the Presigning protocol.
 #[derive(Debug, Clone, Copy)]
@@ -89,10 +83,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let nu = RandomizerMod::<P::Paillier>::random(rng, pk);
 
         let g_ciphertext =
-            Ciphertext::new_with_randomizer(pk, &uint_from_scalar::<P>(&gamma), &nu.retrieve());
+            Ciphertext::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), &nu.retrieve());
         let k_ciphertext = Ciphertext::new_with_randomizer(
             pk,
-            &uint_from_scalar::<P>(&ephemeral_scalar_share),
+            &P::uint_from_scalar(&ephemeral_scalar_share),
             &rho.retrieve(),
         );
 
@@ -193,7 +187,7 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
         let aux = (&self.context.shared_randomness, &destination);
         let proof = EncProof::new(
             rng,
-            &Signed::from_scalar(&self.context.ephemeral_scalar_share),
+            &P::signed_from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
             &self.context.key_share.secret_aux.paillier_sk,
             &self.context.key_share.public_aux[destination.as_usize()].rp_params,
@@ -376,7 +370,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r.retrieve());
 
         let d = self.k_ciphertexts[idx]
-            .homomorphic_mul(target_pk, &Signed::from_scalar(&self.context.gamma))
+            .homomorphic_mul(target_pk, &P::signed_from_scalar(&self.context.gamma))
             .homomorphic_add(
                 target_pk,
                 &Ciphertext::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve()),
@@ -385,7 +379,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let d_hat = self.k_ciphertexts[idx]
             .homomorphic_mul(
                 target_pk,
-                &Signed::from_scalar(&self.context.key_share.secret_share),
+                &P::signed_from_scalar(&self.context.key_share.secret_share),
             )
             .homomorphic_add(
                 target_pk,
@@ -398,7 +392,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
 
         let psi = AffGProof::new(
             rng,
-            &Signed::from_scalar(&self.context.gamma),
+            &P::signed_from_scalar(&self.context.gamma),
             &beta,
             &s,
             &r,
@@ -411,7 +405,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
 
         let psi_hat = AffGProof::new(
             rng,
-            &Signed::from_scalar(&self.context.key_share.secret_share),
+            &P::signed_from_scalar(&self.context.key_share.secret_share),
             &beta_hat,
             &s_hat,
             &r_hat,
@@ -424,7 +418,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
 
         let psi_hat_prime = LogStarProof::new(
             rng,
-            &Signed::from_scalar(&self.context.gamma),
+            &P::signed_from_scalar(&self.context.gamma),
             &self.context.nu,
             pk,
             &Point::GENERATOR,
@@ -526,10 +520,10 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             .assert_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
             .unwrap();
 
-        let alpha_hat = msg
-            .d_hat
-            .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk)
-            .to_scalar();
+        let alpha_hat = P::scalar_from_signed(
+            &msg.d_hat
+                .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk),
+        );
 
         Ok(Round2Payload {
             gamma: msg.gamma,
@@ -574,8 +568,8 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
 
         let big_delta = &gamma * &self.context.ephemeral_scalar_share;
 
-        let delta = Signed::from_scalar(&self.context.gamma)
-            * Signed::from_scalar(&self.context.ephemeral_scalar_share)
+        let delta = P::signed_from_scalar(&self.context.gamma)
+            * P::signed_from_scalar(&self.context.ephemeral_scalar_share)
             + dm_payloads.iter().map(|p| p.alpha).sum()
             + dm_artifacts.iter().map(|p| p.beta).sum();
 
@@ -585,7 +579,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         let product_share = self.context.key_share.secret_share
             * self.context.ephemeral_scalar_share
             + alpha_hat_sum
-            + beta_hat_sum.to_scalar();
+            + P::scalar_from_signed(&beta_hat_sum);
 
         let cap_ds = dm_payloads.map_ref(|payload| payload.cap_d.clone());
         let hat_cap_d = dm_payloads.map_ref(|payload| payload.hat_cap_d.clone());
@@ -681,7 +675,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 
         let psi_hat_pprime = LogStarProof::new(
             rng,
-            &Signed::from_scalar(&self.context.ephemeral_scalar_share),
+            &P::signed_from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
             pk,
             &self.big_gamma,
@@ -689,7 +683,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             &aux,
         );
         let message = Round3Direct {
-            delta: self.delta.to_scalar(),
+            delta: P::scalar_from_signed(&self.delta),
             big_delta: self.big_delta,
             psi_hat_pprime,
         };
@@ -762,7 +756,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             .unzip();
 
         let delta: Scalar = deltas.iter().sum();
-        let delta = delta + self.delta.to_scalar();
+        let delta = delta + P::scalar_from_signed(&self.delta);
 
         let big_delta: Point = big_deltas.iter().sum();
         let big_delta = big_delta + self.big_delta;
@@ -827,7 +821,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
-                    &Signed::from_scalar(&self.context.gamma),
+                    &P::signed_from_scalar(&self.context.gamma),
                     beta.get(j).unwrap(),
                     &s.get(j).unwrap().to_mod(target_pk),
                     &r.get(j).unwrap().to_mod(pk),
@@ -846,12 +840,12 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         let rho = RandomizerMod::random(rng, pk);
         let cap_h = self.k_ciphertexts[my_idx]
-            .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&self.context.gamma))
+            .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&self.context.gamma))
             .mul_randomizer(pk, &rho.retrieve());
 
         let p_mul = MulProof::<P>::new(
             rng,
-            &Signed::from_scalar(&self.context.ephemeral_scalar_share),
+            &P::signed_from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
             &rho,
             pk,
@@ -892,7 +886,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             );
             assert!(p_dec.verify(
                 pk,
-                &self.delta.to_scalar(),
+                &P::scalar_from_signed(&self.delta),
                 &ciphertext,
                 &self.context.key_share.public_aux[j].rp_params,
                 &aux

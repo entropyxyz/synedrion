@@ -18,8 +18,8 @@ use crate::cggmp21::{
 use crate::common::{KeyShareChange, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
-    RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+    Ciphertext, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod, RPSecret,
+    Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::{
     all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
@@ -30,13 +30,7 @@ use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::tools::random::random_bits;
 use crate::tools::serde_bytes;
-use crate::uint::{FromScalar, UintLike};
-
-fn uint_from_scalar<P: SchemeParams>(
-    x: &Scalar,
-) -> <<P as SchemeParams>::Paillier as PaillierParams>::Uint {
-    <<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(x)
-}
+use crate::uint::UintLike;
 
 /// Possible results of the KeyRefresh protocol.
 #[derive(Debug, Clone, Copy)]
@@ -528,7 +522,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 
         let x_secret = self.context.xs_secret[idx];
         let x_public = self.context.data_precomp.data.xs_public[idx];
-        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &uint_from_scalar::<P>(&x_secret));
+        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
 
         let sch_proof_x = SchProof::new(
             &self.context.sch_secrets_x[idx],
@@ -556,11 +550,8 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let sender_data = &self.datas.get(from.as_usize()).unwrap();
 
-        let x_secret = msg
-            .data2
-            .paillier_enc_x
-            .decrypt(&self.context.paillier_sk)
-            .to_scalar();
+        let x_secret =
+            P::scalar_from_uint(&msg.data2.paillier_enc_x.decrypt(&self.context.paillier_sk));
 
         if x_secret.mul_by_generator()
             != sender_data.data.xs_public[self.context.party_idx.as_usize()]

@@ -9,7 +9,7 @@ use crate::paillier::{
     SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{Bounded, Integer, NonZero, Signed};
+use crate::uint::{Bounded, Integer, Signed};
 
 const HASH_TAG: &[u8] = b"P_fac";
 
@@ -41,8 +41,7 @@ impl<P: SchemeParams> FacProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.into_wide();
 
         let pk = sk.public_key();
@@ -120,8 +119,7 @@ impl<P: SchemeParams> FacProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;

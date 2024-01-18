@@ -21,7 +21,6 @@ use crate::uint::Signed;
 use crate::{
     paillier::RandomizerMod,
     tools::collections::{HoleRange, HoleVecAccum},
-    uint::FromScalar,
 };
 
 /// The result of the KeyInit protocol.
@@ -298,13 +297,7 @@ impl<P: SchemeParams> PresigningData<P> {
         let cap_k = ephemeral_scalar_shares
             .iter()
             .enumerate()
-            .map(|(i, k)| {
-                Ciphertext::new(
-                    rng,
-                    &public_keys[i],
-                    &<<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(k),
-                )
-            })
+            .map(|(i, k)| Ciphertext::new(rng, &public_keys[i], &P::uint_from_scalar(k)))
             .collect::<Vec<_>>();
 
         let mut presigning = Vec::new();
@@ -325,7 +318,7 @@ impl<P: SchemeParams> PresigningData<P> {
                 let hat_s = RandomizerMod::random(rng, &public_keys[j]).retrieve();
 
                 let hat_cap_d = cap_k[j]
-                    .homomorphic_mul(&public_keys[j], &Signed::from_scalar(&x))
+                    .homomorphic_mul(&public_keys[j], &P::signed_from_scalar(&x))
                     .homomorphic_add(
                         &public_keys[j],
                         &Ciphertext::new_with_randomizer_signed(

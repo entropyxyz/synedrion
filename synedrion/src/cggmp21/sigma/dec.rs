@@ -10,7 +10,7 @@ use crate::paillier::{
     Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{FromScalar, NonZero, Signed};
+use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_dec";
 
@@ -40,8 +40,7 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
@@ -53,7 +52,7 @@ impl<P: SchemeParams> DecProof<P> {
         let cap_s = setup.commit(y, &mu).retrieve();
         let cap_t = setup.commit(&alpha, &nu).retrieve();
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
-        let gamma = alpha.to_scalar();
+        let gamma = P::scalar_from_signed(&alpha);
 
         let z1 = alpha + e * *y;
         let z2 = nu + e.into_wide() * mu;
@@ -85,8 +84,7 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -102,7 +100,7 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // z_1 == \gamma + e x \mod q
-        if self.z1.to_scalar() != self.gamma + e.to_scalar() * *x {
+        if P::scalar_from_signed(&self.z1) != self.gamma + P::scalar_from_signed(&e) * *x {
             return false;
         }
 
@@ -126,7 +124,7 @@ mod tests {
     use crate::paillier::{
         Ciphertext, PaillierParams, RPParamsMod, RandomizerMod, SecretKeyPaillier,
     };
-    use crate::uint::{FromScalar, Signed};
+    use crate::uint::Signed;
 
     #[test]
     fn prove_and_verify() {
@@ -143,7 +141,7 @@ mod tests {
 
         // We need something within the range -N/2..N/2 so that it doesn't wrap around.
         let y = Signed::random_bounded_bits(&mut OsRng, Paillier::PRIME_BITS - 2);
-        let x = y.to_scalar();
+        let x = Params::scalar_from_signed(&y);
 
         let rho = RandomizerMod::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho.retrieve());

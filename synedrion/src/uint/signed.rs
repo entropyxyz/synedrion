@@ -8,9 +8,8 @@ use serde::{Deserialize, Serialize};
 use super::{
     bounded::PackedBounded,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
-    Bounded, CheckedAdd, CheckedMul, FromScalar, HasWide, Integer, NonZero, UintLike, UintModLike,
+    Bounded, CheckedAdd, CheckedMul, HasWide, Integer, NonZero, UintLike, UintModLike,
 };
-use crate::curve::{Scalar, ORDER};
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound much lower than the full size of the integer,
@@ -296,17 +295,6 @@ where
             bound: bound_bits as u32 + scale.bound(),
             value: scaled_positive_result.wrapping_sub(&scaled_bound),
         }
-    }
-}
-
-impl<T: UintLike + FromScalar> FromScalar for Signed<T> {
-    fn from_scalar(value: &Scalar) -> Self {
-        const ORDER_BITS: usize = ORDER.bits_vartime();
-        Signed::new_positive(T::from_scalar(value), ORDER_BITS as u32).unwrap()
-    }
-    fn to_scalar(&self) -> Scalar {
-        let abs_value = self.abs().to_scalar();
-        Scalar::conditional_select(&abs_value, &-abs_value, self.is_negative())
     }
 }
 

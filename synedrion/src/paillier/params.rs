@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::uint::{FromScalar, HasWide, UintLike, UintModLike};
+use crate::uint::{HasWide, UintLike, UintModLike};
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
@@ -16,7 +16,6 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     type HalfUintMod: UintModLike<RawUint = Self::HalfUint>;
     /// An integer that fits the RSA modulus.
     type Uint: UintLike<ModUint = Self::UintMod>
-        + FromScalar
         + HasWide<Wide = Self::WideUint>
         + Serialize
         + for<'de> Deserialize<'de>;

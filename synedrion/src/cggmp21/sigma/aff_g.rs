@@ -10,7 +10,7 @@ use crate::paillier::{
     Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{FromScalar, NonZero, Signed};
+use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_aff_g";
 
@@ -51,8 +51,7 @@ impl<P: SchemeParams> AffGProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.into_wide();
 
         let hat_cap_n = &setup.public_key().modulus_bounded();
@@ -72,7 +71,7 @@ impl<P: SchemeParams> AffGProof<P> {
             pk0,
             &Ciphertext::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()),
         );
-        let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
+        let cap_b_x = &Point::GENERATOR * &P::scalar_from_signed(&alpha);
         let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
@@ -138,8 +137,7 @@ impl<P: SchemeParams> AffGProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -160,7 +158,9 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // g^{z_1} = B_x X^e
-        if &Point::GENERATOR * &self.z1.to_scalar() != self.cap_b_x + cap_x * &e.to_scalar() {
+        if &Point::GENERATOR * &P::scalar_from_signed(&self.z1)
+            != self.cap_b_x + cap_x * &P::scalar_from_signed(&e)
+        {
             return false;
         }
 
@@ -202,7 +202,7 @@ mod tests {
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::Point;
     use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
-    use crate::uint::{FromScalar, Signed};
+    use crate::uint::Signed;
 
     #[test]
     fn prove_and_verify() {
@@ -233,7 +233,7 @@ mod tests {
             &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho.retrieve()),
         );
         let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
-        let cap_x = &Point::GENERATOR * &x.to_scalar();
+        let cap_x = &Point::GENERATOR * &Params::scalar_from_signed(&x);
 
         let proof = AffGProof::<Params>::new(
             &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &setup, &aux,

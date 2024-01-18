@@ -9,7 +9,7 @@ use crate::paillier::{
     Randomizer, RandomizerMod, SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{NonZero, Signed};
+use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_enc";
 
@@ -38,8 +38,7 @@ impl<P: SchemeParams> EncProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let pk = sk.public_key();
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
@@ -82,8 +81,7 @@ impl<P: SchemeParams> EncProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;

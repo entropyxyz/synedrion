@@ -8,7 +8,7 @@ use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{Bounded, NonZero, Retrieve, Signed};
+use crate::uint::{Bounded, Retrieve, Signed};
 
 const HASH_TAG: &[u8] = b"P_mul";
 
@@ -38,8 +38,7 @@ impl<P: SchemeParams> MulProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let alpha_mod = pk.random_invertible_group_elem(rng);
         let r_mod = RandomizerMod::random(rng, pk);
@@ -85,8 +84,7 @@ impl<P: SchemeParams> MulProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
