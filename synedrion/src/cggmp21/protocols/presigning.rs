@@ -840,8 +840,11 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         // Mul proof
 
         let rho = RandomizerMod::random(rng, pk);
-        let cap_h = self.k_ciphertexts[my_idx]
-            .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&self.context.gamma))
+        let cap_h = self.g_ciphertexts[my_idx]
+            .homomorphic_mul_unsigned(
+                pk,
+                &P::bounded_from_scalar(&self.context.ephemeral_scalar_share),
+            )
             .mul_randomizer(pk, &rho.retrieve());
 
         let p_mul = MulProof::<P>::new(
