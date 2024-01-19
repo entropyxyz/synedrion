@@ -81,6 +81,8 @@ impl PaillierParams for PaillierProduction {
 pub trait SchemeParams: Clone + Send + PartialEq + Eq + core::fmt::Debug + 'static {
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
+    /// The order of the curve as a wide integer.
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint>;
     /// The sheme's statistical security parameter.
     const SECURITY_PARAMETER: usize; // $\kappa$
     /// The bound for secret values.
@@ -133,6 +135,26 @@ pub trait SchemeParams: Clone + Send + PartialEq + Eq + core::fmt::Debug + 'stat
         let abs_value = Self::scalar_from_uint(&value.abs());
         Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
     }
+
+    /// Converts a wide integer to the associated curve scalar type.
+    fn scalar_from_wide_uint(value: &<Self::Paillier as PaillierParams>::WideUint) -> Scalar {
+        let r = *value % Self::CURVE_ORDER_WIDE;
+
+        let repr = r.to_be_bytes();
+        let uint_len = repr.as_ref().len();
+        let scalar_len = Scalar::repr_len();
+
+        // Can unwrap here since the value is within the Scalar range
+        Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..]).unwrap()
+    }
+
+    /// Converts a `Signed`-wrapped wide integer to the associated curve scalar type.
+    fn scalar_from_wide_signed(
+        value: &Signed<<Self::Paillier as PaillierParams>::WideUint>,
+    ) -> Scalar {
+        let abs_value = Self::scalar_from_wide_uint(&value.abs());
+        Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
+    }
 }
 
 /// Scheme parameters **for testing purposes only**.
@@ -156,6 +178,8 @@ impl SchemeParams for TestParams {
     type Paillier = PaillierTest;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
         NonZero::<<Self::Paillier as PaillierParams>::Uint>::const_new(upcast_uint(ORDER)).0;
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
+        NonZero::<<Self::Paillier as PaillierParams>::WideUint>::const_new(upcast_uint(ORDER)).0;
 }
 
 /// Production strength parameters.
@@ -170,4 +194,6 @@ impl SchemeParams for ProductionParams {
     type Paillier = PaillierProduction;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
         NonZero::<<Self::Paillier as PaillierParams>::Uint>::const_new(upcast_uint(ORDER)).0;
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
+        NonZero::<<Self::Paillier as PaillierParams>::WideUint>::const_new(upcast_uint(ORDER)).0;
 }

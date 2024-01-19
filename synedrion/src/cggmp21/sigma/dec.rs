@@ -21,7 +21,7 @@ pub(crate) struct DecProof<P: SchemeParams> {
     cap_t: RPCommitment<P::Paillier>,
     cap_a: Ciphertext<P::Paillier>,
     gamma: Scalar,
-    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
+    z1: Signed<<P::Paillier as PaillierParams>::WideUint>,
     z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
     omega: Randomizer<P::Paillier>,
 }
@@ -54,7 +54,7 @@ impl<P: SchemeParams> DecProof<P> {
         let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
         let gamma = P::scalar_from_signed(&alpha);
 
-        let z1 = alpha + e * y;
+        let z1 = alpha.into_wide() + e.mul_wide(y);
         let z2 = nu + e.into_wide() * mu;
 
         let omega = (r * rho.pow_signed_vartime(&e)).retrieve();
@@ -91,7 +91,7 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // enc(z_1, \omega) == A (+) C (*) e
-        if Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.omega)
+        if Ciphertext::new_with_randomizer_wide(pk, &self.z1, &self.omega)
             != self
                 .cap_a
                 .homomorphic_add(pk, &cap_c.homomorphic_mul(pk, &e))
@@ -100,14 +100,14 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // z_1 == \gamma + e x \mod q
-        if P::scalar_from_signed(&self.z1) != self.gamma + P::scalar_from_signed(&e) * *x {
+        if P::scalar_from_wide_signed(&self.z1) != self.gamma + P::scalar_from_signed(&e) * *x {
             return false;
         }
 
         // s^{z_1} t^{z_2} == T S^e
         let cap_s_mod = self.cap_s.to_mod(setup.public_key());
         let cap_t_mod = self.cap_t.to_mod(setup.public_key());
-        if setup.commit(&self.z1, &self.z2) != &cap_t_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit_wide(&self.z1, &self.z2) != &cap_t_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
@@ -140,7 +140,7 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         // We need something within the range -N/2..N/2 so that it doesn't wrap around.
-        let y = Signed::random_bounded_bits(&mut OsRng, Paillier::PRIME_BITS - 2);
+        let y = Signed::random_bounded_bits(&mut OsRng, Paillier::PRIME_BITS * 2 - 2);
         let x = Params::scalar_from_signed(&y);
 
         let rho = RandomizerMod::random(&mut OsRng, pk);
