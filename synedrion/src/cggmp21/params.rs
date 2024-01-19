@@ -10,38 +10,48 @@ use crate::uint::{
 pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
-    // We need 257-bit primes because we need MODULUS_BITS to accommodate all the possible
-    // values of curve scalar squared, which is 512 bits.
-
     /*
     The prime size is chosen to be minimal for which the `TestSchemeParams` still work.
     In the presigning, we are effectively constructing a ciphertext of
+
         d = x * sum(j=1..P) y_i + sum(j=1..2*(P-1)) z_j
+
     where
+
         0 < x, y_i < q < 2^L, and
         -2^LP < z < 2^LP
+
     (`q` is the curve order, `L` and `LP` are constants in `TestSchemeParams`,
     `P` is the number of parties).
-    This is `delta_i`, an additive share of the product of two secret values.
+    This is `delta_i` or `chi_i`.
+
+    During signing `chi_i` gets additionally multiplied by `r` (nonce, a scalar).
 
     We need the final result to be `-N/2 < d < N/2`
-    (that is, it may be negative, and it cannot wrap around modulo N).
+    (that is, it may be negative, and it cannot wrap around modulo N),
+    so that it could fit in a Paillier ciphertext without wrapping around.
+    This is needed for ZK proofs to work.
 
     `N` is a product of two primes of the size `PRIME_BITS`, so `N > 2^(2 * PRIME_BITS - 2)`.
-    The upper bound on `log2(d)` is
-        max(2 * L, LP + 2) + ceil(log2(P))
+    The upper bound on `log2(d * r)` is
+
+        max(2 * L, LP + 2) + ceil(log2(CURVE_ORDER)) + ceil(log2(P))
 
     (note that in reality, due to numbers being random, the distribution will have a distinct peak,
     and the upper bound will have a low probability of being reached)
 
-    Therefore we require `max(2 * L, LP + 2) + ceil(log2(P)) < 2 * PRIME_BITS - 2`.
-    For tests we assume `ceil(log2(P)) = 5` (we won't run tests with more than 32 nodes),
-    and since in `TestSchemeParams` `L = LP = 256`, this leads to `PRIME_BITS >= L + 4`.
+    Therefore we require
 
-    For production it does not matter since both 2*L and LP are much smaller than 2*PRIME_BITS.
+        max(2 * L, LP + 2) + ceil(log2(CURVE_ORDER)) + ceil(log2(P)) < 2 * PRIME_BITS - 2`
+
+    For tests we assume `ceil(log2(P)) = 5` (we won't run tests with more than 32 nodes),
+    and since in `TestSchemeParams` `L = LP = 256`, this leads to `PRIME_BITS >= 397`.
+
+    For production it does not matter since 2*L, LP, and log2(CURVE_ORDER)
+    are much smaller than 2*PRIME_BITS.
     */
 
-    const PRIME_BITS: usize = 260;
+    const PRIME_BITS: usize = 397;
     type HalfUint = U512;
     type HalfUintMod = U512Mod;
     type Uint = U1024;
