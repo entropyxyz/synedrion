@@ -192,10 +192,21 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                     &self.context.presigning.hat_r.get(j).unwrap().to_mod(pk),
                     target_pk,
                     pk,
-                    &self.context.presigning.cap_k,
+                    &self.context.presigning.cap_k[j],
                     rp,
                     &aux,
                 );
+
+                assert!(p_aff_g.verify(
+                    target_pk,
+                    pk,
+                    &self.context.presigning.cap_k[j],
+                    self.context.presigning.hat_cap_d.get(j).unwrap(),
+                    self.context.presigning.hat_cap_f.get(j).unwrap(),
+                    &self.context.key_share.public_shares[my_idx],
+                    rp,
+                    &aux,
+                ));
 
                 aff_g_proofs.push((PartyIdx::from_usize(j), PartyIdx::from_usize(l), p_aff_g));
             }
@@ -206,10 +217,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let x = self.context.key_share.secret_share;
 
         let rho = RandomizerMod::random(rng, pk);
-        let hat_cap_h = self
-            .context
-            .presigning
-            .cap_k
+        let hat_cap_h = self.context.presigning.cap_k[my_idx]
             .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&x))
             .mul_randomizer(pk, &rho.retrieve());
 
@@ -226,7 +234,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 &P::signed_from_scalar(&x),
                 &rho,
                 pk,
-                &self.context.presigning.cap_k,
+                &self.context.presigning.cap_k[my_idx],
                 &self.context.key_share.public_aux[l].rp_params,
                 &aux,
             );
@@ -238,16 +246,16 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let mut ciphertext = hat_cap_h.homomorphic_add(
             pk,
-            &self
-                .context
-                .presigning
-                .cap_k
+            &self.context.presigning.cap_k[my_idx]
                 .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&self.context.message)),
         );
 
         for j in HoleRange::new(num_parties, my_idx) {
             ciphertext = ciphertext
-                .homomorphic_add(pk, self.context.presigning.hat_cap_d.get(j).unwrap())
+                .homomorphic_add(
+                    pk,
+                    self.context.presigning.hat_cap_d_received.get(j).unwrap(),
+                )
                 .homomorphic_add(pk, self.context.presigning.hat_cap_f.get(j).unwrap());
         }
 

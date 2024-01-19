@@ -300,7 +300,9 @@ pub struct Round2Artifact<P: SchemeParams> {
     s: Randomizer<P::Paillier>,                          // TODO (#77): secret
     hat_r: Randomizer<P::Paillier>,                      // TODO (#77): secret
     hat_s: Randomizer<P::Paillier>,                      // TODO (#77): secret
+    cap_d: Ciphertext<P::Paillier>,
     cap_f: Ciphertext<P::Paillier>,
+    hat_cap_d: Ciphertext<P::Paillier>,
     hat_cap_f: Ciphertext<P::Paillier>,
 }
 
@@ -428,9 +430,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
 
         let msg = Round2Direct {
             gamma,
-            d,
+            d: d.clone(),
             f: cap_f.clone(),
-            d_hat,
+            d_hat: d_hat.clone(),
             f_hat: f_hat.clone(),
             psi,
             psi_hat,
@@ -444,7 +446,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             s: s.retrieve(),
             hat_r: r_hat.retrieve(),
             hat_s: s_hat.retrieve(),
+            cap_d: d,
             cap_f,
+            hat_cap_d: d_hat,
             hat_cap_f: f_hat,
         };
 
@@ -775,6 +779,9 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             let hat_s = self
                 .round2_artifacts
                 .map_ref(|artifact| artifact.hat_s.clone());
+            let hat_cap_d = self
+                .round2_artifacts
+                .map_ref(|artifact| artifact.hat_cap_d.clone());
             let hat_cap_f = self
                 .round2_artifacts
                 .map_ref(|artifact| artifact.hat_cap_f.clone());
@@ -787,8 +794,9 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 hat_beta,
                 hat_r,
                 hat_s,
-                cap_k: self.k_ciphertexts[my_idx].clone(),
-                hat_cap_d: self.hat_cap_d,
+                cap_k: self.k_ciphertexts.into_boxed_slice(),
+                hat_cap_d_received: self.hat_cap_d,
+                hat_cap_d,
                 hat_cap_f,
             });
         }
@@ -812,7 +820,11 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         let r = self.round2_artifacts.map_ref(|artifact| artifact.r.clone());
         let s = self.round2_artifacts.map_ref(|artifact| artifact.s.clone());
 
+        let cap_gamma = self.context.gamma.mul_by_generator();
+
         for j in HoleRange::new(num_parties, my_idx) {
+            let r2_artefacts = self.round2_artifacts.get(j).unwrap();
+
             for l in HoleRange::new(num_parties, my_idx) {
                 if l == j {
                     continue;
@@ -832,6 +844,17 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                     rp,
                     &aux,
                 );
+
+                assert!(p_aff_g.verify(
+                    target_pk,
+                    pk,
+                    &self.k_ciphertexts[j],
+                    &r2_artefacts.cap_d,
+                    &r2_artefacts.cap_f,
+                    &cap_gamma,
+                    rp,
+                    &aux,
+                ));
 
                 aff_g_proofs.push((PartyIdx::from_usize(j), PartyIdx::from_usize(l), p_aff_g));
             }

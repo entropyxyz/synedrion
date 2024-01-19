@@ -111,9 +111,9 @@ pub struct KeyShareChange<P: SchemeParams> {
 #[derive(Debug, Clone)]
 pub struct PresigningData<P: SchemeParams> {
     // TODO (#79): can we store nonce as a scalar?
-    pub(crate) nonce: Point, // `R`
-    /// An additive share of the ephemeral scalar `k`.
-    pub(crate) ephemeral_scalar_share: Scalar, // `k_i`
+    pub(crate) nonce: Point, // $R$
+    /// An additive share of the ephemeral scalar.
+    pub(crate) ephemeral_scalar_share: Scalar, // $k_i$
     /// An additive share of `k * x` where `x` is the secret key.
     pub(crate) product_share: Scalar,
     // Values generated during presigning,
@@ -121,7 +121,10 @@ pub struct PresigningData<P: SchemeParams> {
     pub(crate) hat_beta: HoleVec<Signed<<P::Paillier as PaillierParams>::Uint>>,
     pub(crate) hat_r: HoleVec<Randomizer<P::Paillier>>,
     pub(crate) hat_s: HoleVec<Randomizer<P::Paillier>>,
-    pub(crate) cap_k: Ciphertext<P::Paillier>,
+    pub(crate) cap_k: Box<[Ciphertext<P::Paillier>]>,
+    /// Received $\hat{D}$, that is $\hat{D}_{i,j}$, $j != i$, where $i$ is this party's index.
+    pub(crate) hat_cap_d_received: HoleVec<Ciphertext<P::Paillier>>,
+    /// Sent $\hat{D}$, that is $\hat{D}_{j,i}$, $j != i$, where $i$ is this party's index.
     pub(crate) hat_cap_d: HoleVec<Ciphertext<P::Paillier>>,
     pub(crate) hat_cap_f: HoleVec<Ciphertext<P::Paillier>>,
 }
@@ -328,7 +331,7 @@ impl<P: SchemeParams> PresigningData<P> {
                         ),
                     );
                 let hat_cap_f =
-                    Ciphertext::new_with_randomizer_signed(&public_keys[j], &hat_beta, &hat_r);
+                    Ciphertext::new_with_randomizer_signed(&public_keys[i], &hat_beta, &hat_r);
 
                 hat_beta_vec.insert(j, hat_beta);
                 hat_r_vec.insert(j, hat_r);
@@ -337,6 +340,8 @@ impl<P: SchemeParams> PresigningData<P> {
                 hat_cap_f_vec.insert(j, hat_cap_f);
             }
 
+            let hat_cap_d = hat_cap_d_vec.finalize().unwrap();
+
             presigning.push(PresigningData {
                 nonce,
                 ephemeral_scalar_share: k,
@@ -344,10 +349,21 @@ impl<P: SchemeParams> PresigningData<P> {
                 hat_beta: hat_beta_vec.finalize().unwrap(),
                 hat_r: hat_r_vec.finalize().unwrap(),
                 hat_s: hat_s_vec.finalize().unwrap(),
-                hat_cap_d: hat_cap_d_vec.finalize().unwrap(),
+                // Temporarily fill the field with invalid data
+                // because we need all node data to be created first
+                hat_cap_d_received: hat_cap_d.clone(),
+                hat_cap_d,
                 hat_cap_f: hat_cap_f_vec.finalize().unwrap(),
-                cap_k: cap_k[i].clone(),
+                cap_k: cap_k.clone().into_boxed_slice(),
             });
+        }
+
+        for i in 0..key_shares.len() {
+            let mut hat_cap_d_vec = HoleVecAccum::new(num_parties, i);
+            for j in HoleRange::new(num_parties, i) {
+                hat_cap_d_vec.insert(j, presigning[j].hat_cap_d.get(i).unwrap().clone());
+            }
+            presigning[i].hat_cap_d_received = hat_cap_d_vec.finalize().unwrap();
         }
 
         presigning.into()
