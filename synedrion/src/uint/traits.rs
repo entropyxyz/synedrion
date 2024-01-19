@@ -187,6 +187,7 @@ pub trait UintModLike:
     + for<'a> Mul<&'a Self, Output = Self>
     + subtle::ConditionallyNegatable
     + subtle::ConditionallySelectable
+    + Hashable
 {
     /// The corresponding regular integer type.
     type RawUint: UintLike<ModUint = Self>;
@@ -282,6 +283,19 @@ pub trait UintModLike:
         result
     }
     fn square(&self) -> Self;
+}
+
+impl<const L: usize> Hashable for DynResidue<L> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        let mut digest = digest;
+        // Montgomery form is a bijection, so we can just hash it directly
+        // without converting back.
+        let montgomery_form = self.as_montgomery();
+        for word in montgomery_form.as_words() {
+            digest = digest.chain(word);
+        }
+        digest
+    }
 }
 
 impl<const L: usize> UintModLike for DynResidue<L>

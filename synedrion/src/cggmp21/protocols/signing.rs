@@ -193,6 +193,9 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                     target_pk,
                     pk,
                     &self.context.presigning.cap_k[j],
+                    self.context.presigning.hat_cap_d.get(j).unwrap(),
+                    self.context.presigning.hat_cap_f.get(j).unwrap(),
+                    &self.context.key_share.public_shares[my_idx],
                     rp,
                     &aux,
                 );

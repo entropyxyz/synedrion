@@ -401,6 +401,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             target_pk,
             pk,
             &self.k_ciphertexts[idx],
+            &d,
+            &cap_f,
+            &gamma,
             rp,
             &aux,
         );
@@ -414,6 +417,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             target_pk,
             pk,
             &self.k_ciphertexts[idx],
+            &d_hat,
+            &f_hat,
+            &self.context.key_share.public_shares[self.party_idx().as_usize()],
             rp,
             &aux,
         );
@@ -841,6 +847,9 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                     target_pk,
                     pk,
                     &self.k_ciphertexts[j],
+                    &r2_artefacts.cap_d,
+                    &r2_artefacts.cap_f,
+                    &cap_gamma,
                     rp,
                     &aux,
                 );

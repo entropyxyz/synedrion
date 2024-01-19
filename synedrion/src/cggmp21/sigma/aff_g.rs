@@ -43,10 +43,25 @@ impl<P: SchemeParams> AffGProof<P> {
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_1$
         cap_c: &Ciphertext<P::Paillier>,  // a ciphertext encrypted with `pk0`
+        // NOTE: deviation from the paper here.
+        // The proof in the paper assumes $D = C (*) x (+) enc_0(y, \rho)$.
+        // But the way it is used in the Presigning, $D$ will actually be $... (+) enc_0(-y, \rho)$.
+        // So we have to negate several variables when constructing the proof
+        // for the whole thing to work.
+        cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x (+) enc_0(-y, \rho)$
+        cap_y: &Ciphertext<P::Paillier>, // $Y = enc_1(y, \rho_y)$
+        cap_x: &Point,                   // $X = g * x$, where $g$ is the curve generator
         setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk0)
+            .chain(pk1)
+            .chain(cap_c)
+            .chain(cap_d)
+            .chain(cap_y)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -121,18 +136,20 @@ impl<P: SchemeParams> AffGProof<P> {
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
         cap_c: &Ciphertext<P::Paillier>,
-        // NOTE: deviation from the paper here.
-        // The proof in the paper assumes $D = C (*) x (+) enc_0(y, \rho)$.
-        // But the way it is used in the Presigning, $D$ will actually be $... (+) enc_0(-y, \rho)$.
-        // So we have to negate several variables when constructing the proof
-        // for the whole thing to work.
-        cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x (+) enc_0(-y, \rho)$
-        cap_y: &Ciphertext<P::Paillier>, // $Y = enc_1(y, \rho_y)$
-        cap_x: &Point,                   // $X = g * x$, where $g$ is the curve generator
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        cap_d: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk0)
+            .chain(pk1)
+            .chain(cap_c)
+            .chain(cap_d)
+            .chain(cap_y)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -236,7 +253,8 @@ mod tests {
         let cap_x = Point::GENERATOR * Params::scalar_from_signed(&x);
 
         let proof = AffGProof::<Params>::new(
-            &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &setup, &aux,
+            &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup,
+            &aux,
         );
         assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux));
     }

@@ -133,6 +133,12 @@ impl<P: PaillierParams> Hashable for RPParams<P> {
     }
 }
 
+impl<P: PaillierParams> Hashable for RPParamsMod<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.pk).chain(&self.base).chain(&self.power)
+    }
+}
+
 #[derive(PartialEq, Eq)]
 pub(crate) struct RPCommitmentMod<P: PaillierParams>(P::UintMod);
 
