@@ -27,15 +27,22 @@ pub(crate) struct DecProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> DecProof<P> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
         rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
+        x: &Scalar,                       // $x = y \mod q$
+        cap_c: &Ciphertext<P::Paillier>,  // $C = enc(y, \rho)$
         setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(x)
+            .chain(cap_c)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -80,6 +87,10 @@ impl<P: SchemeParams> DecProof<P> {
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(x)
+            .chain(cap_c)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -146,7 +157,7 @@ mod tests {
         let rho = RandomizerMod::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho.retrieve());
 
-        let proof = DecProof::<Params>::new(&mut OsRng, &y, &rho, pk, &setup, &aux);
+        let proof = DecProof::<Params>::new(&mut OsRng, &y, &rho, pk, &x, &cap_c, &setup, &aux);
         assert!(proof.verify(pk, &x, &cap_c, &setup, &aux));
     }
 }

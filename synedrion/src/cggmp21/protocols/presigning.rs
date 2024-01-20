@@ -920,6 +920,8 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 &self.delta,
                 &rho,
                 pk,
+                &delta_i,
+                &ciphertext,
                 &self.context.key_share.public_aux[j].rp_params,
                 &aux,
             );

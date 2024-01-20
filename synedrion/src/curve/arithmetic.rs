@@ -153,6 +153,12 @@ impl<'de> Deserialize<'de> for Scalar {
     }
 }
 
+impl Hashable for Scalar {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(&self.to_bytes().as_slice())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point(BackendPoint);
 
@@ -214,7 +220,7 @@ impl Hashable for Point {
     fn chain<C: Chain>(&self, digest: C) -> C {
         let arr = self.to_compressed_array();
         let arr_ref: &[u8] = arr.as_ref();
-        digest.chain(&arr_ref)
+        digest.chain_constant_sized_bytes(&arr_ref)
     }
 }
 

@@ -282,6 +282,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 &s_part_nonreduced,
                 &rho,
                 pk,
+                &self.s_part,
+                &ciphertext,
                 &self.context.key_share.public_aux[l].rp_params,
                 &aux,
             );
