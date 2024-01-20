@@ -44,7 +44,7 @@ impl Hashable for SchCommitment {
 struct SchChallenge(Scalar);
 
 impl SchChallenge {
-    fn new(aux: &impl Hashable, public: &Point, commitment: &SchCommitment) -> Self {
+    fn new(public: &Point, commitment: &SchCommitment, aux: &impl Hashable) -> Self {
         Self(
             Hash::new_with_dst(HASH_TAG)
                 .chain(aux)
@@ -71,14 +71,14 @@ impl SchProof {
         public: &Point,
         aux: &impl Hashable,
     ) -> Self {
-        let challenge = SchChallenge::new(aux, public, commitment);
+        let challenge = SchChallenge::new(public, commitment, aux);
         let proof = proof_secret.0 + &challenge.0 * secret;
         Self { challenge, proof }
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given `public`.
     pub fn verify(&self, commitment: &SchCommitment, public: &Point, aux: &impl Hashable) -> bool {
-        let challenge = SchChallenge::new(aux, public, commitment);
+        let challenge = SchChallenge::new(public, commitment, aux);
         challenge == self.challenge
             && self.proof.mul_by_generator() == commitment.0 + public * &challenge.0
     }
