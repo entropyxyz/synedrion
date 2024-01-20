@@ -247,12 +247,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         // dec proofs
 
-        let mut ciphertext = hat_cap_h.homomorphic_add(
-            pk,
-            &self.context.presigning.cap_k[my_idx]
-                .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&self.context.message)),
-        );
-
+        let mut ciphertext = hat_cap_h.clone();
         for j in HoleRange::new(num_parties, my_idx) {
             ciphertext = ciphertext
                 .homomorphic_add(
@@ -262,18 +257,41 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 .homomorphic_add(pk, self.context.presigning.hat_cap_f.get(j).unwrap());
         }
 
+        let r = self.context.presigning.nonce.x_coordinate();
+
+        let ciphertext = ciphertext
+            .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&r))
+            .homomorphic_add(
+                pk,
+                &self.context.presigning.cap_k[my_idx]
+                    .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&self.context.message)),
+            );
+
         let rho = ciphertext.derive_randomizer(sk);
+        // This is the same as `s_part` but if all the calculations were performed
+        // without reducing modulo curve order.
+        let s_part_nonreduced =
+            P::signed_from_scalar(&self.context.presigning.ephemeral_scalar_share)
+                * P::signed_from_scalar(&self.context.message)
+                + self.context.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
 
         let mut dec_proofs = Vec::new();
         for l in HoleRange::new(num_parties, my_idx) {
             let p_dec = DecProof::<P>::new(
                 rng,
-                &P::signed_from_scalar(&s),
+                &s_part_nonreduced,
                 &rho,
                 pk,
                 &self.context.key_share.public_aux[l].rp_params,
                 &aux,
             );
+            assert!(p_dec.verify(
+                pk,
+                &self.s_part,
+                &ciphertext,
+                &self.context.key_share.public_aux[l].rp_params,
+                &aux,
+            ));
             dec_proofs.push((PartyIdx::from_usize(l), p_dec));
         }
 

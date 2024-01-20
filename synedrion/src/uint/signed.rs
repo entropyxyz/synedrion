@@ -359,6 +359,13 @@ impl<T: UintLike> Sub<Signed<T>> for Signed<T> {
     }
 }
 
+impl<T: UintLike> Sub<&Signed<T>> for Signed<T> {
+    type Output = Self;
+    fn sub(self, rhs: &Self) -> Self::Output {
+        self.checked_add(&-rhs).unwrap()
+    }
+}
+
 impl<T: UintLike> Mul<Signed<T>> for Signed<T> {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {

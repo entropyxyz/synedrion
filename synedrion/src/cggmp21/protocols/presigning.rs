@@ -309,7 +309,7 @@ pub struct Round2Artifact<P: SchemeParams> {
 pub struct Round2Payload<P: SchemeParams> {
     gamma: Point,
     alpha: Signed<<P::Paillier as PaillierParams>::Uint>,
-    alpha_hat: Scalar,
+    alpha_hat: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_d: Ciphertext<P::Paillier>,
     hat_cap_d: Ciphertext<P::Paillier>,
 }
@@ -522,6 +522,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let alpha = msg
             .d
             .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
+        let alpha_hat = msg
+            .d_hat
+            .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
 
         // `alpha == x * y + z` where `0 <= x, y < q`, and `-2^l' <= z <= 2^l'`,
         // where `q` is the curve order.
@@ -529,11 +532,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let alpha = alpha
             .assert_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
             .unwrap();
-
-        let alpha_hat = P::scalar_from_signed(
-            &msg.d_hat
-                .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk),
-        );
+        let alpha_hat = alpha_hat
+            .assert_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
+            .unwrap();
 
         Ok(Round2Payload {
             gamma: msg.gamma,
@@ -585,12 +586,12 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
             + alpha_sum
             + beta_sum;
 
-        let alpha_hat_sum: Scalar = dm_payloads.iter().map(|payload| payload.alpha_hat).sum();
+        let alpha_hat_sum: Signed<_> = dm_payloads.iter().map(|payload| payload.alpha_hat).sum();
         let beta_hat_sum: Signed<_> = dm_artifacts.iter().map(|artifact| artifact.beta_hat).sum();
-        let product_share = self.context.key_share.secret_share
-            * self.context.ephemeral_scalar_share
+        let product_share = P::signed_from_scalar(&self.context.key_share.secret_share)
+            * P::signed_from_scalar(&self.context.ephemeral_scalar_share)
             + alpha_hat_sum
-            + P::scalar_from_signed(&beta_hat_sum);
+            + beta_hat_sum;
 
         let cap_ds = dm_payloads.map_ref(|payload| payload.cap_d.clone());
         let hat_cap_d = dm_payloads.map_ref(|payload| payload.hat_cap_d.clone());
@@ -622,7 +623,7 @@ pub struct Round3Direct<P: SchemeParams> {
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
     delta: Signed<<P::Paillier as PaillierParams>::Uint>,
-    product_share: Scalar,
+    product_share: Signed<<P::Paillier as PaillierParams>::Uint>,
     big_delta: Point,
     big_gamma: Point,
     k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
@@ -767,7 +768,8 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             .unzip();
 
         let delta: Scalar = deltas.iter().sum();
-        let delta = delta + P::scalar_from_signed(&self.delta);
+        let delta_i = P::scalar_from_signed(&self.delta);
+        let delta = delta + delta_i;
 
         let big_delta: Point = big_deltas.iter().sum();
         let big_delta = big_delta + self.big_delta;
@@ -795,8 +797,9 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             return Ok(PresigningData {
                 nonce,
                 ephemeral_scalar_share: self.context.ephemeral_scalar_share,
-                product_share: self.product_share,
+                product_share: P::scalar_from_signed(&self.product_share),
 
+                product_share_nonreduced: self.product_share,
                 hat_beta,
                 hat_r,
                 hat_s,
@@ -922,7 +925,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             );
             assert!(p_dec.verify(
                 pk,
-                &P::scalar_from_signed(&self.delta),
+                &delta_i,
                 &ciphertext,
                 &self.context.key_share.public_aux[j].rp_params,
                 &aux
@@ -945,7 +948,7 @@ mod tests {
     use super::Round1;
     use crate::cggmp21::TestParams;
     use crate::common::KeyShare;
-    use crate::curve::{Point, Scalar};
+    use crate::curve::Scalar;
     use crate::rounds::{
         test_utils::{step_next_round, step_result, step_round},
         FirstRound, PartyIdx,
@@ -991,7 +994,7 @@ mod tests {
         let x: Scalar = key_shares.iter().map(|share| share.secret_share).sum();
         assert_eq!(x * k, k_times_x);
         assert_eq!(
-            Point::GENERATOR * k.invert().unwrap(),
+            k.invert().unwrap().mul_by_generator(),
             presigning_datas[0].nonce
         );
     }
