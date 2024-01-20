@@ -34,6 +34,8 @@ impl<P: SchemeParams> MulStarProof<P> {
         rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
         cap_c: &Ciphertext<P::Paillier>,  // $C$, a ciphertext encrypted with `pk`
+        cap_d: &Ciphertext<P::Paillier>,  // $D = C (*) x * \rho^{N_0} \mod N_0^2$
+        cap_x: &Point,                    // $X = g * x$, where `g` is the curve generator
         setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
@@ -45,6 +47,11 @@ impl<P: SchemeParams> MulStarProof<P> {
         */
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_c)
+            .chain(cap_d)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -93,6 +100,11 @@ impl<P: SchemeParams> MulStarProof<P> {
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_c)
+            .chain(cap_d)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -166,7 +178,9 @@ mod tests {
             .mul_randomizer(pk, &rho.retrieve());
         let cap_x = Point::GENERATOR * Params::scalar_from_signed(&x);
 
-        let proof = MulStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &setup, &aux);
+        let proof = MulStarProof::<Params>::new(
+            &mut OsRng, &x, &rho, pk, &cap_c, &cap_d, &cap_x, &setup, &aux,
+        );
         assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &setup, &aux));
     }
 }

@@ -218,6 +218,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         // mul* proofs
 
         let x = self.context.key_share.secret_share;
+        let cap_x = self.context.key_share.public_shares[self.party_idx().as_usize()];
 
         let rho = RandomizerMod::random(rng, pk);
         let hat_cap_h = self.context.presigning.cap_k[my_idx]
@@ -238,9 +239,20 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 &rho,
                 pk,
                 &self.context.presigning.cap_k[my_idx],
+                &hat_cap_h,
+                &cap_x,
                 &self.context.key_share.public_aux[l].rp_params,
                 &aux,
             );
+
+            assert!(p_mul.verify(
+                pk,
+                &self.context.presigning.cap_k[my_idx],
+                &hat_cap_h,
+                &cap_x,
+                &self.context.key_share.public_aux[l].rp_params,
+                &aux,
+            ));
 
             mul_star_proofs.push((PartyIdx::from_usize(l), p_mul));
         }
