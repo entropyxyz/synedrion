@@ -14,6 +14,20 @@ use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_mul*";
 
+/**
+ZK proof: Multiplication Paillier vs Group.
+
+Secret inputs:
+- $x \in +- 2^\ell$,
+- $\rho$, a Paillier randomizer for the public key $N_0$.
+
+Public inputs:
+- Paillier public key $N_0$,
+- Paillier ciphertext $C$ encrypted with $N_0$,
+- Paillier ciphertext $D = (C (*) x) * \rho^{N_0} \mod N_0^2$,
+- Point $X = g * x$, where $g$ is the curve generator,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
@@ -30,13 +44,13 @@ impl<P: SchemeParams> MulStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
-        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
-        cap_c: &Ciphertext<P::Paillier>,  // $C$, a ciphertext encrypted with `pk`
-        cap_d: &Ciphertext<P::Paillier>,  // $D = C (*) x * \rho^{N_0} \mod N_0^2$
-        cap_x: &Point,                    // $X = g * x$, where `g` is the curve generator
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        rho: &RandomizerMod<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        cap_d: &Ciphertext<P::Paillier>,
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         /*
@@ -47,7 +61,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         */
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(cap_c)
             .chain(cap_d)
             .chain(cap_x)
@@ -60,14 +74,14 @@ impl<P: SchemeParams> MulStarProof<P> {
 
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
-        let r = RandomizerMod::random(rng, pk);
+        let r = RandomizerMod::random(rng, pk0);
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         let cap_a = cap_c
-            .homomorphic_mul(pk, &alpha)
-            .mul_randomizer(pk, &r.retrieve());
+            .homomorphic_mul(pk0, &alpha)
+            .mul_randomizer(pk0, &r.retrieve());
         let cap_b_x = Point::GENERATOR * P::scalar_from_signed(&alpha);
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
@@ -92,15 +106,15 @@ impl<P: SchemeParams> MulStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>, // $C$, a ciphertext encrypted with `pk`
-        cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x * \rho^{N_0} \mod N_0^2$
-        cap_x: &Point,                   // $X = g * x$, where `g` is the curve generator
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        cap_d: &Ciphertext<P::Paillier>,
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(cap_c)
             .chain(cap_d)
             .chain(cap_x)
@@ -119,11 +133,11 @@ impl<P: SchemeParams> MulStarProof<P> {
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
         if cap_c
-            .homomorphic_mul(pk, &self.z1)
-            .mul_randomizer(pk, &self.omega)
+            .homomorphic_mul(pk0, &self.z1)
+            .mul_randomizer(pk0, &self.omega)
             != self
                 .cap_a
-                .homomorphic_add(pk, &cap_d.homomorphic_mul(pk, &e))
+                .homomorphic_add(pk0, &cap_d.homomorphic_mul(pk0, &e))
         {
             return false;
         }

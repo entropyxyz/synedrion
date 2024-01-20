@@ -14,6 +14,20 @@ use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_dec";
 
+/**
+ZK proof: Paillier decryption modulo $q$.
+
+Secret inputs:
+- $y$ (technically any integer since it will be implicitly reduced modulo $q$ or $\phi(N_0)$,
+  but we limit its size to `Uint` since that's what we use in this library),
+- $\rho$, a Paillier randomizer for the public key $N_0$.
+
+Public inputs:
+- Paillier public key $N_0$,
+- scalar $x = y \mod q$, where $q$ is the curve order,
+- Paillier ciphertext $C = enc_0(y, \rho)$,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
@@ -31,15 +45,15 @@ impl<P: SchemeParams> DecProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
-        x: &Scalar,                       // $x = y \mod q$
-        cap_c: &Ciphertext<P::Paillier>,  // $C = enc(y, \rho)$
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        rho: &RandomizerMod<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        x: &Scalar,
+        cap_c: &Ciphertext<P::Paillier>,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(x)
             .chain(cap_c)
             .chain(setup)
@@ -54,11 +68,11 @@ impl<P: SchemeParams> DecProof<P> {
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let r = RandomizerMod::random(rng, pk);
+        let r = RandomizerMod::random(rng, pk0);
 
         let cap_s = setup.commit(y, &mu).retrieve();
         let cap_t = setup.commit(&alpha, &nu).retrieve();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
+        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
         let gamma = P::scalar_from_signed(&alpha);
 
         let z1 = alpha.into_wide() + e.mul_wide(y);
@@ -80,14 +94,14 @@ impl<P: SchemeParams> DecProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
-        x: &Scalar,                                     // $x = y \mod q$
-        cap_c: &Ciphertext<P::Paillier>,                // $C = enc(y, \rho)$
-        setup: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        x: &Scalar,
+        cap_c: &Ciphertext<P::Paillier>,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(x)
             .chain(cap_c)
             .chain(setup)
@@ -102,10 +116,10 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // enc(z_1, \omega) == A (+) C (*) e
-        if Ciphertext::new_with_randomizer_wide(pk, &self.z1, &self.omega)
+        if Ciphertext::new_with_randomizer_wide(pk0, &self.z1, &self.omega)
             != self
                 .cap_a
-                .homomorphic_add(pk, &cap_c.homomorphic_mul(pk, &e))
+                .homomorphic_add(pk0, &cap_c.homomorphic_mul(pk0, &e))
         {
             return false;
         }

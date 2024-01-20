@@ -91,6 +91,16 @@ impl Hashable for PrmChallenge {
     }
 }
 
+/**
+ZK proof: Ring-Pedersen parameters.
+
+Secret inputs:
+- integer $\lambda$,
+- (not explicitly mentioned in the paper, but necessary to calculate the totient) primes $p$, $q$.
+
+Public inputs:
+- Setup parameters $N$, $s$, $t$ such that $N = p q$, and $s = t^\lambda \mod N$.
+*/
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "PrmCommitment<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmCommitment<P>: for<'x> Deserialize<'x>"))]
@@ -106,7 +116,7 @@ impl<P: SchemeParams> PrmProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        setup_secret: &RPSecret<P::Paillier>,
+        lambda: &RPSecret<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
@@ -120,7 +130,7 @@ impl<P: SchemeParams> PrmProof<P> {
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| {
-                let x = a.add_mod(setup_secret.as_ref(), &totient);
+                let x = a.add_mod(lambda.as_ref(), &totient);
                 let choice = Choice::from(*e as u8);
                 Bounded::conditional_select(a, &x, choice)
             })
@@ -177,12 +187,12 @@ mod tests {
         let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk = sk.public_key();
 
-        let setup_secret = RPSecret::random(&mut OsRng, &sk);
-        let setup = RPParamsMod::random_with_secret(&mut OsRng, &setup_secret, pk);
+        let lambda = RPSecret::random(&mut OsRng, &sk);
+        let setup = RPParamsMod::random_with_secret(&mut OsRng, &lambda, pk);
 
         let aux: &[u8] = b"abcde";
 
-        let proof = PrmProof::<Params>::new(&mut OsRng, &sk, &setup_secret, &setup, &aux);
+        let proof = PrmProof::<Params>::new(&mut OsRng, &sk, &lambda, &setup, &aux);
         assert!(proof.verify(&setup, &aux));
     }
 }

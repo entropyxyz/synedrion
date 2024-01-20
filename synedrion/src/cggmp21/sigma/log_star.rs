@@ -14,6 +14,20 @@ use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_log*";
 
+/**
+ZK proof: Knowledge of Exponent vs Paillier Encryption.
+
+Secret inputs:
+- $x \in \pm 2^\ell$,
+- $\rho$, a Paillier randomizer for the public key $N_0$.
+
+Public inputs:
+- Paillier public key $N_0$,
+- Paillier ciphertext $C = enc_0(x, \rho)$,
+- Point $g$,
+- Point $X = g * x$,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
@@ -30,17 +44,17 @@ impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
-        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
-        cap_c: &Ciphertext<P::Paillier>,  // $C = encrypt(x, \rho)$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        rho: &RandomizerMod<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
         g: &Point,
-        cap_x: &Point,                    // $X = g^x$
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(cap_c)
             .chain(g)
             .chain(cap_x)
@@ -55,11 +69,11 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-        let r = RandomizerMod::random(rng, pk);
+        let r = RandomizerMod::random(rng, pk0);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(x, &mu).retrieve();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
+        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
         let cap_y = g * &P::scalar_from_signed(&alpha);
         let cap_d = setup.commit(&alpha, &gamma).retrieve();
 
@@ -82,7 +96,7 @@ impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         cap_c: &Ciphertext<P::Paillier>,
         g: &Point,
         cap_x: &Point,
@@ -90,7 +104,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(cap_c)
             .chain(g)
             .chain(cap_x)
@@ -106,10 +120,10 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) C (*) e
-        let c = Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.z2);
+        let c = Ciphertext::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self
             .cap_a
-            .homomorphic_add(pk, &cap_c.homomorphic_mul(pk, &e))
+            .homomorphic_add(pk0, &cap_c.homomorphic_mul(pk0, &e))
         {
             return false;
         }

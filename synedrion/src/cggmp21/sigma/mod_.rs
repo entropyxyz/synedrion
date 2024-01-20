@@ -56,6 +56,15 @@ struct ModProofElem<P: PaillierParams> {
     z: P::Uint,
 }
 
+/**
+ZK proof: Proof of Paillier-Blum modulus.
+
+Secret inputs:
+- primes $p$, $q$.
+
+Public inputs:
+- Paillier public key $N = p q$,
+*/
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "ModCommitment<P>: Serialize,
     ModChallenge<P>: Serialize"))]

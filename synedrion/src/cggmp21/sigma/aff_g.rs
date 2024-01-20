@@ -14,6 +14,28 @@ use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_aff_g";
 
+/**
+ZK proof: Paillier Affine Operation with Group Commitment in Range.
+
+NOTE: deviation from the paper here.
+The proof in the paper assumes $D = C (*) x (+) enc_0(y, \rho)$.
+But the way it is used in the Presigning, $D$ will actually be $... (+) enc_0(-y, \rho)$.
+So we have to negate several variables when constructing the proof for the whole thing to work.
+
+Secret inputs:
+- $x \in \pm 2^\ell$,
+- $y \in \pm 2^{\ell^\prime}$,
+- $\rho$, a Paillier randomizer for the public key $N_0$,
+- $\rho_y$, a Paillier randomizer for the public key $N_1$.
+
+Public inputs:
+- Paillier public keys $N_0$, $N_1$,
+- Paillier ciphertext $C$ encrypted with $N_0$,
+- Paillier ciphertext $D = C (*) x (+) enc_0(-y, \rho)$,
+- Paillier ciphertext $Y = enc_1(y, \rho_y)$,
+- Point $X = g * x$, where $g$ is the curve generator,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
@@ -38,20 +60,15 @@ impl<P: SchemeParams> AffGProof<P> {
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         y: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
-        rho_y: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_1$
-        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
-        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_1$
-        cap_c: &Ciphertext<P::Paillier>,  // a ciphertext encrypted with `pk0`
-        // NOTE: deviation from the paper here.
-        // The proof in the paper assumes $D = C (*) x (+) enc_0(y, \rho)$.
-        // But the way it is used in the Presigning, $D$ will actually be $... (+) enc_0(-y, \rho)$.
-        // So we have to negate several variables when constructing the proof
-        // for the whole thing to work.
-        cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x (+) enc_0(-y, \rho)$
-        cap_y: &Ciphertext<P::Paillier>, // $Y = enc_1(y, \rho_y)$
-        cap_x: &Point,                   // $X = g * x$, where $g$ is the curve generator
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        rho: &RandomizerMod<P::Paillier>,
+        rho_y: &RandomizerMod<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        cap_d: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -86,19 +103,21 @@ impl<P: SchemeParams> AffGProof<P> {
             pk0,
             &Ciphertext::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()),
         );
-        let cap_b_x = Point::GENERATOR * P::scalar_from_signed(&alpha);
+        let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
         let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
         let cap_f = setup.commit(&beta, &delta).retrieve();
 
-        // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
+        // NOTE: deviation from the paper to support a different $D$
+        // (see the comment in `AffGProof`)
         // Original: $s^y$. Modified: $s^{-y}$
         let cap_t = setup.commit(&-y, &mu).retrieve();
 
         let z1 = alpha + e * x;
 
-        // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
+        // NOTE: deviation from the paper to support a different $D$
+        // (see the comment in `AffGProof`)
         // Original: $z_2 = \beta + e y$
         // Modified: $z_2 = \beta - e y$
         let z2 = beta + e * (-y);
@@ -108,7 +127,8 @@ impl<P: SchemeParams> AffGProof<P> {
 
         let omega = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
 
-        // NOTE: deviation from the paper to support a different $D$ (see the comment in `verify()`)
+        // NOTE: deviation from the paper to support a different $D$
+        // (see the comment in `AffGProof`)
         // Original: $\rho_y^e$. Modified: $\rho_y^{-e}$.
         let omega_y = (r_y_mod * rho_y.pow_signed_vartime(&-e)).retrieve();
 
@@ -175,13 +195,14 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // g^{z_1} = B_x X^e
-        if Point::GENERATOR * P::scalar_from_signed(&self.z1)
+        if P::scalar_from_signed(&self.z1).mul_by_generator()
             != self.cap_b_x + cap_x * &P::scalar_from_signed(&e)
         {
             return false;
         }
 
-        // NOTE: deviation from the paper to support a different `D` (see the comment in `verify()`)
+        // NOTE: deviation from the paper to support a different `D`
+        // (see the comment in `AffGProof`)
         // Original: `Y^e`. Modified `Y^{-e}`.
         // (1 + N_1)^{z_2} \omega_y^{N_1} = B_y Y^(-e) \mod N_1^2
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
@@ -217,7 +238,6 @@ mod tests {
 
     use super::AffGProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::curve::Point;
     use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
@@ -250,7 +270,7 @@ mod tests {
             &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho.retrieve()),
         );
         let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
-        let cap_x = Point::GENERATOR * Params::scalar_from_signed(&x);
+        let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(
             &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup,

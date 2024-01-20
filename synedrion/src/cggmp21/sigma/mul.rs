@@ -22,6 +22,22 @@ pub(crate) struct MulProof<P: SchemeParams> {
     v: Randomizer<P::Paillier>,
 }
 
+/**
+ZK proof: Paillier multiplication.
+
+Secret inputs:
+- $x$ (technically any integer since it will be implicitly reduced modulo $q$ or $\phi(N)$,
+  but we limit its size to `Uint` since that's what we use in this library),
+- $\rho_x$, a Paillier randomizer for the public key $N$,
+- $\rho$, a Paillier randomizer for the public key $N$.
+
+Public inputs:
+- Paillier public key $N$,
+- Paillier ciphertext $X = enc(x, \rho_x)$,
+- Paillier ciphertext $Y$ encrypted with $N$,
+- Paillier ciphertext $C = (Y (*) x) * \rho^N \mod N^2$,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 impl<P: SchemeParams> MulProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -29,10 +45,10 @@ impl<P: SchemeParams> MulProof<P> {
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         rho_x: &RandomizerMod<P::Paillier>,
         rho: &RandomizerMod<P::Paillier>,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
-        cap_x: &Ciphertext<P::Paillier>,                // $X = enc(x, \rho_x)$
-        cap_y: &Ciphertext<P::Paillier>,                // $Y$
-        cap_c: &Ciphertext<P::Paillier>,                // $C = (Y (*) x) * \rho^N$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_x: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -79,10 +95,10 @@ impl<P: SchemeParams> MulProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
-        cap_x: &Ciphertext<P::Paillier>,                // $X = enc(x, \rho_x)$
-        cap_y: &Ciphertext<P::Paillier>,                // $Y$
-        cap_c: &Ciphertext<P::Paillier>,                // $C = (Y (*) x) * \rho^N$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_x: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)

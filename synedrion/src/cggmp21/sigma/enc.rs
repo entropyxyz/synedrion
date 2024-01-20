@@ -13,6 +13,18 @@ use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_enc";
 
+/**
+ZK proof: Paillier encryption in range.
+
+Secret inputs:
+- $k \in \pm 2^\ell$,
+- $\rho$, a Paillier randomizer for the public key $N_0$.
+
+Public inputs:
+- Paillier public key $N_0$,
+- Paillier ciphertext $K = enc_0(k, \rho)$,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct EncProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
@@ -27,15 +39,15 @@ pub(crate) struct EncProof<P: SchemeParams> {
 impl<P: SchemeParams> EncProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        k: &Signed<<P::Paillier as PaillierParams>::Uint>, // $\k \in +- 2^\ell$
-        rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        k: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        rho: &RandomizerMod<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         cap_k: &Ciphertext<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(cap_k)
             .chain(setup)
             .chain(aux)
@@ -50,11 +62,11 @@ impl<P: SchemeParams> EncProof<P> {
         // This will ensure that the range check on the prover side will pass.
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-        let r = RandomizerMod::random(rng, pk);
+        let r = RandomizerMod::random(rng, pk0);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(k, &mu).retrieve();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
+        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
         let cap_c = setup.commit(&alpha, &gamma).retrieve();
 
         let z1 = alpha + e * k;
@@ -74,13 +86,13 @@ impl<P: SchemeParams> EncProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         cap_k: &Ciphertext<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(cap_k)
             .chain(setup)
             .chain(aux)
@@ -99,10 +111,10 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) K (*) e
-        let c = Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.z2);
+        let c = Ciphertext::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self
             .cap_a
-            .homomorphic_add(pk, &cap_k.homomorphic_mul(pk, &e))
+            .homomorphic_add(pk0, &cap_k.homomorphic_mul(pk0, &e))
         {
             return false;
         }

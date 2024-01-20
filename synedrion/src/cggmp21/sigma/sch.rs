@@ -55,7 +55,15 @@ impl SchChallenge {
     }
 }
 
-/// Schnorr PoK of a secret scalar.
+/**
+ZK proof: Schnorr proof of knowledge.
+
+Secret inputs:
+- scalar $x$.
+
+Public inputs:
+- Point $X = g * x$, where $g$ is the curve generator.
+*/
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct SchProof {
     challenge: SchChallenge,
@@ -63,24 +71,22 @@ pub(crate) struct SchProof {
 }
 
 impl SchProof {
-    /// Create a proof that we know the `secret`.
     pub fn new(
         proof_secret: &SchSecret,
-        secret: &Scalar,
+        x: &Scalar,
         commitment: &SchCommitment,
-        public: &Point,
+        cap_x: &Point,
         aux: &impl Hashable,
     ) -> Self {
-        let challenge = SchChallenge::new(public, commitment, aux);
-        let proof = proof_secret.0 + &challenge.0 * secret;
+        let challenge = SchChallenge::new(cap_x, commitment, aux);
+        let proof = proof_secret.0 + &challenge.0 * x;
         Self { challenge, proof }
     }
 
-    /// Verify that the proof is correct for a secret corresponding to the given `public`.
-    pub fn verify(&self, commitment: &SchCommitment, public: &Point, aux: &impl Hashable) -> bool {
-        let challenge = SchChallenge::new(public, commitment, aux);
+    pub fn verify(&self, commitment: &SchCommitment, cap_x: &Point, aux: &impl Hashable) -> bool {
+        let challenge = SchChallenge::new(cap_x, commitment, aux);
         challenge == self.challenge
-            && self.proof.mul_by_generator() == commitment.0 + public * &challenge.0
+            && self.proof.mul_by_generator() == commitment.0 + cap_x * &challenge.0
     }
 }
 

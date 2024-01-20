@@ -13,6 +13,16 @@ use crate::uint::{Bounded, Integer, Signed};
 
 const HASH_TAG: &[u8] = b"P_fac";
 
+/**
+ZK proof: No small factor proof.
+
+Secret inputs:
+- primes $p$, $q$ such that $p, q < \pm \sqrt{N_0} 2^\ell$.
+
+Public inputs:
+- Paillier public key $N_0 = p * q$,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
@@ -32,14 +42,14 @@ pub(crate) struct FacProof<P: SchemeParams> {
 impl<P: SchemeParams> FacProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>, // $N_0$
-        setup: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
+        sk0: &SecretKeyPaillierPrecomputed<P::Paillier>,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        let pk = sk.public_key();
+        let pk0 = sk0.public_key();
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(setup)
             .chain(aux)
             .finalize_to_reader();
@@ -64,7 +74,7 @@ impl<P: SchemeParams> FacProof<P> {
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // N_0 \hat{N}
-        let scale = pk.modulus_bounded().mul_wide(hat_cap_n);
+        let scale = pk0.modulus_bounded().mul_wide(hat_cap_n);
 
         let sigma =
             Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
@@ -80,7 +90,7 @@ impl<P: SchemeParams> FacProof<P> {
         let x = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        let (p, q) = sk.primes();
+        let (p, q) = sk0.primes();
 
         let cap_p = setup.commit(&p, &mu).retrieve();
         let cap_q = setup.commit(&q, &nu);
@@ -113,12 +123,12 @@ impl<P: SchemeParams> FacProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
-        setup: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk0)
             .chain(setup)
             .chain(aux)
             .finalize_to_reader();
@@ -133,7 +143,7 @@ impl<P: SchemeParams> FacProof<P> {
         let aux_pk = setup.public_key();
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &setup.commit_xwide(&pk.modulus_bounded(), &self.sigma);
+        let cap_r = &setup.commit_xwide(&pk0.modulus_bounded(), &self.sigma);
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a_mod = self.cap_a.to_mod(aux_pk);
