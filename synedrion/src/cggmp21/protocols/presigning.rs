@@ -430,7 +430,9 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             &P::signed_from_scalar(&self.context.gamma),
             &self.context.nu,
             pk,
+            &self.g_ciphertexts[self.party_idx().as_usize()],
             &Point::GENERATOR,
+            &gamma,
             rp,
             &aux,
         );
@@ -691,7 +693,9 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             &P::signed_from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
             pk,
+            &self.k_ciphertexts[self.party_idx().as_usize()],
             &self.big_gamma,
+            &self.big_delta,
             rp,
             &aux,
         );

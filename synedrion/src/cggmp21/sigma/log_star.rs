@@ -33,11 +33,18 @@ impl<P: SchemeParams> LogStarProof<P> {
         x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
         rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        cap_c: &Ciphertext<P::Paillier>,  // $C = encrypt(x, \rho)$
         g: &Point,
+        cap_x: &Point,                    // $X = g^x$
         setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_c)
+            .chain(g)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -76,13 +83,18 @@ impl<P: SchemeParams> LogStarProof<P> {
     pub fn verify(
         &self,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>, // $C = encrypt(x, \rho)$
+        cap_c: &Ciphertext<P::Paillier>,
         g: &Point,
-        cap_x: &Point,                    // $X = g^x$
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_c)
+            .chain(g)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -147,7 +159,8 @@ mod tests {
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho.retrieve());
         let cap_x = g * Params::scalar_from_signed(&x);
 
-        let proof = LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &g, &setup, &aux);
+        let proof =
+            LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &g, &cap_x, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &g, &cap_x, &setup, &aux));
     }
 }
