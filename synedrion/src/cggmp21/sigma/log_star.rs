@@ -28,7 +28,7 @@ Public inputs:
 - Point $X = g * x$,
 - Setup parameters ($\hat{N}$, $s$, $t$).
 */
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitment<P::Paillier>,

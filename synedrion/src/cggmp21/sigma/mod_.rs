@@ -12,7 +12,7 @@ use crate::uint::{JacobiSymbol, JacobiSymbolTrait, RandomMod, Retrieve, UintLike
 
 const HASH_TAG: &[u8] = b"P_mod";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 
 impl<P: SchemeParams> ModCommitment<P> {
@@ -48,7 +48,7 @@ impl<P: SchemeParams> ModChallenge<P> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModProofElem<P: PaillierParams> {
     x: P::Uint,
     a: bool,
@@ -65,7 +65,7 @@ Secret inputs:
 Public inputs:
 - Paillier public key $N = p q$,
 */
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "ModCommitment<P>: Serialize,
     ModChallenge<P>: Serialize"))]
 #[serde(bound(deserialize = "ModCommitment<P>: for<'x> Deserialize<'x>,

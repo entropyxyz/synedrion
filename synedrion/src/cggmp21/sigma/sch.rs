@@ -25,7 +25,7 @@ impl SchSecret {
 }
 
 /// Public data for the proof (~ verifying key)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SchCommitment(Point);
 
 impl SchCommitment {
@@ -40,7 +40,7 @@ impl Hashable for SchCommitment {
     }
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SchChallenge(Scalar);
 
 impl SchChallenge {
@@ -64,7 +64,7 @@ Secret inputs:
 Public inputs:
 - Point $X = g * x$, where $g$ is the curve generator.
 */
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SchProof {
     challenge: SchChallenge,
     proof: Scalar,

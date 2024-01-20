@@ -10,10 +10,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::paillier::{
-    PaillierParams, PublicKeyPaillierPrecomputed, RPParamsMod, RPSecret,
-    SecretKeyPaillierPrecomputed,
-};
+use crate::paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
@@ -22,12 +19,9 @@ use crate::uint::{
 
 const HASH_TAG: &[u8] = b"P_prm";
 
-/// Secret data the proof is based on (~ signing key)
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PrmSecret<P: SchemeParams> {
-    public_key: PublicKeyPaillierPrecomputed<P::Paillier>,
-    secret: Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>, // $a_i$
-}
+/// Secret data the proof is based on ($a_i$).
+#[derive(Clone)]
+struct PrmSecret<P: SchemeParams>(Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmSecret<P> {
     fn random(
@@ -37,20 +31,17 @@ impl<P: SchemeParams> PrmSecret<P> {
         let secret = (0..P::SECURITY_PARAMETER)
             .map(|_| sk.random_field_elem(rng))
             .collect();
-        Self {
-            public_key: sk.public_key().clone(),
-            secret,
-        }
+        Self(secret)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> PrmCommitment<P> {
     fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
         let commitment = secret
-            .secret
+            .0
             .iter()
             .map(|a| base.pow_bounded(a).retrieve())
             .collect();
@@ -101,7 +92,7 @@ Secret inputs:
 Public inputs:
 - Setup parameters $N$, $s$, $t$ such that $N = p q$, and $s = t^\lambda \mod N$.
 */
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PrmCommitment<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmCommitment<P>: for<'x> Deserialize<'x>"))]
 pub(crate) struct PrmProof<P: SchemeParams> {
@@ -126,7 +117,7 @@ impl<P: SchemeParams> PrmProof<P> {
         let totient = sk.totient_nonzero();
         let challenge = PrmChallenge::new(&commitment, setup, aux);
         let proof = proof_secret
-            .secret
+            .0
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| {

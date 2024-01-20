@@ -23,7 +23,7 @@ Public inputs:
 - Paillier public key $N_0 = p * q$,
 - Setup parameters ($\hat{N}$, $s$, $t$).
 */
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_p: RPCommitment<P::Paillier>,

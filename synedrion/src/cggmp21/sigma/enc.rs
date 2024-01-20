@@ -25,7 +25,7 @@ Public inputs:
 - Paillier ciphertext $K = enc_0(k, \rho)$,
 - Setup parameters ($\hat{N}$, $s$, $t$).
 */
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct EncProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitment<P::Paillier>,
