@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::curve::Scalar;
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-    Randomizer, RandomizerMod,
+    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
+    RPParamsMod, Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::Signed;
@@ -48,7 +48,7 @@ impl<P: SchemeParams> DecProof<P> {
         rho: &RandomizerMod<P::Paillier>,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         x: &Scalar,
-        cap_c: &Ciphertext<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
@@ -72,7 +72,7 @@ impl<P: SchemeParams> DecProof<P> {
 
         let cap_s = setup.commit(y, &mu).retrieve();
         let cap_t = setup.commit(&alpha, &nu).retrieve();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
+        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
         let gamma = P::scalar_from_signed(&alpha);
 
         let z1 = alpha.into_wide() + e.mul_wide(y);
@@ -84,7 +84,7 @@ impl<P: SchemeParams> DecProof<P> {
             e,
             cap_s,
             cap_t,
-            cap_a,
+            cap_a: cap_a.retrieve(),
             gamma,
             z1,
             z2,
@@ -96,7 +96,7 @@ impl<P: SchemeParams> DecProof<P> {
         &self,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         x: &Scalar,
-        cap_c: &Ciphertext<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
@@ -116,10 +116,11 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // enc(z_1, \omega) == A (+) C (*) e
-        if Ciphertext::new_with_randomizer_wide(pk0, &self.z1, &self.omega)
+        if CiphertextMod::new_with_randomizer_wide(pk0, &self.z1, &self.omega)
             != self
                 .cap_a
-                .homomorphic_add(pk0, &cap_c.homomorphic_mul(pk0, &e))
+                .to_mod(pk0)
+                .homomorphic_add(&cap_c.homomorphic_mul(&e))
         {
             return false;
         }
@@ -147,7 +148,7 @@ mod tests {
     use super::DecProof;
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::paillier::{
-        Ciphertext, PaillierParams, RPParamsMod, RandomizerMod, SecretKeyPaillier,
+        CiphertextMod, PaillierParams, RPParamsMod, RandomizerMod, SecretKeyPaillier,
     };
     use crate::uint::Signed;
 
@@ -169,7 +170,7 @@ mod tests {
         let x = Params::scalar_from_signed(&y);
 
         let rho = RandomizerMod::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho.retrieve());
+        let cap_c = CiphertextMod::new_with_randomizer_signed(pk, &y, &rho.retrieve());
 
         let proof = DecProof::<Params>::new(&mut OsRng, &y, &rho, pk, &x, &cap_c, &setup, &aux);
         assert!(proof.verify(pk, &x, &cap_c, &setup, &aux));

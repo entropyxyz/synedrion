@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::curve::Point;
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-    Randomizer, RandomizerMod,
+    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
+    RPParamsMod, Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::Signed;
@@ -47,7 +47,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         rho: &RandomizerMod<P::Paillier>,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
         g: &Point,
         cap_x: &Point,
         setup: &RPParamsMod<P::Paillier>,
@@ -73,7 +73,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(x, &mu).retrieve();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
+        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
         let cap_y = g * &P::scalar_from_signed(&alpha);
         let cap_d = setup.commit(&alpha, &gamma).retrieve();
 
@@ -84,7 +84,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         Self {
             e,
             cap_s,
-            cap_a,
+            cap_a: cap_a.retrieve(),
             cap_y,
             cap_d,
             z1,
@@ -97,7 +97,7 @@ impl<P: SchemeParams> LogStarProof<P> {
     pub fn verify(
         &self,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
         g: &Point,
         cap_x: &Point,
         setup: &RPParamsMod<P::Paillier>,
@@ -120,10 +120,11 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) C (*) e
-        let c = Ciphertext::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
+        let c = CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self
             .cap_a
-            .homomorphic_add(pk0, &cap_c.homomorphic_mul(pk0, &e))
+            .to_mod(pk0)
+            .homomorphic_add(&cap_c.homomorphic_mul(&e))
         {
             return false;
         }
@@ -151,7 +152,7 @@ mod tests {
     use super::LogStarProof;
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::{Point, Scalar};
-    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
+    use crate::paillier::{CiphertextMod, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
     #[test]
@@ -170,7 +171,7 @@ mod tests {
         let g = Point::GENERATOR * Scalar::random(&mut OsRng);
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho = RandomizerMod::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho.retrieve());
+        let cap_c = CiphertextMod::new_with_randomizer_signed(pk, &x, &rho.retrieve());
         let cap_x = g * Params::scalar_from_signed(&x);
 
         let proof =

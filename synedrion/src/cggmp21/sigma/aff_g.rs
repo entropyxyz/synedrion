@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::curve::Point;
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-    Randomizer, RandomizerMod,
+    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
+    RPParamsMod, Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::Signed;
@@ -64,9 +64,9 @@ impl<P: SchemeParams> AffGProof<P> {
         rho_y: &RandomizerMod<P::Paillier>,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
-        cap_d: &Ciphertext<P::Paillier>,
-        cap_y: &Ciphertext<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
+        cap_d: &CiphertextMod<P::Paillier>,
+        cap_y: &CiphertextMod<P::Paillier>,
         cap_x: &Point,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
@@ -99,12 +99,11 @@ impl<P: SchemeParams> AffGProof<P> {
         let delta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        let cap_a = cap_c.homomorphic_mul(pk0, &alpha).homomorphic_add(
-            pk0,
-            &Ciphertext::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()),
+        let cap_a = cap_c.homomorphic_mul(&alpha).homomorphic_add(
+            &CiphertextMod::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()),
         );
         let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
-        let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
+        let cap_b_y = CiphertextMod::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
         let cap_f = setup.commit(&beta, &delta).retrieve();
@@ -134,9 +133,9 @@ impl<P: SchemeParams> AffGProof<P> {
 
         Self {
             e,
-            cap_a,
+            cap_a: cap_a.retrieve(),
             cap_b_x,
-            cap_b_y,
+            cap_b_y: cap_b_y.retrieve(),
             cap_e,
             cap_s,
             cap_f,
@@ -155,9 +154,9 @@ impl<P: SchemeParams> AffGProof<P> {
         &self,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
-        cap_d: &Ciphertext<P::Paillier>,
-        cap_y: &Ciphertext<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
+        cap_d: &CiphertextMod<P::Paillier>,
+        cap_y: &CiphertextMod<P::Paillier>,
         cap_x: &Point,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
@@ -184,12 +183,11 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
-        if cap_c.homomorphic_mul(pk0, &self.z1).homomorphic_add(
-            pk0,
-            &Ciphertext::new_with_randomizer_signed(pk0, &self.z2, &self.omega),
+        if cap_c.homomorphic_mul(&self.z1).homomorphic_add(
+            &CiphertextMod::new_with_randomizer_signed(pk0, &self.z2, &self.omega),
         ) != cap_d
-            .homomorphic_mul(pk0, &e)
-            .homomorphic_add(pk0, &self.cap_a)
+            .homomorphic_mul(&e)
+            .homomorphic_add(&self.cap_a.to_mod(pk0))
         {
             return false;
         }
@@ -206,10 +204,10 @@ impl<P: SchemeParams> AffGProof<P> {
         // Original: `Y^e`. Modified `Y^{-e}`.
         // (1 + N_1)^{z_2} \omega_y^{N_1} = B_y Y^(-e) \mod N_1^2
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
-        if Ciphertext::new_with_randomizer_signed(pk1, &self.z2, &self.omega_y)
+        if CiphertextMod::new_with_randomizer_signed(pk1, &self.z2, &self.omega_y)
             != cap_y
-                .homomorphic_mul(pk1, &-e)
-                .homomorphic_add(pk1, &self.cap_b_y)
+                .homomorphic_mul(&-e)
+                .homomorphic_add(&self.cap_b_y.to_mod(pk1))
         {
             return false;
         }
@@ -238,7 +236,7 @@ mod tests {
 
     use super::AffGProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
+    use crate::paillier::{CiphertextMod, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
     #[test]
@@ -263,13 +261,17 @@ mod tests {
         let rho = RandomizerMod::random(&mut OsRng, pk0);
         let rho_y = RandomizerMod::random(&mut OsRng, pk1);
         let secret = Signed::random(&mut OsRng);
-        let cap_c = Ciphertext::new_signed(&mut OsRng, pk0, &secret);
+        let cap_c = CiphertextMod::new_signed(&mut OsRng, pk0, &secret);
 
-        let cap_d = cap_c.homomorphic_mul(pk0, &x).homomorphic_add(
-            pk0,
-            &Ciphertext::new_with_randomizer_signed(pk0, &-y, &rho.retrieve()),
-        );
-        let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
+        let cap_d =
+            cap_c
+                .homomorphic_mul(&x)
+                .homomorphic_add(&CiphertextMod::new_with_randomizer_signed(
+                    pk0,
+                    &-y,
+                    &rho.retrieve(),
+                ));
+        let cap_y = CiphertextMod::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(

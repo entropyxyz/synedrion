@@ -222,8 +222,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let rho = RandomizerMod::random(rng, pk);
         let hat_cap_h = self.context.presigning.cap_k[my_idx]
-            .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&x))
-            .mul_randomizer(pk, &rho.retrieve());
+            .homomorphic_mul_unsigned(&P::bounded_from_scalar(&x))
+            .mul_randomizer(&rho.retrieve());
 
         let aux = (
             &self.shared_randomness,
@@ -262,21 +262,17 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let mut ciphertext = hat_cap_h.clone();
         for j in HoleRange::new(num_parties, my_idx) {
             ciphertext = ciphertext
-                .homomorphic_add(
-                    pk,
-                    self.context.presigning.hat_cap_d_received.get(j).unwrap(),
-                )
-                .homomorphic_add(pk, self.context.presigning.hat_cap_f.get(j).unwrap());
+                .homomorphic_add(self.context.presigning.hat_cap_d_received.get(j).unwrap())
+                .homomorphic_add(self.context.presigning.hat_cap_f.get(j).unwrap());
         }
 
         let r = self.context.presigning.nonce.x_coordinate();
 
         let ciphertext = ciphertext
-            .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&r))
+            .homomorphic_mul_unsigned(&P::bounded_from_scalar(&r))
             .homomorphic_add(
-                pk,
                 &self.context.presigning.cap_k[my_idx]
-                    .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&self.context.message)),
+                    .homomorphic_mul_unsigned(&P::bounded_from_scalar(&self.context.message)),
             );
 
         let rho = ciphertext.derive_randomizer(sk);

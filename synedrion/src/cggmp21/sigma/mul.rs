@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer, RandomizerMod,
+    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer,
+    RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{Bounded, Retrieve, Signed};
@@ -46,9 +47,9 @@ impl<P: SchemeParams> MulProof<P> {
         rho_x: &RandomizerMod<P::Paillier>,
         rho: &RandomizerMod<P::Paillier>,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_x: &Ciphertext<P::Paillier>,
-        cap_y: &Ciphertext<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
+        cap_x: &CiphertextMod<P::Paillier>,
+        cap_y: &CiphertextMod<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -74,10 +75,8 @@ impl<P: SchemeParams> MulProof<P> {
         let r = r_mod.retrieve();
         let s = s_mod.retrieve();
 
-        let cap_a = cap_y
-            .homomorphic_mul_unsigned(pk, &alpha)
-            .mul_randomizer(pk, &r);
-        let cap_b = Ciphertext::new_with_randomizer(pk, alpha.as_ref(), &s);
+        let cap_a = cap_y.homomorphic_mul_unsigned(&alpha).mul_randomizer(&r);
+        let cap_b = CiphertextMod::new_with_randomizer(pk, alpha.as_ref(), &s);
 
         let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(x);
         let u = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
@@ -85,8 +84,8 @@ impl<P: SchemeParams> MulProof<P> {
 
         Self {
             e,
-            cap_a,
-            cap_b,
+            cap_a: cap_a.retrieve(),
+            cap_b: cap_b.retrieve(),
             z,
             u,
             v,
@@ -96,9 +95,9 @@ impl<P: SchemeParams> MulProof<P> {
     pub fn verify(
         &self,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_x: &Ciphertext<P::Paillier>,
-        cap_y: &Ciphertext<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
+        cap_x: &CiphertextMod<P::Paillier>,
+        cap_y: &CiphertextMod<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
@@ -117,22 +116,22 @@ impl<P: SchemeParams> MulProof<P> {
         }
 
         // Y^z u^N = A * C^e \mod N^2
-        if cap_y
-            .homomorphic_mul_wide(pk, &self.z)
-            .mul_randomizer(pk, &self.u)
+        if cap_y.homomorphic_mul_wide(&self.z).mul_randomizer(&self.u)
             != self
                 .cap_a
-                .homomorphic_add(pk, &cap_c.homomorphic_mul(pk, &e))
+                .to_mod(pk)
+                .homomorphic_add(&cap_c.homomorphic_mul(&e))
         {
             return false;
         }
 
         // enc(z, v) == B * X^e \mod N^2
         // (Note: typo in the paper, it uses `c` and not `v` here)
-        if Ciphertext::new_with_randomizer_wide(pk, &self.z, &self.v)
+        if CiphertextMod::new_with_randomizer_wide(pk, &self.z, &self.v)
             != self
                 .cap_b
-                .homomorphic_add(pk, &cap_x.homomorphic_mul(pk, &e))
+                .to_mod(pk)
+                .homomorphic_add(&cap_x.homomorphic_mul(&e))
         {
             return false;
         }
@@ -147,7 +146,7 @@ mod tests {
 
     use super::MulProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, RandomizerMod, SecretKeyPaillier};
+    use crate::paillier::{CiphertextMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
     #[test]
@@ -165,11 +164,9 @@ mod tests {
         let rho_x = RandomizerMod::random(&mut OsRng, pk);
         let rho = RandomizerMod::random(&mut OsRng, pk);
 
-        let cap_x = Ciphertext::new_with_randomizer_signed(pk, &x, &rho_x.retrieve());
-        let cap_y = Ciphertext::new_signed(&mut OsRng, pk, &y);
-        let cap_c = cap_y
-            .homomorphic_mul(pk, &x)
-            .mul_randomizer(pk, &rho.retrieve());
+        let cap_x = CiphertextMod::new_with_randomizer_signed(pk, &x, &rho_x.retrieve());
+        let cap_y = CiphertextMod::new_signed(&mut OsRng, pk, &y);
+        let cap_c = cap_y.homomorphic_mul(&x).mul_randomizer(&rho.retrieve());
 
         let proof = MulProof::<Params>::new(
             &mut OsRng, &x, &rho_x, &rho, pk, &cap_x, &cap_y, &cap_c, &aux,

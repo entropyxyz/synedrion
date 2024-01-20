@@ -189,6 +189,16 @@ impl<T> HoleVec<T> {
             hole_at: self.hole_at,
         }
     }
+
+    pub fn map_enumerate<F, V>(self, f: F) -> HoleVec<V>
+    where
+        F: FnMut((usize, &T)) -> V,
+    {
+        HoleVec {
+            elems: self.enumerate().map(f).collect(),
+            hole_at: self.hole_at,
+        }
+    }
 }
 
 impl<T, V> HoleVec<(T, V)> {

@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-    Randomizer, RandomizerMod,
+    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
+    RPParamsMod, Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::Signed;
@@ -42,7 +42,7 @@ impl<P: SchemeParams> EncProof<P> {
         k: &Signed<<P::Paillier as PaillierParams>::Uint>,
         rho: &RandomizerMod<P::Paillier>,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_k: &Ciphertext<P::Paillier>,
+        cap_k: &CiphertextMod<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
@@ -66,7 +66,7 @@ impl<P: SchemeParams> EncProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(k, &mu).retrieve();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
+        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
         let cap_c = setup.commit(&alpha, &gamma).retrieve();
 
         let z1 = alpha + e * k;
@@ -76,7 +76,7 @@ impl<P: SchemeParams> EncProof<P> {
         Self {
             e,
             cap_s,
-            cap_a,
+            cap_a: cap_a.retrieve(),
             cap_c,
             z1,
             z2,
@@ -87,7 +87,7 @@ impl<P: SchemeParams> EncProof<P> {
     pub fn verify(
         &self,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_k: &Ciphertext<P::Paillier>,
+        cap_k: &CiphertextMod<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
@@ -111,10 +111,11 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) K (*) e
-        let c = Ciphertext::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
+        let c = CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self
             .cap_a
-            .homomorphic_add(pk0, &cap_k.homomorphic_mul(pk0, &e))
+            .to_mod(pk0)
+            .homomorphic_add(&cap_k.homomorphic_mul(&e))
         {
             return false;
         }
@@ -136,7 +137,7 @@ mod tests {
 
     use super::EncProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
+    use crate::paillier::{CiphertextMod, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
     #[test]
@@ -155,7 +156,7 @@ mod tests {
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let randomizer = RandomizerMod::random(&mut OsRng, pk);
         let ciphertext =
-            Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer.retrieve());
+            CiphertextMod::new_with_randomizer_signed(pk, &secret, &randomizer.retrieve());
 
         let proof = EncProof::<Params>::new(
             &mut OsRng,

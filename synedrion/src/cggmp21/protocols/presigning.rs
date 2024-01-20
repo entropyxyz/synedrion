@@ -15,7 +15,7 @@ use crate::cggmp21::{
 };
 use crate::common::{KeyShare, KeySharePrecomputed, PresigningData};
 use crate::curve::{Point, Scalar};
-use crate::paillier::{Ciphertext, PaillierParams, Randomizer, RandomizerMod};
+use crate::paillier::{Ciphertext, CiphertextMod, PaillierParams, Randomizer, RandomizerMod};
 use crate::rounds::{
     all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
     FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
@@ -57,8 +57,8 @@ pub struct Context<P: SchemeParams> {
 
 pub struct Round1<P: SchemeParams> {
     context: Context<P>,
-    k_ciphertext: Ciphertext<P::Paillier>,
-    g_ciphertext: Ciphertext<P::Paillier>,
+    k_ciphertext: CiphertextMod<P::Paillier>,
+    g_ciphertext: CiphertextMod<P::Paillier>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
@@ -83,8 +83,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let nu = RandomizerMod::<P::Paillier>::random(rng, pk);
 
         let g_ciphertext =
-            Ciphertext::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), &nu.retrieve());
-        let k_ciphertext = Ciphertext::new_with_randomizer(
+            CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), &nu.retrieve());
+        let k_ciphertext = CiphertextMod::new_with_randomizer(
             pk,
             &P::uint_from_scalar(&ephemeral_scalar_share),
             &rho.retrieve(),
@@ -153,8 +153,8 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
 
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
         Ok(Round1Bcast {
-            k_ciphertext: self.k_ciphertext.clone(),
-            g_ciphertext: self.g_ciphertext.clone(),
+            k_ciphertext: self.k_ciphertext.retrieve(),
+            g_ciphertext: self.g_ciphertext.retrieve(),
         })
     }
 
@@ -239,13 +239,22 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
             &self.context.key_share.party_index(),
         );
 
+        let (k_ciphertexts, g_ciphertexts) = ciphertexts
+            .map(|data| (data.k_ciphertext, data.g_ciphertext))
+            .unzip();
+
+        let k_ciphertexts = k_ciphertexts
+            .map_enumerate(|(i, c)| c.to_mod(&self.context.key_share.public_aux[i].paillier_pk));
+        let g_ciphertexts = g_ciphertexts
+            .map_enumerate(|(i, c)| c.to_mod(&self.context.key_share.public_aux[i].paillier_pk));
+
         let public_aux =
             &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
 
-        for ((from, ciphertexts), proof) in ciphertexts.enumerate().zip(proofs.iter()) {
+        for ((from, k_ciphertext), proof) in k_ciphertexts.enumerate().zip(proofs.iter()) {
             if !proof.0.verify(
                 &self.context.key_share.public_aux[from].paillier_pk,
-                &ciphertexts.k_ciphertext,
+                k_ciphertext,
                 &public_aux.rp_params,
                 &aux,
             ) {
@@ -256,9 +265,6 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
             }
         }
 
-        let (k_ciphertexts, g_ciphertexts) = ciphertexts
-            .map(|data| (data.k_ciphertext, data.g_ciphertext))
-            .unzip();
         let k_ciphertexts = k_ciphertexts.into_vec(self.k_ciphertext);
         let g_ciphertexts = g_ciphertexts.into_vec(self.g_ciphertext);
         Ok(Round2 {
@@ -289,8 +295,8 @@ pub struct Round2Direct<P: SchemeParams> {
 
 pub struct Round2<P: SchemeParams> {
     context: Context<P>,
-    k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
-    g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
+    k_ciphertexts: Vec<CiphertextMod<P::Paillier>>,
+    g_ciphertexts: Vec<CiphertextMod<P::Paillier>>,
 }
 
 #[derive(Debug, Clone)]
@@ -301,18 +307,18 @@ pub struct Round2Artifact<P: SchemeParams> {
     s: Randomizer<P::Paillier>,                          // TODO (#77): secret
     hat_r: Randomizer<P::Paillier>,                      // TODO (#77): secret
     hat_s: Randomizer<P::Paillier>,                      // TODO (#77): secret
-    cap_d: Ciphertext<P::Paillier>,
-    cap_f: Ciphertext<P::Paillier>,
-    hat_cap_d: Ciphertext<P::Paillier>,
-    hat_cap_f: Ciphertext<P::Paillier>,
+    cap_d: CiphertextMod<P::Paillier>,
+    cap_f: CiphertextMod<P::Paillier>,
+    hat_cap_d: CiphertextMod<P::Paillier>,
+    hat_cap_f: CiphertextMod<P::Paillier>,
 }
 
 pub struct Round2Payload<P: SchemeParams> {
     gamma: Point,
     alpha: Signed<<P::Paillier as PaillierParams>::Uint>,
     alpha_hat: Signed<<P::Paillier as PaillierParams>::Uint>,
-    cap_d: Ciphertext<P::Paillier>,
-    hat_cap_d: Ciphertext<P::Paillier>,
+    cap_d: CiphertextMod<P::Paillier>,
+    hat_cap_d: CiphertextMod<P::Paillier>,
 }
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
@@ -370,25 +376,24 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         let r_hat = RandomizerMod::random(rng, pk);
         let s_hat = RandomizerMod::random(rng, target_pk);
 
-        let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r.retrieve());
+        let cap_f = CiphertextMod::new_with_randomizer_signed(pk, &beta, &r.retrieve());
 
         let d = self.k_ciphertexts[idx]
-            .homomorphic_mul(target_pk, &P::signed_from_scalar(&self.context.gamma))
-            .homomorphic_add(
+            .homomorphic_mul(&P::signed_from_scalar(&self.context.gamma))
+            .homomorphic_add(&CiphertextMod::new_with_randomizer_signed(
                 target_pk,
-                &Ciphertext::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve()),
-            );
+                &-beta,
+                &s.retrieve(),
+            ));
 
         let d_hat = self.k_ciphertexts[idx]
-            .homomorphic_mul(
+            .homomorphic_mul(&P::signed_from_scalar(&self.context.key_share.secret_share))
+            .homomorphic_add(&CiphertextMod::new_with_randomizer_signed(
                 target_pk,
-                &P::signed_from_scalar(&self.context.key_share.secret_share),
-            )
-            .homomorphic_add(
-                target_pk,
-                &Ciphertext::new_with_randomizer_signed(target_pk, &-beta_hat, &s_hat.retrieve()),
-            );
-        let f_hat = Ciphertext::new_with_randomizer_signed(pk, &beta_hat, &r_hat.retrieve());
+                &-beta_hat,
+                &s_hat.retrieve(),
+            ));
+        let f_hat = CiphertextMod::new_with_randomizer_signed(pk, &beta_hat, &r_hat.retrieve());
 
         let public_aux = &self.context.key_share.public_aux[idx];
         let rp = &public_aux.rp_params;
@@ -439,10 +444,10 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
 
         let msg = Round2Direct {
             gamma,
-            d: d.clone(),
-            f: cap_f.clone(),
-            d_hat: d_hat.clone(),
-            f_hat: f_hat.clone(),
+            d: d.retrieve(),
+            f: cap_f.retrieve(),
+            d_hat: d_hat.retrieve(),
+            f_hat: f_hat.retrieve(),
             psi,
             psi_hat,
             psi_hat_prime,
@@ -479,12 +484,15 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
         let rp = &public_aux.rp_params;
 
+        let d = msg.d.to_mod(pk);
+        let d_hat = msg.d_hat.to_mod(pk);
+
         if !msg.psi.verify(
             pk,
             from_pk,
             &self.k_ciphertexts[self.context.key_share.party_index().as_usize()],
-            &msg.d,
-            &msg.f,
+            &d,
+            &msg.f.to_mod(from_pk),
             &msg.gamma,
             rp,
             &aux,
@@ -498,8 +506,8 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             pk,
             from_pk,
             &self.k_ciphertexts[self.context.key_share.party_index().as_usize()],
-            &msg.d_hat,
-            &msg.f_hat,
+            &d_hat,
+            &msg.f_hat.to_mod(from_pk),
             &big_x,
             rp,
             &aux,
@@ -522,12 +530,8 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             )));
         }
 
-        let alpha = msg
-            .d
-            .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
-        let alpha_hat = msg
-            .d_hat
-            .decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
+        let alpha = d.decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
+        let alpha_hat = d_hat.decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
 
         // `alpha == x * y + z` where `0 <= x, y < q`, and `-2^l' <= z <= 2^l'`,
         // where `q` is the curve order.
@@ -543,8 +547,8 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
             gamma: msg.gamma,
             alpha,
             alpha_hat,
-            cap_d: msg.d,
-            hat_cap_d: msg.d_hat,
+            cap_d: d,
+            hat_cap_d: d_hat,
         })
     }
 }
@@ -629,10 +633,10 @@ pub struct Round3<P: SchemeParams> {
     product_share: Signed<<P::Paillier as PaillierParams>::Uint>,
     big_delta: Point,
     big_gamma: Point,
-    k_ciphertexts: Vec<Ciphertext<P::Paillier>>,
-    g_ciphertexts: Vec<Ciphertext<P::Paillier>>,
-    cap_ds: HoleVec<Ciphertext<P::Paillier>>,
-    hat_cap_d: HoleVec<Ciphertext<P::Paillier>>,
+    k_ciphertexts: Vec<CiphertextMod<P::Paillier>>,
+    g_ciphertexts: Vec<CiphertextMod<P::Paillier>>,
+    cap_ds: HoleVec<CiphertextMod<P::Paillier>>,
+    hat_cap_d: HoleVec<CiphertextMod<P::Paillier>>,
     round2_artifacts: HoleVec<Round2Artifact<P>>,
 }
 
@@ -881,11 +885,10 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         let rho = RandomizerMod::random(rng, pk);
         let cap_h = self.g_ciphertexts[my_idx]
-            .homomorphic_mul_unsigned(
-                pk,
-                &P::bounded_from_scalar(&self.context.ephemeral_scalar_share),
-            )
-            .mul_randomizer(pk, &rho.retrieve());
+            .homomorphic_mul_unsigned(&P::bounded_from_scalar(
+                &self.context.ephemeral_scalar_share,
+            ))
+            .mul_randomizer(&rho.retrieve());
 
         let p_mul = MulProof::<P>::new(
             rng,
@@ -914,8 +917,8 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         for j in range {
             ciphertext = ciphertext
-                .homomorphic_add(pk, self.cap_ds.get(j).unwrap())
-                .homomorphic_add(pk, &self.round2_artifacts.get(j).unwrap().cap_f);
+                .homomorphic_add(self.cap_ds.get(j).unwrap())
+                .homomorphic_add(&self.round2_artifacts.get(j).unwrap().cap_f);
         }
 
         let rho = ciphertext.derive_randomizer(sk);
