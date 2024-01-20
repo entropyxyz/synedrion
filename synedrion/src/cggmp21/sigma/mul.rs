@@ -30,10 +30,16 @@ impl<P: SchemeParams> MulProof<P> {
         rho_x: &RandomizerMod<P::Paillier>,
         rho: &RandomizerMod<P::Paillier>,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
-        cap_y: &Ciphertext<P::Paillier>,
+        cap_x: &Ciphertext<P::Paillier>,                // $X = enc(x, \rho_x)$
+        cap_y: &Ciphertext<P::Paillier>,                // $Y$
+        cap_c: &Ciphertext<P::Paillier>,                // $C = (Y (*) x) * \rho^N$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_x)
+            .chain(cap_y)
+            .chain(cap_c)
             .chain(aux)
             .finalize_to_reader();
 
@@ -80,6 +86,10 @@ impl<P: SchemeParams> MulProof<P> {
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_x)
+            .chain(cap_y)
+            .chain(cap_c)
             .chain(aux)
             .finalize_to_reader();
 
@@ -145,7 +155,9 @@ mod tests {
             .homomorphic_mul(pk, &x)
             .mul_randomizer(pk, &rho.retrieve());
 
-        let proof = MulProof::<Params>::new(&mut OsRng, &x, &rho_x, &rho, pk, &cap_y, &aux);
+        let proof = MulProof::<Params>::new(
+            &mut OsRng, &x, &rho_x, &rho, pk, &cap_x, &cap_y, &cap_c, &aux,
+        );
         assert!(proof.verify(pk, &cap_x, &cap_y, &cap_c, &aux));
     }
 }

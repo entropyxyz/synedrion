@@ -893,7 +893,9 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             &self.context.rho,
             &rho,
             pk,
+            &self.k_ciphertexts[my_idx],
             &self.g_ciphertexts[my_idx],
+            &cap_h,
             &aux,
         );
         assert!(p_mul.verify(
