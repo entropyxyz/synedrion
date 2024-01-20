@@ -281,7 +281,7 @@ impl<P: SchemeParams> KeySharePrecomputed<P> {
 impl<P: SchemeParams> PresigningData<P> {
     /// Creates a consistent set of presigning data for testing purposes.
     #[cfg(any(test, feature = "bench-internals"))]
-    pub(crate) fn new_centralized(
+    pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         key_shares: &[KeyShare<P>],
     ) -> Box<[Self]> {
