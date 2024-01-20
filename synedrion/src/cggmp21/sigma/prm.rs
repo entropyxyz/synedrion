@@ -68,11 +68,16 @@ impl<P: SchemeParams> Hashable for PrmCommitment<P> {
 struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
-    fn new<P: SchemeParams>(aux: &impl Hashable, commitment: &PrmCommitment<P>) -> Self {
+    fn new<P: SchemeParams>(
+        commitment: &PrmCommitment<P>,
+        setup: &RPParamsMod<P::Paillier>,
+        aux: &impl Hashable,
+    ) -> Self {
         // TODO (#61): generate m/8 random bytes instead and fill the vector bit by bit.
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(aux)
             .chain(commitment)
+            .chain(setup)
+            .chain(aux)
             .finalize_to_reader();
         let mut bytes = vec![0u8; P::SECURITY_PARAMETER];
         reader.read(&mut bytes);
@@ -109,7 +114,7 @@ impl<P: SchemeParams> PrmProof<P> {
         let commitment = PrmCommitment::new(&proof_secret, &setup.base);
 
         let totient = sk.totient_nonzero();
-        let challenge = PrmChallenge::new(aux, &commitment);
+        let challenge = PrmChallenge::new(&commitment, setup, aux);
         let proof = proof_secret
             .secret
             .iter()
@@ -131,7 +136,7 @@ impl<P: SchemeParams> PrmProof<P> {
     pub fn verify(&self, setup: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
         let precomputed = setup.public_key().precomputed_modulus();
 
-        let challenge = PrmChallenge::new(aux, &self.commitment);
+        let challenge = PrmChallenge::new(&self.commitment, setup, aux);
         if challenge != self.challenge {
             return false;
         }
