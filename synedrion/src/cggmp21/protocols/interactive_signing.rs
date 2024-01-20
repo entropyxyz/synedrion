@@ -259,3 +259,67 @@ impl<P: SchemeParams> FinalizableToResult for Round4<P> {
             .map_err(wrap_finalize_error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+    use rand_core::{OsRng, RngCore};
+
+    use super::{Context, Round1};
+    use crate::cggmp21::TestParams;
+    use crate::common::KeyShare;
+    use crate::curve::Scalar;
+    use crate::rounds::{
+        test_utils::{step_next_round, step_result, step_round},
+        FirstRound, PartyIdx,
+    };
+
+    #[test]
+    fn execute_interactive_signing() {
+        let mut shared_randomness = [0u8; 32];
+        OsRng.fill_bytes(&mut shared_randomness);
+
+        let message = Scalar::random(&mut OsRng);
+
+        let num_parties = 3;
+        let key_shares = KeyShare::new_centralized(&mut OsRng, num_parties, None);
+        let r1 = (0..num_parties)
+            .map(|idx| {
+                Round1::<TestParams>::new(
+                    &mut OsRng,
+                    &shared_randomness,
+                    num_parties,
+                    PartyIdx::from_usize(idx),
+                    Context {
+                        message,
+                        key_share: key_shares[idx].clone(),
+                    },
+                )
+                .unwrap()
+            })
+            .collect();
+
+        let r1a = step_round(&mut OsRng, r1).unwrap();
+        let r2 = step_next_round(&mut OsRng, r1a).unwrap();
+        let r2a = step_round(&mut OsRng, r2).unwrap();
+        let r3 = step_next_round(&mut OsRng, r2a).unwrap();
+        let r3a = step_round(&mut OsRng, r3).unwrap();
+        let r4 = step_next_round(&mut OsRng, r3a).unwrap();
+        let r4a = step_round(&mut OsRng, r4).unwrap();
+        let signatures = step_result(&mut OsRng, r4a).unwrap();
+
+        for signature in signatures {
+            let (sig, rec_id) = signature.to_backend();
+
+            let vkey = key_shares[0].verifying_key();
+
+            // Check that the signature can be verified
+            vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();
+
+            // Check that the key can be recovered
+            let recovered_key =
+                VerifyingKey::recover_from_prehash(&message.to_bytes(), &sig, rec_id).unwrap();
+            assert_eq!(recovered_key, vkey);
+        }
+    }
+}

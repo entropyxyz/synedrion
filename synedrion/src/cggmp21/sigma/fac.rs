@@ -9,12 +9,23 @@ use crate::paillier::{
     SecretKeyPaillierPrecomputed,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{Bounded, Integer, NonZero, Signed};
+use crate::uint::{Bounded, Integer, Signed};
 
 const HASH_TAG: &[u8] = b"P_fac";
 
-#[derive(Clone, Serialize, Deserialize)]
+/**
+ZK proof: No small factor proof.
+
+Secret inputs:
+- primes $p$, $q$ such that $p, q < \pm \sqrt{N_0} 2^\ell$.
+
+Public inputs:
+- Paillier public key $N_0 = p * q$,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_p: RPCommitment<P::Paillier>,
     cap_q: RPCommitment<P::Paillier>,
     cap_a: RPCommitment<P::Paillier>,
@@ -31,20 +42,22 @@ pub(crate) struct FacProof<P: SchemeParams> {
 impl<P: SchemeParams> FacProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        sk0: &SecretKeyPaillierPrecomputed<P::Paillier>,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
+        let pk0 = sk0.public_key();
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk0)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.into_wide();
 
-        let pk = sk.public_key();
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         // NOTE: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
@@ -61,7 +74,7 @@ impl<P: SchemeParams> FacProof<P> {
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // N_0 \hat{N}
-        let scale = pk.modulus_bounded().mul_wide(hat_cap_n);
+        let scale = pk0.modulus_bounded().mul_wide(hat_cap_n);
 
         let sigma =
             Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
@@ -77,7 +90,7 @@ impl<P: SchemeParams> FacProof<P> {
         let x = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        let (p, q) = sk.primes();
+        let (p, q) = sk0.primes();
 
         let cap_p = setup.commit(&p, &mu).retrieve();
         let cap_q = setup.commit(&q, &nu);
@@ -93,6 +106,7 @@ impl<P: SchemeParams> FacProof<P> {
         let v = r + (e_wide.into_wide() * hat_sigma);
 
         Self {
+            e,
             cap_p,
             cap_q: cap_q.retrieve(),
             cap_a,
@@ -109,22 +123,27 @@ impl<P: SchemeParams> FacProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>, // $s$, $t$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk0)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+
+        if e != self.e {
+            return false;
+        }
 
         let aux_pk = setup.public_key();
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &setup.commit_xwide(&pk.modulus_bounded(), &self.sigma);
+        let cap_r = &setup.commit_xwide(&pk0.modulus_bounded(), &self.sigma);
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a_mod = self.cap_a.to_mod(aux_pk);

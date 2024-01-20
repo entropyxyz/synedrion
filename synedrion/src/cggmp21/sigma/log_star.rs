@@ -10,12 +10,27 @@ use crate::paillier::{
     Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{FromScalar, NonZero, Signed};
+use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_log*";
 
-#[derive(Clone, Serialize, Deserialize)]
+/**
+ZK proof: Knowledge of Exponent vs Paillier Encryption.
+
+Secret inputs:
+- $x \in \pm 2^\ell$,
+- $\rho$, a Paillier randomizer for the public key $N_0$.
+
+Public inputs:
+- Paillier public key $N_0$,
+- Paillier ciphertext $C = enc_0(x, \rho)$,
+- Point $g$,
+- Point $X = g * x$,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitment<P::Paillier>,
     cap_a: Ciphertext<P::Paillier>,
     cap_y: Point,
@@ -29,38 +44,45 @@ impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
-        rho: &RandomizerMod<P::Paillier>,                  // $\rho$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
-        g: &Point,                                         // $g$
-        setup: &RPParamsMod<P::Paillier>,                  // $\hat{N}$, $s$, $t$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        rho: &RandomizerMod<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        g: &Point,
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk0)
+            .chain(cap_c)
+            .chain(g)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-        let r = RandomizerMod::random(rng, pk);
+        let r = RandomizerMod::random(rng, pk0);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(x, &mu).retrieve();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk, &alpha, &r.retrieve());
-        let cap_y = g * &alpha.to_scalar();
+        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
+        let cap_y = g * &P::scalar_from_signed(&alpha);
         let cap_d = setup.commit(&alpha, &gamma).retrieve();
 
-        let z1 = alpha + e * *x;
+        let z1 = alpha + e * x;
         let z2 = (r * rho.pow_signed_vartime(&e)).retrieve();
         let z3 = gamma + mu * e.into_wide();
 
         Self {
+            e,
             cap_s,
             cap_a,
             cap_y,
@@ -74,32 +96,40 @@ impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,  // $C = encrypt(x, \rho)$
-        g: &Point,                        // $g$
-        cap_x: &Point,                    // $X = g^x$
-        setup: &RPParamsMod<P::Paillier>, // $s$, $t$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        g: &Point,
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk0)
+            .chain(cap_c)
+            .chain(g)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+
+        if e != self.e {
+            return false;
+        }
 
         // enc_0(z1, z2) == A (+) C (*) e
-        let c = Ciphertext::new_with_randomizer_signed(pk, &self.z1, &self.z2);
+        let c = Ciphertext::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self
             .cap_a
-            .homomorphic_add(pk, &cap_c.homomorphic_mul(pk, &e))
+            .homomorphic_add(pk0, &cap_c.homomorphic_mul(pk0, &e))
         {
             return false;
         }
 
         // g^{z_1} == Y X^e
-        if g * &self.z1.to_scalar() != self.cap_y + cap_x * &e.to_scalar() {
+        if g * &P::scalar_from_signed(&self.z1) != self.cap_y + cap_x * &P::scalar_from_signed(&e) {
             return false;
         }
 
@@ -122,7 +152,7 @@ mod tests {
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::{Point, Scalar};
     use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
-    use crate::uint::{FromScalar, Signed};
+    use crate::uint::Signed;
 
     #[test]
     fn prove_and_verify() {
@@ -137,13 +167,14 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let g = &Point::GENERATOR * &Scalar::random(&mut OsRng);
+        let g = Point::GENERATOR * Scalar::random(&mut OsRng);
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho = RandomizerMod::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho.retrieve());
-        let cap_x = &g * &x.to_scalar();
+        let cap_x = g * Params::scalar_from_signed(&x);
 
-        let proof = LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &g, &setup, &aux);
+        let proof =
+            LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &g, &cap_x, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &g, &cap_x, &setup, &aux));
     }
 }

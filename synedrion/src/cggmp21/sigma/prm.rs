@@ -10,10 +10,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::paillier::{
-    PaillierParams, PublicKeyPaillierPrecomputed, RPParamsMod, RPSecret,
-    SecretKeyPaillierPrecomputed,
-};
+use crate::paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
@@ -22,38 +19,29 @@ use crate::uint::{
 
 const HASH_TAG: &[u8] = b"P_prm";
 
-/// Secret data the proof is based on (~ signing key)
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PrmSecret<P: SchemeParams> {
-    public_key: PublicKeyPaillierPrecomputed<P::Paillier>,
-    secret: Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>, // $a_i$
-}
+/// Secret data the proof is based on ($a_i$).
+#[derive(Clone)]
+struct PrmSecret<P: SchemeParams>(Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmSecret<P> {
-    pub(crate) fn random(
+    fn random(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
     ) -> Self {
         let secret = (0..P::SECURITY_PARAMETER)
             .map(|_| sk.random_field_elem(rng))
             .collect();
-        Self {
-            public_key: sk.public_key().clone(),
-            secret,
-        }
+        Self(secret)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> PrmCommitment<P> {
-    pub(crate) fn new(
-        secret: &PrmSecret<P>,
-        base: &<P::Paillier as PaillierParams>::UintMod,
-    ) -> Self {
+    fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
         let commitment = secret
-            .secret
+            .0
             .iter()
             .map(|a| base.pow_bounded(a).retrieve())
             .collect();
@@ -71,11 +59,16 @@ impl<P: SchemeParams> Hashable for PrmCommitment<P> {
 struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
-    fn new<P: SchemeParams>(aux: &impl Hashable, commitment: &PrmCommitment<P>) -> Self {
+    fn new<P: SchemeParams>(
+        commitment: &PrmCommitment<P>,
+        setup: &RPParamsMod<P::Paillier>,
+        aux: &impl Hashable,
+    ) -> Self {
         // TODO (#61): generate m/8 random bytes instead and fill the vector bit by bit.
         let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(aux)
             .chain(commitment)
+            .chain(setup)
+            .chain(aux)
             .finalize_to_reader();
         let mut bytes = vec![0u8; P::SECURITY_PARAMETER];
         reader.read(&mut bytes);
@@ -89,7 +82,17 @@ impl Hashable for PrmChallenge {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/**
+ZK proof: Ring-Pedersen parameters.
+
+Secret inputs:
+- integer $\lambda$,
+- (not explicitly mentioned in the paper, but necessary to calculate the totient) primes $p$, $q$.
+
+Public inputs:
+- Setup parameters $N$, $s$, $t$ such that $N = p q$, and $s = t^\lambda \mod N$.
+*/
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PrmCommitment<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmCommitment<P>: for<'x> Deserialize<'x>"))]
 pub(crate) struct PrmProof<P: SchemeParams> {
@@ -101,10 +104,10 @@ pub(crate) struct PrmProof<P: SchemeParams> {
 impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
     /// (the power that was used to create RP parameters).
-    pub(crate) fn new(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        setup_secret: &RPSecret<P::Paillier>,
+        lambda: &RPSecret<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
@@ -112,13 +115,13 @@ impl<P: SchemeParams> PrmProof<P> {
         let commitment = PrmCommitment::new(&proof_secret, &setup.base);
 
         let totient = sk.totient_nonzero();
-        let challenge = PrmChallenge::new(aux, &commitment);
+        let challenge = PrmChallenge::new(&commitment, setup, aux);
         let proof = proof_secret
-            .secret
+            .0
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| {
-                let x = a.add_mod(setup_secret.as_ref(), &totient);
+                let x = a.add_mod(lambda.as_ref(), &totient);
                 let choice = Choice::from(*e as u8);
                 Bounded::conditional_select(a, &x, choice)
             })
@@ -131,10 +134,10 @@ impl<P: SchemeParams> PrmProof<P> {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
-    pub(crate) fn verify(&self, setup: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, setup: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
         let precomputed = setup.public_key().precomputed_modulus();
 
-        let challenge = PrmChallenge::new(aux, &self.commitment);
+        let challenge = PrmChallenge::new(&self.commitment, setup, aux);
         if challenge != self.challenge {
             return false;
         }
@@ -175,12 +178,12 @@ mod tests {
         let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
         let pk = sk.public_key();
 
-        let setup_secret = RPSecret::random(&mut OsRng, &sk);
-        let setup = RPParamsMod::random_with_secret(&mut OsRng, &setup_secret, pk);
+        let lambda = RPSecret::random(&mut OsRng, &sk);
+        let setup = RPParamsMod::random_with_secret(&mut OsRng, &lambda, pk);
 
         let aux: &[u8] = b"abcde";
 
-        let proof = PrmProof::<Params>::new(&mut OsRng, &sk, &setup_secret, &setup, &aux);
+        let proof = PrmProof::<Params>::new(&mut OsRng, &sk, &lambda, &setup, &aux);
         assert!(proof.verify(&setup, &aux));
     }
 }

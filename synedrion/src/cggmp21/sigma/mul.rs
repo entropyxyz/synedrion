@@ -8,12 +8,13 @@ use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{Bounded, NonZero, Retrieve, Signed};
+use crate::uint::{Bounded, Retrieve, Signed};
 
 const HASH_TAG: &[u8] = b"P_mul";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_a: Ciphertext<P::Paillier>,
     cap_b: Ciphertext<P::Paillier>,
     z: Signed<<P::Paillier as PaillierParams>::WideUint>,
@@ -21,24 +22,45 @@ pub(crate) struct MulProof<P: SchemeParams> {
     v: Randomizer<P::Paillier>,
 }
 
+/**
+ZK proof: Paillier multiplication.
+
+Secret inputs:
+- $x$ (technically any integer since it will be implicitly reduced modulo $q$ or $\phi(N)$,
+  but we limit its size to `Uint` since that's what we use in this library),
+- $\rho_x$, a Paillier randomizer for the public key $N$,
+- $\rho$, a Paillier randomizer for the public key $N$.
+
+Public inputs:
+- Paillier public key $N$,
+- Paillier ciphertext $X = enc(x, \rho_x)$,
+- Paillier ciphertext $Y$ encrypted with $N$,
+- Paillier ciphertext $C = (Y (*) x) * \rho^N \mod N^2$,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 impl<P: SchemeParams> MulProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        secret: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x$
-        rho_x_mod: &RandomizerMod<P::Paillier>,                 // $\rho_x$
-        rho_mod: &RandomizerMod<P::Paillier>,                   // $\rho$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,         // $N$
-        cap_y: &Ciphertext<P::Paillier>,                        // $Y$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        rho_x: &RandomizerMod<P::Paillier>,
+        rho: &RandomizerMod<P::Paillier>,
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_x: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_x)
+            .chain(cap_y)
+            .chain(cap_c)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let alpha_mod = pk.random_invertible_group_elem(rng);
         let r_mod = RandomizerMod::random(rng, pk);
@@ -57,11 +79,12 @@ impl<P: SchemeParams> MulProof<P> {
             .mul_randomizer(pk, &r);
         let cap_b = Ciphertext::new_with_randomizer(pk, alpha.as_ref(), &s);
 
-        let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(secret);
-        let u = (r_mod * rho_mod.pow_signed_vartime(&e)).retrieve();
-        let v = (s_mod * rho_x_mod.pow_signed_vartime(&e)).retrieve();
+        let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(x);
+        let u = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
+        let v = (s_mod * rho_x.pow_signed_vartime(&e)).retrieve();
 
         Self {
+            e,
             cap_a,
             cap_b,
             z,
@@ -72,19 +95,26 @@ impl<P: SchemeParams> MulProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N$
-        cap_x: &Ciphertext<P::Paillier>,                // $X = enc(x, \rho_x)$
-        cap_y: &Ciphertext<P::Paillier>,                // $Y$
-        cap_c: &Ciphertext<P::Paillier>,                // $C = (Y (*) x) * \rho^N$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_x: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_x)
+            .chain(cap_y)
+            .chain(cap_c)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+
+        if e != self.e {
+            return false;
+        }
 
         // Y^z u^N = A * C^e \mod N^2
         if cap_y
@@ -141,7 +171,9 @@ mod tests {
             .homomorphic_mul(pk, &x)
             .mul_randomizer(pk, &rho.retrieve());
 
-        let proof = MulProof::<Params>::new(&mut OsRng, &x, &rho_x, &rho, pk, &cap_y, &aux);
+        let proof = MulProof::<Params>::new(
+            &mut OsRng, &x, &rho_x, &rho, pk, &cap_x, &cap_y, &cap_c, &aux,
+        );
         assert!(proof.verify(pk, &cap_x, &cap_y, &cap_c, &aux));
     }
 }

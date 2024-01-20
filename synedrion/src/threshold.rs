@@ -170,7 +170,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
         let public_shares = share_idxs
             .iter()
             .map(|share_idx| {
-                &self.public_shares[share_idx] * &interpolation_coeff(share_idxs, share_idx)
+                self.public_shares[share_idx] * interpolation_coeff(share_idxs, share_idx)
             })
             .collect();
 

@@ -22,7 +22,6 @@ use crate::rounds::{
     ProtocolResult, ReceiveError, ToResult,
 };
 use crate::tools::collections::HoleRange;
-use crate::uint::{Bounded, FromScalar, Signed};
 
 /// Possible results of the Signing protocol.
 #[derive(Debug, Clone, Copy)]
@@ -181,7 +180,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
-                    &Signed::from_scalar(&self.context.key_share.secret_share),
+                    &P::signed_from_scalar(&self.context.key_share.secret_share),
                     self.context.presigning.hat_beta.get(j).unwrap(),
                     &self
                         .context
@@ -193,10 +192,24 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                     &self.context.presigning.hat_r.get(j).unwrap().to_mod(pk),
                     target_pk,
                     pk,
-                    &self.context.presigning.cap_k,
+                    &self.context.presigning.cap_k[j],
+                    self.context.presigning.hat_cap_d.get(j).unwrap(),
+                    self.context.presigning.hat_cap_f.get(j).unwrap(),
+                    &self.context.key_share.public_shares[my_idx],
                     rp,
                     &aux,
                 );
+
+                assert!(p_aff_g.verify(
+                    target_pk,
+                    pk,
+                    &self.context.presigning.cap_k[j],
+                    self.context.presigning.hat_cap_d.get(j).unwrap(),
+                    self.context.presigning.hat_cap_f.get(j).unwrap(),
+                    &self.context.key_share.public_shares[my_idx],
+                    rp,
+                    &aux,
+                ));
 
                 aff_g_proofs.push((PartyIdx::from_usize(j), PartyIdx::from_usize(l), p_aff_g));
             }
@@ -205,13 +218,11 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         // mul* proofs
 
         let x = self.context.key_share.secret_share;
+        let cap_x = self.context.key_share.public_shares[self.party_idx().as_usize()];
 
         let rho = RandomizerMod::random(rng, pk);
-        let hat_cap_h = self
-            .context
-            .presigning
-            .cap_k
-            .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&x))
+        let hat_cap_h = self.context.presigning.cap_k[my_idx]
+            .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&x))
             .mul_randomizer(pk, &rho.retrieve());
 
         let aux = (
@@ -224,46 +235,77 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         for l in HoleRange::new(num_parties, my_idx) {
             let p_mul = MulStarProof::<P>::new(
                 rng,
-                &Signed::from_scalar(&x),
+                &P::signed_from_scalar(&x),
                 &rho,
                 pk,
-                &self.context.presigning.cap_k,
+                &self.context.presigning.cap_k[my_idx],
+                &hat_cap_h,
+                &cap_x,
                 &self.context.key_share.public_aux[l].rp_params,
                 &aux,
             );
+
+            assert!(p_mul.verify(
+                pk,
+                &self.context.presigning.cap_k[my_idx],
+                &hat_cap_h,
+                &cap_x,
+                &self.context.key_share.public_aux[l].rp_params,
+                &aux,
+            ));
 
             mul_star_proofs.push((PartyIdx::from_usize(l), p_mul));
         }
 
         // dec proofs
 
-        let mut ciphertext = hat_cap_h.homomorphic_add(
-            pk,
-            &self
-                .context
-                .presigning
-                .cap_k
-                .homomorphic_mul_unsigned(pk, &Bounded::from_scalar(&self.context.message)),
-        );
-
+        let mut ciphertext = hat_cap_h.clone();
         for j in HoleRange::new(num_parties, my_idx) {
             ciphertext = ciphertext
-                .homomorphic_add(pk, self.context.presigning.hat_cap_d.get(j).unwrap())
+                .homomorphic_add(
+                    pk,
+                    self.context.presigning.hat_cap_d_received.get(j).unwrap(),
+                )
                 .homomorphic_add(pk, self.context.presigning.hat_cap_f.get(j).unwrap());
         }
 
+        let r = self.context.presigning.nonce.x_coordinate();
+
+        let ciphertext = ciphertext
+            .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&r))
+            .homomorphic_add(
+                pk,
+                &self.context.presigning.cap_k[my_idx]
+                    .homomorphic_mul_unsigned(pk, &P::bounded_from_scalar(&self.context.message)),
+            );
+
         let rho = ciphertext.derive_randomizer(sk);
+        // This is the same as `s_part` but if all the calculations were performed
+        // without reducing modulo curve order.
+        let s_part_nonreduced =
+            P::signed_from_scalar(&self.context.presigning.ephemeral_scalar_share)
+                * P::signed_from_scalar(&self.context.message)
+                + self.context.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
 
         let mut dec_proofs = Vec::new();
         for l in HoleRange::new(num_parties, my_idx) {
             let p_dec = DecProof::<P>::new(
                 rng,
-                &Signed::from_scalar(&s),
+                &s_part_nonreduced,
                 &rho,
                 pk,
+                &self.s_part,
+                &ciphertext,
                 &self.context.key_share.public_aux[l].rp_params,
                 &aux,
             );
+            assert!(p_dec.verify(
+                pk,
+                &self.s_part,
+                &ciphertext,
+                &self.context.key_share.public_aux[l].rp_params,
+                &aux,
+            ));
             dec_proofs.push((PartyIdx::from_usize(l), p_dec));
         }
 

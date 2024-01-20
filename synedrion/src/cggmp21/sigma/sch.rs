@@ -19,17 +19,17 @@ pub(crate) struct SchSecret(
 );
 
 impl SchSecret {
-    pub(crate) fn random(rng: &mut impl CryptoRngCore) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self(Scalar::random(rng))
     }
 }
 
 /// Public data for the proof (~ verifying key)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SchCommitment(Point);
 
 impl SchCommitment {
-    pub(crate) fn new(secret: &SchSecret) -> Self {
+    pub fn new(secret: &SchSecret) -> Self {
         Self(secret.0.mul_by_generator())
     }
 }
@@ -40,11 +40,11 @@ impl Hashable for SchCommitment {
     }
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SchChallenge(Scalar);
 
 impl SchChallenge {
-    fn new(aux: &impl Hashable, public: &Point, commitment: &SchCommitment) -> Self {
+    fn new(public: &Point, commitment: &SchCommitment, aux: &impl Hashable) -> Self {
         Self(
             Hash::new_with_dst(HASH_TAG)
                 .chain(aux)
@@ -55,37 +55,38 @@ impl SchChallenge {
     }
 }
 
-/// Schnorr PoK of a secret scalar.
-#[derive(Clone, Serialize, Deserialize)]
+/**
+ZK proof: Schnorr proof of knowledge.
+
+Secret inputs:
+- scalar $x$.
+
+Public inputs:
+- Point $X = g * x$, where $g$ is the curve generator.
+*/
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SchProof {
     challenge: SchChallenge,
     proof: Scalar,
 }
 
 impl SchProof {
-    /// Create a proof that we know the `secret`.
-    pub(crate) fn new(
+    pub fn new(
         proof_secret: &SchSecret,
-        secret: &Scalar,
+        x: &Scalar,
         commitment: &SchCommitment,
-        public: &Point,
+        cap_x: &Point,
         aux: &impl Hashable,
     ) -> Self {
-        let challenge = SchChallenge::new(aux, public, commitment);
-        let proof = proof_secret.0 + &challenge.0 * secret;
+        let challenge = SchChallenge::new(cap_x, commitment, aux);
+        let proof = proof_secret.0 + &challenge.0 * x;
         Self { challenge, proof }
     }
 
-    /// Verify that the proof is correct for a secret corresponding to the given `public`.
-    pub(crate) fn verify(
-        &self,
-        commitment: &SchCommitment,
-        public: &Point,
-        aux: &impl Hashable,
-    ) -> bool {
-        let challenge = SchChallenge::new(aux, public, commitment);
+    pub fn verify(&self, commitment: &SchCommitment, cap_x: &Point, aux: &impl Hashable) -> bool {
+        let challenge = SchChallenge::new(cap_x, commitment, aux);
         challenge == self.challenge
-            && self.proof.mul_by_generator() == commitment.0 + public * &challenge.0
+            && self.proof.mul_by_generator() == commitment.0 + cap_x * &challenge.0
     }
 }
 

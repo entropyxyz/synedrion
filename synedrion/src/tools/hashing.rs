@@ -120,6 +120,12 @@ impl Hashable for u32 {
     }
 }
 
+impl Hashable for u64 {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(&self.to_be_bytes())
+    }
+}
+
 impl Hashable for u8 {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain_constant_sized_bytes(&self.to_be_bytes())

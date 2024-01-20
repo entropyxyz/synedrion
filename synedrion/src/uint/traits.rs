@@ -14,7 +14,6 @@ use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 
 use super::{bounded::Bounded, jacobi::JacobiSymbolTrait, signed::Signed};
-use crate::curve::Scalar;
 use crate::tools::hashing::{Chain, Hashable};
 
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
@@ -188,6 +187,7 @@ pub trait UintModLike:
     + for<'a> Mul<&'a Self, Output = Self>
     + subtle::ConditionallyNegatable
     + subtle::ConditionallySelectable
+    + Hashable
 {
     /// The corresponding regular integer type.
     type RawUint: UintLike<ModUint = Self>;
@@ -285,6 +285,19 @@ pub trait UintModLike:
     fn square(&self) -> Self;
 }
 
+impl<const L: usize> Hashable for DynResidue<L> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        let mut digest = digest;
+        // Montgomery form is a bijection, so we can just hash it directly
+        // without converting back.
+        let montgomery_form = self.as_montgomery();
+        for word in montgomery_form.as_words() {
+            digest = digest.chain(word);
+        }
+        digest
+    }
+}
+
 impl<const L: usize> UintModLike for DynResidue<L>
 where
     Uint<L>: Encoding,
@@ -367,38 +380,6 @@ impl HasWide for U4096 {
     }
     fn from_wide(value: Self::Wide) -> (Self, Self) {
         value.into()
-    }
-}
-
-// TODO (#63): this should be moved out of Uint layer.
-pub trait FromScalar {
-    fn from_scalar(value: &Scalar) -> Self;
-    fn to_scalar(&self) -> Scalar;
-}
-
-impl<T: UintLike> FromScalar for T {
-    fn from_scalar(value: &Scalar) -> Self {
-        let scalar_bytes = value.to_bytes();
-        let mut repr = Self::ZERO.to_be_bytes();
-
-        let uint_len = repr.as_ref().len();
-        let scalar_len = scalar_bytes.len();
-
-        debug_assert!(uint_len >= scalar_len);
-        repr.as_mut()[uint_len - scalar_len..].copy_from_slice(&scalar_bytes);
-        Self::from_be_bytes(repr)
-    }
-
-    fn to_scalar(&self) -> Scalar {
-        let p = NonZero::new(Self::from_scalar(&-Scalar::ONE).wrapping_add(&Self::ONE)).unwrap();
-        let r = self.rem(p);
-
-        let repr = r.to_be_bytes();
-        let uint_len = repr.as_ref().len();
-        let scalar_len = Scalar::repr_len();
-
-        // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..]).unwrap()
     }
 }
 

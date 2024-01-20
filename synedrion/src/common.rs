@@ -21,7 +21,6 @@ use crate::uint::Signed;
 use crate::{
     paillier::RandomizerMod,
     tools::collections::{HoleRange, HoleVecAccum},
-    uint::FromScalar,
 };
 
 /// The result of the KeyInit protocol.
@@ -112,17 +111,24 @@ pub struct KeyShareChange<P: SchemeParams> {
 #[derive(Debug, Clone)]
 pub struct PresigningData<P: SchemeParams> {
     // TODO (#79): can we store nonce as a scalar?
-    pub(crate) nonce: Point, // `R`
-    /// An additive share of the ephemeral scalar `k`.
-    pub(crate) ephemeral_scalar_share: Scalar, // `k_i`
+    pub(crate) nonce: Point, // $R$
+    /// An additive share of the ephemeral scalar.
+    pub(crate) ephemeral_scalar_share: Scalar, // $k_i$
     /// An additive share of `k * x` where `x` is the secret key.
     pub(crate) product_share: Scalar,
+
     // Values generated during presigning,
     // kept in case we need to generate a proof of correctness.
+
+    // We are keeping the non-reduced product share because we may need
+    pub(crate) product_share_nonreduced: Signed<<P::Paillier as PaillierParams>::Uint>,
     pub(crate) hat_beta: HoleVec<Signed<<P::Paillier as PaillierParams>::Uint>>,
     pub(crate) hat_r: HoleVec<Randomizer<P::Paillier>>,
     pub(crate) hat_s: HoleVec<Randomizer<P::Paillier>>,
-    pub(crate) cap_k: Ciphertext<P::Paillier>,
+    pub(crate) cap_k: Box<[Ciphertext<P::Paillier>]>,
+    /// Received $\hat{D}$, that is $\hat{D}_{i,j}$, $j != i$, where $i$ is this party's index.
+    pub(crate) hat_cap_d_received: HoleVec<Ciphertext<P::Paillier>>,
+    /// Sent $\hat{D}$, that is $\hat{D}_{j,i}$, $j != i$, where $i$ is this party's index.
     pub(crate) hat_cap_d: HoleVec<Ciphertext<P::Paillier>>,
     pub(crate) hat_cap_f: HoleVec<Ciphertext<P::Paillier>>,
 }
@@ -280,13 +286,8 @@ impl<P: SchemeParams> PresigningData<P> {
         key_shares: &[KeyShare<P>],
     ) -> Box<[Self]> {
         let ephemeral_scalar = Scalar::random(rng);
-        let nonce = &Point::GENERATOR * &ephemeral_scalar.invert().unwrap();
+        let nonce = ephemeral_scalar.invert().unwrap().mul_by_generator();
         let ephemeral_scalar_shares = ephemeral_scalar.split(rng, key_shares.len());
-        let secret: Scalar = key_shares
-            .iter()
-            .map(|key_share| key_share.secret_share)
-            .sum();
-        let product_shares = (ephemeral_scalar * secret).split(rng, key_shares.len());
 
         let num_parties = key_shares.len();
         let public_keys = key_shares[0]
@@ -298,34 +299,26 @@ impl<P: SchemeParams> PresigningData<P> {
         let cap_k = ephemeral_scalar_shares
             .iter()
             .enumerate()
-            .map(|(i, k)| {
-                Ciphertext::new(
-                    rng,
-                    &public_keys[i],
-                    &<<P as SchemeParams>::Paillier as PaillierParams>::Uint::from_scalar(k),
-                )
-            })
+            .map(|(i, k)| Ciphertext::new(rng, &public_keys[i], &P::uint_from_scalar(k)))
             .collect::<Vec<_>>();
 
         let mut presigning = Vec::new();
 
-        for i in 0..key_shares.len() {
-            let mut hat_beta_vec = HoleVecAccum::new(num_parties, i);
-            let mut hat_r_vec = HoleVecAccum::new(num_parties, i);
-            let mut hat_s_vec = HoleVecAccum::new(num_parties, i);
-            let mut hat_cap_d_vec = HoleVecAccum::new(num_parties, i);
-            let mut hat_cap_f_vec = HoleVecAccum::new(num_parties, i);
+        let mut hat_betas = Vec::new();
+        let mut hat_ss = Vec::new();
+        let mut hat_cap_ds = Vec::new();
+        for (i, key_share) in key_shares.iter().enumerate() {
+            let x = key_share.secret_share;
 
-            let x = key_shares[i].secret_share;
-            let k = ephemeral_scalar_shares[i];
+            let mut hat_beta_vec = HoleVecAccum::new(num_parties, i);
+            let mut hat_s_vec = HoleVecAccum::new(num_parties, i);
+            let mut hat_cap_d_vec = HoleVecAccum::<Ciphertext<P::Paillier>>::new(num_parties, i);
 
             for j in HoleRange::new(num_parties, i) {
                 let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
-                let hat_r = RandomizerMod::random(rng, &public_keys[i]).retrieve();
                 let hat_s = RandomizerMod::random(rng, &public_keys[j]).retrieve();
-
                 let hat_cap_d = cap_k[j]
-                    .homomorphic_mul(&public_keys[j], &Signed::from_scalar(&x))
+                    .homomorphic_mul(&public_keys[j], &P::signed_from_scalar(&x))
                     .homomorphic_add(
                         &public_keys[j],
                         &Ciphertext::new_with_randomizer_signed(
@@ -334,26 +327,63 @@ impl<P: SchemeParams> PresigningData<P> {
                             &hat_s,
                         ),
                     );
-                let hat_cap_f =
-                    Ciphertext::new_with_randomizer_signed(&public_keys[j], &hat_beta, &hat_r);
 
                 hat_beta_vec.insert(j, hat_beta);
-                hat_r_vec.insert(j, hat_r);
                 hat_s_vec.insert(j, hat_s);
                 hat_cap_d_vec.insert(j, hat_cap_d);
+            }
+            hat_betas.push(hat_beta_vec.finalize().unwrap());
+            hat_ss.push(hat_s_vec.finalize().unwrap());
+            hat_cap_ds.push(hat_cap_d_vec.finalize().unwrap());
+        }
+
+        for i in 0..key_shares.len() {
+            let mut hat_r_vec = HoleVecAccum::new(num_parties, i);
+            let mut hat_cap_f_vec = HoleVecAccum::new(num_parties, i);
+
+            let x = key_shares[i].secret_share;
+            let k = ephemeral_scalar_shares[i];
+
+            for j in HoleRange::new(num_parties, i) {
+                let hat_beta = hat_betas[i].get(j).unwrap();
+                let hat_r = RandomizerMod::random(rng, &public_keys[i]).retrieve();
+
+                let hat_cap_f =
+                    Ciphertext::new_with_randomizer_signed(&public_keys[i], hat_beta, &hat_r);
+
+                hat_r_vec.insert(j, hat_r);
                 hat_cap_f_vec.insert(j, hat_cap_f);
             }
+
+            let mut hat_cap_d_received_vec = HoleVecAccum::new(num_parties, i);
+            for j in HoleRange::new(num_parties, i) {
+                hat_cap_d_received_vec.insert(j, hat_cap_ds[j].get(i).unwrap().clone());
+            }
+            let hat_cap_d_received = hat_cap_d_received_vec.finalize().unwrap();
+
+            let alpha_sum: Signed<_> = HoleRange::new(num_parties, i)
+                .map(|j| {
+                    P::signed_from_scalar(&key_shares[j].secret_share) * P::signed_from_scalar(&k)
+                        - hat_betas[j].get(i).unwrap()
+                })
+                .sum();
+
+            let beta_sum: Signed<_> = hat_betas[i].iter().sum();
+            let product_share_nonreduced =
+                P::signed_from_scalar(&x) * P::signed_from_scalar(&k) + alpha_sum + beta_sum;
 
             presigning.push(PresigningData {
                 nonce,
                 ephemeral_scalar_share: k,
-                product_share: product_shares[i],
-                hat_beta: hat_beta_vec.finalize().unwrap(),
+                product_share: P::scalar_from_signed(&product_share_nonreduced),
+                product_share_nonreduced,
+                hat_beta: hat_betas[i].clone(),
                 hat_r: hat_r_vec.finalize().unwrap(),
-                hat_s: hat_s_vec.finalize().unwrap(),
-                hat_cap_d: hat_cap_d_vec.finalize().unwrap(),
+                hat_s: hat_ss[i].clone(),
+                hat_cap_d_received,
+                hat_cap_d: hat_cap_ds[i].clone(),
                 hat_cap_f: hat_cap_f_vec.finalize().unwrap(),
-                cap_k: cap_k[i].clone(),
+                cap_k: cap_k.clone().into_boxed_slice(),
             });
         }
 

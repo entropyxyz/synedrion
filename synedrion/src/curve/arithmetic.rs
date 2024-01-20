@@ -153,6 +153,12 @@ impl<'de> Deserialize<'de> for Scalar {
     }
 }
 
+impl Hashable for Scalar {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain_constant_sized_bytes(&self.to_bytes().as_slice())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point(BackendPoint);
 
@@ -214,7 +220,7 @@ impl Hashable for Point {
     fn chain<C: Chain>(&self, digest: C) -> C {
         let arr = self.to_compressed_array();
         let arr_ref: &[u8] = arr.as_ref();
-        digest.chain(&arr_ref)
+        digest.chain_constant_sized_bytes(&arr_ref)
     }
 }
 
@@ -243,7 +249,7 @@ impl Neg for Scalar {
     }
 }
 
-impl<'a> Neg for &'a Scalar {
+impl Neg for &Scalar {
     type Output = Scalar;
     fn neg(self) -> Self::Output {
         Scalar(-self.0)
@@ -254,7 +260,7 @@ impl Add<Scalar> for Scalar {
     type Output = Scalar;
 
     fn add(self, other: Scalar) -> Scalar {
-        Scalar(self.0.add(other.0))
+        Scalar(self.0.add(&other.0))
     }
 }
 
@@ -270,7 +276,7 @@ impl Add<Point> for Point {
     type Output = Point;
 
     fn add(self, other: Point) -> Point {
-        Point(self.0.add(other.0))
+        Point(self.0.add(&(other.0)))
     }
 }
 
@@ -295,6 +301,14 @@ impl Sub<&Scalar> for &Scalar {
 
     fn sub(self, other: &Scalar) -> Scalar {
         Scalar(self.0.sub(&(other.0)))
+    }
+}
+
+impl Mul<Scalar> for Point {
+    type Output = Point;
+
+    fn mul(self, other: Scalar) -> Point {
+        Point(self.0.mul(&(other.0)))
     }
 }
 

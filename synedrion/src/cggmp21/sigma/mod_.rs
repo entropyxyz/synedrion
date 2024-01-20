@@ -12,11 +12,11 @@ use crate::uint::{JacobiSymbol, JacobiSymbolTrait, RandomMod, Retrieve, UintLike
 
 const HASH_TAG: &[u8] = b"P_mod";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 
 impl<P: SchemeParams> ModCommitment<P> {
-    pub fn random(
+    fn random(
         rng: &mut impl CryptoRngCore,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
     ) -> Self {
@@ -34,8 +34,9 @@ impl<P: SchemeParams> ModCommitment<P> {
 struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> ModChallenge<P> {
-    fn new(aux: &impl Hashable, pk: &PublicKeyPaillierPrecomputed<P::Paillier>) -> Self {
+    fn new(pk: &PublicKeyPaillierPrecomputed<P::Paillier>, aux: &impl Hashable) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
             .chain(aux)
             .finalize_to_reader();
 
@@ -47,7 +48,7 @@ impl<P: SchemeParams> ModChallenge<P> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModProofElem<P: PaillierParams> {
     x: P::Uint,
     a: bool,
@@ -55,7 +56,16 @@ struct ModProofElem<P: PaillierParams> {
     z: P::Uint,
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+/**
+ZK proof: Proof of Paillier-Blum modulus.
+
+Secret inputs:
+- primes $p$, $q$.
+
+Public inputs:
+- Paillier public key $N = p q$,
+*/
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "ModCommitment<P>: Serialize,
     ModChallenge<P>: Serialize"))]
 #[serde(bound(deserialize = "ModCommitment<P>: for<'x> Deserialize<'x>,
@@ -67,13 +77,13 @@ pub(crate) struct ModProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> ModProof<P> {
-    pub(crate) fn new(
+    pub fn new(
         rng: &mut impl CryptoRngCore,
         sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let pk = sk.public_key();
-        let challenge = ModChallenge::<P>::new(aux, pk);
+        let challenge = ModChallenge::<P>::new(pk, aux);
 
         let commitment = ModCommitment::<P>::random(rng, pk);
 
@@ -127,12 +137,12 @@ impl<P: SchemeParams> ModProof<P> {
         }
     }
 
-    pub(crate) fn verify(
+    pub fn verify(
         &self,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
-        let challenge = ModChallenge::new(aux, pk);
+        let challenge = ModChallenge::new(pk, aux);
         if challenge != self.challenge {
             return false;
         }

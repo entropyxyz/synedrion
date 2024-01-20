@@ -276,6 +276,12 @@ impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {
     }
 }
 
+impl<P: PaillierParams> Hashable for PublicKeyPaillierPrecomputed<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.pk)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand_core::OsRng;

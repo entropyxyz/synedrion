@@ -6,9 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     subtle::{Choice, ConditionallySelectable, CtOption},
-    CheckedAdd, CheckedMul, FromScalar, HasWide, NonZero, Signed, UintLike,
+    CheckedAdd, CheckedMul, HasWide, NonZero, Signed, UintLike,
 };
-use crate::curve::{Scalar, ORDER};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::serde_bytes;
 
@@ -121,16 +120,6 @@ impl<T: UintLike + HasWide> Bounded<T> {
             value: result,
             bound: self.bound + rhs.bound,
         }
-    }
-}
-
-impl<T: UintLike + FromScalar> FromScalar for Bounded<T> {
-    fn from_scalar(value: &Scalar) -> Self {
-        const ORDER_BITS: usize = ORDER.bits_vartime();
-        Bounded::new(T::from_scalar(value), ORDER_BITS as u32).unwrap()
-    }
-    fn to_scalar(&self) -> Scalar {
-        self.value.to_scalar()
     }
 }
 

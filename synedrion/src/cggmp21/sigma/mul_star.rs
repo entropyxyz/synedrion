@@ -10,30 +10,47 @@ use crate::paillier::{
     Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{FromScalar, NonZero, Signed};
+use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_mul*";
 
+/**
+ZK proof: Multiplication Paillier vs Group.
+
+Secret inputs:
+- $x \in +- 2^\ell$,
+- $\rho$, a Paillier randomizer for the public key $N_0$.
+
+Public inputs:
+- Paillier public key $N_0$,
+- Paillier ciphertext $C$ encrypted with $N_0$,
+- Paillier ciphertext $D = (C (*) x) * \rho^{N_0} \mod N_0^2$,
+- Point $X = g * x$, where $g$ is the curve generator,
+- Setup parameters ($\hat{N}$, $s$, $t$).
+*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
-    cap_a: Ciphertext<P::Paillier>,                        // $A$
-    cap_b_x: Point,                                        // $B_x$
-    cap_e: RPCommitment<P::Paillier>,                      // $E$
-    cap_s: RPCommitment<P::Paillier>,                      // $S$
-    z1: Signed<<P::Paillier as PaillierParams>::Uint>,     // $z_1$
-    z2: Signed<<P::Paillier as PaillierParams>::WideUint>, // $z_2$
-    omega: Randomizer<P::Paillier>,                        // $\omega$
+    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    cap_a: Ciphertext<P::Paillier>,
+    cap_b_x: Point,
+    cap_e: RPCommitment<P::Paillier>,
+    cap_s: RPCommitment<P::Paillier>,
+    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
+    z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    omega: Randomizer<P::Paillier>,
 }
 
 impl<P: SchemeParams> MulStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::Uint>, // $x \in +- 2^\ell$
-        rho: &RandomizerMod<P::Paillier>,                  // $\rho \in \mathbb{Z}_{N_0}$
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,    // $N_0$
-        cap_c: &Ciphertext<P::Paillier>,                   // $C$, a ciphertext encrypted with `pk`
-        setup: &RPParamsMod<P::Paillier>,                  // $\hat{N}$, $s$, $t$
+        x: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        rho: &RandomizerMod<P::Paillier>,
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        cap_d: &Ciphertext<P::Paillier>,
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         /*
@@ -44,32 +61,37 @@ impl<P: SchemeParams> MulStarProof<P> {
         */
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk0)
+            .chain(cap_c)
+            .chain(cap_d)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
-        let r = RandomizerMod::random(rng, pk);
+        let r = RandomizerMod::random(rng, pk0);
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         let cap_a = cap_c
-            .homomorphic_mul(pk, &alpha)
-            .mul_randomizer(pk, &r.retrieve());
-        let cap_b_x = &Point::GENERATOR * &alpha.to_scalar();
+            .homomorphic_mul(pk0, &alpha)
+            .mul_randomizer(pk0, &r.retrieve());
+        let cap_b_x = Point::GENERATOR * P::scalar_from_signed(&alpha);
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
 
-        let z1 = alpha + e * *x;
+        let z1 = alpha + e * x;
         let z2 = gamma + e.into_wide() * m;
         let omega = (r * rho.pow_signed(&e)).retrieve();
 
         Self {
+            e,
             cap_a,
             cap_b_x,
             cap_e,
@@ -84,36 +106,46 @@ impl<P: SchemeParams> MulStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>, // $C$, a ciphertext encrypted with `pk`
-        cap_d: &Ciphertext<P::Paillier>, // $D = C (*) x * \rho^{N_0} \mod N_0^2$
-        cap_x: &Point,                   // $X = g * x$, where `g` is the curve generator
-        setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
+        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        cap_d: &Ciphertext<P::Paillier>,
+        cap_x: &Point,
+        setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk0)
+            .chain(cap_c)
+            .chain(cap_d)
+            .chain(cap_x)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e =
-            Signed::from_xof_reader_bounded(&mut reader, &NonZero::new(P::CURVE_ORDER).unwrap());
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+
+        if e != self.e {
+            return false;
+        }
 
         let aux_pk = setup.public_key();
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
         if cap_c
-            .homomorphic_mul(pk, &self.z1)
-            .mul_randomizer(pk, &self.omega)
+            .homomorphic_mul(pk0, &self.z1)
+            .mul_randomizer(pk0, &self.omega)
             != self
                 .cap_a
-                .homomorphic_add(pk, &cap_d.homomorphic_mul(pk, &e))
+                .homomorphic_add(pk0, &cap_d.homomorphic_mul(pk0, &e))
         {
             return false;
         }
 
         // g^{z_1} == B_x X^e
-        if &Point::GENERATOR * &self.z1.to_scalar() != self.cap_b_x + cap_x * &e.to_scalar() {
+        if Point::GENERATOR * P::scalar_from_signed(&self.z1)
+            != self.cap_b_x + cap_x * &P::scalar_from_signed(&e)
+        {
             return false;
         }
 
@@ -136,7 +168,7 @@ mod tests {
     use crate::cggmp21::{SchemeParams, TestParams};
     use crate::curve::Point;
     use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
-    use crate::uint::{FromScalar, Signed};
+    use crate::uint::Signed;
 
     #[test]
     fn prove_and_verify() {
@@ -158,9 +190,11 @@ mod tests {
         let cap_d = cap_c
             .homomorphic_mul(pk, &x)
             .mul_randomizer(pk, &rho.retrieve());
-        let cap_x = &Point::GENERATOR * &x.to_scalar();
+        let cap_x = Point::GENERATOR * Params::scalar_from_signed(&x);
 
-        let proof = MulStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &setup, &aux);
+        let proof = MulStarProof::<Params>::new(
+            &mut OsRng, &x, &rho, pk, &cap_c, &cap_d, &cap_x, &setup, &aux,
+        );
         assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &setup, &aux));
     }
 }
