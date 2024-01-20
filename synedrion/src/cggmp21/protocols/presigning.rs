@@ -189,7 +189,8 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
             rng,
             &P::signed_from_scalar(&self.context.ephemeral_scalar_share),
             &self.context.rho,
-            &self.context.key_share.secret_aux.paillier_sk,
+            self.context.key_share.secret_aux.paillier_sk.public_key(),
+            &self.k_ciphertext,
             &self.context.key_share.public_aux[destination.as_usize()].rp_params,
             &aux,
         );

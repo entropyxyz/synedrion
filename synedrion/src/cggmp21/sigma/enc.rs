@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::paillier::{
     Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-    Randomizer, RandomizerMod, SecretKeyPaillierPrecomputed,
+    Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::Signed;
@@ -29,18 +29,21 @@ impl<P: SchemeParams> EncProof<P> {
         rng: &mut impl CryptoRngCore,
         k: &Signed<<P::Paillier as PaillierParams>::Uint>, // $\k \in +- 2^\ell$
         rho: &RandomizerMod<P::Paillier>, // Paillier randomizer for the public key $N_0$
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>, // $N_0$
+        cap_k: &Ciphertext<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>, // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_k)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let pk = sk.public_key();
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         // TODO (#86): should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
@@ -77,6 +80,9 @@ impl<P: SchemeParams> EncProof<P> {
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(cap_k)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -139,7 +145,15 @@ mod tests {
         let ciphertext =
             Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer.retrieve());
 
-        let proof = EncProof::<Params>::new(&mut OsRng, &secret, &randomizer, &sk, &setup, &aux);
+        let proof = EncProof::<Params>::new(
+            &mut OsRng,
+            &secret,
+            &randomizer,
+            pk,
+            &ciphertext,
+            &setup,
+            &aux,
+        );
         assert!(proof.verify(pk, &ciphertext, &setup, &aux));
     }
 }

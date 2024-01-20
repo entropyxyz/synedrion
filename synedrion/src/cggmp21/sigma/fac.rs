@@ -36,7 +36,11 @@ impl<P: SchemeParams> FacProof<P> {
         setup: &RPParamsMod<P::Paillier>,               // $\hat{N}$, $s$, $t$
         aux: &impl Hashable,
     ) -> Self {
+        let pk = sk.public_key();
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
@@ -44,7 +48,6 @@ impl<P: SchemeParams> FacProof<P> {
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.into_wide();
 
-        let pk = sk.public_key();
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         // NOTE: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
@@ -115,6 +118,8 @@ impl<P: SchemeParams> FacProof<P> {
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            .chain(pk)
+            .chain(setup)
             .chain(aux)
             .finalize_to_reader();
 
