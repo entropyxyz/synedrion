@@ -60,6 +60,10 @@ impl<P: SchemeParams> MulStarProof<P> {
         - $\beta$ used to create $A$ is not mentioned anywhere else - a typo, it is effectively == 0
         */
 
+        x.assert_bound(P::L_BOUND);
+        assert_eq!(cap_c.public_key(), pk0);
+        assert_eq!(cap_d.public_key(), pk0);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(cap_c)
@@ -111,6 +115,9 @@ impl<P: SchemeParams> MulStarProof<P> {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
+        assert_eq!(cap_c.public_key(), pk0);
+        assert_eq!(cap_d.public_key(), pk0);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(cap_c)

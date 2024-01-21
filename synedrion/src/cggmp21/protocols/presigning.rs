@@ -537,10 +537,10 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         // where `q` is the curve order.
         // We will need this bound later, so we're asserting it.
         let alpha = alpha
-            .assert_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
+            .assert_bit_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
             .unwrap();
         let alpha_hat = alpha_hat
-            .assert_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
+            .assert_bit_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
             .unwrap();
 
         Ok(Round2Payload {

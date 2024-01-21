@@ -46,6 +46,9 @@ impl<P: SchemeParams> EncProof<P> {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
+        k.assert_bound(P::L_BOUND);
+        assert_eq!(cap_k.public_key(), pk0);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(cap_k)
@@ -91,6 +94,8 @@ impl<P: SchemeParams> EncProof<P> {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
+        assert_eq!(cap_k.public_key(), pk0);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(cap_k)

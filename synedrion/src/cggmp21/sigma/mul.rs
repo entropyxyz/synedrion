@@ -52,6 +52,10 @@ impl<P: SchemeParams> MulProof<P> {
         cap_c: &CiphertextMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
+        assert_eq!(cap_x.public_key(), pk);
+        assert_eq!(cap_y.public_key(), pk);
+        assert_eq!(cap_c.public_key(), pk);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk)
             .chain(cap_x)
@@ -100,6 +104,10 @@ impl<P: SchemeParams> MulProof<P> {
         cap_c: &CiphertextMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
+        assert_eq!(cap_x.public_key(), pk);
+        assert_eq!(cap_y.public_key(), pk);
+        assert_eq!(cap_c.public_key(), pk);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk)
             .chain(cap_x)

@@ -105,6 +105,10 @@ pub(crate) struct CiphertextMod<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> CiphertextMod<P> {
+    pub fn public_key(&self) -> &PublicKeyPaillierPrecomputed<P> {
+        &self.pk
+    }
+
     /// Encrypts the plaintext with the provided randomizer.
     fn new_with_randomizer_inner(
         pk: &PublicKeyPaillierPrecomputed<P>,
@@ -329,7 +333,7 @@ impl<P: PaillierParams> Hashable for Ciphertext<P> {
 
 impl<P: PaillierParams> Hashable for CiphertextMod<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.pk).chain(&self.ciphertext)
+        digest.chain(&self.ciphertext)
     }
 }
 

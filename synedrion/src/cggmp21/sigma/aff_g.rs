@@ -71,6 +71,12 @@ impl<P: SchemeParams> AffGProof<P> {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
+        x.assert_bound(P::L_BOUND);
+        y.assert_bound(P::LP_BOUND);
+        assert!(cap_c.public_key() == pk0);
+        assert!(cap_d.public_key() == pk0);
+        assert!(cap_y.public_key() == pk1);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(pk1)
@@ -161,6 +167,10 @@ impl<P: SchemeParams> AffGProof<P> {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
+        assert!(cap_c.public_key() == pk0);
+        assert!(cap_d.public_key() == pk0);
+        assert!(cap_y.public_key() == pk1);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(pk1)

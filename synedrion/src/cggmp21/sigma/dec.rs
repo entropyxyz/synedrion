@@ -52,6 +52,8 @@ impl<P: SchemeParams> DecProof<P> {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
+        assert_eq!(cap_c.public_key(), pk0);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(x)
@@ -100,6 +102,8 @@ impl<P: SchemeParams> DecProof<P> {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
+        assert_eq!(cap_c.public_key(), pk0);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(x)
