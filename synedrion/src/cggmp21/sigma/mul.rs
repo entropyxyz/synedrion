@@ -125,10 +125,7 @@ impl<P: SchemeParams> MulProof<P> {
 
         // Y^z u^N = A * C^e \mod N^2
         if cap_y.homomorphic_mul_wide(&self.z).mul_randomizer(&self.u)
-            != self
-                .cap_a
-                .to_mod(pk)
-                .homomorphic_add(&cap_c.homomorphic_mul(&e))
+            != self.cap_a.to_mod(pk) + cap_c.homomorphic_mul(&e)
         {
             return false;
         }
@@ -136,10 +133,7 @@ impl<P: SchemeParams> MulProof<P> {
         // enc(z, v) == B * X^e \mod N^2
         // (Note: typo in the paper, it uses `c` and not `v` here)
         if CiphertextMod::new_with_randomizer_wide(pk, &self.z, &self.v)
-            != self
-                .cap_b
-                .to_mod(pk)
-                .homomorphic_add(&cap_x.homomorphic_mul(&e))
+            != self.cap_b.to_mod(pk) + cap_x.homomorphic_mul(&e)
         {
             return false;
         }

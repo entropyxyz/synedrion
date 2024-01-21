@@ -262,18 +262,15 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let mut ciphertext = hat_cap_h.clone();
         for j in HoleRange::new(num_parties, my_idx) {
             ciphertext = ciphertext
-                .homomorphic_add(self.context.presigning.hat_cap_d_received.get(j).unwrap())
-                .homomorphic_add(self.context.presigning.hat_cap_f.get(j).unwrap());
+                + self.context.presigning.hat_cap_d_received.get(j).unwrap()
+                + self.context.presigning.hat_cap_f.get(j).unwrap();
         }
 
         let r = self.context.presigning.nonce.x_coordinate();
 
-        let ciphertext = ciphertext
-            .homomorphic_mul_unsigned(&P::bounded_from_scalar(&r))
-            .homomorphic_add(
-                &self.context.presigning.cap_k[my_idx]
-                    .homomorphic_mul_unsigned(&P::bounded_from_scalar(&self.context.message)),
-            );
+        let ciphertext = ciphertext.homomorphic_mul_unsigned(&P::bounded_from_scalar(&r))
+            + self.context.presigning.cap_k[my_idx]
+                .homomorphic_mul_unsigned(&P::bounded_from_scalar(&self.context.message));
 
         let rho = ciphertext.derive_randomizer(sk);
         // This is the same as `s_part` but if all the calculations were performed

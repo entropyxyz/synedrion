@@ -138,10 +138,7 @@ impl<P: SchemeParams> MulStarProof<P> {
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
         if cap_c.homomorphic_mul(&self.z1).mul_randomizer(&self.omega)
-            != self
-                .cap_a
-                .to_mod(pk0)
-                .homomorphic_add(&cap_d.homomorphic_mul(&e))
+            != self.cap_a.to_mod(pk0) + cap_d.homomorphic_mul(&e)
         {
             return false;
         }

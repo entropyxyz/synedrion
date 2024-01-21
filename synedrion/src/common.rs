@@ -317,13 +317,12 @@ impl<P: SchemeParams> PresigningData<P> {
             for j in HoleRange::new(num_parties, i) {
                 let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
                 let hat_s = RandomizerMod::random(rng, &public_keys[j]).retrieve();
-                let hat_cap_d = cap_k[j]
-                    .homomorphic_mul(&P::signed_from_scalar(&x))
-                    .homomorphic_add(&CiphertextMod::new_with_randomizer_signed(
+                let hat_cap_d = cap_k[j].homomorphic_mul(&P::signed_from_scalar(&x))
+                    + CiphertextMod::new_with_randomizer_signed(
                         &public_keys[j],
                         &-hat_beta,
                         &hat_s,
-                    ));
+                    );
 
                 hat_beta_vec.insert(j, hat_beta);
                 hat_s_vec.insert(j, hat_s);

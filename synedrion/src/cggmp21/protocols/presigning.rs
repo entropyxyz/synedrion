@@ -380,19 +380,11 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
 
         let d = self.k_ciphertexts[idx]
             .homomorphic_mul(&P::signed_from_scalar(&self.context.gamma))
-            .homomorphic_add(&CiphertextMod::new_with_randomizer_signed(
-                target_pk,
-                &-beta,
-                &s.retrieve(),
-            ));
+            + CiphertextMod::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve());
 
         let d_hat = self.k_ciphertexts[idx]
             .homomorphic_mul(&P::signed_from_scalar(&self.context.key_share.secret_share))
-            .homomorphic_add(&CiphertextMod::new_with_randomizer_signed(
-                target_pk,
-                &-beta_hat,
-                &s_hat.retrieve(),
-            ));
+            + CiphertextMod::new_with_randomizer_signed(target_pk, &-beta_hat, &s_hat.retrieve());
         let f_hat = CiphertextMod::new_with_randomizer_signed(pk, &beta_hat, &r_hat.retrieve());
 
         let public_aux = &self.context.key_share.public_aux[idx];
@@ -917,8 +909,8 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         for j in range {
             ciphertext = ciphertext
-                .homomorphic_add(self.cap_ds.get(j).unwrap())
-                .homomorphic_add(&self.round2_artifacts.get(j).unwrap().cap_f);
+                + self.cap_ds.get(j).unwrap()
+                + &self.round2_artifacts.get(j).unwrap().cap_f;
         }
 
         let rho = ciphertext.derive_randomizer(sk);

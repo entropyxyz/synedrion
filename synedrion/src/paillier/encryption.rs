@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use core::ops::Mul;
+use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -296,10 +296,10 @@ impl<P: PaillierParams> CiphertextMod<P> {
         }
     }
 
-    pub fn homomorphic_add(&self, rhs: &Self) -> Self {
+    fn homomorphic_add(self, rhs: &Self) -> Self {
         assert!(self.pk == rhs.pk);
         Self {
-            pk: self.pk.clone(),
+            pk: self.pk,
             ciphertext: self.ciphertext * rhs.ciphertext,
         }
     }
@@ -322,6 +322,20 @@ impl<P: PaillierParams> CiphertextMod<P> {
             ciphertext: self.ciphertext.retrieve(),
             phantom: PhantomData,
         }
+    }
+}
+
+impl<P: PaillierParams> Add for CiphertextMod<P> {
+    type Output = CiphertextMod<P>;
+    fn add(self, other: CiphertextMod<P>) -> CiphertextMod<P> {
+        self + &other
+    }
+}
+
+impl<P: PaillierParams> Add<&CiphertextMod<P>> for CiphertextMod<P> {
+    type Output = CiphertextMod<P>;
+    fn add(self, other: &CiphertextMod<P>) -> CiphertextMod<P> {
+        self.homomorphic_add(other)
     }
 }
 
@@ -457,7 +471,7 @@ mod tests {
             <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero());
         let ciphertext2 = CiphertextMod::<PaillierTest>::new(&mut OsRng, pk, &plaintext2);
 
-        let new_ciphertext = ciphertext1.homomorphic_add(&ciphertext2);
+        let new_ciphertext = ciphertext1 + ciphertext2;
         let new_plaintext = new_ciphertext.decrypt(&sk);
 
         assert_eq!(plaintext1.add_mod(&plaintext2, pk.modulus()), new_plaintext);
@@ -476,9 +490,7 @@ mod tests {
 
         let ciphertext1 = CiphertextMod::<PaillierTest>::new(&mut OsRng, pk, &plaintext1);
         let ciphertext3 = CiphertextMod::<PaillierTest>::new(&mut OsRng, pk, &plaintext3);
-        let result = ciphertext1
-            .homomorphic_mul(&plaintext2)
-            .homomorphic_add(&ciphertext3);
+        let result = ciphertext1.homomorphic_mul(&plaintext2) + ciphertext3;
 
         let plaintext_back = result.decrypt(&sk);
         assert_eq!(

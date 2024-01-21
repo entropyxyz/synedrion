@@ -121,10 +121,7 @@ impl<P: SchemeParams> DecProof<P> {
 
         // enc(z_1, \omega) == A (+) C (*) e
         if CiphertextMod::new_with_randomizer_wide(pk0, &self.z1, &self.omega)
-            != self
-                .cap_a
-                .to_mod(pk0)
-                .homomorphic_add(&cap_c.homomorphic_mul(&e))
+            != self.cap_a.to_mod(pk0) + cap_c.homomorphic_mul(&e)
         {
             return false;
         }
