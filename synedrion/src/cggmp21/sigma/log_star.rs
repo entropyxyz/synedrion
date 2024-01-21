@@ -126,7 +126,7 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         // enc_0(z1, z2) == A (+) C (*) e
         let c = CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
-        if c != self.cap_a.to_mod(pk0) + cap_c.homomorphic_mul(&e) {
+        if c != self.cap_a.to_mod(pk0) + cap_c * e {
             return false;
         }
 

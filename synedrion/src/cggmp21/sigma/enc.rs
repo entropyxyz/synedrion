@@ -117,7 +117,7 @@ impl<P: SchemeParams> EncProof<P> {
 
         // enc_0(z1, z2) == A (+) K (*) e
         let c = CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
-        if c != self.cap_a.to_mod(pk0) + cap_k.homomorphic_mul(&e) {
+        if c != self.cap_a.to_mod(pk0) + cap_k * e {
             return false;
         }
 

@@ -83,7 +83,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        let cap_a = cap_c.homomorphic_mul(&alpha).mul_randomizer(&r.retrieve());
+        let cap_a = (cap_c * alpha).mul_randomizer(&r.retrieve());
         let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
@@ -137,9 +137,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         let aux_pk = setup.public_key();
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
-        if cap_c.homomorphic_mul(&self.z1).mul_randomizer(&self.omega)
-            != self.cap_a.to_mod(pk0) + cap_d.homomorphic_mul(&e)
-        {
+        if (cap_c * self.z1).mul_randomizer(&self.omega) != self.cap_a.to_mod(pk0) + cap_d * e {
             return false;
         }
 
@@ -187,7 +185,7 @@ mod tests {
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho = RandomizerMod::random(&mut OsRng, pk);
         let cap_c = CiphertextMod::new_signed(&mut OsRng, pk, &secret);
-        let cap_d = cap_c.homomorphic_mul(&x).mul_randomizer(&rho.retrieve());
+        let cap_d = (&cap_c * x).mul_randomizer(&rho.retrieve());
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = MulStarProof::<Params>::new(

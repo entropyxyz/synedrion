@@ -79,7 +79,7 @@ impl<P: SchemeParams> MulProof<P> {
         let r = r_mod.retrieve();
         let s = s_mod.retrieve();
 
-        let cap_a = cap_y.homomorphic_mul_unsigned(&alpha).mul_randomizer(&r);
+        let cap_a = (cap_y * alpha).mul_randomizer(&r);
         let cap_b = CiphertextMod::new_with_randomizer(pk, alpha.as_ref(), &s);
 
         let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(x);
@@ -125,7 +125,7 @@ impl<P: SchemeParams> MulProof<P> {
 
         // Y^z u^N = A * C^e \mod N^2
         if cap_y.homomorphic_mul_wide(&self.z).mul_randomizer(&self.u)
-            != self.cap_a.to_mod(pk) + cap_c.homomorphic_mul(&e)
+            != self.cap_a.to_mod(pk) + cap_c * e
         {
             return false;
         }
@@ -133,7 +133,7 @@ impl<P: SchemeParams> MulProof<P> {
         // enc(z, v) == B * X^e \mod N^2
         // (Note: typo in the paper, it uses `c` and not `v` here)
         if CiphertextMod::new_with_randomizer_wide(pk, &self.z, &self.v)
-            != self.cap_b.to_mod(pk) + cap_x.homomorphic_mul(&e)
+            != self.cap_b.to_mod(pk) + cap_x * e
         {
             return false;
         }
@@ -168,7 +168,7 @@ mod tests {
 
         let cap_x = CiphertextMod::new_with_randomizer_signed(pk, &x, &rho_x.retrieve());
         let cap_y = CiphertextMod::new_signed(&mut OsRng, pk, &y);
-        let cap_c = cap_y.homomorphic_mul(&x).mul_randomizer(&rho.retrieve());
+        let cap_c = (&cap_y * x).mul_randomizer(&rho.retrieve());
 
         let proof = MulProof::<Params>::new(
             &mut OsRng, &x, &rho_x, &rho, pk, &cap_x, &cap_y, &cap_c, &aux,

@@ -275,7 +275,14 @@ impl<P: PaillierParams> CiphertextMod<P> {
     // compared to what we would get if we used the signed `rhs` faithfully in the original formula.
     // So if we want to replicate the Paillier encryption manually and get the same ciphertext
     // (e.g. in the P_enc sigma-protocol), we need to process the sign correctly.
-    pub fn homomorphic_mul(&self, rhs: &Signed<P::Uint>) -> Self {
+    fn homomorphic_mul(self, rhs: &Signed<P::Uint>) -> Self {
+        Self {
+            pk: self.pk,
+            ciphertext: self.ciphertext.pow_signed(&rhs.into_wide()),
+        }
+    }
+
+    fn homomorphic_mul_ref(&self, rhs: &Signed<P::Uint>) -> Self {
         Self {
             pk: self.pk.clone(),
             ciphertext: self.ciphertext.pow_signed(&rhs.into_wide()),
@@ -283,13 +290,23 @@ impl<P: PaillierParams> CiphertextMod<P> {
     }
 
     pub fn homomorphic_mul_wide(&self, rhs: &Signed<P::WideUint>) -> Self {
+        // Unfortunately we cannot implement `Mul` for `Signed<P::Uint>` and `Signed<P::WideUint>`
+        // at the same time, since they can be the same type.
+        // But this method is only used once, so it's not a problem to spell it out.
         Self {
             pk: self.pk.clone(),
             ciphertext: self.ciphertext.pow_signed(rhs),
         }
     }
 
-    pub fn homomorphic_mul_unsigned(&self, rhs: &Bounded<P::Uint>) -> Self {
+    fn homomorphic_mul_unsigned(self, rhs: &Bounded<P::Uint>) -> Self {
+        Self {
+            pk: self.pk,
+            ciphertext: self.ciphertext.pow_bounded(&rhs.into_wide()),
+        }
+    }
+
+    fn homomorphic_mul_unsigned_ref(&self, rhs: &Bounded<P::Uint>) -> Self {
         Self {
             pk: self.pk.clone(),
             ciphertext: self.ciphertext.pow_bounded(&rhs.into_wide()),
@@ -304,7 +321,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         }
     }
 
-    pub fn mul_randomizer(&self, randomizer: &Randomizer<P>) -> Self {
+    pub fn mul_randomizer(self, randomizer: &Randomizer<P>) -> Self {
         let randomizer_mod = randomizer
             .0
             .into_wide()
@@ -312,7 +329,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         let ciphertext =
             self.ciphertext * randomizer_mod.pow_bounded(&self.pk.modulus_bounded().into_wide());
         Self {
-            pk: self.pk.clone(),
+            pk: self.pk,
             ciphertext,
         }
     }
@@ -336,6 +353,34 @@ impl<P: PaillierParams> Add<&CiphertextMod<P>> for CiphertextMod<P> {
     type Output = CiphertextMod<P>;
     fn add(self, other: &CiphertextMod<P>) -> CiphertextMod<P> {
         self.homomorphic_add(other)
+    }
+}
+
+impl<P: PaillierParams> Mul<Signed<P::Uint>> for CiphertextMod<P> {
+    type Output = CiphertextMod<P>;
+    fn mul(self, other: Signed<P::Uint>) -> CiphertextMod<P> {
+        self.homomorphic_mul(&other)
+    }
+}
+
+impl<P: PaillierParams> Mul<Signed<P::Uint>> for &CiphertextMod<P> {
+    type Output = CiphertextMod<P>;
+    fn mul(self, other: Signed<P::Uint>) -> CiphertextMod<P> {
+        self.homomorphic_mul_ref(&other)
+    }
+}
+
+impl<P: PaillierParams> Mul<Bounded<P::Uint>> for CiphertextMod<P> {
+    type Output = CiphertextMod<P>;
+    fn mul(self, other: Bounded<P::Uint>) -> CiphertextMod<P> {
+        self.homomorphic_mul_unsigned(&other)
+    }
+}
+
+impl<P: PaillierParams> Mul<Bounded<P::Uint>> for &CiphertextMod<P> {
+    type Output = CiphertextMod<P>;
+    fn mul(self, other: Bounded<P::Uint>) -> CiphertextMod<P> {
+        self.homomorphic_mul_unsigned_ref(&other)
     }
 }
 
@@ -449,7 +494,7 @@ mod tests {
         let ciphertext = CiphertextMod::<PaillierTest>::new(&mut OsRng, pk, &plaintext);
 
         let coeff = Signed::random(&mut OsRng);
-        let new_ciphertext = ciphertext.homomorphic_mul(&coeff);
+        let new_ciphertext = ciphertext * coeff;
         let new_plaintext = new_ciphertext.decrypt(&sk);
 
         assert_eq!(
@@ -490,7 +535,7 @@ mod tests {
 
         let ciphertext1 = CiphertextMod::<PaillierTest>::new(&mut OsRng, pk, &plaintext1);
         let ciphertext3 = CiphertextMod::<PaillierTest>::new(&mut OsRng, pk, &plaintext3);
-        let result = ciphertext1.homomorphic_mul(&plaintext2) + ciphertext3;
+        let result = ciphertext1 * plaintext2 + ciphertext3;
 
         let plaintext_back = result.decrypt(&sk);
         assert_eq!(

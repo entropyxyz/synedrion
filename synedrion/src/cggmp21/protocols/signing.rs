@@ -221,8 +221,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let cap_x = self.context.key_share.public_shares[self.party_idx().as_usize()];
 
         let rho = RandomizerMod::random(rng, pk);
-        let hat_cap_h = self.context.presigning.cap_k[my_idx]
-            .homomorphic_mul_unsigned(&P::bounded_from_scalar(&x))
+        let hat_cap_h = (&self.context.presigning.cap_k[my_idx] * P::bounded_from_scalar(&x))
             .mul_randomizer(&rho.retrieve());
 
         let aux = (
@@ -268,9 +267,9 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let r = self.context.presigning.nonce.x_coordinate();
 
-        let ciphertext = ciphertext.homomorphic_mul_unsigned(&P::bounded_from_scalar(&r))
-            + self.context.presigning.cap_k[my_idx]
-                .homomorphic_mul_unsigned(&P::bounded_from_scalar(&self.context.message));
+        let ciphertext = ciphertext * P::bounded_from_scalar(&r)
+            + &self.context.presigning.cap_k[my_idx]
+                * P::bounded_from_scalar(&self.context.message);
 
         let rho = ciphertext.derive_randomizer(sk);
         // This is the same as `s_part` but if all the calculations were performed

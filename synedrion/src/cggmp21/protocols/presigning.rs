@@ -378,12 +378,11 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
 
         let cap_f = CiphertextMod::new_with_randomizer_signed(pk, &beta, &r.retrieve());
 
-        let d = self.k_ciphertexts[idx]
-            .homomorphic_mul(&P::signed_from_scalar(&self.context.gamma))
+        let d = &self.k_ciphertexts[idx] * P::signed_from_scalar(&self.context.gamma)
             + CiphertextMod::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve());
 
-        let d_hat = self.k_ciphertexts[idx]
-            .homomorphic_mul(&P::signed_from_scalar(&self.context.key_share.secret_share))
+        let d_hat = &self.k_ciphertexts[idx]
+            * P::signed_from_scalar(&self.context.key_share.secret_share)
             + CiphertextMod::new_with_randomizer_signed(target_pk, &-beta_hat, &s_hat.retrieve());
         let f_hat = CiphertextMod::new_with_randomizer_signed(pk, &beta_hat, &r_hat.retrieve());
 
@@ -876,11 +875,9 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         // Mul proof
 
         let rho = RandomizerMod::random(rng, pk);
-        let cap_h = self.g_ciphertexts[my_idx]
-            .homomorphic_mul_unsigned(&P::bounded_from_scalar(
-                &self.context.ephemeral_scalar_share,
-            ))
-            .mul_randomizer(&rho.retrieve());
+        let cap_h = (&self.g_ciphertexts[my_idx]
+            * P::bounded_from_scalar(&self.context.ephemeral_scalar_share))
+        .mul_randomizer(&rho.retrieve());
 
         let p_mul = MulProof::<P>::new(
             rng,
