@@ -224,7 +224,7 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct PublicKeyPaillierPrecomputed<P: PaillierParams> {
     pk: PublicKeyPaillier<P>,
     precomputed_modulus: <P::UintMod as UintModLike>::Precomputed,
@@ -269,6 +269,14 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
         }
     }
 }
+
+impl<P: PaillierParams> PartialEq for PublicKeyPaillierPrecomputed<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.pk.eq(&other.pk)
+    }
+}
+
+impl<P: PaillierParams> Eq for PublicKeyPaillierPrecomputed<P> {}
 
 impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {

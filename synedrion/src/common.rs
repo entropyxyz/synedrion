@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
+    CiphertextMod, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
     RPParamsMod, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::PartyIdx;
@@ -125,12 +125,12 @@ pub struct PresigningData<P: SchemeParams> {
     pub(crate) hat_beta: HoleVec<Signed<<P::Paillier as PaillierParams>::Uint>>,
     pub(crate) hat_r: HoleVec<Randomizer<P::Paillier>>,
     pub(crate) hat_s: HoleVec<Randomizer<P::Paillier>>,
-    pub(crate) cap_k: Box<[Ciphertext<P::Paillier>]>,
+    pub(crate) cap_k: Box<[CiphertextMod<P::Paillier>]>,
     /// Received $\hat{D}$, that is $\hat{D}_{i,j}$, $j != i$, where $i$ is this party's index.
-    pub(crate) hat_cap_d_received: HoleVec<Ciphertext<P::Paillier>>,
+    pub(crate) hat_cap_d_received: HoleVec<CiphertextMod<P::Paillier>>,
     /// Sent $\hat{D}$, that is $\hat{D}_{j,i}$, $j != i$, where $i$ is this party's index.
-    pub(crate) hat_cap_d: HoleVec<Ciphertext<P::Paillier>>,
-    pub(crate) hat_cap_f: HoleVec<Ciphertext<P::Paillier>>,
+    pub(crate) hat_cap_d: HoleVec<CiphertextMod<P::Paillier>>,
+    pub(crate) hat_cap_f: HoleVec<CiphertextMod<P::Paillier>>,
 }
 
 impl<P: SchemeParams> KeyShare<P> {
@@ -281,7 +281,7 @@ impl<P: SchemeParams> KeySharePrecomputed<P> {
 impl<P: SchemeParams> PresigningData<P> {
     /// Creates a consistent set of presigning data for testing purposes.
     #[cfg(any(test, feature = "bench-internals"))]
-    pub(crate) fn new_centralized(
+    pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         key_shares: &[KeyShare<P>],
     ) -> Box<[Self]> {
@@ -299,7 +299,7 @@ impl<P: SchemeParams> PresigningData<P> {
         let cap_k = ephemeral_scalar_shares
             .iter()
             .enumerate()
-            .map(|(i, k)| Ciphertext::new(rng, &public_keys[i], &P::uint_from_scalar(k)))
+            .map(|(i, k)| CiphertextMod::new(rng, &public_keys[i], &P::uint_from_scalar(k)))
             .collect::<Vec<_>>();
 
         let mut presigning = Vec::new();
@@ -312,20 +312,16 @@ impl<P: SchemeParams> PresigningData<P> {
 
             let mut hat_beta_vec = HoleVecAccum::new(num_parties, i);
             let mut hat_s_vec = HoleVecAccum::new(num_parties, i);
-            let mut hat_cap_d_vec = HoleVecAccum::<Ciphertext<P::Paillier>>::new(num_parties, i);
+            let mut hat_cap_d_vec = HoleVecAccum::<CiphertextMod<P::Paillier>>::new(num_parties, i);
 
             for j in HoleRange::new(num_parties, i) {
                 let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
                 let hat_s = RandomizerMod::random(rng, &public_keys[j]).retrieve();
-                let hat_cap_d = cap_k[j]
-                    .homomorphic_mul(&public_keys[j], &P::signed_from_scalar(&x))
-                    .homomorphic_add(
+                let hat_cap_d = &cap_k[j] * P::signed_from_scalar(&x)
+                    + CiphertextMod::new_with_randomizer_signed(
                         &public_keys[j],
-                        &Ciphertext::new_with_randomizer_signed(
-                            &public_keys[j],
-                            &-hat_beta,
-                            &hat_s,
-                        ),
+                        &-hat_beta,
+                        &hat_s,
                     );
 
                 hat_beta_vec.insert(j, hat_beta);
@@ -349,7 +345,7 @@ impl<P: SchemeParams> PresigningData<P> {
                 let hat_r = RandomizerMod::random(rng, &public_keys[i]).retrieve();
 
                 let hat_cap_f =
-                    Ciphertext::new_with_randomizer_signed(&public_keys[i], hat_beta, &hat_r);
+                    CiphertextMod::new_with_randomizer_signed(&public_keys[i], hat_beta, &hat_r);
 
                 hat_r_vec.insert(j, hat_r);
                 hat_cap_f_vec.insert(j, hat_cap_f);

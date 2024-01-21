@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand_core::OsRng;
 
-use synedrion::{cggmp21::benches, KeyShare, TestParams};
+use synedrion::{cggmp21::benches, KeyShare, PresigningData, TestParams};
 
 fn bench_happy_paths(c: &mut Criterion) {
     let mut group = c.benchmark_group("happy path");
@@ -13,8 +13,9 @@ fn bench_happy_paths(c: &mut Criterion) {
         b.iter(|| benches::key_init::<Params>(&mut OsRng, 2))
     });
 
+    let presigning_datas = PresigningData::new_centralized(&mut OsRng, &key_shares);
     group.bench_function("Signing, 2 parties", |b| {
-        b.iter(|| benches::signing::<Params>(&mut OsRng, &key_shares))
+        b.iter(|| benches::signing::<Params>(&mut OsRng, &key_shares, &presigning_datas))
     });
 
     group.sample_size(10);

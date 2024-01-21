@@ -94,11 +94,13 @@ pub fn presigning<P: SchemeParams>(rng: &mut impl CryptoRngCore, key_shares: &[K
 }
 
 /// A sequential execution of the Presigning protocol for all parties.
-pub fn signing<P: SchemeParams>(rng: &mut impl CryptoRngCore, key_shares: &[KeyShare<P>]) {
+pub fn signing<P: SchemeParams>(
+    rng: &mut impl CryptoRngCore,
+    key_shares: &[KeyShare<P>],
+    presigning_datas: &[PresigningData<P>],
+) {
     let mut shared_randomness = [0u8; 32];
     rng.fill_bytes(&mut shared_randomness);
-
-    let presigning_datas = PresigningData::new_centralized(rng, key_shares);
 
     let message = Scalar::random(rng);
 

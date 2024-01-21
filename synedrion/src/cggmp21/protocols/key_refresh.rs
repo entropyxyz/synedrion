@@ -18,8 +18,8 @@ use crate::cggmp21::{
 use crate::common::{KeyShareChange, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
-    Ciphertext, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod, RPSecret,
-    Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+    Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
+    RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::{
     all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
@@ -522,7 +522,8 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 
         let x_secret = self.context.xs_secret[idx];
         let x_public = self.context.data_precomp.data.xs_public[idx];
-        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
+        let ciphertext =
+            CiphertextMod::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
 
         let sch_proof_x = SchProof::new(
             &self.context.sch_secrets_x[idx],
@@ -536,7 +537,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             mod_proof: self.mod_proof.clone(),
             fac_proof,
             sch_proof_y: self.sch_proof_y.clone(),
-            paillier_enc_x: ciphertext,
+            paillier_enc_x: ciphertext.retrieve(),
             sch_proof_x,
         };
 
@@ -550,16 +551,17 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let sender_data = &self.datas.get(from.as_usize()).unwrap();
 
-        let x_secret =
-            P::scalar_from_uint(&msg.data2.paillier_enc_x.decrypt(&self.context.paillier_sk));
+        let enc_x = msg
+            .data2
+            .paillier_enc_x
+            .to_mod(self.context.paillier_sk.public_key());
+
+        let x_secret = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
 
         if x_secret.mul_by_generator()
             != sender_data.data.xs_public[self.context.party_idx.as_usize()]
         {
-            let mu = msg
-                .data2
-                .paillier_enc_x
-                .derive_randomizer(&self.context.paillier_sk);
+            let mu = enc_x.derive_randomizer(&self.context.paillier_sk);
             return Err(ReceiveError::Provable(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3MismatchedSecret {
                     cap_c: msg.data2.paillier_enc_x,

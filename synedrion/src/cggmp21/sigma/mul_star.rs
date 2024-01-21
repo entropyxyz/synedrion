@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::curve::Point;
 use crate::paillier::{
-    Ciphertext, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-    Randomizer, RandomizerMod,
+    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
+    RPParamsMod, Randomizer, RandomizerMod,
 };
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::Signed;
@@ -47,8 +47,8 @@ impl<P: SchemeParams> MulStarProof<P> {
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         rho: &RandomizerMod<P::Paillier>,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
-        cap_d: &Ciphertext<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
+        cap_d: &CiphertextMod<P::Paillier>,
         cap_x: &Point,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
@@ -59,6 +59,10 @@ impl<P: SchemeParams> MulStarProof<P> {
         - the prover creates $r_y$, but it is unused - a typo
         - $\beta$ used to create $A$ is not mentioned anywhere else - a typo, it is effectively == 0
         */
+
+        x.assert_bound(P::L_BOUND);
+        assert_eq!(cap_c.public_key(), pk0);
+        assert_eq!(cap_d.public_key(), pk0);
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
@@ -79,10 +83,8 @@ impl<P: SchemeParams> MulStarProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        let cap_a = cap_c
-            .homomorphic_mul(pk0, &alpha)
-            .mul_randomizer(pk0, &r.retrieve());
-        let cap_b_x = Point::GENERATOR * P::scalar_from_signed(&alpha);
+        let cap_a = (cap_c * alpha).mul_randomizer(&r.retrieve());
+        let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
 
@@ -92,7 +94,7 @@ impl<P: SchemeParams> MulStarProof<P> {
 
         Self {
             e,
-            cap_a,
+            cap_a: cap_a.retrieve(),
             cap_b_x,
             cap_e,
             cap_s,
@@ -107,12 +109,15 @@ impl<P: SchemeParams> MulStarProof<P> {
     pub fn verify(
         &self,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
-        cap_d: &Ciphertext<P::Paillier>,
+        cap_c: &CiphertextMod<P::Paillier>,
+        cap_d: &CiphertextMod<P::Paillier>,
         cap_x: &Point,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
+        assert_eq!(cap_c.public_key(), pk0);
+        assert_eq!(cap_d.public_key(), pk0);
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk0)
             .chain(cap_c)
@@ -132,18 +137,12 @@ impl<P: SchemeParams> MulStarProof<P> {
         let aux_pk = setup.public_key();
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
-        if cap_c
-            .homomorphic_mul(pk0, &self.z1)
-            .mul_randomizer(pk0, &self.omega)
-            != self
-                .cap_a
-                .homomorphic_add(pk0, &cap_d.homomorphic_mul(pk0, &e))
-        {
+        if (cap_c * self.z1).mul_randomizer(&self.omega) != self.cap_a.to_mod(pk0) + cap_d * e {
             return false;
         }
 
         // g^{z_1} == B_x X^e
-        if Point::GENERATOR * P::scalar_from_signed(&self.z1)
+        if P::scalar_from_signed(&self.z1).mul_by_generator()
             != self.cap_b_x + cap_x * &P::scalar_from_signed(&e)
         {
             return false;
@@ -166,8 +165,7 @@ mod tests {
 
     use super::MulStarProof;
     use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::curve::Point;
-    use crate::paillier::{Ciphertext, RPParamsMod, RandomizerMod, SecretKeyPaillier};
+    use crate::paillier::{CiphertextMod, RPParamsMod, RandomizerMod, SecretKeyPaillier};
     use crate::uint::Signed;
 
     #[test]
@@ -186,11 +184,9 @@ mod tests {
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho = RandomizerMod::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_signed(&mut OsRng, pk, &secret);
-        let cap_d = cap_c
-            .homomorphic_mul(pk, &x)
-            .mul_randomizer(pk, &rho.retrieve());
-        let cap_x = Point::GENERATOR * Params::scalar_from_signed(&x);
+        let cap_c = CiphertextMod::new_signed(&mut OsRng, pk, &secret);
+        let cap_d = (&cap_c * x).mul_randomizer(&rho.retrieve());
+        let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = MulStarProof::<Params>::new(
             &mut OsRng, &x, &rho, pk, &cap_c, &cap_d, &cap_x, &setup, &aux,

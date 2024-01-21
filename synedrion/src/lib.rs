@@ -47,7 +47,7 @@ pub use cggmp21::{
     PresigningProof, PresigningResult, ProductionParams, SchemeParams, SigningProof, SigningResult,
     TestParams,
 };
-pub use common::{KeyShare, KeyShareChange};
+pub use common::{KeyShare, KeyShareChange, PresigningData};
 pub use constructors::{
     make_interactive_signing_session, make_key_gen_session, make_key_refresh_session,
     PrehashedMessage,

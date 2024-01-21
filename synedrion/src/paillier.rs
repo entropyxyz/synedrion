@@ -3,7 +3,7 @@ mod keys;
 mod params;
 mod ring_pedersen;
 
-pub(crate) use encryption::{Ciphertext, Randomizer, RandomizerMod};
+pub(crate) use encryption::{Ciphertext, CiphertextMod, Randomizer, RandomizerMod};
 pub(crate) use keys::{
     PublicKeyPaillier, PublicKeyPaillierPrecomputed, SecretKeyPaillier,
     SecretKeyPaillierPrecomputed,

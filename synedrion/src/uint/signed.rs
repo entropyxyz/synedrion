@@ -58,8 +58,17 @@ impl<T: UintLike> Signed<T> {
         self.bound
     }
 
-    pub fn assert_bound_usize(self, bound: usize) -> Option<Self> {
-        if self.abs().bits() <= bound {
+    // Asserts that the value lies in the interval `[-2^bound, 2^bound]`.
+    // Panics if it is not the case.
+    pub fn assert_bound(self, bound: usize) {
+        assert!(self.abs() <= T::ONE.shl_vartime(bound));
+    }
+
+    // Asserts that the value has bound less or equal to `bound`
+    // (or, in other words, the value lies in the interval `(-(2^bound-1), 2^bound-1)`).
+    // Returns the value with the bound set to `bound`.
+    pub fn assert_bit_bound_usize(self, bound: usize) -> Option<Self> {
+        if self.abs().bits_vartime() <= bound {
             Some(Self {
                 value: self.value,
                 bound: bound as u32,
