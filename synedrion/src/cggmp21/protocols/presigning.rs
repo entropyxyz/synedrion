@@ -62,15 +62,15 @@ pub struct Round1<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Context = KeyShare<P>;
+    type Inputs = KeyShare<P>;
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         _num_parties: usize,
         _party_idx: PartyIdx,
-        context: Self::Context,
+        inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
-        let key_share = context.to_precomputed();
+        let key_share = inputs.to_precomputed();
 
         // TODO (#68): check that KeyShare is consistent with num_parties/party_idx
 
@@ -774,8 +774,6 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         let big_delta: Point = big_deltas.iter().sum();
         let big_delta = big_delta + self.big_delta;
 
-        let my_idx = self.context.key_share.party_index().as_usize();
-
         if delta.mul_by_generator() == big_delta {
             // TODO (#79): seems like we only need the x-coordinate of this (as a Scalar)
             let nonce = self.big_gamma * delta.invert().unwrap();
@@ -809,6 +807,8 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 hat_cap_f,
             });
         }
+
+        let my_idx = self.context.key_share.party_index().as_usize();
 
         // Construct the correctness proofs
 

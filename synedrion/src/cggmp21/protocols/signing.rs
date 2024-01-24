@@ -45,35 +45,35 @@ pub struct SigningProof<P: SchemeParams> {
 pub struct Round1<P: SchemeParams> {
     r: Scalar,
     s_part: Scalar,
-    context: Context<P>,
+    inputs: Inputs<P>,
     num_parties: usize,
     party_idx: PartyIdx,
     shared_randomness: Box<[u8]>,
 }
 
 #[derive(Clone)]
-pub(crate) struct Context<P: SchemeParams> {
+pub(crate) struct Inputs<P: SchemeParams> {
     pub(crate) message: Scalar,
     pub(crate) presigning: PresigningData<P>,
     pub(crate) key_share: KeySharePrecomputed<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Context = Context<P>;
+    type Inputs = Inputs<P>;
     fn new(
         _rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
-        context: Self::Context,
+        inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
-        let r = context.presigning.nonce.x_coordinate();
-        let s_part = context.presigning.ephemeral_scalar_share * context.message
-            + r * context.presigning.product_share;
+        let r = inputs.presigning.nonce.x_coordinate();
+        let s_part = inputs.presigning.ephemeral_scalar_share * inputs.message
+            + r * inputs.presigning.product_share;
         Ok(Self {
             r,
             s_part,
-            context,
+            inputs,
             num_parties,
             party_idx,
             shared_randomness: shared_randomness.into(),
@@ -150,8 +150,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let sig = RecoverableSignature::from_scalars(
             &self.r,
             &s,
-            &self.context.key_share.verifying_key_as_point(),
-            &self.context.message,
+            &self.inputs.key_share.verifying_key_as_point(),
+            &self.inputs.message,
         );
 
         if let Some(sig) = sig {
@@ -163,7 +163,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let aux = (&self.shared_randomness, &self.party_idx);
 
-        let sk = &self.context.key_share.secret_aux.paillier_sk;
+        let sk = &self.inputs.key_share.secret_aux.paillier_sk;
         let pk = sk.public_key();
 
         // Aff-g proofs
@@ -175,27 +175,27 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 if l == j {
                     continue;
                 }
-                let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
-                let rp = &self.context.key_share.public_aux[l].rp_params;
+                let target_pk = &self.inputs.key_share.public_aux[j].paillier_pk;
+                let rp = &self.inputs.key_share.public_aux[l].rp_params;
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
-                    &P::signed_from_scalar(&self.context.key_share.secret_share),
-                    self.context.presigning.hat_beta.get(j).unwrap(),
+                    &P::signed_from_scalar(&self.inputs.key_share.secret_share),
+                    self.inputs.presigning.hat_beta.get(j).unwrap(),
                     &self
-                        .context
+                        .inputs
                         .presigning
                         .hat_s
                         .get(j)
                         .unwrap()
                         .to_mod(target_pk),
-                    &self.context.presigning.hat_r.get(j).unwrap().to_mod(pk),
+                    &self.inputs.presigning.hat_r.get(j).unwrap().to_mod(pk),
                     target_pk,
                     pk,
-                    &self.context.presigning.cap_k[j],
-                    self.context.presigning.hat_cap_d.get(j).unwrap(),
-                    self.context.presigning.hat_cap_f.get(j).unwrap(),
-                    &self.context.key_share.public_shares[my_idx],
+                    &self.inputs.presigning.cap_k[j],
+                    self.inputs.presigning.hat_cap_d.get(j).unwrap(),
+                    self.inputs.presigning.hat_cap_f.get(j).unwrap(),
+                    &self.inputs.key_share.public_shares[my_idx],
                     rp,
                     &aux,
                 );
@@ -203,10 +203,10 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 assert!(p_aff_g.verify(
                     target_pk,
                     pk,
-                    &self.context.presigning.cap_k[j],
-                    self.context.presigning.hat_cap_d.get(j).unwrap(),
-                    self.context.presigning.hat_cap_f.get(j).unwrap(),
-                    &self.context.key_share.public_shares[my_idx],
+                    &self.inputs.presigning.cap_k[j],
+                    self.inputs.presigning.hat_cap_d.get(j).unwrap(),
+                    self.inputs.presigning.hat_cap_f.get(j).unwrap(),
+                    &self.inputs.key_share.public_shares[my_idx],
                     rp,
                     &aux,
                 ));
@@ -217,16 +217,16 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         // mul* proofs
 
-        let x = self.context.key_share.secret_share;
-        let cap_x = self.context.key_share.public_shares[self.party_idx().as_usize()];
+        let x = self.inputs.key_share.secret_share;
+        let cap_x = self.inputs.key_share.public_shares[self.party_idx().as_usize()];
 
         let rho = RandomizerMod::random(rng, pk);
-        let hat_cap_h = (&self.context.presigning.cap_k[my_idx] * P::bounded_from_scalar(&x))
+        let hat_cap_h = (&self.inputs.presigning.cap_k[my_idx] * P::bounded_from_scalar(&x))
             .mul_randomizer(&rho.retrieve());
 
         let aux = (
             &self.shared_randomness,
-            &self.context.key_share.party_index(),
+            &self.inputs.key_share.party_index(),
         );
 
         let mut mul_star_proofs = Vec::new();
@@ -237,19 +237,19 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 &P::signed_from_scalar(&x),
                 &rho,
                 pk,
-                &self.context.presigning.cap_k[my_idx],
+                &self.inputs.presigning.cap_k[my_idx],
                 &hat_cap_h,
                 &cap_x,
-                &self.context.key_share.public_aux[l].rp_params,
+                &self.inputs.key_share.public_aux[l].rp_params,
                 &aux,
             );
 
             assert!(p_mul.verify(
                 pk,
-                &self.context.presigning.cap_k[my_idx],
+                &self.inputs.presigning.cap_k[my_idx],
                 &hat_cap_h,
                 &cap_x,
-                &self.context.key_share.public_aux[l].rp_params,
+                &self.inputs.key_share.public_aux[l].rp_params,
                 &aux,
             ));
 
@@ -261,23 +261,22 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let mut ciphertext = hat_cap_h.clone();
         for j in HoleRange::new(num_parties, my_idx) {
             ciphertext = ciphertext
-                + self.context.presigning.hat_cap_d_received.get(j).unwrap()
-                + self.context.presigning.hat_cap_f.get(j).unwrap();
+                + self.inputs.presigning.hat_cap_d_received.get(j).unwrap()
+                + self.inputs.presigning.hat_cap_f.get(j).unwrap();
         }
 
-        let r = self.context.presigning.nonce.x_coordinate();
+        let r = self.inputs.presigning.nonce.x_coordinate();
 
         let ciphertext = ciphertext * P::bounded_from_scalar(&r)
-            + &self.context.presigning.cap_k[my_idx]
-                * P::bounded_from_scalar(&self.context.message);
+            + &self.inputs.presigning.cap_k[my_idx] * P::bounded_from_scalar(&self.inputs.message);
 
         let rho = ciphertext.derive_randomizer(sk);
         // This is the same as `s_part` but if all the calculations were performed
         // without reducing modulo curve order.
         let s_part_nonreduced =
-            P::signed_from_scalar(&self.context.presigning.ephemeral_scalar_share)
-                * P::signed_from_scalar(&self.context.message)
-                + self.context.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
+            P::signed_from_scalar(&self.inputs.presigning.ephemeral_scalar_share)
+                * P::signed_from_scalar(&self.inputs.message)
+                + self.inputs.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
 
         let mut dec_proofs = Vec::new();
         for l in HoleRange::new(num_parties, my_idx) {
@@ -288,14 +287,14 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 pk,
                 &self.s_part,
                 &ciphertext,
-                &self.context.key_share.public_aux[l].rp_params,
+                &self.inputs.key_share.public_aux[l].rp_params,
                 &aux,
             );
             assert!(p_dec.verify(
                 pk,
                 &self.s_part,
                 &ciphertext,
-                &self.context.key_share.public_aux[l].rp_params,
+                &self.inputs.key_share.public_aux[l].rp_params,
                 &aux,
             ));
             dec_proofs.push((PartyIdx::from_usize(l), p_dec));
@@ -316,7 +315,7 @@ mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::{OsRng, RngCore};
 
-    use super::{Context, Round1};
+    use super::{Inputs, Round1};
     use crate::cggmp21::TestParams;
     use crate::common::{KeyShare, PresigningData};
     use crate::curve::Scalar;
@@ -344,7 +343,7 @@ mod tests {
                     &shared_randomness,
                     num_parties,
                     PartyIdx::from_usize(idx),
-                    Context {
+                    Inputs {
                         presigning: presigning_datas[idx].clone(),
                         message,
                         key_share: key_shares[idx].to_precomputed(),

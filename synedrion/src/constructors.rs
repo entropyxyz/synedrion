@@ -81,7 +81,7 @@ where
 
     let scalar_message = Scalar::from_reduced_bytes(prehashed_message);
 
-    let context = interactive_signing::Context {
+    let inputs = interactive_signing::Inputs {
         key_share: key_share.clone(),
         message: scalar_message,
     };
@@ -91,6 +91,6 @@ where
         shared_randomness,
         signer,
         verifiers,
-        context,
+        inputs,
     )
 }

@@ -26,10 +26,9 @@ use crate::rounds::{
     FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
     FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
+use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
-use crate::tools::random::random_bits;
-use crate::tools::serde_bytes;
 use crate::uint::UintLike;
 
 /// Possible results of the KeyRefresh protocol.
@@ -69,10 +68,8 @@ pub struct FullData<P: SchemeParams> {
     paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
     rp_params: RPParams<P::Paillier>,            // $s_i$ and $t_i$
     prm_proof: PrmProof<P>,                      // $\hat{\psi}_i$
-    #[serde(with = "serde_bytes::as_base64")]
-    rho_bits: Box<[u8]>, // $\rho_i$
-    #[serde(with = "serde_bytes::as_base64")]
-    u_bits: Box<[u8]>, // $u_i$
+    rho_bits: BitVec,                            // $\rho_i$
+    u_bits: BitVec,                              // $u_i$
 }
 
 #[derive(Debug, Clone)]
@@ -124,13 +121,13 @@ pub struct Round1<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Context = ();
+    type Inputs = ();
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
-        _context: Self::Context,
+        _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
         let paillier_pk = paillier_sk.public_key();
@@ -160,8 +157,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         // $A_i^j$
         let sch_commitments_x = sch_secrets_x.iter().map(SchCommitment::new).collect();
 
-        let rho_bits = random_bits(rng, P::SECURITY_PARAMETER);
-        let u_bits = random_bits(rng, P::SECURITY_PARAMETER);
+        let rho_bits = BitVec::random(rng, P::SECURITY_PARAMETER);
+        let u_bits = BitVec::random(rng, P::SECURITY_PARAMETER);
 
         let data = FullData {
             xs_public: xs_public.clone(),
@@ -400,9 +397,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         // TODO (#61): is there a better way?
         let mut rho = self.context.data_precomp.data.rho_bits.clone();
         for data in messages.iter() {
-            for (i, x) in data.data.rho_bits.iter().enumerate() {
-                rho[i] ^= x;
-            }
+            rho ^= &data.data.rho_bits;
         }
 
         Ok(Round3::new(rng, self.context, messages, rho))
@@ -411,7 +406,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
 
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
-    rho: Box<[u8]>,
+    rho: BitVec,
     datas: HoleVec<FullDataPrecomp<P>>,
     mod_proof: ModProof<P>,
     sch_proof_y: SchProof,
@@ -444,7 +439,7 @@ impl<P: SchemeParams> Round3<P> {
         rng: &mut impl CryptoRngCore,
         context: Context<P>,
         datas: HoleVec<FullDataPrecomp<P>>,
-        rho: Box<[u8]>,
+        rho: BitVec,
     ) -> Self {
         let aux = (&context.shared_randomness, &rho, &context.party_idx);
         let mod_proof = ModProof::new(rng, &context.paillier_sk, &aux);

@@ -112,7 +112,7 @@ pub fn signing<P: SchemeParams>(
                 &shared_randomness,
                 num_parties,
                 PartyIdx::from_usize(idx),
-                signing::Context {
+                signing::Inputs {
                     message,
                     presigning: presigning_datas[idx].clone(),
                     key_share: key_shares[idx].to_precomputed(),

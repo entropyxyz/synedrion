@@ -78,13 +78,13 @@ pub(crate) struct Round1<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Context = ();
+    type Inputs = ();
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
-        _context: Self::Context,
+        _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         let key_init_round =
             key_init::Round1::new(rng, shared_randomness, num_parties, party_idx, ())?;

@@ -57,13 +57,13 @@ pub struct KeyResharingContext {
 }
 
 struct OldHolderData {
-    context: OldHolder,
+    inputs: OldHolder,
     polynomial: Polynomial,
     public_polynomial: PublicPolynomial,
 }
 
 struct NewHolderData {
-    context: NewHolder,
+    inputs: NewHolder,
 }
 
 pub struct Round1 {
@@ -76,45 +76,45 @@ pub struct Round1 {
 }
 
 impl FirstRound for Round1 {
-    type Context = KeyResharingContext;
+    type Inputs = KeyResharingContext;
     fn new(
         rng: &mut impl CryptoRngCore,
         _shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
-        context: Self::Context,
+        inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         // Start new share indices from 1.
-        let new_share_idxs = context
+        let new_share_idxs = inputs
             .new_holders
             .iter()
             .enumerate()
             .map(|(idx, party_idx)| (*party_idx, ShareIdx::new(idx + 1)))
             .collect();
 
-        let old_holder = context.old_holder.map(|old_holder| {
+        let old_holder = inputs.old_holder.map(|old_holder| {
             let polynomial = Polynomial::random(
                 rng,
                 &old_holder.key_share_seed.secret(),
-                context.new_threshold,
+                inputs.new_threshold,
             );
             let public_polynomial = polynomial.public();
             OldHolderData {
                 polynomial,
                 public_polynomial,
-                context: old_holder,
+                inputs: old_holder,
             }
         });
 
-        let new_holder = context.new_holder.map(|new_holder| NewHolderData {
-            context: new_holder,
-        });
+        let new_holder = inputs
+            .new_holder
+            .map(|new_holder| NewHolderData { inputs: new_holder });
 
         Ok(Round1 {
             old_holder,
             new_holder,
             new_share_idxs,
-            new_threshold: context.new_threshold,
+            new_threshold: inputs.new_threshold,
             party_idx,
             num_parties,
         })
@@ -181,7 +181,7 @@ impl DirectRound for Round1 {
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder
-                .context
+                .inputs
                 .old_holders
                 .iter()
                 .any(|party_idx| party_idx == &from)
@@ -225,7 +225,7 @@ impl BroadcastRound for Round1 {
         if let Some(old_holder) = self.old_holder.as_ref() {
             Ok(Round1Bcast {
                 public_polynomial: old_holder.public_polynomial.clone(),
-                old_share_idx: old_holder.context.key_share_seed.index(),
+                old_share_idx: old_holder.inputs.key_share_seed.index(),
             })
         } else {
             Err("This node does not send broadcast messages in this round".into())
@@ -239,7 +239,7 @@ impl BroadcastRound for Round1 {
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder
-                .context
+                .inputs
                 .old_holders
                 .iter()
                 .any(|party_idx| party_idx == &from)
@@ -272,7 +272,7 @@ impl Finalizable for Round1 {
         if let Some(new_holder) = self.new_holder.as_ref() {
             let bc_set = bc_payloads.cloned().collect::<BTreeSet<_>>();
             let dm_set = dm_payloads.cloned().collect::<BTreeSet<_>>();
-            let threshold = new_holder.context.old_threshold;
+            let threshold = new_holder.inputs.old_threshold;
             bc_set.len() >= threshold && dm_set.len() >= threshold
         } else {
             true
@@ -289,7 +289,7 @@ impl Finalizable for Round1 {
             let bc_set = bc_payloads.cloned().collect::<BTreeSet<_>>();
             let dm_set = dm_payloads.cloned().collect::<BTreeSet<_>>();
             new_holder
-                .context
+                .inputs
                 .old_holders
                 .iter()
                 .cloned()
@@ -319,7 +319,7 @@ impl FinalizableToResult for Round1 {
 
         // Check that the public polynomial sent in the broadcast corresponds to the secret share
         // sent in the direct message.
-        for party_idx in new_holder.context.old_holders.iter() {
+        for party_idx in new_holder.inputs.old_holders.iter() {
             if dm_payloads[&party_idx].public_subshare != bc_payloads[&party_idx].public_subshare {
                 return Err(FinalizeError::Provable {
                     party: *party_idx,
@@ -341,7 +341,7 @@ impl FinalizableToResult for Round1 {
                     * interpolation_coeff(&old_share_idxs, &payload.old_share_idx)
             })
             .sum();
-        if new_holder.context.verifying_key != vkey {
+        if new_holder.inputs.verifying_key != vkey {
             // TODO: this is unattributable.
             // Should we add an enum variant to `FinalizeError`?
             // or take the public shares as an input (assuming the nodes published those previously)
@@ -350,7 +350,7 @@ impl FinalizableToResult for Round1 {
 
         // Assemble the new share.
         let subshares = new_holder
-            .context
+            .inputs
             .old_holders
             .iter()
             .map(|party_idx| {

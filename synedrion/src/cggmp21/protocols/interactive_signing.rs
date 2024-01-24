@@ -76,7 +76,7 @@ struct RoundContext<P: SchemeParams> {
 }
 
 #[derive(Clone)]
-pub(crate) struct Context<P: SchemeParams> {
+pub(crate) struct Inputs<P: SchemeParams> {
     pub(crate) key_share: KeyShare<P>,
     pub(crate) message: Scalar,
 }
@@ -87,25 +87,25 @@ pub(crate) struct Round1<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Context = Context<P>;
+    type Inputs = Inputs<P>;
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
-        context: Self::Context,
+        inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         let round = presigning::Round1::new(
             rng,
             shared_randomness,
             num_parties,
             party_idx,
-            context.key_share.clone(),
+            inputs.key_share.clone(),
         )?;
         let context = RoundContext {
             shared_randomness: shared_randomness.into(),
-            key_share: context.key_share,
-            message: context.message,
+            key_share: inputs.key_share,
+            message: inputs.message,
         };
         Ok(Self { context, round })
     }
@@ -209,7 +209,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
             .map_err(wrap_finalize_error)?;
         let num_parties = self.context.key_share.num_parties();
         let party_idx = self.context.key_share.party_index();
-        let signing_context = signing::Context {
+        let signing_context = signing::Inputs {
             message: self.context.message,
             presigning: presigning_data,
             key_share: self.context.key_share.to_precomputed(),
@@ -265,7 +265,7 @@ mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::{OsRng, RngCore};
 
-    use super::{Context, Round1};
+    use super::{Inputs, Round1};
     use crate::cggmp21::TestParams;
     use crate::common::KeyShare;
     use crate::curve::Scalar;
@@ -290,7 +290,7 @@ mod tests {
                     &shared_randomness,
                     num_parties,
                     PartyIdx::from_usize(idx),
-                    Context {
+                    Inputs {
                         message,
                         key_share: key_shares[idx].clone(),
                     },
