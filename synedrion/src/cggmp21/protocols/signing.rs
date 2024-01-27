@@ -44,7 +44,7 @@ pub struct SigningProof<P: SchemeParams> {
 
 pub struct Round1<P: SchemeParams> {
     r: Scalar,
-    s_part: Scalar,
+    sigma: Scalar,
     inputs: Inputs<P>,
     num_parties: usize,
     party_idx: PartyIdx,
@@ -52,10 +52,10 @@ pub struct Round1<P: SchemeParams> {
 }
 
 #[derive(Clone)]
-pub(crate) struct Inputs<P: SchemeParams> {
-    pub(crate) message: Scalar,
-    pub(crate) presigning: PresigningData<P>,
-    pub(crate) key_share: KeySharePrecomputed<P>,
+pub struct Inputs<P: SchemeParams> {
+    pub message: Scalar,
+    pub presigning: PresigningData<P>,
+    pub key_share: KeySharePrecomputed<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
@@ -68,11 +68,11 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         let r = inputs.presigning.nonce.x_coordinate();
-        let s_part = inputs.presigning.ephemeral_scalar_share * inputs.message
+        let sigma = inputs.presigning.ephemeral_scalar_share * inputs.message
             + r * inputs.presigning.product_share;
         Ok(Self {
             r,
-            s_part,
+            sigma,
             inputs,
             num_parties,
             party_idx,
@@ -98,20 +98,22 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Round1Bcast {
-    s_part: Scalar,
+    sigma: Scalar,
+}
+
+pub struct Round1Payload {
+    sigma: Scalar,
 }
 
 impl<P: SchemeParams> BroadcastRound for Round1<P> {
     const REQUIRES_CONSENSUS: bool = false;
     type Message = Round1Bcast;
-    type Payload = Scalar;
+    type Payload = Round1Payload;
     fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         Some(all_parties_except(self.num_parties(), self.party_idx()))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        Ok(Round1Bcast {
-            s_part: self.s_part,
-        })
+        Ok(Round1Bcast { sigma: self.sigma })
     }
 
     fn verify_broadcast(
@@ -119,7 +121,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         _from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        Ok(msg.s_part)
+        Ok(Round1Payload { sigma: msg.sigma })
     }
 }
 
@@ -143,19 +145,19 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
         _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let shares = try_to_holevec(bc_payloads, self.num_parties, self.party_idx).unwrap();
-        let s: Scalar = shares.iter().sum();
-        let s = s + self.s_part;
+        let payloads = try_to_holevec(bc_payloads, self.num_parties, self.party_idx).unwrap();
+        let others_sigma = payloads.map(|payload| payload.sigma);
+        let assembled_sigma = others_sigma.iter().sum::<Scalar>() + self.sigma;
 
-        let sig = RecoverableSignature::from_scalars(
+        let signature = RecoverableSignature::from_scalars(
             &self.r,
-            &s,
+            &assembled_sigma,
             &self.inputs.key_share.verifying_key_as_point(),
             &self.inputs.message,
         );
 
-        if let Some(sig) = sig {
-            return Ok(sig);
+        if let Some(signature) = signature {
+            return Ok(signature);
         }
 
         let my_idx = self.party_idx.as_usize();
@@ -285,14 +287,14 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 &s_part_nonreduced,
                 &rho,
                 pk,
-                &self.s_part,
+                &self.sigma,
                 &ciphertext,
                 &self.inputs.key_share.public_aux[l].rp_params,
                 &aux,
             );
             assert!(p_dec.verify(
                 pk,
-                &self.s_part,
+                &self.sigma,
                 &ciphertext,
                 &self.inputs.key_share.public_aux[l].rp_params,
                 &aux,
