@@ -142,7 +142,7 @@ where
         shared_randomness: &[u8],
         signer: Signer,
         verifiers: &[Verifier],
-        context: R::Context,
+        inputs: R::Inputs,
     ) -> Result<Self, LocalError> {
         let verifier_to_idx = verifiers
             .iter()
@@ -158,7 +158,7 @@ where
         // TODO (#3): Is this enough? Do we need to hash in e.g. the verifier public keys?
         //            Need to specify the requirements for the shared randomness in the docstring.
         let session_id = SessionId::from_seed(shared_randomness);
-        let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, context)
+        let typed_round = R::new(rng, shared_randomness, verifiers.len(), party_idx, inputs)
             .map_err(|err| LocalError(format!("Failed to initialize the protocol: {err:?}")))?;
         let round: Box<dyn DynFinalizable<Res>> = Box::new(typed_round);
         let context = Context {

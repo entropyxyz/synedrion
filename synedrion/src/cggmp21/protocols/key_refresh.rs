@@ -26,10 +26,9 @@ use crate::rounds::{
     FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
     FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
+use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
-use crate::tools::random::random_bits;
-use crate::tools::serde_bytes;
 use crate::uint::UintLike;
 
 /// Possible results of the KeyRefresh protocol.
@@ -61,55 +60,53 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PrmProof<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
-pub struct FullData<P: SchemeParams> {
-    xs_public: Vec<Point>,                       // $\bm{X}_i$
-    sch_commitments_x: Vec<SchCommitment>,       // $\bm{A}_i$
-    el_gamal_pk: Point,                          // $Y_i$,
-    el_gamal_commitment: SchCommitment,          // $B_i$
+pub struct PublicData1<P: SchemeParams> {
+    cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
+    cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
+    cap_y: Point,
+    cap_b: SchCommitment,
     paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
     rp_params: RPParams<P::Paillier>,            // $s_i$ and $t_i$
-    prm_proof: PrmProof<P>,                      // $\hat{\psi}_i$
-    #[serde(with = "serde_bytes::as_base64")]
-    rho_bits: Box<[u8]>, // $\rho_i$
-    #[serde(with = "serde_bytes::as_base64")]
-    u_bits: Box<[u8]>, // $u_i$
+    hat_psi: PrmProof<P>,
+    rho: BitVec,
+    u: BitVec,
 }
 
 #[derive(Debug, Clone)]
-pub struct FullDataPrecomp<P: SchemeParams> {
-    data: FullData<P>,
-    paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>, // $N_i$
-    rp_params: RPParamsMod<P::Paillier>,                    // $s_i$ and $t_i$
+pub struct PublicData1Precomp<P: SchemeParams> {
+    data: PublicData1<P>,
+    paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
+    rp_params: RPParamsMod<P::Paillier>,
 }
 
 struct Context<P: SchemeParams> {
     paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
-    el_gamal_sk: Scalar,
-    xs_secret: Vec<Scalar>,
-    el_gamal_proof_secret: SchSecret,
-    sch_secrets_x: Vec<SchSecret>,
-    data_precomp: FullDataPrecomp<P>,
+    y: Scalar,
+    x_to_send: Vec<Scalar>, // $x_i^j$ where $i$ is this party's index
+    tau_y: SchSecret,
+    tau_x: Vec<SchSecret>,
+    data_precomp: PublicData1Precomp<P>,
     party_idx: PartyIdx,
     num_parties: usize,
     shared_randomness: Box<[u8]>,
 }
 
-impl<P: SchemeParams> Hashable for FullData<P> {
+impl<P: SchemeParams> Hashable for PublicData1<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest
-            .chain(&self.xs_public)
-            .chain(&self.sch_commitments_x)
-            .chain(&self.el_gamal_pk)
-            .chain(&self.el_gamal_commitment)
+            .chain(&self.cap_x_to_send)
+            .chain(&self.cap_a_to_send)
+            .chain(&self.cap_y)
+            .chain(&self.cap_b)
             .chain(&self.paillier_pk)
             .chain(&self.rp_params)
-            .chain(&self.prm_proof)
-            .chain(&self.rho_bits)
-            .chain(&self.u_bits)
+            .chain(&self.hat_psi)
+            .chain(&self.rho)
+            .chain(&self.u)
     }
 }
 
-impl<P: SchemeParams> FullData<P> {
+impl<P: SchemeParams> PublicData1<P> {
     fn hash(&self, shared_randomness: &[u8], party_idx: PartyIdx) -> HashOutput {
         Hash::new_with_dst(b"Auxiliary")
             .chain(&shared_randomness)
@@ -124,58 +121,65 @@ pub struct Round1<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Context = ();
+    type Inputs = ();
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
-        _context: Self::Context,
+        _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
+        // $p_i$, $q_i$
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
+        // $N_i$
         let paillier_pk = paillier_sk.public_key();
-        let el_gamal_sk = Scalar::random(rng);
-        let el_gamal_pk = el_gamal_sk.mul_by_generator();
 
-        let el_gamal_proof_secret = SchSecret::random(rng); // $\tau$
-        let el_gamal_commitment = SchCommitment::new(&el_gamal_proof_secret); // $B_i$
+        // El-Gamal key
+        let y = Scalar::random(rng);
+        let cap_y = y.mul_by_generator();
 
-        let xs_secret = Scalar::ZERO.split(rng, num_parties);
-        let xs_public = xs_secret
+        // The secret and the commitment for the Schnorr PoK of the El-Gamal key
+        let tau_y = SchSecret::random(rng); // $\tau$
+        let cap_b = SchCommitment::new(&tau_y);
+
+        // Secret share updates for each node ($x_i^j$ where $i$ is this party's index).
+        let x_to_send = Scalar::ZERO.split(rng, num_parties);
+        // Public counterparts of secret share updates ($X_i^j$ where $i$ is this party's index).
+        let cap_x_to_send = x_to_send
             .iter()
             .cloned()
             .map(|x| x.mul_by_generator())
             .collect::<Vec<_>>();
 
-        let rp_secret = RPSecret::random(rng, &paillier_sk);
-        let rp_params = RPParamsMod::random_with_secret(rng, &rp_secret, paillier_pk);
+        let lambda = RPSecret::random(rng, &paillier_sk);
+        // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
+        let rp_params = RPParamsMod::random_with_secret(rng, &lambda, paillier_pk);
 
         let aux = (&shared_randomness, &party_idx);
-        let prm_proof = PrmProof::<P>::new(rng, &paillier_sk, &rp_secret, &rp_params, &aux);
+        let hat_psi = PrmProof::<P>::new(rng, &paillier_sk, &lambda, &rp_params, &aux);
 
-        // $\tau_j$
-        let sch_secrets_x: Vec<SchSecret> =
-            (0..num_parties).map(|_| SchSecret::random(rng)).collect();
+        // The secrets share changes ($\tau_j$, not to be confused with $\tau$)
+        let tau_x: Vec<SchSecret> = (0..num_parties).map(|_| SchSecret::random(rng)).collect();
 
-        // $A_i^j$
-        let sch_commitments_x = sch_secrets_x.iter().map(SchCommitment::new).collect();
+        // The commitments for share changes ($A_i^j$ where $i$ is this party's index)
+        let cap_a_to_send = tau_x.iter().map(SchCommitment::new).collect();
 
-        let rho_bits = random_bits(rng, P::SECURITY_PARAMETER);
-        let u_bits = random_bits(rng, P::SECURITY_PARAMETER);
+        let rho = BitVec::random(rng, P::SECURITY_PARAMETER);
+        let u = BitVec::random(rng, P::SECURITY_PARAMETER);
 
-        let data = FullData {
-            xs_public: xs_public.clone(),
-            sch_commitments_x,
-            el_gamal_pk,
-            el_gamal_commitment,
+        let data = PublicData1 {
+            cap_x_to_send,
+            cap_a_to_send,
+            cap_y,
+            cap_b,
             paillier_pk: paillier_pk.to_minimal(),
             rp_params: rp_params.retrieve(),
-            prm_proof,
-            rho_bits: rho_bits.clone(),
-            u_bits: u_bits.clone(),
+            hat_psi,
+            rho,
+            u,
         };
 
-        let data_precomp = FullDataPrecomp {
+        let data_precomp = PublicData1Precomp {
             data,
             paillier_pk: paillier_pk.clone(),
             rp_params,
@@ -183,10 +187,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 
         let context = Context {
             paillier_sk,
-            el_gamal_sk,
-            xs_secret,
-            sch_secrets_x,
-            el_gamal_proof_secret,
+            y,
+            x_to_send,
+            tau_x,
+            tau_y,
             data_precomp,
             party_idx,
             num_parties,
@@ -194,17 +198,6 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         };
 
         Ok(Self { context })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Round1Bcast {
-    hash: HashOutput, // `V_j`
-}
-
-impl Hashable for Round1Bcast {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.hash)
     }
 }
 
@@ -229,10 +222,19 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
     type Artifact = ();
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Round1Bcast {
+    cap_v: HashOutput,
+}
+
+pub struct Round1Payload {
+    cap_v: HashOutput,
+}
+
 impl<P: SchemeParams> BroadcastRound for Round1<P> {
     const REQUIRES_CONSENSUS: bool = true;
     type Message = Round1Bcast;
-    type Payload = HashOutput;
+    type Payload = Round1Payload;
 
     fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         Some(all_parties_except(
@@ -243,7 +245,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
 
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
         Ok(Round1Bcast {
-            hash: self
+            cap_v: self
                 .context
                 .data_precomp
                 .data
@@ -256,7 +258,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         _from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        Ok(msg.hash)
+        Ok(Round1Payload { cap_v: msg.cap_v })
     }
 }
 
@@ -275,25 +277,19 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
         _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let num_parties = self.num_parties();
-        let party_idx = self.party_idx();
+        let others_cap_v = try_to_holevec(bc_payloads, self.num_parties(), self.party_idx())
+            .unwrap()
+            .map(|payload| payload.cap_v);
         Ok(Round2 {
             context: self.context,
-            hashes: try_to_holevec(bc_payloads, num_parties, party_idx).unwrap(),
+            others_cap_v,
         })
     }
 }
 
 pub struct Round2<P: SchemeParams> {
     context: Context<P>,
-    hashes: HoleVec<HashOutput>, // V_j
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "FullData<P>: Serialize"))]
-#[serde(bound(deserialize = "FullData<P>: for<'x> Deserialize<'x>"))]
-pub struct Round2Bcast<P: SchemeParams> {
-    data: FullData<P>,
+    others_cap_v: HoleVec<HashOutput>,
 }
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
@@ -317,10 +313,21 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
     type Artifact = ();
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "PublicData1<P>: Serialize"))]
+#[serde(bound(deserialize = "PublicData1<P>: for<'x> Deserialize<'x>"))]
+pub struct Round2Bcast<P: SchemeParams> {
+    data: PublicData1<P>,
+}
+
+pub struct Round2Payload<P: SchemeParams> {
+    data: PublicData1Precomp<P>,
+}
+
 impl<P: SchemeParams> BroadcastRound for Round2<P> {
     const REQUIRES_CONSENSUS: bool = false;
     type Message = Round2Bcast<P>;
-    type Payload = FullDataPrecomp<P>;
+    type Payload = Round2Payload<P>;
 
     fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         Some(all_parties_except(
@@ -341,7 +348,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         if &msg.data.hash(&self.context.shared_randomness, from)
-            != self.hashes.get(from.as_usize()).unwrap()
+            != self.others_cap_v.get(from.as_usize()).unwrap()
         {
             return Err(ReceiveError::Provable(KeyRefreshError(
                 KeyRefreshErrorEnum::Round2("Hash mismatch".into()),
@@ -356,8 +363,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
             )));
         }
 
-        let sum_x: Point = msg.data.xs_public.iter().sum();
-        if sum_x != Point::IDENTITY {
+        if msg.data.cap_x_to_send.iter().sum::<Point>() != Point::IDENTITY {
             return Err(ReceiveError::Provable(KeyRefreshError(
                 KeyRefreshErrorEnum::Round2("Sum of X points is not identity".into()),
             )));
@@ -366,16 +372,18 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         let aux = (&self.context.shared_randomness, &from);
 
         let rp_params = msg.data.rp_params.to_mod(&paillier_pk);
-        if !msg.data.prm_proof.verify(&rp_params, &aux) {
+        if !msg.data.hat_psi.verify(&rp_params, &aux) {
             return Err(ReceiveError::Provable(KeyRefreshError(
                 KeyRefreshErrorEnum::Round2("PRM verification failed".into()),
             )));
         }
 
-        Ok(FullDataPrecomp {
-            data: msg.data,
-            paillier_pk,
-            rp_params,
+        Ok(Round2Payload {
+            data: PublicData1Precomp {
+                data: msg.data,
+                paillier_pk,
+                rp_params,
+            },
         })
     }
 }
@@ -395,26 +403,24 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
         _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let messages = try_to_holevec(bc_payloads, self.num_parties(), self.party_idx()).unwrap();
-        // XOR the vectors together
-        // TODO (#61): is there a better way?
-        let mut rho = self.context.data_precomp.data.rho_bits.clone();
-        for data in messages.iter() {
-            for (i, x) in data.data.rho_bits.iter().enumerate() {
-                rho[i] ^= x;
-            }
+        let others_data = try_to_holevec(bc_payloads, self.num_parties(), self.party_idx())
+            .unwrap()
+            .map(|payload| payload.data);
+        let mut rho = self.context.data_precomp.data.rho.clone();
+        for data in others_data.iter() {
+            rho ^= &data.data.rho;
         }
 
-        Ok(Round3::new(rng, self.context, messages, rho))
+        Ok(Round3::new(rng, self.context, others_data, rho))
     }
 }
 
 pub struct Round3<P: SchemeParams> {
     context: Context<P>,
-    rho: Box<[u8]>,
-    datas: HoleVec<FullDataPrecomp<P>>,
-    mod_proof: ModProof<P>,
-    sch_proof_y: SchProof,
+    rho: BitVec,
+    others_data: HoleVec<PublicData1Precomp<P>>,
+    psi_mod: ModProof<P>,
+    pi: SchProof,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -424,45 +430,38 @@ pub struct Round3<P: SchemeParams> {
 #[serde(bound(deserialize = "ModProof<P>: for<'x> Deserialize<'x>,
     FacProof<P>: for<'x> Deserialize<'x>,
     Ciphertext<P::Paillier>: for<'x> Deserialize<'x>"))]
-pub struct FullData2<P: SchemeParams> {
-    mod_proof: ModProof<P>,                  // `psi_j`
-    fac_proof: FacProof<P>,                  // `phi_j,i`
-    sch_proof_y: SchProof,                   // `pi_i`
+pub struct PublicData2<P: SchemeParams> {
+    psi_mod: ModProof<P>, // $\psi_i$, a P^{mod} for the Paillier modulus
+    phi: FacProof<P>,
+    pi: SchProof,
     paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
-    sch_proof_x: SchProof,                   // `psi_i,j`
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "FullData2<P>: Serialize"))]
-#[serde(bound(deserialize = "FullData2<P>: for<'x> Deserialize<'x>"))]
-pub struct Round3Direct<P: SchemeParams> {
-    data2: FullData2<P>,
+    psi_sch: SchProof,                       // $psi_i^j$, a P^{sch} for the secret share change
 }
 
 impl<P: SchemeParams> Round3<P> {
     fn new(
         rng: &mut impl CryptoRngCore,
         context: Context<P>,
-        datas: HoleVec<FullDataPrecomp<P>>,
-        rho: Box<[u8]>,
+        others_data: HoleVec<PublicData1Precomp<P>>,
+        rho: BitVec,
     ) -> Self {
         let aux = (&context.shared_randomness, &rho, &context.party_idx);
-        let mod_proof = ModProof::new(rng, &context.paillier_sk, &aux);
+        let psi_mod = ModProof::new(rng, &context.paillier_sk, &aux);
 
-        let sch_proof_y = SchProof::new(
-            &context.el_gamal_proof_secret,
-            &context.el_gamal_sk,
-            &context.data_precomp.data.el_gamal_commitment,
-            &context.data_precomp.data.el_gamal_pk,
+        let pi = SchProof::new(
+            &context.tau_y,
+            &context.y,
+            &context.data_precomp.data.cap_b,
+            &context.data_precomp.data.cap_y,
             &aux,
         );
 
         Self {
             context,
-            datas,
+            others_data,
             rho,
-            mod_proof,
-            sch_proof_y,
+            psi_mod,
+            pi,
         }
     }
 }
@@ -487,9 +486,20 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
     type Payload = ();
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "PublicData2<P>: Serialize"))]
+#[serde(bound(deserialize = "PublicData2<P>: for<'x> Deserialize<'x>"))]
+pub struct Round3Direct<P: SchemeParams> {
+    data2: PublicData2<P>,
+}
+
+pub struct Round3Payload {
+    x: Scalar, // $x_j^i$, a secret share change received from the party $j$
+}
+
 impl<P: SchemeParams> DirectRound for Round3<P> {
     type Message = Round3Direct<P>;
-    type Payload = Scalar;
+    type Payload = Round3Payload;
     type Artifact = ();
 
     fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
@@ -511,34 +521,34 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         );
 
         let idx = destination.as_usize();
-        let data = self.datas.get(idx).unwrap();
+        let data = self.others_data.get(idx).unwrap();
 
-        let fac_proof = FacProof::new(
+        let phi = FacProof::new(
             rng,
             &self.context.paillier_sk,
-            &self.datas.get(idx).unwrap().rp_params,
+            &self.others_data.get(idx).unwrap().rp_params,
             &aux,
         );
 
-        let x_secret = self.context.xs_secret[idx];
-        let x_public = self.context.data_precomp.data.xs_public[idx];
+        let x_secret = self.context.x_to_send[idx];
+        let x_public = self.context.data_precomp.data.cap_x_to_send[idx];
         let ciphertext =
             CiphertextMod::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
 
-        let sch_proof_x = SchProof::new(
-            &self.context.sch_secrets_x[idx],
+        let psi_sch = SchProof::new(
+            &self.context.tau_x[idx],
             &x_secret,
-            &self.context.data_precomp.data.sch_commitments_x[idx],
+            &self.context.data_precomp.data.cap_a_to_send[idx],
             &x_public,
             &aux,
         );
 
-        let data2 = FullData2 {
-            mod_proof: self.mod_proof.clone(),
-            fac_proof,
-            sch_proof_y: self.sch_proof_y.clone(),
+        let data2 = PublicData2 {
+            psi_mod: self.psi_mod.clone(),
+            phi,
+            pi: self.pi.clone(),
             paillier_enc_x: ciphertext.retrieve(),
-            sch_proof_x,
+            psi_sch,
         };
 
         Ok((Round3Direct { data2 }, ()))
@@ -549,23 +559,22 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        let sender_data = &self.datas.get(from.as_usize()).unwrap();
+        let sender_data = &self.others_data.get(from.as_usize()).unwrap();
 
         let enc_x = msg
             .data2
             .paillier_enc_x
             .to_mod(self.context.paillier_sk.public_key());
 
-        let x_secret = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
+        let x = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
 
-        if x_secret.mul_by_generator()
-            != sender_data.data.xs_public[self.context.party_idx.as_usize()]
+        if x.mul_by_generator() != sender_data.data.cap_x_to_send[self.context.party_idx.as_usize()]
         {
             let mu = enc_x.derive_randomizer(&self.context.paillier_sk);
             return Err(ReceiveError::Provable(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3MismatchedSecret {
                     cap_c: msg.data2.paillier_enc_x,
-                    x: x_secret,
+                    x,
                     mu: mu.retrieve(),
                 },
             )));
@@ -573,13 +582,13 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
 
         let aux = (&self.context.shared_randomness, &self.rho, &from);
 
-        if !msg.data2.mod_proof.verify(&sender_data.paillier_pk, &aux) {
+        if !msg.data2.psi_mod.verify(&sender_data.paillier_pk, &aux) {
             return Err(ReceiveError::Provable(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3("Mod proof verification failed".into()),
             )));
         }
 
-        if !msg.data2.fac_proof.verify(
+        if !msg.data2.phi.verify(
             &sender_data.paillier_pk,
             &self.context.data_precomp.rp_params,
             &aux,
@@ -589,19 +598,19 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             )));
         }
 
-        if !msg.data2.sch_proof_y.verify(
-            &sender_data.data.el_gamal_commitment,
-            &sender_data.data.el_gamal_pk,
-            &aux,
-        ) {
+        if !msg
+            .data2
+            .pi
+            .verify(&sender_data.data.cap_b, &sender_data.data.cap_y, &aux)
+        {
             return Err(ReceiveError::Provable(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3("Sch proof verification (Y) failed".into()),
             )));
         }
 
-        if !msg.data2.sch_proof_x.verify(
-            &sender_data.data.sch_commitments_x[self.context.party_idx.as_usize()],
-            &sender_data.data.xs_public[self.context.party_idx.as_usize()],
+        if !msg.data2.psi_sch.verify(
+            &sender_data.data.cap_a_to_send[self.context.party_idx.as_usize()],
+            &sender_data.data.cap_x_to_send[self.context.party_idx.as_usize()],
             &aux,
         ) {
             return Err(ReceiveError::Provable(KeyRefreshError(
@@ -609,7 +618,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             )));
         }
 
-        Ok(x_secret)
+        Ok(Round3Payload { x })
     }
 }
 
@@ -627,21 +636,30 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
         _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let secrets = try_to_holevec(dm_payloads, self.num_parties(), self.party_idx())
+        let others_x = try_to_holevec(dm_payloads, self.num_parties(), self.party_idx())
             .unwrap()
-            .into_vec(self.context.xs_secret[self.context.party_idx.as_usize()]);
-        let secret_share_change = secrets.iter().sum();
+            .map(|payload| payload.x);
 
-        let datas = self.datas.into_vec(self.context.data_precomp);
+        // The combined secret share change
+        let x_star = others_x.iter().sum::<Scalar>()
+            + self.context.x_to_send[self.context.party_idx.as_usize()];
 
-        let public_share_changes = (0..datas.len())
-            .map(|idx| datas.iter().map(|data| data.data.xs_public[idx]).sum())
+        let all_data = self.others_data.into_vec(self.context.data_precomp);
+
+        // The combined public share changes for each node
+        let cap_x_star = (0..all_data.len())
+            .map(|idx| {
+                all_data
+                    .iter()
+                    .map(|data| data.data.cap_x_to_send[idx])
+                    .sum()
+            })
             .collect::<Box<_>>();
 
-        let public_aux = datas
+        let public_aux = all_data
             .into_iter()
             .map(|data| PublicAuxInfo {
-                el_gamal_pk: data.data.el_gamal_pk,
+                el_gamal_pk: data.data.cap_y,
                 paillier_pk: data.paillier_pk.to_minimal(),
                 rp_params: data.rp_params.retrieve(),
             })
@@ -649,13 +667,13 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         let secret_aux = SecretAuxInfo {
             paillier_sk: self.context.paillier_sk.to_minimal(),
-            el_gamal_sk: self.context.el_gamal_sk,
+            el_gamal_sk: self.context.y,
         };
 
         let key_share_change = KeyShareChange {
             index: self.context.party_idx,
-            secret_share_change,
-            public_share_changes,
+            secret_share_change: x_star,
+            public_share_changes: cap_x_star,
             secret_aux,
             public_aux,
         };

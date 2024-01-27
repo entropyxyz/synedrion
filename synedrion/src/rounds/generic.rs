@@ -262,13 +262,13 @@ pub enum FinalizeError<Res: ProtocolResult> {
 pub struct InitError(pub(crate) String);
 
 pub(crate) trait FirstRound: Round + Sized {
-    type Context;
+    type Inputs;
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
-        context: Self::Context,
+        inputs: Self::Inputs,
     ) -> Result<Self, InitError>;
 }
 

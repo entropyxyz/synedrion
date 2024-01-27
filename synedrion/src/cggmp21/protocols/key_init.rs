@@ -22,10 +22,9 @@ use crate::rounds::{
     FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
     FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
+use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
-use crate::tools::random::random_bits;
-use crate::tools::serde_bytes;
 
 /// Possible results of the KeyGen protocol.
 #[derive(Debug, Clone, Copy)]
@@ -47,26 +46,24 @@ pub enum KeyInitError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FullData {
-    #[serde(with = "serde_bytes::as_base64")]
-    rid: Box<[u8]>, // rid_i
-    public: Point,             // X_i
-    commitment: SchCommitment, // A_i
-    #[serde(with = "serde_bytes::as_base64")]
-    u: Box<[u8]>, // u_i
+struct PublicData {
+    cap_x: Point,
+    cap_a: SchCommitment,
+    rid: BitVec,
+    u: BitVec,
 }
 
-impl Hashable for FullData {
+impl Hashable for PublicData {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest
             .chain(&self.rid)
-            .chain(&self.public)
-            .chain(&self.commitment)
+            .chain(&self.cap_x)
+            .chain(&self.cap_a)
             .chain(&self.u)
     }
 }
 
-impl FullData {
+impl PublicData {
     fn hash(&self, shared_randomness: &[u8], party_idx: PartyIdx) -> HashOutput {
         Hash::new_with_dst(b"KeyInit")
             .chain(&shared_randomness)
@@ -77,58 +74,53 @@ impl FullData {
 }
 
 struct Context {
-    // TODO (#5): probably just a Scalar, since it will have a random mask added later,
-    // and we cannot ensure it won't turn it into zero.
-    key_share: Scalar,
-    sch_secret: SchSecret,
     shared_randomness: Box<[u8]>,
-    party_idx: PartyIdx,
     num_parties: usize,
-    data: FullData,
+    party_idx: PartyIdx,
+    x: Scalar,
+    tau: SchSecret,
+    public_data: PublicData,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Round1Bcast {
-    hash: HashOutput,
-}
-
-pub(crate) struct Round1<P: SchemeParams> {
+pub struct Round1<P: SchemeParams> {
     context: Context,
     phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Context = ();
+    type Inputs = ();
 
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
         num_parties: usize,
         party_idx: PartyIdx,
-        _context: Self::Context,
+        _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
-        let secret = Scalar::random(rng);
-        let public = secret.mul_by_generator();
+        // The secret share
+        let x = Scalar::random(rng);
+        // The public share
+        let cap_x = x.mul_by_generator();
 
-        let rid = random_bits(rng, P::SECURITY_PARAMETER);
-        let proof_secret = SchSecret::random(rng);
-        let commitment = SchCommitment::new(&proof_secret);
-        let u = random_bits(rng, P::SECURITY_PARAMETER);
+        let rid = BitVec::random(rng, P::SECURITY_PARAMETER);
+        let tau = SchSecret::random(rng);
+        let cap_a = SchCommitment::new(&tau);
+        let u = BitVec::random(rng, P::SECURITY_PARAMETER);
 
-        let data = FullData {
+        let public_data = PublicData {
+            cap_x,
+            cap_a,
             rid,
-            public,
-            commitment,
             u,
         };
 
         let context = Context {
-            party_idx,
-            num_parties,
-            key_share: secret,
-            sch_secret: proof_secret,
             shared_randomness: shared_randomness.into(),
-            data,
+            num_parties,
+            party_idx,
+            x,
+            tau,
+            public_data,
         };
 
         Ok(Self {
@@ -153,27 +145,36 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Round1Bcast {
+    cap_v: HashOutput,
+}
+
+pub struct Round1Payload {
+    cap_v: HashOutput,
+}
+
 impl<P: SchemeParams> BroadcastRound for Round1<P> {
     const REQUIRES_CONSENSUS: bool = true;
     type Message = Round1Bcast;
-    type Payload = HashOutput;
+    type Payload = Round1Payload;
 
     fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         Some(all_parties_except(self.num_parties(), self.party_idx()))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        let hash = self
+        let cap_v = self
             .context
-            .data
+            .public_data
             .hash(&self.context.shared_randomness, self.party_idx());
-        Ok(Round1Bcast { hash })
+        Ok(Round1Bcast { cap_v })
     }
     fn verify_broadcast(
         &self,
         _from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        Ok(msg.hash)
+        Ok(Round1Payload { cap_v: msg.cap_v })
     }
 }
 
@@ -199,12 +200,9 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         Ok(Round2 {
-            hashes: try_to_holevec(
-                bc_payloads,
-                self.context.num_parties,
-                self.context.party_idx,
-            )
-            .unwrap(),
+            others_cap_v: try_to_holevec(bc_payloads, self.num_parties(), self.party_idx())
+                .unwrap()
+                .map(|payload| payload.cap_v),
             context: self.context,
             phantom: PhantomData,
         })
@@ -213,13 +211,8 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
 
 pub struct Round2<P: SchemeParams> {
     context: Context,
-    hashes: HoleVec<HashOutput>, // V_j
+    others_cap_v: HoleVec<HashOutput>,
     phantom: PhantomData<P>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Round2Bcast {
-    data: FullData,
 }
 
 impl<P: SchemeParams> BaseRound for Round2<P> {
@@ -237,17 +230,26 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Round2Bcast {
+    data: PublicData,
+}
+
+pub struct Round2Payload {
+    data: PublicData,
+}
+
 impl<P: SchemeParams> BroadcastRound for Round2<P> {
     const REQUIRES_CONSENSUS: bool = false;
     type Message = Round2Bcast;
-    type Payload = FullData;
+    type Payload = Round2Payload;
 
     fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         Some(all_parties_except(self.num_parties(), self.party_idx()))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
         Ok(Round2Bcast {
-            data: self.context.data.clone(),
+            data: self.context.public_data.clone(),
         })
     }
     fn verify_broadcast(
@@ -256,12 +258,12 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         if &msg.data.hash(&self.context.shared_randomness, from)
-            != self.hashes.get(from.as_usize()).unwrap()
+            != self.others_cap_v.get(from.as_usize()).unwrap()
         {
             return Err(ReceiveError::Provable(KeyInitError::R2HashMismatch));
         }
 
-        Ok(msg.data)
+        Ok(Round2Payload { data: msg.data })
     }
 }
 
@@ -286,24 +288,19 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
         _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
         _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let bc_payloads = try_to_holevec(
-            bc_payloads,
-            self.context.num_parties,
-            self.context.party_idx,
-        )
-        .unwrap();
-        // XOR the vectors together
-        // TODO (#61): is there a better way?
-        let mut rid = self.context.data.rid.clone();
-        for data in bc_payloads.iter() {
-            for (i, x) in data.rid.iter().enumerate() {
-                rid[i] ^= x;
-            }
+        let bc_payloads =
+            try_to_holevec(bc_payloads, self.num_parties(), self.party_idx()).unwrap();
+
+        let others_data = bc_payloads.map(|payload| payload.data);
+
+        let mut rid = self.context.public_data.rid.clone();
+        for data in others_data.iter() {
+            rid ^= &data.rid;
         }
 
         Ok(Round3 {
-            datas: bc_payloads,
             context: self.context,
+            others_data,
             rid,
             phantom: PhantomData,
         })
@@ -311,15 +308,15 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
 }
 
 pub struct Round3<P: SchemeParams> {
-    datas: HoleVec<FullData>,
     context: Context,
-    rid: Box<[u8]>,
+    others_data: HoleVec<PublicData>,
+    rid: BitVec,
     phantom: PhantomData<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Round3Bcast {
-    proof: SchProof,
+    psi: SchProof,
 }
 
 impl<P: SchemeParams> BaseRound for Round3<P> {
@@ -352,14 +349,14 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
             &self.party_idx(),
             &self.rid,
         );
-        let proof = SchProof::new(
-            &self.context.sch_secret,
-            &self.context.key_share.clone(),
-            &self.context.data.commitment,
-            &self.context.data.public,
+        let psi = SchProof::new(
+            &self.context.tau,
+            &self.context.x,
+            &self.context.public_data.cap_a,
+            &self.context.public_data.cap_x,
             &aux,
         );
-        Ok(Round3Bcast { proof })
+        Ok(Round3Bcast { psi })
     }
 
     fn verify_broadcast(
@@ -367,13 +364,10 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        let party_data = self.datas.get(from.as_usize()).unwrap();
+        let data = self.others_data.get(from.as_usize()).unwrap();
 
         let aux = (&self.context.shared_randomness, &from, &self.rid);
-        if !msg
-            .proof
-            .verify(&party_data.commitment, &party_data.public, &aux)
-        {
+        if !msg.psi.verify(&data.cap_a, &data.cap_x, &aux) {
             return Err(ReceiveError::Provable(KeyInitError::R3InvalidSchProof));
         }
         Ok(())
@@ -400,11 +394,11 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
         _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let datas = self.datas.into_vec(self.context.data);
-        let public_keys = datas.into_iter().map(|data| data.public).collect();
+        let all_data = self.others_data.into_vec(self.context.public_data);
+        let all_cap_x = all_data.into_iter().map(|data| data.cap_x).collect();
         Ok(KeyShareSeed {
-            secret_share: self.context.key_share,
-            public_shares: public_keys,
+            secret_share: self.context.x,
+            public_shares: all_cap_x,
         })
     }
 }
