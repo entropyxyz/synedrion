@@ -6,12 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - In development
 
+### Changed
+
+- `FirstRound::Context` renamed to `Inputs`. ([#102])
+- `Payload` and `Artifact` values are hidden in wrapper types where they were previously exposed. ([#102])
+
+
 ### Added
 
 - A basic implementation of threshold key resharing protocol. ([#96])
 
 
 [#96]: https://github.com/entropyxyz/synedrion/pull/96
+[#102]: https://github.com/entropyxyz/synedrion/pull/102
 
 
 ## [0.1.0] - 2023-12-07
