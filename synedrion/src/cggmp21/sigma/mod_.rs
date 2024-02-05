@@ -2,13 +2,15 @@
 
 use alloc::vec::Vec;
 
-use rand_core::CryptoRngCore;
+use rand_core::{CryptoRngCore, OsRng};
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{JacobiSymbol, JacobiSymbolTrait, RandomMod, Retrieve, UintLike, UintModLike};
+use crate::uint::{
+    JacobiSymbol, JacobiSymbolTrait, RandomMod, RandomPrimeWithRng, Retrieve, UintLike, UintModLike,
+};
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -144,6 +146,15 @@ impl<P: SchemeParams> ModProof<P> {
     ) -> bool {
         let challenge = ModChallenge::new(pk, aux);
         if challenge != self.challenge {
+            return false;
+        }
+
+        // Note: I think we can get away with using the default RNG here
+        // since the result is RNG-independent (or at least supposed to be).
+        // It is possible to pass the external RNG similarly to how it's done for `new()`,
+        // but it would require quite a bit of changes because an external RNG is not accessible
+        // at the callsite.
+        if pk.modulus().is_prime_with_rng(&mut OsRng) {
             return false;
         }
 
