@@ -190,6 +190,16 @@ impl<P: SchemeParams> AffGProof<P> {
 
         let aux_pk = setup.public_key();
 
+        // Range checks
+
+        if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {
+            return false;
+        }
+
+        if !self.z2.in_range_bits(P::LP_BOUND + P::EPS_BOUND) {
+            return false;
+        }
+
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
         if cap_c * self.z1 + CiphertextMod::new_with_randomizer_signed(pk0, &self.z2, &self.omega)

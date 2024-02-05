@@ -136,6 +136,11 @@ impl<P: SchemeParams> MulStarProof<P> {
 
         let aux_pk = setup.public_key();
 
+        // Range check
+        if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {
+            return false;
+        }
+
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
         if (cap_c * self.z1).mul_randomizer(&self.omega) != self.cap_a.to_mod(pk0) + cap_d * e {
             return false;
