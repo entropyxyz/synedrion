@@ -204,7 +204,7 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
-    modulus: P::Uint, // $N$
+    modulus: P::Uint, // TODO (#104): wrap it in `crypto_bigint::Odd`
 }
 
 impl<P: PaillierParams> PublicKeyPaillier<P> {
@@ -213,6 +213,8 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     }
 
     pub fn to_precomputed(&self) -> PublicKeyPaillierPrecomputed<P> {
+        // Note that this ensures that `self.modulus` is odd,
+        // otherwise creating the Montgomery parameters fails.
         let precomputed_modulus = P::UintMod::new_precomputed(&NonZero::new(self.modulus).unwrap());
         let precomputed_modulus_squared =
             P::WideUintMod::new_precomputed(&NonZero::new(self.modulus.square_wide()).unwrap());

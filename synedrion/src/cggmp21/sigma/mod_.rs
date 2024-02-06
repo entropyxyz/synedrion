@@ -149,11 +149,15 @@ impl<P: SchemeParams> ModProof<P> {
             return false;
         }
 
+        // The paper requires checking that `N` is odd here,
+        // but it is already an invariant of `PublicKeyPaillierPrecomputed`.
+
         // Note: I think we can get away with using the default RNG here
         // since the result is RNG-independent (or at least supposed to be).
         // It is possible to pass the external RNG similarly to how it's done for `new()`,
         // but it would require quite a bit of changes because an external RNG is not accessible
         // at the callsite.
+        // TODO (#105): consider if we should keep using the default RNG here.
         if pk.modulus().is_prime_with_rng(&mut OsRng) {
             return false;
         }
