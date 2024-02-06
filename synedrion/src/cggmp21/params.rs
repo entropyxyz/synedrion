@@ -1,5 +1,4 @@
-use crate::curve::Scalar;
-use crate::curve::{Point, ORDER};
+use crate::curve::{Curve, Scalar, ORDER};
 use crate::paillier::PaillierParams;
 use crate::tools::hashing::{Chain, HashableType};
 use crate::uint::{
@@ -160,7 +159,7 @@ pub trait SchemeParams: Clone + Send + PartialEq + Eq + core::fmt::Debug + 'stat
 
 impl<P: SchemeParams> HashableType for P {
     fn chain_type<C: Chain>(digest: C) -> C {
-        digest.chain(&ORDER).chain(&Point::GENERATOR)
+        digest.chain_type::<Curve>()
     }
 }
 

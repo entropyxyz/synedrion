@@ -14,7 +14,7 @@ use k256::elliptic_curve::{
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Curve,
+    Curve as _,
     Field,
     FieldBytesSize,
     NonZeroScalar,
@@ -23,15 +23,22 @@ use k256::{ecdsa::VerifyingKey, Secp256k1};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::tools::hashing::{Chain, Hashable};
+use crate::tools::hashing::{Chain, Hashable, HashableType};
 use crate::tools::serde_bytes;
 
+pub(crate) type Curve = Secp256k1;
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub(crate) type CompressedPointSize =
     <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
 
 pub(crate) const ORDER: U256 = Secp256k1::ORDER;
+
+impl HashableType for Curve {
+    fn chain_type<C: Chain>(digest: C) -> C {
+        digest.chain(&ORDER).chain(&Point::GENERATOR)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub struct Scalar(BackendScalar);
