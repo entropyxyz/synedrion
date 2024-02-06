@@ -56,7 +56,7 @@ impl Scalar {
     }
 
     pub fn mul_by_generator(&self) -> Point {
-        &Point::GENERATOR * self
+        Point::GENERATOR * self
     }
 
     pub fn invert(&self) -> CtOption<Self> {
@@ -286,6 +286,14 @@ impl Mul<Scalar> for Point {
     }
 }
 
+impl Mul<&Scalar> for Point {
+    type Output = Point;
+
+    fn mul(self, other: &Scalar) -> Point {
+        Point(self.0.mul(&(other.0)))
+    }
+}
+
 impl Mul<&Scalar> for &Point {
     type Output = Point;
 
@@ -298,6 +306,14 @@ impl Mul<Scalar> for Scalar {
     type Output = Scalar;
 
     fn mul(self, other: Scalar) -> Scalar {
+        Scalar(self.0.mul(&(other.0)))
+    }
+}
+
+impl Mul<&Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn mul(self, other: &Scalar) -> Scalar {
         Scalar(self.0.mul(&(other.0)))
     }
 }
