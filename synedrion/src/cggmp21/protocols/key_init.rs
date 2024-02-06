@@ -2,7 +2,6 @@
 //! Note that this protocol only generates the key itself which is not enough to perform signing;
 //! auxiliary parameters need to be generated as well (during the KeyRefresh protocol).
 
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -65,29 +64,22 @@ impl<P: SchemeParams> Hashable for PublicData<P> {
 }
 
 impl<P: SchemeParams> PublicData<P> {
-    fn hash(
-        &self,
-        shared_randomness: &[u8],
-        party_idx: PartyIdx,
-        num_parties: usize,
-    ) -> HashOutput {
+    fn hash(&self, sid_hash: &HashOutput, party_idx: PartyIdx) -> HashOutput {
         Hash::new_with_dst(b"KeyInit")
-            .chain_type::<P>()
-            .chain(&shared_randomness)
+            .chain(sid_hash)
             .chain(&party_idx)
-            .chain(&(u32::try_from(num_parties).unwrap()))
             .chain(self)
             .finalize()
     }
 }
 
 struct Context<P: SchemeParams> {
-    shared_randomness: Box<[u8]>,
     num_parties: usize,
     party_idx: PartyIdx,
     x: Scalar,
     tau: SchSecret,
     public_data: PublicData<P>,
+    sid_hash: HashOutput,
 }
 
 pub struct Round1<P: SchemeParams> {
@@ -104,6 +96,12 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         party_idx: PartyIdx,
         _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
+        let sid_hash = Hash::new_with_dst(b"SID")
+            .chain_type::<P>()
+            .chain(&shared_randomness)
+            .chain(&(u32::try_from(num_parties).unwrap()))
+            .finalize();
+
         // The secret share
         let x = Scalar::random(rng);
         // The public share
@@ -123,12 +121,12 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         };
 
         let context = Context {
-            shared_randomness: shared_randomness.into(),
             num_parties,
             party_idx,
             x,
             tau,
             public_data,
+            sid_hash,
         };
 
         Ok(Self { context })
@@ -168,11 +166,10 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         Some(all_parties_except(self.num_parties(), self.party_idx()))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        let cap_v = self.context.public_data.hash(
-            &self.context.shared_randomness,
-            self.party_idx(),
-            self.num_parties(),
-        );
+        let cap_v = self
+            .context
+            .public_data
+            .hash(&self.context.sid_hash, self.party_idx());
         Ok(Round1Bcast { cap_v })
     }
     fn verify_broadcast(
@@ -265,9 +262,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        if &msg
-            .data
-            .hash(&self.context.shared_randomness, from, self.num_parties())
+        if &msg.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from.as_usize()).unwrap()
         {
             return Err(ReceiveError::Provable(KeyInitError::R2HashMismatch));
@@ -354,11 +349,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
     }
 
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        let aux = (
-            &self.context.shared_randomness,
-            &self.party_idx(),
-            &self.rid,
-        );
+        let aux = (&self.context.sid_hash, &self.party_idx(), &self.rid);
         let psi = SchProof::new(
             &self.context.tau,
             &self.context.x,
@@ -376,7 +367,7 @@ impl<P: SchemeParams> BroadcastRound for Round3<P> {
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let data = self.others_data.get(from.as_usize()).unwrap();
 
-        let aux = (&self.context.shared_randomness, &from, &self.rid);
+        let aux = (&self.context.sid_hash, &from, &self.rid);
         if !msg.psi.verify(&data.cap_a, &data.cap_x, &aux) {
             return Err(ReceiveError::Provable(KeyInitError::R3InvalidSchProof));
         }

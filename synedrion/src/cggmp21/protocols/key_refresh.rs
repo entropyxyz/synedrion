@@ -88,7 +88,7 @@ struct Context<P: SchemeParams> {
     data_precomp: PublicData1Precomp<P>,
     party_idx: PartyIdx,
     num_parties: usize,
-    shared_randomness: Box<[u8]>,
+    sid_hash: HashOutput,
 }
 
 impl<P: SchemeParams> Hashable for PublicData1<P> {
@@ -107,9 +107,9 @@ impl<P: SchemeParams> Hashable for PublicData1<P> {
 }
 
 impl<P: SchemeParams> PublicData1<P> {
-    fn hash(&self, shared_randomness: &[u8], party_idx: PartyIdx) -> HashOutput {
+    fn hash(&self, sid_hash: &HashOutput, party_idx: PartyIdx) -> HashOutput {
         Hash::new_with_dst(b"Auxiliary")
-            .chain(&shared_randomness)
+            .chain(sid_hash)
             .chain(&party_idx)
             .chain(self)
             .finalize()
@@ -129,6 +129,12 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         party_idx: PartyIdx,
         _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
+        let sid_hash = Hash::new_with_dst(b"SID")
+            .chain_type::<P>()
+            .chain(&shared_randomness)
+            .chain(&(u32::try_from(num_parties).unwrap()))
+            .finalize();
+
         // $p_i$, $q_i$
         let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
         // $N_i$
@@ -155,7 +161,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
         let rp_params = RPParamsMod::random_with_secret(rng, &lambda, paillier_pk);
 
-        let aux = (&shared_randomness, &party_idx);
+        let aux = (&sid_hash, &party_idx);
         let hat_psi = PrmProof::<P>::new(rng, &paillier_sk, &lambda, &rp_params, &aux);
 
         // The secrets share changes ($\tau_j$, not to be confused with $\tau$)
@@ -194,7 +200,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             data_precomp,
             party_idx,
             num_parties,
-            shared_randomness: shared_randomness.into(),
+            sid_hash,
         };
 
         Ok(Self { context })
@@ -249,7 +255,7 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
                 .context
                 .data_precomp
                 .data
-                .hash(&self.context.shared_randomness, self.context.party_idx),
+                .hash(&self.context.sid_hash, self.party_idx()),
         })
     }
 
@@ -347,7 +353,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        if &msg.data.hash(&self.context.shared_randomness, from)
+        if &msg.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from.as_usize()).unwrap()
         {
             return Err(ReceiveError::Provable(KeyRefreshError(
@@ -369,7 +375,7 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
             )));
         }
 
-        let aux = (&self.context.shared_randomness, &from);
+        let aux = (&self.context.sid_hash, &from);
 
         let rp_params = msg.data.rp_params.to_mod(&paillier_pk);
         if !msg.data.hat_psi.verify(&rp_params, &aux) {
@@ -445,7 +451,7 @@ impl<P: SchemeParams> Round3<P> {
         others_data: HoleVec<PublicData1Precomp<P>>,
         rho: BitVec,
     ) -> Self {
-        let aux = (&context.shared_randomness, &rho, &context.party_idx);
+        let aux = (&context.sid_hash, &context.party_idx, &rho);
         let psi_mod = ModProof::new(rng, &context.paillier_sk, &aux);
 
         let pi = SchProof::new(
@@ -514,11 +520,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
     ) -> Result<(Self::Message, Self::Artifact), String> {
-        let aux = (
-            &self.context.shared_randomness,
-            &self.rho,
-            &self.context.party_idx,
-        );
+        let aux = (&self.context.sid_hash, &self.context.party_idx, &self.rho);
 
         let idx = destination.as_usize();
         let data = self.others_data.get(idx).unwrap();
@@ -580,7 +582,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             )));
         }
 
-        let aux = (&self.context.shared_randomness, &self.rho, &from);
+        let aux = (&self.context.sid_hash, &from, &self.rho);
 
         if !msg.data2.psi_mod.verify(&sender_data.paillier_pk, &aux) {
             return Err(ReceiveError::Provable(KeyRefreshError(
