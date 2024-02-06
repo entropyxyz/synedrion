@@ -124,6 +124,11 @@ impl<P: SchemeParams> LogStarProof<P> {
             return false;
         }
 
+        // Range check
+        if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {
+            return false;
+        }
+
         // enc_0(z1, z2) == A (+) C (*) e
         let c = CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self.cap_a.to_mod(pk0) + cap_c * e {

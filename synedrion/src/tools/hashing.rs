@@ -32,12 +32,26 @@ pub trait Chain: Sized {
     fn chain_bytes(self, bytes: &(impl AsRef<[u8]> + ?Sized)) -> Self {
         // Hash the length too to prevent hash conflicts. (e.g. H(AB|CD) == H(ABC|D)).
         // Not strictly necessary for fixed-size arrays, but it's easier to just always do it.
-        let len = (bytes.as_ref().len() as u32).to_be_bytes();
+        let len = (bytes.as_ref().len() as u64).to_be_bytes();
         self.chain_raw_bytes(&len).chain_raw_bytes(bytes.as_ref())
     }
 
     fn chain<T: Hashable>(self, hashable: &T) -> Self {
         hashable.chain(self)
+    }
+
+    fn chain_type<T: HashableType>(self) -> Self {
+        T::chain_type(self)
+    }
+
+    fn chain_slice<T: Hashable>(self, hashable: &[T]) -> Self {
+        // Hashing the length too to prevent collisions.
+        let len = hashable.len() as u64;
+        let mut digest = self.chain(&len);
+        for elem in hashable {
+            digest = digest.chain(elem);
+        }
+        digest
     }
 }
 
@@ -106,6 +120,11 @@ impl XofHash {
     }
 }
 
+/// A trait allowing hashing of types without having access to their instances.
+pub trait HashableType {
+    fn chain_type<C: Chain>(digest: C) -> C;
+}
+
 /// A trait allowing complex objects to give access to their contents for hashing purposes
 /// without the need of a conversion to a new form (e.g. serialization).
 pub trait Hashable {
@@ -172,20 +191,14 @@ impl<T1: Hashable, T2: Hashable, T3: Hashable> Hashable for (&T1, &T2, &T3) {
 
 impl<T: Hashable> Hashable for Vec<T> {
     fn chain<C: Chain>(&self, digest: C) -> C {
-        // Hashing the vector length too to prevent collisions.
-        let len = self.len() as u32;
-        let mut digest = digest.chain(&len);
-        for elem in self {
-            digest = digest.chain(elem);
-        }
-        digest
+        digest.chain_slice(self)
     }
 }
 
 impl<K: Hashable, V: Hashable> Hashable for BTreeMap<K, V> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         // Hashing the map length too to prevent collisions.
-        let len = self.len() as u32;
+        let len = self.len() as u64;
         let mut digest = digest.chain(&len);
         // The iteration is ordered (by keys)
         for (key, value) in self {

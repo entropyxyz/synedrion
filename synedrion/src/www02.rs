@@ -8,10 +8,12 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
     BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableToResult,
@@ -19,16 +21,19 @@ use crate::rounds::{
     ReceiveError, ToResult,
 };
 use crate::threshold::ThresholdKeyShareSeed;
-use crate::tools::sss::{
-    interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial,
-    ShareIdx,
+use crate::tools::{
+    bitvec::BitVec,
+    sss::{
+        interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial,
+        ShareIdx,
+    },
 };
 
 #[derive(Debug)]
-pub struct KeyResharingResult;
+pub struct KeyResharingResult<P: SchemeParams>(PhantomData<P>);
 
-impl ProtocolResult for KeyResharingResult {
-    type Success = Option<ThresholdKeyShareSeed>;
+impl<P: SchemeParams> ProtocolResult for KeyResharingResult<P> {
+    type Success = Option<ThresholdKeyShareSeed<P>>;
     type ProvableError = KeyResharingError;
     type CorrectnessProof = ();
 }
@@ -39,25 +44,26 @@ pub enum KeyResharingError {
     SubshareMismatch,
 }
 
-pub struct OldHolder {
-    key_share_seed: ThresholdKeyShareSeed,
+pub struct OldHolder<P: SchemeParams> {
+    key_share_seed: ThresholdKeyShareSeed<P>,
 }
 
 pub struct NewHolder {
     verifying_key: Point,
+    init_id: BitVec,
     old_threshold: usize,
     old_holders: Vec<PartyIdx>,
 }
 
-pub struct KeyResharingContext {
-    old_holder: Option<OldHolder>,
+pub struct KeyResharingContext<P: SchemeParams> {
+    old_holder: Option<OldHolder<P>>,
     new_holder: Option<NewHolder>,
     new_holders: Vec<PartyIdx>,
     new_threshold: usize,
 }
 
-struct OldHolderData {
-    inputs: OldHolder,
+struct OldHolderData<P: SchemeParams> {
+    inputs: OldHolder<P>,
     polynomial: Polynomial,
     public_polynomial: PublicPolynomial,
 }
@@ -66,17 +72,18 @@ struct NewHolderData {
     inputs: NewHolder,
 }
 
-pub struct Round1 {
-    old_holder: Option<OldHolderData>,
+pub struct Round1<P: SchemeParams> {
+    old_holder: Option<OldHolderData<P>>,
     new_holder: Option<NewHolderData>,
     new_share_idxs: BTreeMap<PartyIdx, ShareIdx>,
     new_threshold: usize,
     num_parties: usize,
     party_idx: PartyIdx,
+    init_id: BitVec,
 }
 
-impl FirstRound for Round1 {
-    type Inputs = KeyResharingContext;
+impl<P: SchemeParams> FirstRound for Round1<P> {
+    type Inputs = KeyResharingContext<P>;
     fn new(
         rng: &mut impl CryptoRngCore,
         _shared_randomness: &[u8],
@@ -91,6 +98,16 @@ impl FirstRound for Round1 {
             .enumerate()
             .map(|(idx, party_idx)| (*party_idx, ShareIdx::new(idx + 1)))
             .collect();
+
+        let init_id = if let Some(old_holder) = inputs.old_holder.as_ref() {
+            old_holder.key_share_seed.init_id.clone()
+        } else if let Some(new_holder) = inputs.new_holder.as_ref() {
+            new_holder.init_id.clone()
+        } else {
+            return Err(InitError(
+                "Either old holder or new holder data must be provided".into(),
+            ));
+        };
 
         let old_holder = inputs.old_holder.map(|old_holder| {
             let polynomial = Polynomial::random(
@@ -117,13 +134,14 @@ impl FirstRound for Round1 {
             new_threshold: inputs.new_threshold,
             party_idx,
             num_parties,
+            init_id,
         })
     }
 }
 
-impl BaseRound for Round1 {
+impl<P: SchemeParams> BaseRound for Round1<P> {
     type Type = ToResult;
-    type Result = KeyResharingResult;
+    type Result = KeyResharingResult<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 
@@ -146,7 +164,7 @@ pub struct Round1Direct {
     subshare: Scalar,
 }
 
-impl DirectRound for Round1 {
+impl<P: SchemeParams> DirectRound for Round1<P> {
     type Message = Round1Direct;
     type Payload = Round1DirectPayload;
     type Artifact = ();
@@ -208,7 +226,7 @@ pub struct Round1Bcast {
     old_share_idx: ShareIdx,
 }
 
-impl BroadcastRound for Round1 {
+impl<P: SchemeParams> BroadcastRound for Round1<P> {
     const REQUIRES_CONSENSUS: bool = true;
     type Message = Round1Bcast;
     type Payload = Round1BcastPayload;
@@ -258,7 +276,7 @@ impl BroadcastRound for Round1 {
     }
 }
 
-impl Finalizable for Round1 {
+impl<P: SchemeParams> Finalizable for Round1<P> {
     fn requirement() -> FinalizationRequirement {
         FinalizationRequirement::Custom
     }
@@ -301,7 +319,7 @@ impl Finalizable for Round1 {
     }
 }
 
-impl FinalizableToResult for Round1 {
+impl<P: SchemeParams> FinalizableToResult for Round1<P> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
@@ -382,6 +400,8 @@ impl FinalizableToResult for Round1 {
             threshold: self.new_threshold as u32,
             secret_share,
             public_shares,
+            init_id: self.init_id,
+            phantom: PhantomData,
         }))
     }
 }
@@ -392,6 +412,7 @@ mod tests {
 
     use super::super::threshold::ThresholdKeyShareSeed;
     use super::{KeyResharingContext, NewHolder, OldHolder, Round1};
+    use crate::cggmp21::TestParams;
     use crate::rounds::{
         test_utils::{step_result, step_round},
         FirstRound, PartyIdx,
@@ -403,7 +424,8 @@ mod tests {
         OsRng.fill_bytes(&mut shared_randomness);
 
         let num_parties = 4;
-        let old_key_shares = ThresholdKeyShareSeed::new_centralized(&mut OsRng, 2, 3, None);
+        let old_key_shares =
+            ThresholdKeyShareSeed::<TestParams>::new_centralized(&mut OsRng, 2, 3, None);
         let old_vkey = old_key_shares[0].verifying_key_as_point();
 
         let old_holders = vec![
@@ -416,6 +438,8 @@ mod tests {
             PartyIdx::from_usize(2),
             PartyIdx::from_usize(3),
         ];
+
+        let init_id = old_key_shares[0].init_id.clone();
 
         let party0 = Round1::new(
             &mut OsRng,
@@ -444,6 +468,7 @@ mod tests {
                 }),
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
+                    init_id: init_id.clone(),
                     old_threshold: 2,
                     old_holders: old_holders.clone(),
                 }),
@@ -464,6 +489,7 @@ mod tests {
                 }),
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
+                    init_id: init_id.clone(),
                     old_threshold: 2,
                     old_holders: old_holders.clone(),
                 }),
@@ -482,6 +508,7 @@ mod tests {
                 old_holder: None,
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
+                    init_id: init_id.clone(),
                     old_threshold: 2,
                     old_holders: old_holders.clone(),
                 }),
@@ -500,7 +527,7 @@ mod tests {
         assert!(shares[0].is_none());
 
         // Unwrap the results of the new holders
-        let shares: Vec<ThresholdKeyShareSeed> = shares[1..4]
+        let shares: Vec<ThresholdKeyShareSeed<_>> = shares[1..4]
             .iter()
             .cloned()
             .map(|share| share.unwrap())

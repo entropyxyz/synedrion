@@ -14,7 +14,7 @@ use k256::elliptic_curve::{
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Curve,
+    Curve as _,
     Field,
     FieldBytesSize,
     NonZeroScalar,
@@ -23,15 +23,22 @@ use k256::{ecdsa::VerifyingKey, Secp256k1};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::tools::hashing::{Chain, Hashable};
+use crate::tools::hashing::{Chain, Hashable, HashableType};
 use crate::tools::serde_bytes;
 
+pub(crate) type Curve = Secp256k1;
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub(crate) type CompressedPointSize =
     <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
 
 pub(crate) const ORDER: U256 = Secp256k1::ORDER;
+
+impl HashableType for Curve {
+    fn chain_type<C: Chain>(digest: C) -> C {
+        digest.chain(&ORDER).chain(&Point::GENERATOR)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub struct Scalar(BackendScalar);
@@ -49,19 +56,7 @@ impl Scalar {
     }
 
     pub fn mul_by_generator(&self) -> Point {
-        &Point::GENERATOR * self
-    }
-
-    pub fn pow(&self, exp: usize) -> Self {
-        let mut result = Self::ONE;
-        for _ in 0..exp {
-            result = &result * self;
-        }
-        result
-    }
-
-    pub fn negate(&self) -> Self {
-        Self(self.0.negate())
+        Point::GENERATOR * self
     }
 
     pub fn invert(&self) -> CtOption<Self> {
@@ -224,12 +219,6 @@ impl Hashable for Point {
     }
 }
 
-impl Default for Point {
-    fn default() -> Self {
-        Point::IDENTITY
-    }
-}
-
 impl From<u32> for Scalar {
     fn from(val: u32) -> Self {
         Self(BackendScalar::from(val))
@@ -249,26 +238,11 @@ impl Neg for Scalar {
     }
 }
 
-impl Neg for &Scalar {
-    type Output = Scalar;
-    fn neg(self) -> Self::Output {
-        Scalar(-self.0)
-    }
-}
-
 impl Add<Scalar> for Scalar {
     type Output = Scalar;
 
     fn add(self, other: Scalar) -> Scalar {
         Scalar(self.0.add(&other.0))
-    }
-}
-
-impl Add<&Scalar> for &Scalar {
-    type Output = Scalar;
-
-    fn add(self, other: &Scalar) -> Scalar {
-        Scalar(self.0.add(&(other.0)))
     }
 }
 
@@ -312,6 +286,14 @@ impl Mul<Scalar> for Point {
     }
 }
 
+impl Mul<&Scalar> for Point {
+    type Output = Point;
+
+    fn mul(self, other: &Scalar) -> Point {
+        Point(self.0.mul(&(other.0)))
+    }
+}
+
 impl Mul<&Scalar> for &Point {
     type Output = Point;
 
@@ -324,6 +306,14 @@ impl Mul<Scalar> for Scalar {
     type Output = Scalar;
 
     fn mul(self, other: Scalar) -> Scalar {
+        Scalar(self.0.mul(&(other.0)))
+    }
+}
+
+impl Mul<&Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn mul(self, other: &Scalar) -> Scalar {
         Scalar(self.0.mul(&(other.0)))
     }
 }
@@ -351,12 +341,6 @@ impl<'a> core::iter::Sum<&'a Self> for Scalar {
 impl core::iter::Product for Scalar {
     fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(core::ops::Mul::mul).unwrap_or(Self::ONE)
-    }
-}
-
-impl<'a> core::iter::Product<&'a Self> for Scalar {
-    fn product<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
-        iter.cloned().product()
     }
 }
 

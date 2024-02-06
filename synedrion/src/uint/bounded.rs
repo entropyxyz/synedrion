@@ -13,7 +13,7 @@ use crate::tools::serde_bytes;
 
 /// A packed representation for serializing Bounded objects.
 /// Usually they have the bound much lower than the full size of the integer,
-/// so thiw way we avoid serializing a bunch of zeros.
+/// so this way we avoid serializing a bunch of zeros.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct PackedBounded {
     bound: u32,

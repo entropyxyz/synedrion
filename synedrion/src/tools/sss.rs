@@ -1,5 +1,6 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,19 @@ pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareIdx> {
         .collect()
 }
 
+fn evaluate_polynomial<T>(coeffs: &[T], x: &Scalar) -> T
+where
+    T: Copy + Add<T, Output = T> + for<'a> Mul<&'a Scalar, Output = T>,
+{
+    // Evaluate in reverse to save on multiplications.
+    // Basically: a0 + a1 x + a2 x^2 + a3 x^3 == (((a3 x) + a2) x + a1) x + a0
+    let mut res = coeffs[coeffs.len() - 1];
+    for i in (0..(coeffs.len() - 1)).rev() {
+        res = res * x + coeffs[i];
+    }
+    res
+}
+
 pub(crate) struct Polynomial(Vec<Scalar>);
 
 impl Polynomial {
@@ -37,13 +51,7 @@ impl Polynomial {
     }
 
     pub fn evaluate(&self, x: &ShareIdx) -> Scalar {
-        let mut res = self.0[0];
-        let mut xp = x.0;
-        for coeff in self.0[1..].iter() {
-            res = res + coeff * &xp;
-            xp = xp * x.0;
-        }
-        res
+        evaluate_polynomial(&self.0, &x.0)
     }
 
     pub fn public(&self) -> PublicPolynomial {
@@ -61,13 +69,7 @@ pub(crate) struct PublicPolynomial(Vec<Point>);
 
 impl PublicPolynomial {
     pub fn evaluate(&self, x: &ShareIdx) -> Point {
-        let mut res = self.0[0];
-        let mut xp = x.0;
-        for coeff in self.0[1..].iter() {
-            res = res + coeff * &xp;
-            xp = xp * x.0;
-        }
-        res
+        evaluate_polynomial(&self.0, &x.0)
     }
 
     pub fn coeff0(&self) -> Point {
@@ -121,8 +123,21 @@ pub(crate) fn shamir_join_points<'a>(
 mod tests {
     use rand_core::OsRng;
 
-    use super::{shamir_evaluation_points, shamir_join_scalars, shamir_split};
+    use super::{evaluate_polynomial, shamir_evaluation_points, shamir_join_scalars, shamir_split};
     use crate::curve::Scalar;
+
+    #[test]
+    fn evaluate() {
+        let x = Scalar::random(&mut OsRng);
+        let coeffs = (0..4)
+            .map(|_| Scalar::random(&mut OsRng))
+            .collect::<Vec<_>>();
+
+        let actual = evaluate_polynomial(&coeffs, &x);
+        let expected = coeffs[0] + coeffs[1] * x + coeffs[2] * x * x + coeffs[3] * x * x * x;
+
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn split_and_join() {

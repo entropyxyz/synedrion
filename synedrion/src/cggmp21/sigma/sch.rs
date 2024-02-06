@@ -79,7 +79,7 @@ impl SchProof {
         aux: &impl Hashable,
     ) -> Self {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        let proof = proof_secret.0 + &challenge.0 * x;
+        let proof = proof_secret.0 + challenge.0 * x;
         Self { challenge, proof }
     }
 
