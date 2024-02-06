@@ -43,6 +43,16 @@ pub trait Chain: Sized {
     fn chain_type<T: HashableType>(self) -> Self {
         T::chain_type(self)
     }
+
+    fn chain_slice<T: Hashable>(self, hashable: &[T]) -> Self {
+        // Hashing the length too to prevent collisions.
+        let len = hashable.len() as u32;
+        let mut digest = self.chain(&len);
+        for elem in hashable {
+            digest = digest.chain(elem);
+        }
+        digest
+    }
 }
 
 pub(crate) type BackendDigest = Sha256;
@@ -181,13 +191,7 @@ impl<T1: Hashable, T2: Hashable, T3: Hashable> Hashable for (&T1, &T2, &T3) {
 
 impl<T: Hashable> Hashable for Vec<T> {
     fn chain<C: Chain>(&self, digest: C) -> C {
-        // Hashing the vector length too to prevent collisions.
-        let len = self.len() as u32;
-        let mut digest = digest.chain(&len);
-        for elem in self {
-            digest = digest.chain(elem);
-        }
-        digest
+        digest.chain_slice(self)
     }
 }
 

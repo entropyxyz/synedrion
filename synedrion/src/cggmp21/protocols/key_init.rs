@@ -400,6 +400,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         Ok(KeyShareSeed {
             secret_share: self.context.x,
             public_shares: all_cap_x,
+            init_id: self.rid,
         })
     }
 }

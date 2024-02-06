@@ -14,7 +14,11 @@ use crate::paillier::{
     RPParamsMod, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::PartyIdx;
-use crate::tools::collections::HoleVec;
+use crate::tools::{
+    bitvec::BitVec,
+    collections::HoleVec,
+    hashing::{Chain, Hash, HashOutput, Hashable},
+};
 use crate::uint::Signed;
 
 #[cfg(any(test, feature = "bench-internals"))]
@@ -32,6 +36,9 @@ pub struct KeyShareSeed {
     pub(crate) secret_share: Scalar, // `x_i`
     /// Public key shares of all nodes (including this one).
     pub(crate) public_shares: Box<[Point]>, // `X_j`
+    /// A random identifier, the same for all holders of the shares of this set,
+    /// generated along with the shares.
+    pub(crate) init_id: BitVec, // $rid$ in the paper
 }
 
 /// The full key share with auxiliary parameters.
@@ -48,6 +55,13 @@ pub struct KeyShare<P: SchemeParams> {
     pub(crate) public_shares: Box<[Point]>,
     pub(crate) secret_aux: SecretAuxInfo<P>,
     pub(crate) public_aux: Box<[PublicAuxInfo<P>]>,
+    /// A random identifier, the same for all holders of the shares of this set,
+    /// preserved after refresh.
+    pub(crate) init_id: BitVec,
+    /// A random identifier, the same for all holders of the shares of this set,
+    /// changed after refresh.
+    // Takes place of $ssid$ in the paper when used in hashes/proofs.
+    pub(crate) share_set_id: HashOutput,
 }
 
 // TODO (#77): Debug can be derived automatically here if `el_gamal_sk` is wrapped in its own struct,
@@ -134,6 +148,19 @@ pub struct PresigningData<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> KeyShare<P> {
+    pub(crate) fn make_share_set_id(
+        init_id: &BitVec,
+        public_shares: &[Point],
+        public_aux: &[PublicAuxInfo<P>],
+    ) -> HashOutput {
+        Hash::new_with_dst(b"ShareSetID")
+            .chain_type::<P>()
+            .chain(init_id)
+            .chain_slice(public_shares)
+            .chain_slice(public_aux)
+            .finalize()
+    }
+
     /// Creates a key share out of the seed (obtained from the KeyGen protocol)
     /// and the share change (obtained from the KeyRefresh+Auxiliary protocol).
     pub(crate) fn new(seed: KeyShareSeed, change: KeyShareChange<P>) -> Self {
@@ -144,13 +171,19 @@ impl<P: SchemeParams> KeyShare<P> {
             .iter()
             .zip(change.public_share_changes.into_vec())
             .map(|(public_share, public_share_change)| public_share + &public_share_change)
-            .collect();
+            .collect::<Box<_>>();
+
+        let share_set_id =
+            Self::make_share_set_id(&seed.init_id, &public_shares, &change.public_aux);
+
         Self {
             index: change.index,
             secret_share,
             public_shares,
             secret_aux: change.secret_aux,
             public_aux: change.public_aux,
+            init_id: seed.init_id,
+            share_set_id,
         }
     }
 
@@ -174,6 +207,9 @@ impl<P: SchemeParams> KeyShare<P> {
 
         let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
 
+        let init_id = BitVec::random(rng, P::SECURITY_PARAMETER);
+        let share_set_id = Self::make_share_set_id(&init_id, &public_shares, &public_aux);
+
         secret_aux
             .into_vec()
             .into_iter()
@@ -184,6 +220,8 @@ impl<P: SchemeParams> KeyShare<P> {
                 public_shares: public_shares.clone(),
                 secret_aux,
                 public_aux: public_aux.clone(),
+                init_id: init_id.clone(),
+                share_set_id,
             })
             .collect()
     }
@@ -198,13 +236,17 @@ impl<P: SchemeParams> KeyShare<P> {
             .iter()
             .zip(change.public_share_changes.into_vec())
             .map(|(public_share, public_share_change)| public_share + &public_share_change)
-            .collect();
+            .collect::<Box<_>>();
+        let share_set_id =
+            Self::make_share_set_id(&self.init_id, &public_shares, &change.public_aux);
         Self {
             index: change.index,
             secret_share,
             public_shares,
             secret_aux: change.secret_aux,
             public_aux: change.public_aux,
+            init_id: self.init_id,
+            share_set_id,
         }
     }
 
@@ -460,6 +502,15 @@ pub(crate) fn make_aux_info<P: SchemeParams>(
         .collect();
 
     (secret_aux, public_aux)
+}
+
+impl<P: SchemeParams> Hashable for PublicAuxInfo<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest
+            .chain(&self.el_gamal_pk)
+            .chain(&self.paillier_pk)
+            .chain(&self.rp_params)
+    }
 }
 
 #[cfg(test)]
