@@ -52,18 +52,6 @@ impl Scalar {
         &Point::GENERATOR * self
     }
 
-    pub fn pow(&self, exp: usize) -> Self {
-        let mut result = Self::ONE;
-        for _ in 0..exp {
-            result = &result * self;
-        }
-        result
-    }
-
-    pub fn negate(&self) -> Self {
-        Self(self.0.negate())
-    }
-
     pub fn invert(&self) -> CtOption<Self> {
         self.0.invert().map(Self)
     }
@@ -224,12 +212,6 @@ impl Hashable for Point {
     }
 }
 
-impl Default for Point {
-    fn default() -> Self {
-        Point::IDENTITY
-    }
-}
-
 impl From<u32> for Scalar {
     fn from(val: u32) -> Self {
         Self(BackendScalar::from(val))
@@ -249,26 +231,11 @@ impl Neg for Scalar {
     }
 }
 
-impl Neg for &Scalar {
-    type Output = Scalar;
-    fn neg(self) -> Self::Output {
-        Scalar(-self.0)
-    }
-}
-
 impl Add<Scalar> for Scalar {
     type Output = Scalar;
 
     fn add(self, other: Scalar) -> Scalar {
         Scalar(self.0.add(&other.0))
-    }
-}
-
-impl Add<&Scalar> for &Scalar {
-    type Output = Scalar;
-
-    fn add(self, other: &Scalar) -> Scalar {
-        Scalar(self.0.add(&(other.0)))
     }
 }
 
@@ -351,12 +318,6 @@ impl<'a> core::iter::Sum<&'a Self> for Scalar {
 impl core::iter::Product for Scalar {
     fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(core::ops::Mul::mul).unwrap_or(Self::ONE)
-    }
-}
-
-impl<'a> core::iter::Product<&'a Self> for Scalar {
-    fn product<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
-        iter.cloned().product()
     }
 }
 
