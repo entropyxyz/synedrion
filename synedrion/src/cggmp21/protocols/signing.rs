@@ -1,6 +1,5 @@
 //! Signing using previously calculated presigning data, in the paper ECDSA Signing (Fig. 8).
 
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -21,7 +20,10 @@ use crate::rounds::{
     FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError, PartyIdx,
     ProtocolResult, ReceiveError, ToResult,
 };
-use crate::tools::collections::HoleRange;
+use crate::tools::{
+    collections::HoleRange,
+    hashing::{Chain, Hash, HashOutput},
+};
 
 /// Possible results of the Signing protocol.
 #[derive(Debug, Clone, Copy)]
@@ -43,12 +45,12 @@ pub struct SigningProof<P: SchemeParams> {
 }
 
 pub struct Round1<P: SchemeParams> {
+    ssid_hash: HashOutput,
     r: Scalar,
     sigma: Scalar,
     inputs: Inputs<P>,
     num_parties: usize,
     party_idx: PartyIdx,
-    shared_randomness: Box<[u8]>,
 }
 
 #[derive(Clone)]
@@ -67,16 +69,24 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         party_idx: PartyIdx,
         inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
+        // This includes the info of $ssid$ in the paper
+        // (scheme parameters + public data from all shares - hashed in `share_set_id`),
+        // with the session randomness added.
+        let ssid_hash = Hash::new_with_dst(b"SSID")
+            .chain(&shared_randomness)
+            .chain(&inputs.key_share.share_set_id)
+            .finalize();
+
         let r = inputs.presigning.nonce.x_coordinate();
         let sigma = inputs.presigning.ephemeral_scalar_share * inputs.message
             + r * inputs.presigning.product_share;
         Ok(Self {
+            ssid_hash,
             r,
             sigma,
             inputs,
             num_parties,
             party_idx,
-            shared_randomness: shared_randomness.into(),
         })
     }
 }
@@ -163,7 +173,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let my_idx = self.party_idx.as_usize();
         let num_parties = self.num_parties;
 
-        let aux = (&self.shared_randomness, &self.party_idx);
+        let aux = (&self.ssid_hash, &self.party_idx);
 
         let sk = &self.inputs.key_share.secret_aux.paillier_sk;
         let pk = sk.public_key();
@@ -226,10 +236,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         let hat_cap_h = (&self.inputs.presigning.cap_k[my_idx] * P::bounded_from_scalar(&x))
             .mul_randomizer(&rho.retrieve());
 
-        let aux = (
-            &self.shared_randomness,
-            &self.inputs.key_share.party_index(),
-        );
+        let aux = (&self.ssid_hash, &self.inputs.key_share.party_index());
 
         let mut mul_star_proofs = Vec::new();
 

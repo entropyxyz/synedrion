@@ -92,6 +92,9 @@ pub(crate) struct KeySharePrecomputed<P: SchemeParams> {
     pub(crate) public_shares: Box<[Point]>,
     pub(crate) secret_aux: SecretAuxInfoPrecomputed<P>,
     pub(crate) public_aux: Box<[PublicAuxInfoPrecomputed<P>]>,
+    #[allow(dead_code)]
+    pub(crate) init_id: BitVec,
+    pub(crate) share_set_id: HashOutput,
 }
 
 #[derive(Clone)]
@@ -271,6 +274,8 @@ impl<P: SchemeParams> KeyShare<P> {
                     }
                 })
                 .collect(),
+            init_id: self.init_id.clone(),
+            share_set_id: self.share_set_id,
         }
     }
 

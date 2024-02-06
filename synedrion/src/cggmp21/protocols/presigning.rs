@@ -1,6 +1,5 @@
 //! Presigning protocol, in the paper ECDSA Pre-Signing (Fig. 7).
 
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -21,7 +20,10 @@ use crate::rounds::{
     FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
     FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ToNextRound, ToResult,
 };
-use crate::tools::collections::{HoleRange, HoleVec};
+use crate::tools::{
+    collections::{HoleRange, HoleVec},
+    hashing::{Chain, Hash, HashOutput},
+};
 use crate::uint::Signed;
 
 /// Possible results of the Presigning protocol.
@@ -46,7 +48,7 @@ pub enum PresigningError {
 }
 
 struct Context<P: SchemeParams> {
-    shared_randomness: Box<[u8]>,
+    ssid_hash: HashOutput,
     key_share: KeySharePrecomputed<P>,
     k: Scalar,
     gamma: Scalar,
@@ -71,6 +73,14 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     ) -> Result<Self, InitError> {
         let key_share = inputs.to_precomputed();
 
+        // This includes the info of $ssid$ in the paper
+        // (scheme parameters + public data from all shares - hashed in `share_set_id`),
+        // with the session randomness added.
+        let ssid_hash = Hash::new_with_dst(b"SSID")
+            .chain(&shared_randomness)
+            .chain(&key_share.share_set_id)
+            .finalize();
+
         // TODO (#68): check that KeyShare is consistent with num_parties/party_idx
 
         // The share of an ephemeral scalar
@@ -90,7 +100,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 
         Ok(Self {
             context: Context {
-                shared_randomness: shared_randomness.into(),
+                ssid_hash,
                 key_share,
                 k,
                 gamma,
@@ -178,7 +188,7 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
     ) -> Result<(Self::Message, Self::Artifact), String> {
-        let aux = (&self.context.shared_randomness, &destination);
+        let aux = (&self.context.ssid_hash, &destination);
         let psi0 = EncProof::new(
             rng,
             &P::signed_from_scalar(&self.context.k),
@@ -231,7 +241,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
         .unwrap();
 
         let aux = (
-            &self.context.shared_randomness,
+            &self.context.ssid_hash,
             &self.context.key_share.party_index(),
         );
 
@@ -355,7 +365,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         destination: PartyIdx,
     ) -> Result<(Self::Message, Self::Artifact), String> {
         let aux = (
-            &self.context.shared_randomness,
+            &self.context.ssid_hash,
             &self.context.key_share.party_index(),
         );
 
@@ -460,7 +470,7 @@ impl<P: SchemeParams> DirectRound for Round2<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        let aux = (&self.context.shared_randomness, &from);
+        let aux = (&self.context.ssid_hash, &from);
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
@@ -672,7 +682,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         destination: PartyIdx,
     ) -> Result<(Self::Message, Self::Artifact), String> {
         let aux = (
-            &self.context.shared_randomness,
+            &self.context.ssid_hash,
             &self.context.key_share.party_index(),
         );
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
@@ -706,7 +716,7 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        let aux = (&self.context.shared_randomness, &from);
+        let aux = (&self.context.ssid_hash, &from);
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
         let public_aux =
@@ -812,7 +822,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         let num_parties = self.context.key_share.num_parties();
 
         let aux = (
-            &self.context.shared_randomness,
+            &self.context.ssid_hash,
             &self.context.key_share.party_index(),
         );
 
