@@ -13,7 +13,7 @@ use super::{
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound much lower than the full size of the integer,
-/// so thiw way we avoid serializing a bunch of zeros.
+/// so this way we avoid serializing a bunch of zeros.
 #[derive(Serialize, Deserialize)]
 struct PackedSigned {
     is_negative: bool,
