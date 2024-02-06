@@ -46,14 +46,15 @@ pub enum KeyInitError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PublicData {
+struct PublicData<P: SchemeParams> {
     cap_x: Point,
     cap_a: SchCommitment,
     rid: BitVec,
     u: BitVec,
+    phantom: PhantomData<P>,
 }
 
-impl Hashable for PublicData {
+impl<P: SchemeParams> Hashable for PublicData<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest
             .chain(&self.rid)
@@ -63,28 +64,34 @@ impl Hashable for PublicData {
     }
 }
 
-impl PublicData {
-    fn hash(&self, shared_randomness: &[u8], party_idx: PartyIdx) -> HashOutput {
+impl<P: SchemeParams> PublicData<P> {
+    fn hash(
+        &self,
+        shared_randomness: &[u8],
+        party_idx: PartyIdx,
+        num_parties: usize,
+    ) -> HashOutput {
         Hash::new_with_dst(b"KeyInit")
+            .chain_type::<P>()
             .chain(&shared_randomness)
             .chain(&party_idx)
+            .chain(&(u32::try_from(num_parties).unwrap()))
             .chain(self)
             .finalize()
     }
 }
 
-struct Context {
+struct Context<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
     num_parties: usize,
     party_idx: PartyIdx,
     x: Scalar,
     tau: SchSecret,
-    public_data: PublicData,
+    public_data: PublicData<P>,
 }
 
 pub struct Round1<P: SchemeParams> {
-    context: Context,
-    phantom: PhantomData<P>,
+    context: Context<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
@@ -112,6 +119,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             cap_a,
             rid,
             u,
+            phantom: PhantomData,
         };
 
         let context = Context {
@@ -123,10 +131,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             public_data,
         };
 
-        Ok(Self {
-            context,
-            phantom: PhantomData,
-        })
+        Ok(Self { context })
     }
 }
 
@@ -163,10 +168,11 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
         Some(all_parties_except(self.num_parties(), self.party_idx()))
     }
     fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        let cap_v = self
-            .context
-            .public_data
-            .hash(&self.context.shared_randomness, self.party_idx());
+        let cap_v = self.context.public_data.hash(
+            &self.context.shared_randomness,
+            self.party_idx(),
+            self.num_parties(),
+        );
         Ok(Round1Bcast { cap_v })
     }
     fn verify_broadcast(
@@ -210,7 +216,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
 }
 
 pub struct Round2<P: SchemeParams> {
-    context: Context,
+    context: Context<P>,
     others_cap_v: HoleVec<HashOutput>,
     phantom: PhantomData<P>,
 }
@@ -231,18 +237,20 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Round2Bcast {
-    data: PublicData,
+#[serde(bound(serialize = "PublicData<P>: Serialize"))]
+#[serde(bound(deserialize = "PublicData<P>: for<'x> Deserialize<'x>"))]
+pub struct Round2Bcast<P: SchemeParams> {
+    data: PublicData<P>,
 }
 
-pub struct Round2Payload {
-    data: PublicData,
+pub struct Round2Payload<P: SchemeParams> {
+    data: PublicData<P>,
 }
 
 impl<P: SchemeParams> BroadcastRound for Round2<P> {
     const REQUIRES_CONSENSUS: bool = false;
-    type Message = Round2Bcast;
-    type Payload = Round2Payload;
+    type Message = Round2Bcast<P>;
+    type Payload = Round2Payload<P>;
 
     fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
         Some(all_parties_except(self.num_parties(), self.party_idx()))
@@ -257,7 +265,9 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        if &msg.data.hash(&self.context.shared_randomness, from)
+        if &msg
+            .data
+            .hash(&self.context.shared_randomness, from, self.num_parties())
             != self.others_cap_v.get(from.as_usize()).unwrap()
         {
             return Err(ReceiveError::Provable(KeyInitError::R2HashMismatch));
@@ -308,8 +318,8 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
 }
 
 pub struct Round3<P: SchemeParams> {
-    context: Context,
-    others_data: HoleVec<PublicData>,
+    context: Context<P>,
+    others_data: HoleVec<PublicData<P>>,
     rid: BitVec,
     phantom: PhantomData<P>,
 }

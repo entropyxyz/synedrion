@@ -1,6 +1,7 @@
 use crate::curve::Scalar;
-use crate::curve::ORDER;
+use crate::curve::{Point, ORDER};
 use crate::paillier::PaillierParams;
+use crate::tools::hashing::{Chain, HashableType};
 use crate::uint::{
     subtle::ConditionallySelectable, upcast_uint, Bounded, Encoding, NonZero, Signed, U1024Mod,
     U2048Mod, U4096Mod, U512Mod, Zero, U1024, U2048, U4096, U512, U8192,
@@ -154,6 +155,12 @@ pub trait SchemeParams: Clone + Send + PartialEq + Eq + core::fmt::Debug + 'stat
     ) -> Scalar {
         let abs_value = Self::scalar_from_wide_uint(&value.abs());
         Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
+    }
+}
+
+impl<P: SchemeParams> HashableType for P {
+    fn chain_type<C: Chain>(digest: C) -> C {
+        digest.chain(&ORDER).chain(&Point::GENERATOR)
     }
 }
 

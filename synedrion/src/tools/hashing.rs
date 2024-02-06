@@ -39,6 +39,10 @@ pub trait Chain: Sized {
     fn chain<T: Hashable>(self, hashable: &T) -> Self {
         hashable.chain(self)
     }
+
+    fn chain_type<T: HashableType>(self) -> Self {
+        T::chain_type(self)
+    }
 }
 
 pub(crate) type BackendDigest = Sha256;
@@ -104,6 +108,11 @@ impl XofHash {
     pub fn finalize_to_reader(self) -> Shake256Reader {
         self.0.finalize_xof()
     }
+}
+
+/// A trait allowing hashing of types without having access to their instances.
+pub trait HashableType {
+    fn chain_type<C: Chain>(digest: C) -> C;
 }
 
 /// A trait allowing complex objects to give access to their contents for hashing purposes
