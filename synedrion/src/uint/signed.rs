@@ -194,8 +194,7 @@ impl<T: UintLike> Signed<T> {
 
     /// Returns `true` if the value is within `[-2^bound_bits, 2^bound_bits]`.
     pub fn in_range_bits(&self, bound_bits: usize) -> bool {
-        let bound = T::ONE << (bound_bits + 1);
-        self.abs() <= bound
+        self.abs() <= T::ONE << bound_bits
     }
 
     pub fn to_mod(self, precomputed: &<T::ModUint as UintModLike>::Precomputed) -> T::ModUint {

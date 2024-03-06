@@ -60,10 +60,15 @@ impl<P: SchemeParams> FacProof<P> {
 
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
-        // NOTE: using `2^(Paillier::PRIME_BITS - 1)` as $\sqrt{N_0}$ (which is its lower bound)
+        // NOTE: using `2^(Paillier::PRIME_BITS - 2)` as $\sqrt{N_0}$ (which is its lower bound)
+        // According to the authors of the paper, it is acceptable.
+        // In the end of the day, we're proving that `p, q < sqrt{N_0} 2^\ell`,
+        // and really they should be `~ sqrt{N_0}`.
+        // Note that it has to be matched when we check the range of
+        // `z1` and `z2` during verification.
         let sqrt_cap_n = Bounded::new(
             <P::Paillier as PaillierParams>::Uint::ONE
-                << (<P::Paillier as PaillierParams>::PRIME_BITS - 1),
+                << (<P::Paillier as PaillierParams>::PRIME_BITS - 2),
             <P::Paillier as PaillierParams>::PRIME_BITS as u32,
         )
         .unwrap();
@@ -171,16 +176,20 @@ impl<P: SchemeParams> FacProof<P> {
             return false;
         }
 
+        // NOTE: since when creating this proof we generated `alpha` and `beta`
+        // using the approximation `sqrt(N_0) ~ 2^(PRIME_BITS - 2)`,
+        // this is the bound we are using here as well.
+
         // z1 \in \pm \sqrt{N_0} 2^{\ell + \eps}
         if !self.z1.in_range_bits(
-            P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 1,
+            P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2,
         ) {
             return false;
         }
 
         // z2 \in \pm \sqrt{N_0} 2^{\ell + \eps}
         if !self.z2.in_range_bits(
-            P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 1,
+            P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2,
         ) {
             return false;
         }
