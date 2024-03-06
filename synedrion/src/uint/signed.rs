@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     bounded::PackedBounded,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
-    Bounded, HasWide, Integer, NonZero, UintLike, UintModLike,
+    Bounded, CheckedAdd, HasWide, Integer, NonZero, RandomMod, UintLike, UintModLike,
 };
 
 /// A packed representation for serializing Signed objects.
@@ -289,16 +289,19 @@ impl<T: UintLike + HasWide> Signed<T> {
         scale: &Bounded<T>,
     ) -> Signed<T::Wide> {
         assert!(bound_bits < <T as Integer>::BITS - 1);
-        let bound = T::ONE.shl_vartime(bound_bits);
-        let positive_bound = bound.shl_vartime(1).checked_add(&T::ONE).unwrap();
-        let positive_result = T::random_mod(rng, &NonZero::new(positive_bound).unwrap());
-
-        let scaled_positive_result = positive_result.mul_wide(scale.as_ref());
         let scaled_bound = scale.as_ref().into_wide().shl_vartime(bound_bits);
+
+        // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
+        let positive_bound = scaled_bound
+            .shl_vartime(1)
+            .checked_add(&T::Wide::ONE)
+            .unwrap();
+        let positive_result = T::Wide::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+        let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
             bound: bound_bits as u32 + scale.bound(),
-            value: scaled_positive_result.wrapping_sub(&scaled_bound),
+            value: result,
         }
     }
 
@@ -320,7 +323,7 @@ impl<T: UintLike + HasWide> Signed<T> {
 
 impl<T: UintLike + HasWide> Signed<T>
 where
-    <T as HasWide>::Wide: HasWide,
+    T::Wide: HasWide,
 {
     /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
     ///
@@ -328,21 +331,23 @@ where
     pub fn random_bounded_bits_scaled_wide(
         rng: &mut impl CryptoRngCore,
         bound_bits: usize,
-        scale: &Bounded<<T as HasWide>::Wide>,
-    ) -> Signed<<<T as HasWide>::Wide as HasWide>::Wide> {
+        scale: &Bounded<T::Wide>,
+    ) -> Signed<<T::Wide as HasWide>::Wide> {
         assert!(bound_bits < <T as Integer>::BITS - 1);
-        let bound = T::ONE.shl_vartime(bound_bits);
-        let positive_bound = bound.shl_vartime(1).checked_add(&T::ONE).unwrap();
-        let positive_result = T::random_mod(rng, &NonZero::new(positive_bound).unwrap());
-
-        let positive_result = positive_result.into_wide();
-
-        let scaled_positive_result = positive_result.mul_wide(scale.as_ref());
         let scaled_bound = scale.as_ref().into_wide().shl_vartime(bound_bits);
+
+        // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
+        let positive_bound = scaled_bound
+            .shl_vartime(1)
+            .checked_add(&<T::Wide as HasWide>::Wide::ONE)
+            .unwrap();
+        let positive_result =
+            <T::Wide as HasWide>::Wide::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+        let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
             bound: bound_bits as u32 + scale.bound(),
-            value: scaled_positive_result.wrapping_sub(&scaled_bound),
+            value: result,
         }
     }
 }
