@@ -1,5 +1,5 @@
 use alloc::string::String;
-use core::ops::{Add, Mul, Neg, Not, Sub};
+use core::ops::{Add, Mul, Neg, Sub};
 
 use digest::XofReader;
 use rand_core::CryptoRngCore;
@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     bounded::PackedBounded,
-    subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
+    subtle::{
+        Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess,
+        CtOption,
+    },
     Bounded, CheckedAdd, HasWide, Integer, NonZero, RandomMod, UintLike, UintModLike,
 };
 
@@ -202,6 +205,8 @@ impl<T: UintLike> Signed<T> {
 
     fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
+        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+
         let result = Self {
             bound,
             value: self.value.wrapping_add(&rhs.value),
@@ -215,12 +220,14 @@ impl<T: UintLike> Signed<T> {
         // it means there was no overflow.
         CtOption::new(
             result,
-            !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)),
+            !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)) & in_range,
         )
     }
 
     fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
+        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+
         let lhs_neg = self.is_negative();
         let rhs_neg = rhs.is_negative();
         let lhs = T::conditional_select(&self.value, &self.value.neg(), lhs_neg);
@@ -228,15 +235,8 @@ impl<T: UintLike> Signed<T> {
         let result = lhs.checked_mul(&rhs);
         let result_neg = lhs_neg ^ rhs_neg;
         result.and_then(|val| {
-            let out_of_range = Choice::from((bound as usize >= <T as Integer>::BITS - 1) as u8);
-            let signed_val = T::conditional_select(&val, &val.neg(), result_neg);
-            CtOption::new(
-                Self {
-                    bound,
-                    value: signed_val,
-                },
-                out_of_range.not(),
-            )
+            let value = T::conditional_select(&val, &val.neg(), result_neg);
+            CtOption::new(Self { bound, value }, in_range)
         })
     }
 }

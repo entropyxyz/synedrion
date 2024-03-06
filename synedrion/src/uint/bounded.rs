@@ -5,8 +5,8 @@ use alloc::string::String;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    subtle::{Choice, ConditionallySelectable, CtOption},
-    CheckedAdd, CheckedMul, HasWide, NonZero, Signed, UintLike,
+    subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
+    CheckedAdd, CheckedMul, HasWide, Integer, NonZero, Signed, UintLike,
 };
 use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::serde_bytes;
@@ -127,11 +127,13 @@ impl<T: UintLike> CheckedAdd for Bounded<T> {
     type Output = Self;
     fn checked_add(&self, rhs: Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
+        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+
         let result = Self {
             bound,
             value: self.value.wrapping_add(&rhs.value),
         };
-        CtOption::new(result, Choice::from((bound <= T::BITS as u32) as u8))
+        CtOption::new(result, in_range)
     }
 }
 
@@ -139,11 +141,13 @@ impl<T: UintLike> CheckedMul for Bounded<T> {
     type Output = Self;
     fn checked_mul(&self, rhs: Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
+        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+
         let result = Self {
             bound,
             value: self.value.wrapping_mul(&rhs.value),
         };
-        CtOption::new(result, Choice::from((bound <= T::BITS as u32) as u8))
+        CtOption::new(result, in_range)
     }
 }
 
