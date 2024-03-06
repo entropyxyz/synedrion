@@ -101,7 +101,7 @@ impl<T: UintLike> Signed<T> {
     /// treating it as if the sign is encoded in the MSB.
     pub fn new_from_unsigned(value: T, bound: u32) -> Option<Self> {
         let result = Self { value, bound };
-        if bound >= <T as Integer>::BITS as u32 || result.abs().bits_vartime() as u32 > bound {
+        if bound >= <T as Integer>::BITS as u32 || result.abs().bits() as u32 > bound {
             return None;
         }
         Some(result)
@@ -121,7 +121,7 @@ impl<T: UintLike> Signed<T> {
     /// assuming that it encodes a positive value.
     pub fn new_positive(value: T, bound: u32) -> Option<Self> {
         // Reserving one bit as the sign bit
-        if bound >= <T as Integer>::BITS as u32 || value.bits_vartime() as u32 > bound {
+        if bound >= <T as Integer>::BITS as u32 || value.bits() as u32 > bound {
             return None;
         }
         let result = Self { value, bound };

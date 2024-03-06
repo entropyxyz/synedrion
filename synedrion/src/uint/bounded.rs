@@ -80,7 +80,7 @@ impl<T: UintLike> Bounded<T> {
     }
 
     pub fn new(value: T, bound: u32) -> Option<Self> {
-        if bound > T::BITS as u32 || value.bits_vartime() as u32 > bound {
+        if bound > T::BITS as u32 || value.bits() as u32 > bound {
             return None;
         }
         Some(Self { value, bound })
