@@ -780,8 +780,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         let assembled_cap_delta: Point = self.cap_delta + cap_deltas.iter().sum::<Point>();
 
         if assembled_delta.mul_by_generator() == assembled_cap_delta {
-            // TODO (#79): seems like we only need the x-coordinate of this (as a Scalar)
-            let nonce = self.cap_gamma * assembled_delta.invert().unwrap();
+            let nonce = (self.cap_gamma * assembled_delta.invert().unwrap()).x_coordinate();
 
             let hat_beta = self.round2_artifacts.map_ref(|artifact| artifact.hat_beta);
             let hat_r = self
@@ -999,7 +998,7 @@ mod tests {
         let x: Scalar = key_shares.iter().map(|share| share.secret_share).sum();
         assert_eq!(x * k, k_times_x);
         assert_eq!(
-            k.invert().unwrap().mul_by_generator(),
+            k.invert().unwrap().mul_by_generator().x_coordinate(),
             presigning_datas[0].nonce
         );
     }

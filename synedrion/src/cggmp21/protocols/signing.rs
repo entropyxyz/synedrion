@@ -77,7 +77,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             .chain(&inputs.key_share.share_set_id)
             .finalize();
 
-        let r = inputs.presigning.nonce.x_coordinate();
+        let r = inputs.presigning.nonce;
         let sigma = inputs.presigning.ephemeral_scalar_share * inputs.message
             + r * inputs.presigning.product_share;
         Ok(Self {
@@ -274,7 +274,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 + self.inputs.presigning.hat_cap_f.get(j).unwrap();
         }
 
-        let r = self.inputs.presigning.nonce.x_coordinate();
+        let r = self.inputs.presigning.nonce;
 
         let ciphertext = ciphertext * P::bounded_from_scalar(&r)
             + &self.inputs.presigning.cap_k[my_idx] * P::bounded_from_scalar(&self.inputs.message);
