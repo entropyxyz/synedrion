@@ -1,5 +1,5 @@
 use alloc::string::String;
-use core::ops::{Add, Mul, Neg, Not, Sub};
+use core::ops::{Add, Mul, Neg, Sub};
 
 use digest::XofReader;
 use rand_core::CryptoRngCore;
@@ -7,8 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     bounded::PackedBounded,
-    subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption},
-    Bounded, HasWide, Integer, NonZero, UintLike, UintModLike,
+    subtle::{
+        Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess,
+        CtOption,
+    },
+    Bounded, CheckedAdd, HasWide, Integer, NonZero, RandomMod, UintLike, UintModLike,
 };
 
 /// A packed representation for serializing Signed objects.
@@ -101,7 +104,7 @@ impl<T: UintLike> Signed<T> {
     /// treating it as if the sign is encoded in the MSB.
     pub fn new_from_unsigned(value: T, bound: u32) -> Option<Self> {
         let result = Self { value, bound };
-        if bound >= <T as Integer>::BITS as u32 || result.abs().bits_vartime() as u32 > bound {
+        if bound >= <T as Integer>::BITS as u32 || result.abs().bits() as u32 > bound {
             return None;
         }
         Some(result)
@@ -121,7 +124,7 @@ impl<T: UintLike> Signed<T> {
     /// assuming that it encodes a positive value.
     pub fn new_positive(value: T, bound: u32) -> Option<Self> {
         // Reserving one bit as the sign bit
-        if bound >= <T as Integer>::BITS as u32 || value.bits_vartime() as u32 > bound {
+        if bound >= <T as Integer>::BITS as u32 || value.bits() as u32 > bound {
             return None;
         }
         let result = Self { value, bound };
@@ -191,8 +194,7 @@ impl<T: UintLike> Signed<T> {
 
     /// Returns `true` if the value is within `[-2^bound_bits, 2^bound_bits]`.
     pub fn in_range_bits(&self, bound_bits: usize) -> bool {
-        let bound = T::ONE << (bound_bits + 1);
-        self.abs() <= bound
+        self.abs() <= T::ONE << bound_bits
     }
 
     pub fn to_mod(self, precomputed: &<T::ModUint as UintModLike>::Precomputed) -> T::ModUint {
@@ -202,6 +204,8 @@ impl<T: UintLike> Signed<T> {
 
     fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
+        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+
         let result = Self {
             bound,
             value: self.value.wrapping_add(&rhs.value),
@@ -215,12 +219,14 @@ impl<T: UintLike> Signed<T> {
         // it means there was no overflow.
         CtOption::new(
             result,
-            !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)),
+            !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)) & in_range,
         )
     }
 
     fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
+        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+
         let lhs_neg = self.is_negative();
         let rhs_neg = rhs.is_negative();
         let lhs = T::conditional_select(&self.value, &self.value.neg(), lhs_neg);
@@ -228,15 +234,8 @@ impl<T: UintLike> Signed<T> {
         let result = lhs.checked_mul(&rhs);
         let result_neg = lhs_neg ^ rhs_neg;
         result.and_then(|val| {
-            let out_of_range = Choice::from((bound as usize >= <T as Integer>::BITS - 1) as u8);
-            let signed_val = T::conditional_select(&val, &val.neg(), result_neg);
-            CtOption::new(
-                Self {
-                    bound,
-                    value: signed_val,
-                },
-                out_of_range.not(),
-            )
+            let value = T::conditional_select(&val, &val.neg(), result_neg);
+            CtOption::new(Self { bound, value }, in_range)
         })
     }
 }
@@ -289,16 +288,19 @@ impl<T: UintLike + HasWide> Signed<T> {
         scale: &Bounded<T>,
     ) -> Signed<T::Wide> {
         assert!(bound_bits < <T as Integer>::BITS - 1);
-        let bound = T::ONE.shl_vartime(bound_bits);
-        let positive_bound = bound.shl_vartime(1).checked_add(&T::ONE).unwrap();
-        let positive_result = T::random_mod(rng, &NonZero::new(positive_bound).unwrap());
-
-        let scaled_positive_result = positive_result.mul_wide(scale.as_ref());
         let scaled_bound = scale.as_ref().into_wide().shl_vartime(bound_bits);
+
+        // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
+        let positive_bound = scaled_bound
+            .shl_vartime(1)
+            .checked_add(&T::Wide::ONE)
+            .unwrap();
+        let positive_result = T::Wide::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+        let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
             bound: bound_bits as u32 + scale.bound(),
-            value: scaled_positive_result.wrapping_sub(&scaled_bound),
+            value: result,
         }
     }
 
@@ -320,7 +322,7 @@ impl<T: UintLike + HasWide> Signed<T> {
 
 impl<T: UintLike + HasWide> Signed<T>
 where
-    <T as HasWide>::Wide: HasWide,
+    T::Wide: HasWide,
 {
     /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
     ///
@@ -328,21 +330,23 @@ where
     pub fn random_bounded_bits_scaled_wide(
         rng: &mut impl CryptoRngCore,
         bound_bits: usize,
-        scale: &Bounded<<T as HasWide>::Wide>,
-    ) -> Signed<<<T as HasWide>::Wide as HasWide>::Wide> {
+        scale: &Bounded<T::Wide>,
+    ) -> Signed<<T::Wide as HasWide>::Wide> {
         assert!(bound_bits < <T as Integer>::BITS - 1);
-        let bound = T::ONE.shl_vartime(bound_bits);
-        let positive_bound = bound.shl_vartime(1).checked_add(&T::ONE).unwrap();
-        let positive_result = T::random_mod(rng, &NonZero::new(positive_bound).unwrap());
-
-        let positive_result = positive_result.into_wide();
-
-        let scaled_positive_result = positive_result.mul_wide(scale.as_ref());
         let scaled_bound = scale.as_ref().into_wide().shl_vartime(bound_bits);
+
+        // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
+        let positive_bound = scaled_bound
+            .shl_vartime(1)
+            .checked_add(&<T::Wide as HasWide>::Wide::ONE)
+            .unwrap();
+        let positive_result =
+            <T::Wide as HasWide>::Wide::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+        let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
             bound: bound_bits as u32 + scale.bound(),
-            value: scaled_positive_result.wrapping_sub(&scaled_bound),
+            value: result,
         }
     }
 }

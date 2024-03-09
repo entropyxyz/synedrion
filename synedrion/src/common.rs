@@ -127,8 +127,7 @@ pub struct KeyShareChange<P: SchemeParams> {
 /// The result of the Presigning protocol.
 #[derive(Debug, Clone)]
 pub struct PresigningData<P: SchemeParams> {
-    // TODO (#79): can we store nonce as a scalar?
-    pub(crate) nonce: Point, // $R$
+    pub(crate) nonce: Scalar, // x-coordinate of $R$
     /// An additive share of the ephemeral scalar.
     pub(crate) ephemeral_scalar_share: Scalar, // $k_i$
     /// An additive share of `k * x` where `x` is the secret key.
@@ -333,7 +332,11 @@ impl<P: SchemeParams> PresigningData<P> {
         key_shares: &[KeyShare<P>],
     ) -> Box<[Self]> {
         let ephemeral_scalar = Scalar::random(rng);
-        let nonce = ephemeral_scalar.invert().unwrap().mul_by_generator();
+        let nonce = ephemeral_scalar
+            .invert()
+            .unwrap()
+            .mul_by_generator()
+            .x_coordinate();
         let ephemeral_scalar_shares = ephemeral_scalar.split(rng, key_shares.len());
 
         let num_parties = key_shares.len();

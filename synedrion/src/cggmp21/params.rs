@@ -83,7 +83,7 @@ pub trait SchemeParams: Clone + Send + PartialEq + Eq + core::fmt::Debug + 'stat
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
     const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint>;
-    /// The sheme's statistical security parameter.
+    /// The scheme's statistical security parameter.
     const SECURITY_PARAMETER: usize; // $\kappa$
     /// The bound for secret values.
     const L_BOUND: usize; // $\ell$, paper sets it to $\log2(q)$ (see Table 2)

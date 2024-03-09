@@ -20,7 +20,7 @@ struct Message<Sig> {
     broadcasts: Vec<(PartyIdx, SignedMessage<Sig>)>,
 }
 
-/// Errors that can occur during broadcast consesnsus check.
+/// Errors that can occur during broadcast consensus check.
 #[derive(Debug, Clone)]
 pub enum ConsensusError {
     /// Cannot deserialize the message.
