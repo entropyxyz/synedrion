@@ -85,10 +85,20 @@ where
         let n_bits = backend_modulus.bits_vartime();
         let n_bytes = (n_bits + 7) / 8; // ceiling division by 8
 
+        // If the number of bits is not a multiple of 8,
+        // use a mask to zeroize the high bits in the gererated random bytestring,
+        // so that we don't have to reject too much.
+        let mask = if n_bits & 7 != 0 {
+            (1 << (n_bits & 7)) - 1
+        } else {
+            u8::MAX
+        };
+
         let mut bytes = Uint::<L>::ZERO.to_le_bytes();
 
         loop {
             reader.read(&mut (bytes.as_mut()[0..n_bytes]));
+            bytes.as_mut()[n_bytes - 1] &= mask;
             let n = Uint::<L>::from_le_bytes(bytes);
 
             if n.ct_lt(backend_modulus).into() {
