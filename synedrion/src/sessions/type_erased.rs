@@ -336,7 +336,7 @@ pub(crate) trait DynFinalizable<Res: ProtocolResult>: DynRound<Res> {
     ) -> Result<FinalizeOutcome<Res>, FinalizeError<Res>>;
 }
 
-// This is needed because Rust does not currently support exclusive trait imlpementations.
+// This is needed because Rust does not currently support exclusive trait implementations.
 // We want to implement `DynFinalizable` depending on whether the type is
 // `FinalizableToResult` or `FinalizableToNextRound`.
 // A way to do it is to exploit the fact that a trait with an associated type (in our case, `Round`)
@@ -373,7 +373,7 @@ const _: () = {
         }
     }
 
-    // Actual diverging imlpementations.
+    // Actual diverging implementations.
 
     impl<R> _DynFinalizable<R::Result, ToResult> for R
     where
