@@ -13,7 +13,7 @@ use crypto_bigint::{
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 
-use super::{bounded::Bounded, jacobi::JacobiSymbolTrait, signed::Signed};
+use super::{bounded::Bounded, signed::Signed};
 use crate::tools::hashing::{Chain, Hashable};
 
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
@@ -30,7 +30,6 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1
 pub trait UintLike:
     Integer
     + Encoding
-    + JacobiSymbolTrait
     + Hashable
     + RandomPrimeWithRng
     + RandomMod

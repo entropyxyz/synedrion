@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{
-    JacobiSymbol, JacobiSymbolTrait, RandomMod, RandomPrimeWithRng, Retrieve, UintLike, UintModLike,
-};
+use crate::uint::{RandomPrimeWithRng, Retrieve, UintLike, UintModLike};
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -20,15 +18,9 @@ struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 impl<P: SchemeParams> ModCommitment<P> {
     fn random(
         rng: &mut impl CryptoRngCore,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
     ) -> Self {
-        let w = loop {
-            let w = <P::Paillier as PaillierParams>::Uint::random_mod(rng, &pk.modulus_nonzero());
-            if w.jacobi_symbol(pk.modulus()) == JacobiSymbol::MinusOne {
-                break w;
-            }
-        };
-        Self(w)
+        Self(sk.random_nonsquare(rng))
     }
 }
 
@@ -87,7 +79,7 @@ impl<P: SchemeParams> ModProof<P> {
         let pk = sk.public_key();
         let challenge = ModChallenge::<P>::new(pk, aux);
 
-        let commitment = ModCommitment::<P>::random(rng, pk);
+        let commitment = ModCommitment::<P>::random(rng, sk);
 
         let (omega_mod_p, omega_mod_q) = sk.rns_split(&commitment.0);
 

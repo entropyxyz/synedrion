@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
+    subtle::{Choice, ConditionallySelectable},
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
     RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
 };
@@ -54,6 +55,21 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         .unwrap();
 
         let inv_p_mod_q = self.p.to_mod(&precomputed_mod_q).invert().unwrap();
+        let inv_q_mod_p = self.q.to_mod(&precomputed_mod_p).invert().unwrap();
+
+        // Calculate $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
+        // Using step of Garner's algorithm:
+        // $u = q - 1 + q (2 q^{-1} - 1 \mod p)$
+        let t = (inv_q_mod_p + inv_q_mod_p - P::HalfUintMod::one(&precomputed_mod_p)).retrieve();
+        // Note that the wrapping add/sub won't overflow by construction.
+        let nonsquare_sampling_constant = t
+            .mul_wide(&self.q)
+            .wrapping_add(&self.q.into_wide())
+            .wrapping_sub(&P::Uint::ONE);
+        let nonsquare_sampling_constant = P::UintMod::new(
+            &nonsquare_sampling_constant,
+            &public_key.precomputed_modulus,
+        );
 
         SecretKeyPaillierPrecomputed {
             sk: self.clone(),
@@ -61,6 +77,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             inv_totient,
             inv_modulus,
             inv_p_mod_q,
+            nonsquare_sampling_constant,
             precomputed_mod_p,
             precomputed_mod_q,
             public_key,
@@ -77,6 +94,8 @@ pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     /// $N^{-1} \mod \phi(N)$
     inv_modulus: Bounded<P::Uint>,
     inv_p_mod_q: P::HalfUintMod,
+    // $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
+    nonsquare_sampling_constant: P::UintMod,
     precomputed_mod_p: <P::HalfUintMod as UintModLike>::Precomputed,
     precomputed_mod_q: <P::HalfUintMod as UintModLike>::Precomputed,
     public_key: PublicKeyPaillierPrecomputed<P>,
@@ -199,6 +218,37 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
             P::MODULUS_BITS as u32,
         )
         .unwrap()
+    }
+
+    /// Returns a random $w \in [0, N)$ such that $w$ is not a square modulo $N$,
+    /// where $N$ is the public key
+    /// (or, equivalently, such that the Jacobi symbol $(w|N) = -1$).
+    pub fn random_nonsquare(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
+        /*
+        (The sampling method and the explanation by Thomas Pornin)
+
+        Recall that `nonsquare_sampling_constant` $u$ is such that
+        $u = 1 \mod p$ and $u = -1 \mod q$, so $u^2 = 1 \mod N$.
+
+        For an $x \in \mathbb{Z}_N^*$ (that is, an invertible element),
+        consider the set $S_x = {x, -x, u x, -u x}$.
+        For any $x$ and $x^\prime$, then either $S_x = S_{x^\prime}$, or $S_x$ and $S_{x^\prime}$
+        are completely disjoint: the sets $S_x$ make a partition of $\mathbb{Z}_N^*$.
+
+        Moreover, exactly two of the four elements of $S_x$ is a square modulo $N$.
+        If $x$ is the square in $S_x$, then the Jacobi symbols $(x|N)$ and $(-x|N)$
+        are both equal to 1, while the Jacobi symbols $(u x|N)$ and $(-u x|N)$
+        are both equal to -1.
+
+        In order to get a uniform integer of Jacobi symbol -1,
+        we need to make a uniform selection of $S_x$,
+        which we get by selecting $y$ uniformly from $\mathbb{Z}_N^*$ and taking $x = y^2 \mod N$.
+        After that, we select uniformly between $u x$ and $-u x$.
+        */
+        let y = self.public_key.random_invertible_group_elem(rng);
+        let b = Choice::from(rng.next_u32() as u8 & 1);
+        let w = self.nonsquare_sampling_constant * y.square();
+        P::UintMod::conditional_select(&w, &-w, b).retrieve()
     }
 }
 
