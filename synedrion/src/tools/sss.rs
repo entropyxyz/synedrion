@@ -18,7 +18,6 @@ impl ShareIdx {
 
 pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareIdx> {
     // For now we are hardcoding the points to be 1, 2, ..., n.
-    // TODO (#87): it should be still secure, right?
     // Potentially we can derive them from Session ID.
     (1..=u32::try_from(num_shares).expect("The number of shares cannot be over 2^32-1"))
         .map(|idx| ShareIdx(Scalar::from(idx)))
