@@ -64,10 +64,28 @@ impl<P: SchemeParams> MulStarProof<P> {
         assert_eq!(cap_c.public_key(), pk0);
         assert_eq!(cap_d.public_key(), pk0);
 
+        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
+
+        let r = RandomizerMod::random(rng, pk0);
+        let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
+        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
+
+        let cap_a = (cap_c * alpha).mul_randomizer(&r.retrieve()).retrieve();
+        let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
+        let cap_e = setup.commit(&alpha, &gamma).retrieve();
+        let cap_s = setup.commit(x, &m).retrieve();
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&cap_a)
+            .chain(&cap_b_x)
+            .chain(&cap_e)
+            .chain(&cap_s)
+            // public parameters
             .chain(pk0)
-            .chain(cap_c)
-            .chain(cap_d)
+            .chain(&cap_c.retrieve())
+            .chain(&cap_d.retrieve())
             .chain(cap_x)
             .chain(setup)
             .chain(aux)
@@ -76,25 +94,13 @@ impl<P: SchemeParams> MulStarProof<P> {
         // Non-interactive challenge
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
-
-        let r = RandomizerMod::random(rng, pk0);
-        let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
-        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-
-        let cap_a = (cap_c * alpha).mul_randomizer(&r.retrieve());
-        let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
-        let cap_e = setup.commit(&alpha, &gamma).retrieve();
-        let cap_s = setup.commit(x, &m).retrieve();
-
         let z1 = alpha + e * x;
         let z2 = gamma + e.into_wide() * m;
         let omega = (r * rho.pow_signed(&e)).retrieve();
 
         Self {
             e,
-            cap_a: cap_a.retrieve(),
+            cap_a,
             cap_b_x,
             cap_e,
             cap_s,
@@ -119,9 +125,15 @@ impl<P: SchemeParams> MulStarProof<P> {
         assert_eq!(cap_d.public_key(), pk0);
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&self.cap_a)
+            .chain(&self.cap_b_x)
+            .chain(&self.cap_e)
+            .chain(&self.cap_s)
+            // public parameters
             .chain(pk0)
-            .chain(cap_c)
-            .chain(cap_d)
+            .chain(&cap_c.retrieve())
+            .chain(&cap_d.retrieve())
             .chain(cap_x)
             .chain(setup)
             .chain(aux)

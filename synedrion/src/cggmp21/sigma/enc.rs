@@ -49,16 +49,6 @@ impl<P: SchemeParams> EncProof<P> {
         k.assert_bound(P::L_BOUND);
         assert_eq!(cap_k.public_key(), pk0);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk0)
-            .chain(cap_k)
-            .chain(setup)
-            .chain(aux)
-            .finalize_to_reader();
-
-        // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
-
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         // TODO (#86): should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
@@ -69,8 +59,24 @@ impl<P: SchemeParams> EncProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(k, &mu).retrieve();
-        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
+        let cap_a =
+            CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
         let cap_c = setup.commit(&alpha, &gamma).retrieve();
+
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&cap_s)
+            .chain(&cap_a)
+            .chain(&cap_c)
+            // public parameters
+            .chain(pk0)
+            .chain(&cap_k.retrieve())
+            .chain(setup)
+            .chain(aux)
+            .finalize_to_reader();
+
+        // Non-interactive challenge
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let z1 = alpha + e * k;
         let z2 = (r * rho.pow_signed_vartime(&e)).retrieve();
@@ -79,7 +85,7 @@ impl<P: SchemeParams> EncProof<P> {
         Self {
             e,
             cap_s,
-            cap_a: cap_a.retrieve(),
+            cap_a,
             cap_c,
             z1,
             z2,
@@ -97,8 +103,13 @@ impl<P: SchemeParams> EncProof<P> {
         assert_eq!(cap_k.public_key(), pk0);
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&self.cap_s)
+            .chain(&self.cap_a)
+            .chain(&self.cap_c)
+            // public parameters
             .chain(pk0)
-            .chain(cap_k)
+            .chain(&cap_k.retrieve())
             .chain(setup)
             .chain(aux)
             .finalize_to_reader();

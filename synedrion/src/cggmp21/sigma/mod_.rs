@@ -24,13 +24,24 @@ impl<P: SchemeParams> ModCommitment<P> {
     }
 }
 
+impl<P: SchemeParams> Hashable for ModCommitment<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> ModChallenge<P> {
-    fn new(pk: &PublicKeyPaillierPrecomputed<P::Paillier>, aux: &impl Hashable) -> Self {
+    fn new(
+        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        commitment: &ModCommitment<P>,
+        aux: &impl Hashable,
+    ) -> Self {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
             .chain(pk)
+            .chain(commitment)
             .chain(aux)
             .finalize_to_reader();
 
@@ -77,9 +88,8 @@ impl<P: SchemeParams> ModProof<P> {
         aux: &impl Hashable,
     ) -> Self {
         let pk = sk.public_key();
-        let challenge = ModChallenge::<P>::new(pk, aux);
-
         let commitment = ModCommitment::<P>::random(rng, sk);
+        let challenge = ModChallenge::<P>::new(pk, &commitment, aux);
 
         let (omega_mod_p, omega_mod_q) = sk.rns_split(&commitment.0);
 
@@ -136,7 +146,7 @@ impl<P: SchemeParams> ModProof<P> {
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
-        let challenge = ModChallenge::new(pk, aux);
+        let challenge = ModChallenge::new(pk, &self.commitment, aux);
         if challenge != self.challenge {
             return false;
         }

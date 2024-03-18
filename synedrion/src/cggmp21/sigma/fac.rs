@@ -48,16 +48,6 @@ impl<P: SchemeParams> FacProof<P> {
     ) -> Self {
         let pk0 = sk0.public_key();
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk0)
-            .chain(setup)
-            .chain(aux)
-            .finalize_to_reader();
-
-        // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
-        let e_wide = e.into_wide();
-
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         // NOTE: using `2^(Paillier::PRIME_BITS - 2)` as $\sqrt{N_0}$ (which is its lower bound)
@@ -102,6 +92,25 @@ impl<P: SchemeParams> FacProof<P> {
         let cap_a = setup.commit_wide(&alpha, &x).retrieve();
         let cap_b = setup.commit_wide(&beta, &y).retrieve();
         let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_base_xwide(&r)).retrieve();
+        let cap_q = cap_q.retrieve();
+
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&cap_p)
+            .chain(&cap_q)
+            .chain(&cap_a)
+            .chain(&cap_b)
+            .chain(&cap_t)
+            .chain(&sigma)
+            // public parameters
+            .chain(pk0)
+            .chain(setup)
+            .chain(aux)
+            .finalize_to_reader();
+
+        // Non-interactive challenge
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e_wide = e.into_wide();
 
         let hat_sigma = sigma - (nu * p.into_wide()).into_wide();
         let z1 = alpha + (e * p).into_wide();
@@ -113,7 +122,7 @@ impl<P: SchemeParams> FacProof<P> {
         Self {
             e,
             cap_p,
-            cap_q: cap_q.retrieve(),
+            cap_q,
             cap_a,
             cap_b,
             cap_t,
@@ -133,6 +142,14 @@ impl<P: SchemeParams> FacProof<P> {
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&self.cap_p)
+            .chain(&self.cap_q)
+            .chain(&self.cap_a)
+            .chain(&self.cap_b)
+            .chain(&self.cap_t)
+            .chain(&self.sigma)
+            // public parameters
             .chain(pk0)
             .chain(setup)
             .chain(aux)
