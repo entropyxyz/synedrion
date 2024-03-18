@@ -77,21 +77,6 @@ impl<P: SchemeParams> AffGProof<P> {
         assert!(cap_d.public_key() == pk0);
         assert!(cap_y.public_key() == pk1);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk0)
-            .chain(pk1)
-            .chain(cap_c)
-            .chain(cap_d)
-            .chain(cap_y)
-            .chain(cap_x)
-            .chain(setup)
-            .chain(aux)
-            .finalize_to_reader();
-
-        // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
-        let e_wide = e.into_wide();
-
         let hat_cap_n = &setup.public_key().modulus_bounded();
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
@@ -105,10 +90,12 @@ impl<P: SchemeParams> AffGProof<P> {
         let delta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        let cap_a = cap_c * alpha
-            + CiphertextMod::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve());
+        let cap_a = (cap_c * alpha
+            + CiphertextMod::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()))
+        .retrieve();
         let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
-        let cap_b_y = CiphertextMod::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve());
+        let cap_b_y =
+            CiphertextMod::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve()).retrieve();
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
         let cap_f = setup.commit(&beta, &delta).retrieve();
@@ -117,6 +104,30 @@ impl<P: SchemeParams> AffGProof<P> {
         // (see the comment in `AffGProof`)
         // Original: $s^y$. Modified: $s^{-y}$
         let cap_t = setup.commit(&-y, &mu).retrieve();
+
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&cap_a)
+            .chain(&cap_b_x)
+            .chain(&cap_b_y)
+            .chain(&cap_e)
+            .chain(&cap_f)
+            .chain(&cap_s)
+            .chain(&cap_t)
+            // public parameters
+            .chain(pk0)
+            .chain(pk1)
+            .chain(&cap_c.retrieve())
+            .chain(&cap_d.retrieve())
+            .chain(&cap_y.retrieve())
+            .chain(cap_x)
+            .chain(setup)
+            .chain(aux)
+            .finalize_to_reader();
+
+        // Non-interactive challenge
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e_wide = e.into_wide();
 
         let z1 = alpha + e * x;
 
@@ -138,9 +149,9 @@ impl<P: SchemeParams> AffGProof<P> {
 
         Self {
             e,
-            cap_a: cap_a.retrieve(),
+            cap_a,
             cap_b_x,
-            cap_b_y: cap_b_y.retrieve(),
+            cap_b_y,
             cap_e,
             cap_s,
             cap_f,
@@ -171,11 +182,20 @@ impl<P: SchemeParams> AffGProof<P> {
         assert!(cap_y.public_key() == pk1);
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&self.cap_a)
+            .chain(&self.cap_b_x)
+            .chain(&self.cap_b_y)
+            .chain(&self.cap_e)
+            .chain(&self.cap_f)
+            .chain(&self.cap_s)
+            .chain(&self.cap_t)
+            // public parameters
             .chain(pk0)
             .chain(pk1)
-            .chain(cap_c)
-            .chain(cap_d)
-            .chain(cap_y)
+            .chain(&cap_c.retrieve())
+            .chain(&cap_d.retrieve())
+            .chain(&cap_y.retrieve())
             .chain(cap_x)
             .chain(setup)
             .chain(aux)

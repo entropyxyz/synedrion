@@ -135,7 +135,7 @@ impl<P: PaillierParams> Hashable for RPParams<P> {
 
 impl<P: PaillierParams> Hashable for RPParamsMod<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.pk).chain(&self.base).chain(&self.power)
+        digest.chain(&self.retrieve())
     }
 }
 
@@ -173,5 +173,11 @@ pub(crate) struct RPCommitment<P: PaillierParams>(P::Uint);
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
         RPCommitmentMod(self.0.to_mod(pk.precomputed_modulus()))
+    }
+}
+
+impl<P: PaillierParams> Hashable for RPCommitment<P> {
+    fn chain<C: Chain>(&self, digest: C) -> C {
+        digest.chain(&self.0)
     }
 }

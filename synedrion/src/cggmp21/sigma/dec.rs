@@ -54,17 +54,6 @@ impl<P: SchemeParams> DecProof<P> {
     ) -> Self {
         assert_eq!(cap_c.public_key(), pk0);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk0)
-            .chain(x)
-            .chain(cap_c)
-            .chain(setup)
-            .chain(aux)
-            .finalize_to_reader();
-
-        // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
-
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
@@ -74,8 +63,29 @@ impl<P: SchemeParams> DecProof<P> {
 
         let cap_s = setup.commit(y, &mu).retrieve();
         let cap_t = setup.commit(&alpha, &nu).retrieve();
-        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
+        let cap_a =
+            CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
         let gamma = P::scalar_from_signed(&alpha);
+
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            // NOTE: the paper only says "sends (A, gamma) to the verifier",
+            // but clearly S and T are sent too since the verifier needs access to them.
+            // So they're also being hashed as commitments.
+            .chain(&cap_s)
+            .chain(&cap_t)
+            .chain(&cap_a)
+            .chain(&gamma)
+            // public parameters
+            .chain(pk0)
+            .chain(x)
+            .chain(&cap_c.retrieve())
+            .chain(setup)
+            .chain(aux)
+            .finalize_to_reader();
+
+        // Non-interactive challenge
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let z1 = alpha.into_wide() + e.mul_wide(y);
         let z2 = nu + e.into_wide() * mu;
@@ -86,7 +96,7 @@ impl<P: SchemeParams> DecProof<P> {
             e,
             cap_s,
             cap_t,
-            cap_a: cap_a.retrieve(),
+            cap_a,
             gamma,
             z1,
             z2,
@@ -105,9 +115,15 @@ impl<P: SchemeParams> DecProof<P> {
         assert_eq!(cap_c.public_key(), pk0);
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&self.cap_s)
+            .chain(&self.cap_t)
+            .chain(&self.cap_a)
+            .chain(&self.gamma)
+            // public parameters
             .chain(pk0)
             .chain(x)
-            .chain(cap_c)
+            .chain(&cap_c.retrieve())
             .chain(setup)
             .chain(aux)
             .finalize_to_reader();

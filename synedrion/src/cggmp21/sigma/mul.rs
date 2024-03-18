@@ -56,17 +56,6 @@ impl<P: SchemeParams> MulProof<P> {
         assert_eq!(cap_y.public_key(), pk);
         assert_eq!(cap_c.public_key(), pk);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
-            .chain(cap_x)
-            .chain(cap_y)
-            .chain(cap_c)
-            .chain(aux)
-            .finalize_to_reader();
-
-        // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
-
         let alpha_mod = pk.random_invertible_group_elem(rng);
         let r_mod = RandomizerMod::random(rng, pk);
         let s_mod = RandomizerMod::random(rng, pk);
@@ -79,8 +68,23 @@ impl<P: SchemeParams> MulProof<P> {
         let r = r_mod.retrieve();
         let s = s_mod.retrieve();
 
-        let cap_a = (cap_y * alpha).mul_randomizer(&r);
-        let cap_b = CiphertextMod::new_with_randomizer(pk, alpha.as_ref(), &s);
+        let cap_a = (cap_y * alpha).mul_randomizer(&r).retrieve();
+        let cap_b = CiphertextMod::new_with_randomizer(pk, alpha.as_ref(), &s).retrieve();
+
+        let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&cap_a)
+            .chain(&cap_b)
+            // public parameters
+            .chain(pk)
+            .chain(&cap_x.retrieve())
+            .chain(&cap_y.retrieve())
+            .chain(&cap_c.retrieve())
+            .chain(aux)
+            .finalize_to_reader();
+
+        // Non-interactive challenge
+        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(x);
         let u = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
@@ -88,8 +92,8 @@ impl<P: SchemeParams> MulProof<P> {
 
         Self {
             e,
-            cap_a: cap_a.retrieve(),
-            cap_b: cap_b.retrieve(),
+            cap_a,
+            cap_b,
             z,
             u,
             v,
@@ -109,10 +113,14 @@ impl<P: SchemeParams> MulProof<P> {
         assert_eq!(cap_c.public_key(), pk);
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&self.cap_a)
+            .chain(&self.cap_b)
+            // public parameters
             .chain(pk)
-            .chain(cap_x)
-            .chain(cap_y)
-            .chain(cap_c)
+            .chain(&cap_x.retrieve())
+            .chain(&cap_y.retrieve())
+            .chain(&cap_c.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

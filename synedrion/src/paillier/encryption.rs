@@ -390,12 +390,6 @@ impl<P: PaillierParams> Hashable for Ciphertext<P> {
     }
 }
 
-impl<P: PaillierParams> Hashable for CiphertextMod<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.ciphertext)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use rand_core::OsRng;

@@ -56,9 +56,28 @@ impl<P: SchemeParams> LogStarProof<P> {
         x.assert_bound(P::L_BOUND);
         assert_eq!(cap_c.public_key(), pk0);
 
+        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
+
+        let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
+        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
+        let r = RandomizerMod::random(rng, pk0);
+        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+
+        let cap_s = setup.commit(x, &mu).retrieve();
+        let cap_a =
+            CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
+        let cap_y = g * &P::scalar_from_signed(&alpha);
+        let cap_d = setup.commit(&alpha, &gamma).retrieve();
+
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&cap_s)
+            .chain(&cap_a)
+            .chain(&cap_y)
+            .chain(&cap_d)
+            // public parameters
             .chain(pk0)
-            .chain(cap_c)
+            .chain(&cap_c.retrieve())
             .chain(g)
             .chain(cap_x)
             .chain(setup)
@@ -68,18 +87,6 @@ impl<P: SchemeParams> LogStarProof<P> {
         // Non-interactive challenge
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
-
-        let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
-        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-        let r = RandomizerMod::random(rng, pk0);
-        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-
-        let cap_s = setup.commit(x, &mu).retrieve();
-        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve());
-        let cap_y = g * &P::scalar_from_signed(&alpha);
-        let cap_d = setup.commit(&alpha, &gamma).retrieve();
-
         let z1 = alpha + e * x;
         let z2 = (r * rho.pow_signed_vartime(&e)).retrieve();
         let z3 = gamma + mu * e.into_wide();
@@ -87,7 +94,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         Self {
             e,
             cap_s,
-            cap_a: cap_a.retrieve(),
+            cap_a,
             cap_y,
             cap_d,
             z1,
@@ -109,8 +116,14 @@ impl<P: SchemeParams> LogStarProof<P> {
         assert_eq!(cap_c.public_key(), pk0);
 
         let mut reader = XofHash::new_with_dst(HASH_TAG)
+            // commitments
+            .chain(&self.cap_s)
+            .chain(&self.cap_a)
+            .chain(&self.cap_y)
+            .chain(&self.cap_d)
+            // public parameters
             .chain(pk0)
-            .chain(cap_c)
+            .chain(&cap_c.retrieve())
             .chain(g)
             .chain(cap_x)
             .chain(setup)
