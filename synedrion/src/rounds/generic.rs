@@ -31,60 +31,35 @@ impl Hashable for PartyIdx {
     }
 }
 
-/// A round that sends out a broadcast.
-pub(crate) trait BroadcastRound: BaseRound {
-    /// Whether all the nodes receiving the broadcast should make sure they got the same message.
-    const REQUIRES_CONSENSUS: bool = false;
-
-    /// The broadcast type.
-    type Message: Serialize + for<'de> Deserialize<'de>;
-
-    /// The processed broadcast from another node, to be collected to finalize the round.
-    type Payload;
-
-    /// The indices of the parties that should receive the broadcast,
-    /// or `None` if this round does not send any broadcasts.
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        None
-    }
-
-    /// Creates a broadcast.
-    fn make_broadcast(
-        &self,
-        #[allow(unused_variables)] rng: &mut impl CryptoRngCore,
-    ) -> Result<Self::Message, String> {
-        Err("This round does not send out broadcasts".into())
-    }
-
-    /// Processes a broadcast received from the party `from`.
-    fn verify_broadcast(
-        &self,
-        #[allow(unused_variables)] from: PartyIdx,
-        #[allow(unused_variables)] msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        Err(ReceiveError::InvalidType)
-    }
-}
-
 /// A round that sends out direct messages.
-pub(crate) trait DirectRound: BaseRound {
-    /// The direct message type.
+pub(crate) trait Round {
+    type Type: FinalizableType;
+    type Result: ProtocolResult;
+    const ROUND_NUM: u8;
+    // TODO (#78): find a way to derive it from `ROUND_NUM`
+    const NEXT_ROUND_NUM: Option<u8>;
+
+    fn num_parties(&self) -> usize;
+    fn party_idx(&self) -> PartyIdx;
+
+    /// The message type.
     type Message: Serialize + for<'de> Deserialize<'de>;
 
-    /// The processed direct message from another node, to be collected to finalize the round.
+    /// Whether all the nodes receiving the broadcast should make sure they got the same message.
+    const REQUIRES_ECHO: bool = false;
+
+    /// The processed message from another node, to be collected to finalize the round.
     type Payload;
 
-    /// Data created when creating a direct message, to be preserved until the finalization stage.
+    /// Data created when creating a message, to be preserved until the finalization stage.
     type Artifact;
 
     /// The indices of the parties that should receive the direct messages,
     /// or `None` if this round does not send any direct messages.
-    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
-        None
-    }
+    fn message_destinations(&self) -> Vec<PartyIdx>;
 
     /// Creates a direct message for the given party.
-    fn make_direct_message(
+    fn make_message(
         &self,
         #[allow(unused_variables)] rng: &mut impl CryptoRngCore,
         #[allow(unused_variables)] destination: PartyIdx,
@@ -93,12 +68,49 @@ pub(crate) trait DirectRound: BaseRound {
     }
 
     /// Processes a direct messsage received from the party `from`.
-    fn verify_direct_message(
+    fn verify_message(
         &self,
         #[allow(unused_variables)] from: PartyIdx,
         #[allow(unused_variables)] msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         Err(ReceiveError::InvalidType)
+    }
+
+    fn finalization_requirement() -> FinalizationRequirement {
+        FinalizationRequirement::All
+    }
+
+    fn can_finalize<'a>(
+        &self,
+        payloads: impl Iterator<Item = &'a PartyIdx>,
+        artifacts: impl Iterator<Item = &'a PartyIdx>,
+    ) -> bool {
+        match Self::finalization_requirement() {
+            FinalizationRequirement::All => {
+                contains_all_except(payloads, self.num_parties(), self.party_idx())
+                    && contains_all_except(artifacts, self.num_parties(), self.party_idx())
+            }
+            FinalizationRequirement::Custom => panic!("`can_finalize` must be implemented"),
+        }
+    }
+
+    fn missing_payloads<'a>(
+        &self,
+        payloads: impl Iterator<Item = &'a PartyIdx>,
+        artifacts: impl Iterator<Item = &'a PartyIdx>,
+    ) -> BTreeSet<PartyIdx> {
+        match Self::finalization_requirement() {
+            FinalizationRequirement::All => {
+                let mut missing = missing_payloads(payloads, self.num_parties(), self.party_idx());
+                missing.append(&mut missing_payloads(
+                    artifacts,
+                    self.num_parties(),
+                    self.party_idx(),
+                ));
+                missing
+            }
+            FinalizationRequirement::Custom => panic!("`missing_payloads` must be implemented"),
+        }
     }
 }
 
@@ -128,113 +140,28 @@ pub struct ToNextRound;
 
 impl FinalizableType for ToNextRound {}
 
-pub(crate) trait BaseRound {
-    type Type: FinalizableType;
-    type Result: ProtocolResult;
-    const ROUND_NUM: u8;
-    // TODO (#78): find a way to derive it from `ROUND_NUM`
-    const NEXT_ROUND_NUM: Option<u8>;
-
-    fn num_parties(&self) -> usize;
-    fn party_idx(&self) -> PartyIdx;
-}
-
-pub(crate) trait Round: BroadcastRound + DirectRound + BaseRound + Finalizable {}
-
-impl<R: BroadcastRound + DirectRound + BaseRound + Finalizable> Round for R {}
-
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum FinalizationRequirement {
-    AllBroadcasts,
-    AllDms,
-    AllBroadcastsAndDms,
+    All,
     Custom,
 }
 
-pub(crate) trait Finalizable: BroadcastRound + DirectRound {
-    fn requirement() -> FinalizationRequirement;
-
-    fn can_finalize<'a>(
-        &self,
-        bc_payloads: impl Iterator<Item = &'a PartyIdx>,
-        dm_payloads: impl Iterator<Item = &'a PartyIdx>,
-        dm_artifacts: impl Iterator<Item = &'a PartyIdx>,
-    ) -> bool {
-        match Self::requirement() {
-            FinalizationRequirement::AllBroadcasts => {
-                contains_all_except(bc_payloads, self.num_parties(), self.party_idx())
-            }
-            FinalizationRequirement::AllDms => {
-                contains_all_except(dm_payloads, self.num_parties(), self.party_idx())
-                    && contains_all_except(dm_artifacts, self.num_parties(), self.party_idx())
-            }
-            FinalizationRequirement::AllBroadcastsAndDms => {
-                contains_all_except(bc_payloads, self.num_parties(), self.party_idx())
-                    && contains_all_except(dm_payloads, self.num_parties(), self.party_idx())
-                    && contains_all_except(dm_artifacts, self.num_parties(), self.party_idx())
-            }
-            FinalizationRequirement::Custom => panic!("`can_finalize` must be implemented"),
-        }
-    }
-
-    fn missing_payloads<'a>(
-        &self,
-        bc_payloads: impl Iterator<Item = &'a PartyIdx>,
-        dm_payloads: impl Iterator<Item = &'a PartyIdx>,
-        dm_artifacts: impl Iterator<Item = &'a PartyIdx>,
-    ) -> BTreeSet<PartyIdx> {
-        match Self::requirement() {
-            FinalizationRequirement::AllBroadcasts => {
-                missing_payloads(bc_payloads, self.num_parties(), self.party_idx())
-            }
-            FinalizationRequirement::AllDms => {
-                let mut missing =
-                    missing_payloads(dm_payloads, self.num_parties(), self.party_idx());
-                missing.append(&mut missing_payloads(
-                    dm_artifacts,
-                    self.num_parties(),
-                    self.party_idx(),
-                ));
-                missing
-            }
-            FinalizationRequirement::AllBroadcastsAndDms => {
-                let mut missing =
-                    missing_payloads(bc_payloads, self.num_parties(), self.party_idx());
-                missing.append(&mut missing_payloads(
-                    dm_payloads,
-                    self.num_parties(),
-                    self.party_idx(),
-                ));
-                missing.append(&mut missing_payloads(
-                    dm_artifacts,
-                    self.num_parties(),
-                    self.party_idx(),
-                ));
-                missing
-            }
-            FinalizationRequirement::Custom => panic!("`missing_payloads` must be implemented"),
-        }
-    }
-}
-
-pub(crate) trait FinalizableToResult: Round + BaseRound<Type = ToResult> {
+pub(crate) trait FinalizableToResult: Round<Type = ToResult> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>>;
 }
 
-pub(crate) trait FinalizableToNextRound: Round + BaseRound<Type = ToNextRound> {
+pub(crate) trait FinalizableToNextRound: Round<Type = ToNextRound> {
     type NextRound: Round<Result = Self::Result>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>>;
 }
 
@@ -247,10 +174,6 @@ pub enum ReceiveError<Res: ProtocolResult> {
 
 #[derive(Debug, Clone)]
 pub enum FinalizeError<Res: ProtocolResult> {
-    Provable {
-        party: PartyIdx,
-        error: Res::ProvableError,
-    },
     Proof(Res::CorrectnessProof),
     /// Returned when there is an error chaining the start of another protocol
     /// on the finalization of the previous one.

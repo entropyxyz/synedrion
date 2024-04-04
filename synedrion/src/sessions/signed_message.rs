@@ -42,20 +42,17 @@ fn message_hash(
 /// Protocol message type.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum MessageType {
-    /// Direct messaging part of the round.
-    Direct,
-    /// Broadcasting part of the round.
-    Broadcast,
-    /// A service message for broadcasting consensus.
-    BroadcastConsensus,
+    /// Regular messaging part of the round.
+    Normal,
+    /// A service message for echo-broadcast.
+    Echo,
 }
 
 impl Hashable for MessageType {
     fn chain<C: Chain>(&self, digest: C) -> C {
         let value: u8 = match self {
-            Self::Direct => 0,
-            Self::Broadcast => 1,
-            Self::BroadcastConsensus => 2,
+            Self::Normal => 0,
+            Self::Echo => 1,
         };
         digest.chain(&value)
     }
@@ -105,6 +102,14 @@ impl<Sig> SignedMessage<Sig> {
     /// The message type.
     pub fn message_type(&self) -> MessageType {
         self.message_type
+    }
+
+    /// Compares the "significant" part of the messages (that is, everything but signatures)
+    pub fn is_same_as(&self, other: &Self) -> bool {
+        self.session_id == other.session_id
+            && self.round == other.round
+            && self.message_type == other.message_type
+            && self.payload == other.payload
     }
 }
 

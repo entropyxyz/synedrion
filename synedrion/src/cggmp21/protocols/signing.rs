@@ -16,9 +16,8 @@ use crate::common::{KeySharePrecomputed, PresigningData};
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
 use crate::rounds::{
-    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
-    FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError, PartyIdx,
-    ProtocolResult, ReceiveError, ToResult,
+    all_parties_except, try_to_holevec, FinalizableToResult, FinalizeError, FirstRound, InitError,
+    PartyIdx, ProtocolResult, ReceiveError, Round, ToResult,
 };
 use crate::tools::{
     collections::HoleRange,
@@ -91,7 +90,16 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> BaseRound for Round1<P> {
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Round1Message {
+    sigma: Scalar,
+}
+
+pub struct Round1Payload {
+    sigma: Scalar,
+}
+
+impl<P: SchemeParams> Round for Round1<P> {
     type Type = ToResult;
     type Result = SigningResult<P>;
     const ROUND_NUM: u8 = 1;
@@ -104,29 +112,23 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     fn party_idx(&self) -> PartyIdx {
         self.party_idx
     }
-}
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Round1Bcast {
-    sigma: Scalar,
-}
-
-pub struct Round1Payload {
-    sigma: Scalar,
-}
-
-impl<P: SchemeParams> BroadcastRound for Round1<P> {
-    const REQUIRES_CONSENSUS: bool = false;
-    type Message = Round1Bcast;
+    type Message = Round1Message;
     type Payload = Round1Payload;
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        Some(all_parties_except(self.num_parties(), self.party_idx()))
+    type Artifact = ();
+
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        all_parties_except(self.num_parties(), self.party_idx())
     }
-    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        Ok(Round1Bcast { sigma: self.sigma })
+    fn make_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+        _destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artifact), String> {
+        Ok((Round1Message { sigma: self.sigma }, ()))
     }
 
-    fn verify_broadcast(
+    fn verify_message(
         &self,
         _from: PartyIdx,
         msg: Self::Message,
@@ -135,27 +137,14 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> DirectRound for Round1<P> {
-    type Message = ();
-    type Payload = ();
-    type Artifact = ();
-}
-
-impl<P: SchemeParams> Finalizable for Round1<P> {
-    fn requirement() -> FinalizationRequirement {
-        FinalizationRequirement::AllBroadcasts
-    }
-}
-
 impl<P: SchemeParams> FinalizableToResult for Round1<P> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let payloads = try_to_holevec(bc_payloads, self.num_parties, self.party_idx).unwrap();
+        let payloads = try_to_holevec(payloads, self.num_parties, self.party_idx).unwrap();
         let others_sigma = payloads.map(|payload| payload.sigma);
         let assembled_sigma = others_sigma.iter().sum::<Scalar>() + self.sigma;
 

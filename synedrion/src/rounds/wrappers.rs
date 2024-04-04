@@ -4,8 +4,8 @@ use alloc::vec::Vec;
 use rand_core::CryptoRngCore;
 
 use super::generic::{
-    BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableType, FinalizationRequirement,
-    FinalizeError, PartyIdx, ProtocolResult, ReceiveError, Round,
+    FinalizableType, FinalizationRequirement, FinalizeError, PartyIdx, ProtocolResult,
+    ReceiveError, Round,
 };
 
 pub(crate) trait ResultWrapper<Res: ProtocolResult>: ProtocolResult {
@@ -27,16 +27,12 @@ pub(crate) fn wrap_finalize_error<T: ProtocolResult, Res: ResultWrapper<T>>(
 ) -> FinalizeError<Res> {
     match error {
         FinalizeError::Init(msg) => FinalizeError::Init(msg),
-        FinalizeError::Provable { party, error } => FinalizeError::Provable {
-            party,
-            error: Res::wrap_error(error),
-        },
         FinalizeError::Proof(proof) => FinalizeError::Proof(Res::wrap_proof(proof)),
     }
 }
 
 pub(crate) trait RoundWrapper: 'static + Sized + Send {
-    type Result: ProtocolResult + ResultWrapper<<Self::InnerRound as BaseRound>::Result>;
+    type Result: ProtocolResult + ResultWrapper<<Self::InnerRound as Round>::Result>;
     type Type: FinalizableType;
     type InnerRound: Round;
     const ROUND_NUM: u8;
@@ -44,7 +40,7 @@ pub(crate) trait RoundWrapper: 'static + Sized + Send {
     fn inner_round(&self) -> &Self::InnerRound;
 }
 
-impl<T: RoundWrapper> BaseRound for T {
+impl<T: RoundWrapper> Round for T {
     type Type = T::Type;
     type Result = T::Result;
     const ROUND_NUM: u8 = T::ROUND_NUM;
@@ -56,56 +52,32 @@ impl<T: RoundWrapper> BaseRound for T {
     fn party_idx(&self) -> PartyIdx {
         self.inner_round().party_idx()
     }
-}
 
-impl<T: RoundWrapper> BroadcastRound for T {
-    const REQUIRES_CONSENSUS: bool = T::InnerRound::REQUIRES_CONSENSUS;
-    type Message = <T::InnerRound as BroadcastRound>::Message;
-    type Payload = <T::InnerRound as BroadcastRound>::Payload;
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        self.inner_round().broadcast_destinations()
-    }
-    fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        self.inner_round().make_broadcast(rng)
-    }
-    fn verify_broadcast(
-        &self,
-        from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        self.inner_round()
-            .verify_broadcast(from, msg)
-            .map_err(wrap_receive_error)
-    }
-}
+    const REQUIRES_ECHO: bool = T::InnerRound::REQUIRES_ECHO;
+    type Message = <T::InnerRound as Round>::Message;
+    type Payload = <T::InnerRound as Round>::Payload;
+    type Artifact = <T::InnerRound as Round>::Artifact;
 
-impl<T: RoundWrapper> DirectRound for T {
-    type Message = <T::InnerRound as DirectRound>::Message;
-    type Payload = <T::InnerRound as DirectRound>::Payload;
-    type Artifact = <T::InnerRound as DirectRound>::Artifact;
-    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
-        self.inner_round().direct_message_destinations()
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        self.inner_round().message_destinations()
     }
-    fn make_direct_message(
+    fn make_message(
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
     ) -> Result<(Self::Message, Self::Artifact), String> {
-        self.inner_round().make_direct_message(rng, destination)
+        self.inner_round().make_message(rng, destination)
     }
-    fn verify_direct_message(
+    fn verify_message(
         &self,
         from: PartyIdx,
         msg: Self::Message,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         self.inner_round()
-            .verify_direct_message(from, msg)
+            .verify_message(from, msg)
             .map_err(wrap_receive_error)
     }
-}
-
-impl<T: RoundWrapper> Finalizable for T {
-    fn requirement() -> FinalizationRequirement {
-        T::InnerRound::requirement()
+    fn finalization_requirement() -> FinalizationRequirement {
+        T::InnerRound::finalization_requirement()
     }
 }

@@ -22,9 +22,8 @@ use crate::paillier::{
     RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::{
-    all_parties_except, try_to_holevec, BaseRound, BroadcastRound, DirectRound, Finalizable,
-    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
-    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ToNextRound, ToResult,
+    all_parties_except, try_to_holevec, FinalizableToNextRound, FinalizableToResult, FinalizeError,
+    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, Round, ToNextRound, ToResult,
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
@@ -207,7 +206,16 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> BaseRound for Round1<P> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Round1Message {
+    cap_v: HashOutput,
+}
+
+pub struct Round1Payload {
+    cap_v: HashOutput,
+}
+
+impl<P: SchemeParams> Round for Round1<P> {
     type Type = ToNextRound;
     type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 1;
@@ -220,46 +228,34 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     fn party_idx(&self) -> PartyIdx {
         self.context.party_idx
     }
-}
 
-impl<P: SchemeParams> DirectRound for Round1<P> {
-    type Message = ();
-    type Payload = ();
-    type Artifact = ();
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Round1Bcast {
-    cap_v: HashOutput,
-}
-
-pub struct Round1Payload {
-    cap_v: HashOutput,
-}
-
-impl<P: SchemeParams> BroadcastRound for Round1<P> {
-    const REQUIRES_CONSENSUS: bool = true;
-    type Message = Round1Bcast;
+    const REQUIRES_ECHO: bool = true;
+    type Message = Round1Message;
     type Payload = Round1Payload;
+    type Artifact = ();
 
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        Some(all_parties_except(
-            self.context.num_parties,
-            self.context.party_idx,
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        all_parties_except(self.context.num_parties, self.context.party_idx)
+    }
+
+    fn make_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+        _destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artifact), String> {
+        Ok((
+            Round1Message {
+                cap_v: self
+                    .context
+                    .data_precomp
+                    .data
+                    .hash(&self.context.sid_hash, self.party_idx()),
+            },
+            (),
         ))
     }
 
-    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        Ok(Round1Bcast {
-            cap_v: self
-                .context
-                .data_precomp
-                .data
-                .hash(&self.context.sid_hash, self.party_idx()),
-        })
-    }
-
-    fn verify_broadcast(
+    fn verify_message(
         &self,
         _from: PartyIdx,
         msg: Self::Message,
@@ -268,22 +264,15 @@ impl<P: SchemeParams> BroadcastRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> Finalizable for Round1<P> {
-    fn requirement() -> FinalizationRequirement {
-        FinalizationRequirement::AllBroadcasts
-    }
-}
-
 impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     type NextRound = Round2<P>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let others_cap_v = try_to_holevec(bc_payloads, self.num_parties(), self.party_idx())
+        let others_cap_v = try_to_holevec(payloads, self.num_parties(), self.party_idx())
             .unwrap()
             .map(|payload| payload.cap_v);
         Ok(Round2 {
@@ -298,7 +287,18 @@ pub struct Round2<P: SchemeParams> {
     others_cap_v: HoleVec<HashOutput>,
 }
 
-impl<P: SchemeParams> BaseRound for Round2<P> {
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "PublicData1<P>: Serialize"))]
+#[serde(bound(deserialize = "PublicData1<P>: for<'x> Deserialize<'x>"))]
+pub struct Round2Message<P: SchemeParams> {
+    data: PublicData1<P>,
+}
+
+pub struct Round2Payload<P: SchemeParams> {
+    data: PublicData1Precomp<P>,
+}
+
+impl<P: SchemeParams> Round for Round2<P> {
     type Type = ToNextRound;
     type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 2;
@@ -311,44 +311,29 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     fn party_idx(&self) -> PartyIdx {
         self.context.party_idx
     }
-}
 
-impl<P: SchemeParams> DirectRound for Round2<P> {
-    type Message = ();
-    type Payload = ();
-    type Artifact = ();
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicData1<P>: Serialize"))]
-#[serde(bound(deserialize = "PublicData1<P>: for<'x> Deserialize<'x>"))]
-pub struct Round2Bcast<P: SchemeParams> {
-    data: PublicData1<P>,
-}
-
-pub struct Round2Payload<P: SchemeParams> {
-    data: PublicData1Precomp<P>,
-}
-
-impl<P: SchemeParams> BroadcastRound for Round2<P> {
-    const REQUIRES_CONSENSUS: bool = false;
-    type Message = Round2Bcast<P>;
+    type Message = Round2Message<P>;
     type Payload = Round2Payload<P>;
+    type Artifact = ();
 
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        Some(all_parties_except(
-            self.context.num_parties,
-            self.context.party_idx,
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        all_parties_except(self.context.num_parties, self.context.party_idx)
+    }
+
+    fn make_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+        _destination: PartyIdx,
+    ) -> Result<(Self::Message, Self::Artifact), String> {
+        Ok((
+            Round2Message {
+                data: self.context.data_precomp.data.clone(),
+            },
+            (),
         ))
     }
 
-    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        Ok(Round2Bcast {
-            data: self.context.data_precomp.data.clone(),
-        })
-    }
-
-    fn verify_broadcast(
+    fn verify_message(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -394,22 +379,15 @@ impl<P: SchemeParams> BroadcastRound for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> Finalizable for Round2<P> {
-    fn requirement() -> FinalizationRequirement {
-        FinalizationRequirement::AllBroadcasts
-    }
-}
-
 impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     type NextRound = Round3<P>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let others_data = try_to_holevec(bc_payloads, self.num_parties(), self.party_idx())
+        let others_data = try_to_holevec(payloads, self.num_parties(), self.party_idx())
             .unwrap()
             .map(|payload| payload.data);
         let mut rho = self.context.data_precomp.data.rho.clone();
@@ -472,7 +450,18 @@ impl<P: SchemeParams> Round3<P> {
     }
 }
 
-impl<P: SchemeParams> BaseRound for Round3<P> {
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "PublicData2<P>: Serialize"))]
+#[serde(bound(deserialize = "PublicData2<P>: for<'x> Deserialize<'x>"))]
+pub struct Round3Message<P: SchemeParams> {
+    data2: PublicData2<P>,
+}
+
+pub struct Round3Payload {
+    x: Scalar, // $x_j^i$, a secret share change received from the party $j$
+}
+
+impl<P: SchemeParams> Round for Round3<P> {
     type Type = ToResult;
     type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 3;
@@ -485,37 +474,16 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     fn party_idx(&self) -> PartyIdx {
         self.context.party_idx
     }
-}
 
-impl<P: SchemeParams> BroadcastRound for Round3<P> {
-    type Message = ();
-    type Payload = ();
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicData2<P>: Serialize"))]
-#[serde(bound(deserialize = "PublicData2<P>: for<'x> Deserialize<'x>"))]
-pub struct Round3Direct<P: SchemeParams> {
-    data2: PublicData2<P>,
-}
-
-pub struct Round3Payload {
-    x: Scalar, // $x_j^i$, a secret share change received from the party $j$
-}
-
-impl<P: SchemeParams> DirectRound for Round3<P> {
-    type Message = Round3Direct<P>;
+    type Message = Round3Message<P>;
     type Payload = Round3Payload;
     type Artifact = ();
 
-    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
-        Some(all_parties_except(
-            self.context.num_parties,
-            self.context.party_idx,
-        ))
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        all_parties_except(self.context.num_parties, self.context.party_idx)
     }
 
-    fn make_direct_message(
+    fn make_message(
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
@@ -553,10 +521,10 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
             psi_sch,
         };
 
-        Ok((Round3Direct { data2 }, ()))
+        Ok((Round3Message { data2 }, ()))
     }
 
-    fn verify_direct_message(
+    fn verify_message(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -624,21 +592,14 @@ impl<P: SchemeParams> DirectRound for Round3<P> {
     }
 }
 
-impl<P: SchemeParams> Finalizable for Round3<P> {
-    fn requirement() -> FinalizationRequirement {
-        FinalizationRequirement::AllDms
-    }
-}
-
 impl<P: SchemeParams> FinalizableToResult for Round3<P> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
-        _bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let others_x = try_to_holevec(dm_payloads, self.num_parties(), self.party_idx())
+        let others_x = try_to_holevec(payloads, self.num_parties(), self.party_idx())
             .unwrap()
             .map(|payload| payload.x);
 

@@ -78,7 +78,7 @@ where
 
             let echoed_bc = bc_map.get(idx).ok_or(ConsensusError::MissingBroadcast)?;
 
-            if broadcast.as_unverified() != echoed_bc {
+            if !broadcast.as_unverified().is_same_as(echoed_bc) {
                 return Err(ConsensusError::ConflictingBroadcasts);
             }
         }

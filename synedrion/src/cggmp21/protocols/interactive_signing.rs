@@ -10,9 +10,8 @@ use crate::cggmp21::params::SchemeParams;
 use crate::common::KeyShare;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::rounds::{
-    wrap_finalize_error, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult,
-    FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, ResultWrapper, RoundWrapper,
-    ToNextRound, ToResult,
+    wrap_finalize_error, FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound,
+    InitError, PartyIdx, ProtocolResult, ResultWrapper, Round, RoundWrapper, ToNextRound, ToResult,
 };
 
 /// Possible results of the merged Presigning and Signing protocols.
@@ -127,13 +126,12 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let round = self
             .round
-            .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artifacts)
+            .finalize_to_next_round(rng, payloads, artifacts)
             .map_err(wrap_finalize_error)?;
         Ok(Round2 {
             round,
@@ -163,13 +161,12 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let round = self
             .round
-            .finalize_to_next_round(rng, bc_payloads, dm_payloads, dm_artifacts)
+            .finalize_to_next_round(rng, payloads, artifacts)
             .map_err(wrap_finalize_error)?;
         Ok(Round3 {
             round,
@@ -199,16 +196,15 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+        let num_parties = self.num_parties();
+        let party_idx = self.party_idx();
         let presigning_data = self
             .round
-            .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artifacts)
+            .finalize_to_result(rng, payloads, artifacts)
             .map_err(wrap_finalize_error)?;
-        let num_parties = self.context.key_share.num_parties();
-        let party_idx = self.context.key_share.party_index();
         let signing_context = signing::Inputs {
             message: self.context.message,
             presigning: presigning_data,
@@ -218,7 +214,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
             rng,
             &self.context.shared_randomness,
             num_parties,
-            PartyIdx::from_usize(party_idx),
+            party_idx,
             signing_context,
         )
         .map_err(FinalizeError::Init)?;
@@ -250,12 +246,11 @@ impl<P: SchemeParams> FinalizableToResult for Round4<P> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         self.round
-            .finalize_to_result(rng, bc_payloads, dm_payloads, dm_artifacts)
+            .finalize_to_result(rng, payloads, artifacts)
             .map_err(wrap_finalize_error)
     }
 }

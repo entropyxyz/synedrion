@@ -16,9 +16,8 @@ use serde::{Deserialize, Serialize};
 use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
-    BaseRound, BroadcastRound, DirectRound, Finalizable, FinalizableToResult,
-    FinalizationRequirement, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult,
-    ReceiveError, ToResult,
+    FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError, PartyIdx,
+    ProtocolResult, ReceiveError, Round, ToResult,
 };
 use crate::threshold::ThresholdKeyShareSeed;
 use crate::tools::{
@@ -139,7 +138,21 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> BaseRound for Round1<P> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Round1Message {
+    subshare: Scalar,
+    // TODO: this should be echoed
+    public_polynomial: PublicPolynomial,
+    old_share_idx: ShareIdx,
+}
+
+pub struct Round1Payload {
+    subshare: Scalar,
+    public_polynomial: PublicPolynomial,
+    old_share_idx: ShareIdx,
+}
+
+impl<P: SchemeParams> Round for Round1<P> {
     type Type = ToResult;
     type Result = KeyResharingResult<P>;
     const ROUND_NUM: u8 = 1;
@@ -152,32 +165,20 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     fn party_idx(&self) -> PartyIdx {
         self.party_idx
     }
-}
 
-pub struct Round1DirectPayload {
-    subshare: Scalar,
-    public_subshare: Point,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Round1Direct {
-    subshare: Scalar,
-}
-
-impl<P: SchemeParams> DirectRound for Round1<P> {
-    type Message = Round1Direct;
-    type Payload = Round1DirectPayload;
+    type Message = Round1Message;
+    type Payload = Round1Payload;
     type Artifact = ();
 
-    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
+    fn message_destinations(&self) -> Vec<PartyIdx> {
         if self.old_holder.is_some() {
-            Some(self.new_share_idxs.keys().cloned().collect())
+            self.new_share_idxs.keys().cloned().collect()
         } else {
-            None
+            Vec::new()
         }
     }
 
-    fn make_direct_message(
+    fn make_message(
         &self,
         _rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
@@ -186,13 +187,20 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
             let subshare = old_holder
                 .polynomial
                 .evaluate(&self.new_share_idxs[&destination]);
-            Ok((Round1Direct { subshare }, ()))
+            Ok((
+                Round1Message {
+                    subshare,
+                    public_polynomial: old_holder.public_polynomial.clone(),
+                    old_share_idx: old_holder.inputs.key_share_seed.index(),
+                },
+                (),
+            ))
         } else {
-            Err("This node does not send direct messages in this round".into())
+            Err("This node does not send messages in this round".into())
         }
     }
 
-    fn verify_direct_message(
+    fn verify_message(
         &self,
         from: PartyIdx,
         msg: Self::Message,
@@ -204,94 +212,40 @@ impl<P: SchemeParams> DirectRound for Round1<P> {
                 .iter()
                 .any(|party_idx| party_idx == &from)
             {
-                return Ok(Round1DirectPayload {
-                    subshare: msg.subshare,
-                    public_subshare: msg.subshare.mul_by_generator(),
-                });
-            }
-        }
-        Err(ReceiveError::Provable(KeyResharingError::UnexpectedSender))
-    }
-}
-
-pub struct Round1BcastPayload {
-    public_polynomial: PublicPolynomial,
-    public_subshare: Point,
-    old_share_idx: ShareIdx,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Round1Bcast {
-    public_polynomial: PublicPolynomial,
-    old_share_idx: ShareIdx,
-}
-
-impl<P: SchemeParams> BroadcastRound for Round1<P> {
-    const REQUIRES_CONSENSUS: bool = true;
-    type Message = Round1Bcast;
-    type Payload = Round1BcastPayload;
-
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        if self.old_holder.is_some() {
-            Some(self.new_share_idxs.keys().cloned().collect())
-        } else {
-            None
-        }
-    }
-
-    fn make_broadcast(&self, _rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        if let Some(old_holder) = self.old_holder.as_ref() {
-            Ok(Round1Bcast {
-                public_polynomial: old_holder.public_polynomial.clone(),
-                old_share_idx: old_holder.inputs.key_share_seed.index(),
-            })
-        } else {
-            Err("This node does not send broadcast messages in this round".into())
-        }
-    }
-
-    fn verify_broadcast(
-        &self,
-        from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        if let Some(new_holder) = self.new_holder.as_ref() {
-            if new_holder
-                .inputs
-                .old_holders
-                .iter()
-                .any(|party_idx| party_idx == &from)
-            {
-                let public_subshare = msg
+                let public_subshare_from_poly = msg
                     .public_polynomial
                     .evaluate(&self.new_share_idxs[&self.party_idx()]);
-                return Ok(Round1BcastPayload {
+                let public_subshare_from_private = msg.subshare.mul_by_generator();
+
+                // Check that the public polynomial sent in the broadcast corresponds to the secret share
+                // sent in the direct message.
+                if public_subshare_from_poly != public_subshare_from_private {
+                    return Err(ReceiveError::Provable(KeyResharingError::SubshareMismatch));
+                }
+
+                return Ok(Round1Payload {
+                    subshare: msg.subshare,
                     public_polynomial: msg.public_polynomial,
-                    public_subshare,
                     old_share_idx: msg.old_share_idx,
                 });
             }
         }
         Err(ReceiveError::Provable(KeyResharingError::UnexpectedSender))
     }
-}
 
-impl<P: SchemeParams> Finalizable for Round1<P> {
-    fn requirement() -> FinalizationRequirement {
+    fn finalization_requirement() -> FinalizationRequirement {
         FinalizationRequirement::Custom
     }
 
     fn can_finalize<'a>(
         &self,
-        bc_payloads: impl Iterator<Item = &'a PartyIdx>,
-        dm_payloads: impl Iterator<Item = &'a PartyIdx>,
-        _dm_artifacts: impl Iterator<Item = &'a PartyIdx>,
+        payloads: impl Iterator<Item = &'a PartyIdx>,
+        _artifacts: impl Iterator<Item = &'a PartyIdx>,
     ) -> bool {
         if let Some(new_holder) = self.new_holder.as_ref() {
-            let bc_set = bc_payloads.cloned().collect::<BTreeSet<_>>();
-            let dm_set = dm_payloads.cloned().collect::<BTreeSet<_>>();
+            let set = payloads.cloned().collect::<BTreeSet<_>>();
             let threshold = new_holder.inputs.old_threshold;
-            bc_set.len() >= threshold && dm_set.len() >= threshold
+            set.len() >= threshold
         } else {
             true
         }
@@ -299,19 +253,17 @@ impl<P: SchemeParams> Finalizable for Round1<P> {
 
     fn missing_payloads<'a>(
         &self,
-        bc_payloads: impl Iterator<Item = &'a PartyIdx>,
-        dm_payloads: impl Iterator<Item = &'a PartyIdx>,
-        _dm_artifacts: impl Iterator<Item = &'a PartyIdx>,
+        payloads: impl Iterator<Item = &'a PartyIdx>,
+        _artifacts: impl Iterator<Item = &'a PartyIdx>,
     ) -> BTreeSet<PartyIdx> {
         if let Some(new_holder) = self.new_holder.as_ref() {
-            let bc_set = bc_payloads.cloned().collect::<BTreeSet<_>>();
-            let dm_set = dm_payloads.cloned().collect::<BTreeSet<_>>();
+            let set = payloads.cloned().collect::<BTreeSet<_>>();
             new_holder
                 .inputs
                 .old_holders
                 .iter()
                 .cloned()
-                .filter(|idx| !bc_set.contains(idx) || !dm_set.contains(idx))
+                .filter(|idx| !set.contains(idx))
                 .collect()
         } else {
             BTreeSet::new()
@@ -323,9 +275,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         // If this party is not a new holder, exit.
         let new_holder = match self.new_holder.as_ref() {
@@ -335,24 +286,13 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let share_idx = self.new_share_idxs[&self.party_idx()];
 
-        // Check that the public polynomial sent in the broadcast corresponds to the secret share
-        // sent in the direct message.
-        for party_idx in new_holder.inputs.old_holders.iter() {
-            if dm_payloads[&party_idx].public_subshare != bc_payloads[&party_idx].public_subshare {
-                return Err(FinalizeError::Provable {
-                    party: *party_idx,
-                    error: KeyResharingError::SubshareMismatch,
-                });
-            }
-        }
-
         // Check that the 0-th coefficients of public polynomials (that is, the old shares)
         // add up to the expected verifying key.
-        let old_share_idxs = bc_payloads
+        let old_share_idxs = payloads
             .values()
             .map(|payload| payload.old_share_idx)
             .collect::<Vec<_>>();
-        let vkey = bc_payloads
+        let vkey = payloads
             .values()
             .map(|payload| {
                 payload.public_polynomial.coeff0()
@@ -373,8 +313,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             .iter()
             .map(|party_idx| {
                 (
-                    bc_payloads[&party_idx].old_share_idx,
-                    dm_payloads[&party_idx].subshare,
+                    payloads[&party_idx].old_share_idx,
+                    payloads[&party_idx].subshare,
                 )
             })
             .collect::<BTreeMap<_, _>>();
@@ -386,7 +326,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             .keys()
             .map(|party_idx| {
                 let share_idx = self.new_share_idxs[&party_idx];
-                let public_subshares = bc_payloads
+                let public_subshares = payloads
                     .values()
                     .map(|p| (p.old_share_idx, p.public_polynomial.evaluate(&share_idx)))
                     .collect::<BTreeMap<_, _>>();
