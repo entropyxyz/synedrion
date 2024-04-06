@@ -3,15 +3,19 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use displaydoc::Display;
 use itertools::izip;
 use rand_core::CryptoRngCore;
 
 use super::generic::{FinalizableToNextRound, FinalizableToResult, ProtocolResult, Round};
 use super::{FinalizeError, PartyIdx};
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub(crate) enum StepError {
+    /// Error when finalizing the round (missing messages).
     AccumFinalize,
+    /// Error when verifying a received message.
+    #[displaydoc("Error when verifying a received message ({0})")]
     Receive(String),
 }
 

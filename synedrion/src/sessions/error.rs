@@ -1,5 +1,6 @@
 use alloc::string::String;
-use core::fmt;
+
+use displaydoc::Display;
 
 use super::broadcast::ConsensusError;
 use crate::rounds::ProtocolResult;
@@ -35,11 +36,12 @@ pub enum Error<Res: ProtocolResult, Verifier> {
 
 /// An error on this party's side.
 /// Can be caused by an incorrect usage, a bug in the implementation, or some environment error.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Display)]
+#[displaydoc("Local error: {0}")]
 pub struct LocalError(pub(crate) String);
 
 /// An unprovable fault of another party.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Display)]
 pub struct RemoteError<Verifier> {
     /// The offending party.
     pub party: Verifier,
@@ -48,7 +50,7 @@ pub struct RemoteError<Verifier> {
 }
 
 /// Types of unprovable faults of another party.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Display)]
 pub enum RemoteErrorEnum {
     /// Session ID does not match the one provided to the local session constructor.
     UnexpectedSessionId,
@@ -56,7 +58,7 @@ pub enum RemoteErrorEnum {
     OutOfOrderMessage,
     /// A message from this party has already been received.
     DuplicateMessage,
-    /// The message signature does not match its contents.
+    /// The message signature does not match its contents: {0}.
     InvalidSignature(String),
 }
 
@@ -69,25 +71,4 @@ pub enum ProvableError<Res: ProtocolResult> {
     CannotDeserialize(String),
     /// Broadcast consensus check failed.
     Consensus(ConsensusError),
-}
-
-// TODO (#88): add a customized impl, don't just use `Debug`.
-impl fmt::Display for LocalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{:?}", self)
-    }
-}
-
-// TODO (#88): add a customized impl, don't just use `Debug`.
-impl<Verifier: fmt::Debug> fmt::Display for RemoteError<Verifier> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{:?}", self)
-    }
-}
-
-// TODO (#88): add a customized impl, don't just use `Debug`.
-impl<Res: ProtocolResult, Verifier: fmt::Debug> fmt::Display for Error<Res, Verifier> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{:?}", self)
-    }
 }

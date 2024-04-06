@@ -3,6 +3,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
+use displaydoc::Display;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -181,7 +182,8 @@ pub enum FinalizeError<Res: ProtocolResult> {
 }
 
 /// An error that can occur when initializing a protocol.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Display)]
+#[displaydoc("Error when initializing a protocol ({0})")]
 pub struct InitError(pub(crate) String);
 
 pub(crate) trait FirstRound: Round + Sized {

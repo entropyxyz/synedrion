@@ -45,7 +45,11 @@ pub struct KeyRefreshError<P: SchemeParams>(KeyRefreshErrorEnum<P>);
 
 #[derive(Debug, Clone)]
 enum KeyRefreshErrorEnum<P: SchemeParams> {
+    // TODO (#43): this can be removed when error verification is added
+    #[allow(dead_code)]
     Round2(String),
+    // TODO (#43): this can be removed when error verification is added
+    #[allow(dead_code)]
     Round3(String),
     // TODO (#43): this can be removed when error verification is added
     #[allow(dead_code)]
