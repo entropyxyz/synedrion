@@ -165,12 +165,15 @@ impl<P: SchemeParams> Round for Round1<P> {
         all_parties_except(self.num_parties(), self.party_idx())
     }
 
-    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+    fn make_broadcast_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
         let cap_v = self
             .context
             .public_data
             .hash(&self.context.sid_hash, self.party_idx());
-        Round1Message { cap_v }
+        Some(Round1Message { cap_v })
     }
 
     no_direct_messages!();
@@ -245,10 +248,13 @@ impl<P: SchemeParams> Round for Round2<P> {
         all_parties_except(self.num_parties(), self.party_idx())
     }
 
-    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
-        Round2Message {
+    fn make_broadcast_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        Some(Round2Message {
             data: self.context.public_data.clone(),
-        }
+        })
     }
 
     no_direct_messages!();
@@ -332,7 +338,10 @@ impl<P: SchemeParams> Round for Round3<P> {
         all_parties_except(self.num_parties(), self.party_idx())
     }
 
-    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+    fn make_broadcast_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
         let aux = (&self.context.sid_hash, &self.party_idx(), &self.rid);
         let psi = SchProof::new(
             &self.context.tau,
@@ -341,7 +350,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             &self.context.public_data.cap_x,
             &aux,
         );
-        Round3Message { psi }
+        Some(Round3Message { psi })
     }
 
     no_direct_messages!();

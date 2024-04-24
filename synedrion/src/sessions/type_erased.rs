@@ -157,8 +157,10 @@ where
 
         let mut boxed_rng = BoxedRng(rng);
         let typed_message = self.make_broadcast_message(&mut boxed_rng);
-        let serialized = serialize_message(&typed_message)?;
-        Ok(Some(serialized))
+        let serialized = typed_message
+            .map(|message| serialize_message(&message))
+            .transpose()?;
+        Ok(serialized)
     }
 
     fn make_direct_message(

@@ -244,14 +244,17 @@ impl<P: SchemeParams> Round for Round1<P> {
         all_parties_except(self.context.num_parties, self.context.party_idx)
     }
 
-    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
-        Round1Message {
+    fn make_broadcast_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        Some(Round1Message {
             cap_v: self
                 .context
                 .data_precomp
                 .data
                 .hash(&self.context.sid_hash, self.party_idx()),
-        }
+        })
     }
 
     no_direct_messages!();
@@ -325,10 +328,13 @@ impl<P: SchemeParams> Round for Round2<P> {
         all_parties_except(self.context.num_parties, self.context.party_idx)
     }
 
-    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
-        Round2Message {
+    fn make_broadcast_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        Some(Round2Message {
             data: self.context.data_precomp.data.clone(),
-        }
+        })
     }
 
     no_direct_messages!();

@@ -182,16 +182,16 @@ impl<P: SchemeParams> Round for Round1<P> {
         }
     }
 
-    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
-        if let Some(old_holder) = self.old_holder.as_ref() {
-            Round1BroadcastMessage {
+    fn make_broadcast_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        self.old_holder
+            .as_ref()
+            .map(|old_holder| Round1BroadcastMessage {
                 public_polynomial: old_holder.public_polynomial.clone(),
                 old_share_idx: old_holder.inputs.key_share_seed.index(),
-            }
-        } else {
-            // TODO: this should be prevented by type system
-            panic!("This node does not send messages in this round");
-        }
+            })
     }
 
     fn make_direct_message(

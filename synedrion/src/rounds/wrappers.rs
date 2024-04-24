@@ -61,7 +61,10 @@ impl<T: RoundWrapper> Round for T {
         self.inner_round().message_destinations()
     }
 
-    fn make_broadcast_message(&self, rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+    fn make_broadcast_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
         self.inner_round().make_broadcast_message(rng)
     }
 

@@ -160,11 +160,14 @@ impl<P: SchemeParams> Round for Round1<P> {
         )
     }
 
-    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
-        Round1BroadcastMessage {
+    fn make_broadcast_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        Some(Round1BroadcastMessage {
             cap_k: self.cap_k.retrieve(),
             cap_g: self.cap_g.retrieve(),
-        }
+        })
     }
 
     fn make_direct_message(

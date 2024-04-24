@@ -59,6 +59,9 @@ pub(crate) trait Round {
     type Artifact;
 
     /// The indices of the parties that should receive the messages.
+    // Assuming these destinations are for both broadcast and direct messages;
+    // the broadcasts are only separated to allow optimizations (create once, sign once)
+    // and support echo-broadcasting.
     fn message_destinations(&self) -> Vec<PartyIdx>;
 
     /// Creates the direct message for the given party.
@@ -69,9 +72,18 @@ pub(crate) trait Round {
     ) -> (Self::DirectMessage, Self::Artifact);
 
     /// Creates the broadcast message.
-    fn make_broadcast_message(&self, rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage;
+    ///
+    /// Returns ``None`` if the node does not send messages this round
+    /// (that is, [`message_destinations`] returns an empty list).
+    fn make_broadcast_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage>;
 
     /// Processes a direct messsage received from the party `from`.
+    // Note that since we assume broadcast and direct messages have the same list of destinations,
+    // if `BroadcastMessage` is not `()` there will be a serialized broadcast
+    // in the received message, from which we can construct `broadcast_msg`.
     fn verify_message(
         &self,
         from: PartyIdx,
@@ -249,7 +261,12 @@ pub(crate) fn try_to_holevec<T>(
 
 macro_rules! no_broadcast_messages {
     () => {
-        fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {}
+        fn make_broadcast_message(
+            &self,
+            _rng: &mut impl CryptoRngCore,
+        ) -> Option<Self::BroadcastMessage> {
+            Some(())
+        }
     };
 }
 

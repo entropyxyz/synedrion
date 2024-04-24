@@ -121,8 +121,11 @@ impl<P: SchemeParams> Round for Round1<P> {
         all_parties_except(self.num_parties(), self.party_idx())
     }
 
-    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
-        Round1Message { sigma: self.sigma }
+    fn make_broadcast_message(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        Some(Round1Message { sigma: self.sigma })
     }
 
     no_direct_messages!();

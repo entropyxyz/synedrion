@@ -128,11 +128,15 @@ impl<P: SchemeParams> Round for Round1<P> {
         key_init_dest
     }
 
-    fn make_broadcast_message(&self, rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
-        let key_init_message = self.key_init_round.make_broadcast_message(rng);
-        let key_refresh_message = self.key_refresh_round.make_broadcast_message(rng);
+    fn make_broadcast_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        // Can unwrap here since both protocols always send out broadcasts.
+        let key_init_message = self.key_init_round.make_broadcast_message(rng).unwrap();
+        let key_refresh_message = self.key_refresh_round.make_broadcast_message(rng).unwrap();
 
-        (key_init_message, key_refresh_message)
+        Some((key_init_message, key_refresh_message))
     }
 
     no_direct_messages!();
@@ -225,11 +229,15 @@ impl<P: SchemeParams> Round for Round2<P> {
         key_init_dest
     }
 
-    fn make_broadcast_message(&self, rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
-        let key_init_message = self.key_init_round.make_broadcast_message(rng);
-        let key_refresh_message = self.key_refresh_round.make_broadcast_message(rng);
+    fn make_broadcast_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        // Can unwrap here since both protocols always send out broadcasts.
+        let key_init_message = self.key_init_round.make_broadcast_message(rng).unwrap();
+        let key_refresh_message = self.key_refresh_round.make_broadcast_message(rng).unwrap();
 
-        (key_init_message, key_refresh_message)
+        Some((key_init_message, key_refresh_message))
     }
 
     no_direct_messages!();
@@ -319,7 +327,10 @@ impl<P: SchemeParams> Round for Round3<P> {
         key_init_dest
     }
 
-    fn make_broadcast_message(&self, rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+    fn make_broadcast_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
         self.key_init_round.make_broadcast_message(rng)
     }
 

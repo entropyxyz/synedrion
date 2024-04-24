@@ -54,7 +54,8 @@ where
 
         for idx_to in destinations {
             let (direct, artifact) = round.make_direct_message(rng, idx_to);
-            messages.push((idx_to, idx_from, (broadcast.clone(), direct)));
+            // Can unwrap here since the destinations list is not empty
+            messages.push((idx_to, idx_from, (broadcast.clone().unwrap(), direct)));
             assert!(artifact_accums[idx_from.as_usize()]
                 .insert(idx_to, artifact)
                 .is_none());
