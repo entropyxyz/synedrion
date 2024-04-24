@@ -12,6 +12,7 @@ use signature::{
 };
 
 use super::broadcast::{BcConsensusAccum, BroadcastConsensus};
+use super::combined_message::{CheckedCombinedMessage, CombinedMessage, VerifiedCombinedMessage};
 use super::error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
 use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
@@ -29,7 +30,10 @@ struct Context<Signer, Verifier> {
 }
 
 enum SessionType<Res, Sig> {
-    Normal(Box<dyn DynFinalizable<Res>>),
+    Normal {
+        this_round: Box<dyn DynFinalizable<Res>>,
+        broadcast: Option<SignedMessage<Sig>>,
+    },
     Bc {
         next_round: Box<dyn DynFinalizable<Res>>,
         bc: BroadcastConsensus<Sig>,
@@ -49,14 +53,14 @@ enum MessageFor {
 
 fn route_message_normal<Res: ProtocolResult, Sig>(
     round: &dyn DynFinalizable<Res>,
-    message: &SignedMessage<Sig>,
+    message: &CheckedCombinedMessage<Sig>,
 ) -> Result<MessageFor, RemoteErrorEnum> {
     let this_round = round.round_num();
     let next_round = round.next_round_num();
     let requires_echo = round.requires_echo();
 
     let message_round = message.round();
-    let message_bc = message.message_type() == MessageType::Echo;
+    let message_bc = message.is_echo();
 
     if message_round == this_round && !message_bc {
         return Ok(MessageFor::ThisRound);
@@ -77,11 +81,11 @@ fn route_message_normal<Res: ProtocolResult, Sig>(
 
 fn route_message_bc<Res: ProtocolResult, Sig>(
     next_round: &dyn DynFinalizable<Res>,
-    message: &SignedMessage<Sig>,
+    message: &CheckedCombinedMessage<Sig>,
 ) -> Result<MessageFor, RemoteErrorEnum> {
     let next_round = next_round.round_num();
     let message_round = message.round();
-    let message_bc = message.message_type() == MessageType::Echo;
+    let message_bc = message.is_echo();
 
     if message_round == next_round - 1 && message_bc {
         return Ok(MessageFor::ThisRound);
@@ -102,6 +106,10 @@ fn wrap_receive_result<Res: ProtocolResult, Verifier: Clone, T>(
     // to make sure that every provable error can be independently verified
     // given the party's verifying key.
     result.map_err(|err| match err {
+        ReceiveError::InvalidContents(msg) => Error::Remote(RemoteError {
+            party: from.clone(),
+            error: RemoteErrorEnum::InvalidContents(msg),
+        }),
         ReceiveError::CannotDeserialize(msg) => Error::Provable {
             party: from.clone(),
             error: ProvableError::CannotDeserialize(msg),
@@ -111,7 +119,6 @@ fn wrap_receive_result<Res: ProtocolResult, Verifier: Clone, T>(
                 party: from.clone(),
                 error: ProvableError::Protocol(err),
             },
-            rounds::ReceiveError::InvalidType => Error::Local(LocalError("Invalid state".into())),
         },
     })
 }
@@ -167,8 +174,37 @@ where
             party_idx,
             verifier_to_idx,
         };
+        Self::new_internal(rng, context, round)
+    }
+
+    fn new_internal(
+        rng: &mut impl CryptoRngCore,
+        context: Context<Signer, Verifier>,
+        round: Box<dyn DynFinalizable<Res>>,
+    ) -> Result<Self, LocalError> {
+        let broadcast = round.make_broadcast_message(rng)?;
+
+        let signed_broadcast = if let Some(payload) = broadcast {
+            Some(
+                VerifiedMessage::new(
+                    rng,
+                    &context.signer,
+                    &context.session_id,
+                    round.round_num(),
+                    MessageType::Broadcast,
+                    &payload,
+                )?
+                .into_unverified(),
+            )
+        } else {
+            None
+        };
+
         Ok(Self {
-            tp: SessionType::Normal(round),
+            tp: SessionType::Normal {
+                this_round: round,
+                broadcast: signed_broadcast,
+            },
             context,
         })
     }
@@ -181,7 +217,7 @@ where
     /// Returns a pair of the current round index and whether it is a broadcast consensus stage.
     pub fn current_round(&self) -> (u8, bool) {
         match &self.tp {
-            SessionType::Normal(round) => (round.round_num(), false),
+            SessionType::Normal { this_round, .. } => (this_round.round_num(), false),
             SessionType::Bc { next_round, .. } => (next_round.round_num() - 1, true),
         }
     }
@@ -198,7 +234,7 @@ where
     /// Returns `true` if the round can be finalized.
     pub fn can_finalize(&self, accum: &RoundAccumulator<Sig>) -> Result<bool, LocalError> {
         match &self.tp {
-            SessionType::Normal(round) => Ok(round.can_finalize(&accum.processed)),
+            SessionType::Normal { this_round, .. } => Ok(this_round.can_finalize(&accum.processed)),
             SessionType::Bc { .. } => Ok(accum
                 .bc_accum
                 .as_ref()
@@ -216,7 +252,7 @@ where
         accum: &RoundAccumulator<Sig>,
     ) -> Result<Vec<Verifier>, LocalError> {
         let missing = match &self.tp {
-            SessionType::Normal(round) => Ok(round
+            SessionType::Normal { this_round, .. } => Ok(this_round
                 .missing_payloads(&accum.processed)
                 .into_iter()
                 .collect()),
@@ -238,7 +274,7 @@ where
 
     fn is_broadcast_consensus_round(&self) -> bool {
         match &self.tp {
-            SessionType::Normal(_) => false,
+            SessionType::Normal { .. } => false,
             SessionType::Bc { .. } => true,
         }
     }
@@ -246,7 +282,7 @@ where
     /// Returns the party indices to which the messages of this round should be sent.
     pub fn message_destinations(&self) -> Vec<Verifier> {
         match &self.tp {
-            SessionType::Normal(round) => round
+            SessionType::Normal { this_round, .. } => this_round
                 .message_destinations()
                 .iter()
                 .map(|idx| self.context.verifiers[idx.as_usize()].clone())
@@ -271,7 +307,7 @@ where
         &self,
         rng: &mut impl CryptoRngCore,
         destination: &Verifier,
-    ) -> Result<(SignedMessage<Sig>, Artifact<Verifier>), LocalError> {
+    ) -> Result<(CombinedMessage<Sig>, Artifact<Verifier>), LocalError> {
         let destination_idx = *self
             .context
             .verifier_to_idx
@@ -279,18 +315,39 @@ where
             .ok_or(LocalError(format!("Verifier not found: {destination:?}")))?;
 
         match &self.tp {
-            SessionType::Normal(round) => {
-                let round_num = round.round_num();
-                let (payload, artifact) = round.make_message(rng, destination_idx)?;
-                let message = VerifiedMessage::new(
-                    rng,
-                    &self.context.signer,
-                    &self.context.session_id,
-                    round_num,
-                    MessageType::Normal,
-                    &payload,
-                )?
-                .into_unverified();
+            SessionType::Normal {
+                this_round,
+                broadcast,
+            } => {
+                let round_num = this_round.round_num();
+                let (payload, artifact) = this_round.make_direct_message(rng, destination_idx)?;
+
+                let direct_message = if let Some(payload) = payload {
+                    Some(
+                        VerifiedMessage::new(
+                            rng,
+                            &self.context.signer,
+                            &self.context.session_id,
+                            round_num,
+                            MessageType::Direct,
+                            &payload,
+                        )?
+                        .into_unverified(),
+                    )
+                } else {
+                    None
+                };
+
+                let message = match (broadcast, direct_message) {
+                    (Some(broadcast), Some(direct)) => CombinedMessage::Both {
+                        broadcast: broadcast.clone(),
+                        direct,
+                    },
+                    (None, Some(direct)) => CombinedMessage::One(direct),
+                    (Some(broadcast), None) => CombinedMessage::One(broadcast.clone()),
+                    (None, None) => return Err(LocalError("The round must send messages".into())),
+                };
+
                 Ok((
                     message,
                     Artifact {
@@ -303,8 +360,7 @@ where
             SessionType::Bc { next_round, bc } => {
                 let round_num = next_round.round_num() - 1;
                 let payload = bc.make_broadcast();
-                // TODO: make some kind of an `empty()` method
-                let artifact = DynArtifact(Box::<()>::new(()));
+                let artifact = DynArtifact::null();
                 let message = VerifiedMessage::new(
                     rng,
                     &self.context.signer,
@@ -315,7 +371,7 @@ where
                 )?
                 .into_unverified();
                 Ok((
-                    message,
+                    CombinedMessage::One(message),
                     Artifact {
                         destination: destination.clone(),
                         destination_idx,
@@ -329,10 +385,12 @@ where
     fn route_message(
         &self,
         from: &Verifier,
-        message: &SignedMessage<Sig>,
+        message: &CheckedCombinedMessage<Sig>,
     ) -> Result<MessageFor, Error<Res, Verifier>> {
         let message_for = match &self.tp {
-            SessionType::Normal(round) => route_message_normal(round.as_ref(), message),
+            SessionType::Normal { this_round, .. } => {
+                route_message_normal(this_round.as_ref(), message)
+            }
             SessionType::Bc { next_round, .. } => route_message_bc(next_round.as_ref(), message),
         };
 
@@ -349,19 +407,26 @@ where
         &self,
         accum: &mut RoundAccumulator<Sig>,
         from: &Verifier,
-        message: SignedMessage<Sig>,
+        message: CombinedMessage<Sig>,
     ) -> Result<Option<PreprocessedMessage<Sig>>, Error<Res, Verifier>> {
+        let checked = message.check().map_err(|msg| {
+            Error::Remote(RemoteError {
+                party: from.clone(),
+                error: RemoteErrorEnum::InvalidContents(msg),
+            })
+        })?;
+
         // This is an unprovable fault (may be a replay attack)
-        if message.session_id() != &self.context.session_id {
+        if checked.session_id() != &self.context.session_id {
             return Err(Error::Remote(RemoteError {
                 party: from.clone(),
                 error: RemoteErrorEnum::UnexpectedSessionId,
             }));
         }
 
-        let message_for = self.route_message(from, &message)?;
+        let message_for = self.route_message(from, &checked)?;
 
-        let verified_message = message.verify(from).map_err(|err| {
+        let verified_message = checked.verify(from).map_err(|err| {
             Error::Remote(RemoteError {
                 party: from.clone(),
                 error: RemoteErrorEnum::InvalidSignature(err),
@@ -419,22 +484,21 @@ where
         let from = self.context.verifiers[preprocessed.from_idx.as_usize()].clone();
         let message = preprocessed.message;
         match &self.tp {
-            SessionType::Normal(round) => match message.message_type() {
-                MessageType::Normal => {
-                    let result = round.verify_message(from_idx, message.payload());
-                    let payload = wrap_receive_result(&from, result)?;
-                    Ok(ProcessedMessage {
-                        from: from.clone(),
-                        from_idx,
-                        message: ProcessedMessageEnum::Payload { payload, message },
-                    })
-                }
-                _ => Err(Error::Local(LocalError(
-                    "Unexpected broadcast consensus message".into(),
-                ))),
-            },
+            SessionType::Normal { this_round, .. } => {
+                let result = this_round.verify_message(
+                    from_idx,
+                    message.broadcast_payload(),
+                    message.direct_payload(),
+                );
+                let payload = wrap_receive_result(&from, result)?;
+                Ok(ProcessedMessage {
+                    from: from.clone(),
+                    from_idx,
+                    message: ProcessedMessageEnum::Payload { payload, message },
+                })
+            }
             SessionType::Bc { bc, .. } => {
-                bc.verify_broadcast(from_idx, message)
+                bc.verify_broadcast(from_idx, message.echo_payload().unwrap())
                     .map_err(|err| Error::Provable {
                         party: from.clone(),
                         error: ProvableError::Consensus(err),
@@ -455,11 +519,11 @@ where
         accum: RoundAccumulator<Sig>,
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Verifier>> {
         match self.tp {
-            SessionType::Normal(round) => {
-                Self::finalize_regular_round(self.context, round, rng, accum)
+            SessionType::Normal { this_round, .. } => {
+                Self::finalize_regular_round(self.context, this_round, rng, accum)
             }
             SessionType::Bc { next_round, .. } => {
-                Self::finalize_bc_round(self.context, next_round, accum)
+                Self::finalize_bc_round(self.context, next_round, rng, accum)
             }
         }
     }
@@ -490,8 +554,15 @@ where
             type_erased::FinalizeOutcome::Success(res) => Ok(FinalizeOutcome::Success(res)),
             type_erased::FinalizeOutcome::AnotherRound(next_round) => {
                 if requires_echo {
-                    let messages = accum.received_messages;
-                    let bc = BroadcastConsensus::new(messages);
+                    let broadcasts = accum
+                        .received_messages
+                        .iter()
+                        .map(|(idx, combined)| {
+                            (*idx, combined.broadcast_message().unwrap().clone())
+                        })
+                        .collect::<Vec<_>>();
+
+                    let bc = BroadcastConsensus::new(broadcasts);
                     let session = Session {
                         tp: SessionType::Bc { next_round, bc },
                         context,
@@ -501,10 +572,8 @@ where
                         cached_messages: accum.cached_messages,
                     })
                 } else {
-                    let session = Session {
-                        tp: SessionType::Normal(next_round),
-                        context,
-                    };
+                    let session =
+                        Session::new_internal(rng, context, next_round).map_err(Error::Local)?;
                     Ok(FinalizeOutcome::AnotherRound {
                         session,
                         cached_messages: accum.cached_messages,
@@ -517,6 +586,7 @@ where
     fn finalize_bc_round(
         context: Context<Signer, Verifier>,
         round: Box<dyn DynFinalizable<Res>>,
+        rng: &mut impl CryptoRngCore,
         accum: RoundAccumulator<Sig>,
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Verifier>> {
         let bc_accum = accum.bc_accum.ok_or(Error::Local(LocalError(
@@ -527,10 +597,7 @@ where
             .finalize()
             .ok_or(Error::Local(LocalError("Cannot finalize".into())))?;
 
-        let session = Session {
-            tp: SessionType::Normal(round),
-            context,
-        };
+        let session = Session::new_internal(rng, context, round).map_err(Error::Local)?;
 
         Ok(FinalizeOutcome::AnotherRound {
             session,
@@ -541,7 +608,7 @@ where
 
 /// A mutable accumulator created for each round to assemble processed messages from other parties.
 pub struct RoundAccumulator<Sig> {
-    received_messages: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
+    received_messages: Vec<(PartyIdx, VerifiedCombinedMessage<Sig>)>,
     processed: DynRoundAccum,
     cached_messages: Vec<PreprocessedMessage<Sig>>,
     cached_message_count: Vec<usize>,
@@ -612,13 +679,13 @@ impl<Sig> RoundAccumulator<Sig> {
     }
 
     fn is_already_processed(&self, preprocessed: &PreprocessedMessage<Sig>) -> bool {
-        match preprocessed.message.message_type() {
-            MessageType::Normal => self.processed.contains(preprocessed.from_idx),
-            MessageType::Echo => self
-                .bc_accum
+        if preprocessed.message.is_echo() {
+            self.bc_accum
                 .as_ref()
                 .unwrap()
-                .contains(preprocessed.from_idx),
+                .contains(preprocessed.from_idx)
+        } else {
+            self.processed.contains(preprocessed.from_idx)
         }
     }
 
@@ -646,7 +713,7 @@ pub struct Artifact<Verifier> {
 /// A message that passed initial validity checks.
 pub struct PreprocessedMessage<Sig> {
     from_idx: PartyIdx,
-    message: VerifiedMessage<Sig>,
+    message: VerifiedCombinedMessage<Sig>,
 }
 
 /// A processed message from another party.
@@ -659,7 +726,7 @@ pub struct ProcessedMessage<Sig, Verifier> {
 enum ProcessedMessageEnum<Sig> {
     Payload {
         payload: DynPayload,
-        message: VerifiedMessage<Sig>,
+        message: VerifiedCombinedMessage<Sig>,
     },
     Bc,
 }

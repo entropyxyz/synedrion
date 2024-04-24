@@ -7,12 +7,12 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_interactive_signing_session, make_key_gen_session, FinalizeOutcome, KeyShare,
-    ProtocolResult, Session, SignedMessage, TestParams,
+    make_interactive_signing_session, make_key_gen_session, CombinedMessage, FinalizeOutcome,
+    KeyShare, ProtocolResult, Session, TestParams,
 };
 
-type MessageOut = (VerifyingKey, VerifyingKey, SignedMessage<Signature>);
-type MessageIn = (VerifyingKey, SignedMessage<Signature>);
+type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
+type MessageIn = (VerifyingKey, CombinedMessage<Signature>);
 
 fn key_to_str(key: &VerifyingKey) -> String {
     hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])

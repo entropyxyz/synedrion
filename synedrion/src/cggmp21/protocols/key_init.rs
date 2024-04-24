@@ -3,7 +3,6 @@
 //! auxiliary parameters need to be generated as well (during the KeyRefresh protocol).
 
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -17,8 +16,9 @@ use crate::cggmp21::{
 use crate::common::KeyShareSeed;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
-    all_parties_except, try_to_holevec, FinalizableToNextRound, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, Round, ToNextRound, ToResult,
+    all_parties_except, no_direct_messages, try_to_holevec, FinalizableToNextRound,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult,
+    ReceiveError, Round, ToNextRound, ToResult,
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
@@ -156,30 +156,34 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 
     const REQUIRES_ECHO: bool = true;
-    type Message = Round1Message;
+    type BroadcastMessage = Round1Message;
+    type DirectMessage = ();
     type Payload = Round1Payload;
     type Artifact = ();
 
     fn message_destinations(&self) -> Vec<PartyIdx> {
         all_parties_except(self.num_parties(), self.party_idx())
     }
-    fn make_message(
-        &self,
-        _rng: &mut impl CryptoRngCore,
-        _destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
+
+    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
         let cap_v = self
             .context
             .public_data
             .hash(&self.context.sid_hash, self.party_idx());
-        Ok((Round1Message { cap_v }, ()))
+        Round1Message { cap_v }
     }
+
+    no_direct_messages!();
+
     fn verify_message(
         &self,
         _from: PartyIdx,
-        msg: Self::Message,
+        broadcast_msg: Self::BroadcastMessage,
+        _direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        Ok(Round1Payload { cap_v: msg.cap_v })
+        Ok(Round1Payload {
+            cap_v: broadcast_msg.cap_v,
+        })
     }
 }
 
@@ -232,37 +236,38 @@ impl<P: SchemeParams> Round for Round2<P> {
         self.context.party_idx
     }
 
-    type Message = Round2Message<P>;
+    type BroadcastMessage = Round2Message<P>;
+    type DirectMessage = ();
     type Payload = Round2Payload<P>;
     type Artifact = ();
 
     fn message_destinations(&self) -> Vec<PartyIdx> {
         all_parties_except(self.num_parties(), self.party_idx())
     }
-    fn make_message(
-        &self,
-        _rng: &mut impl CryptoRngCore,
-        _destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
-        Ok((
-            Round2Message {
-                data: self.context.public_data.clone(),
-            },
-            (),
-        ))
+
+    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+        Round2Message {
+            data: self.context.public_data.clone(),
+        }
     }
+
+    no_direct_messages!();
+
     fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
+        broadcast_msg: Self::BroadcastMessage,
+        _direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        if &msg.data.hash(&self.context.sid_hash, from)
+        if &broadcast_msg.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from.as_usize()).unwrap()
         {
             return Err(ReceiveError::Provable(KeyInitError::R2HashMismatch));
         }
 
-        Ok(Round2Payload { data: msg.data })
+        Ok(Round2Payload {
+            data: broadcast_msg.data,
+        })
     }
 }
 
@@ -318,7 +323,8 @@ impl<P: SchemeParams> Round for Round3<P> {
         self.context.party_idx
     }
 
-    type Message = Round3Message;
+    type BroadcastMessage = Round3Message;
+    type DirectMessage = ();
     type Payload = ();
     type Artifact = ();
 
@@ -326,11 +332,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         all_parties_except(self.num_parties(), self.party_idx())
     }
 
-    fn make_message(
-        &self,
-        _rng: &mut impl CryptoRngCore,
-        _destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
+    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
         let aux = (&self.context.sid_hash, &self.party_idx(), &self.rid);
         let psi = SchProof::new(
             &self.context.tau,
@@ -339,18 +341,21 @@ impl<P: SchemeParams> Round for Round3<P> {
             &self.context.public_data.cap_x,
             &aux,
         );
-        Ok((Round3Message { psi }, ()))
+        Round3Message { psi }
     }
+
+    no_direct_messages!();
 
     fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
+        broadcast_msg: Self::BroadcastMessage,
+        _direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let data = self.others_data.get(from.as_usize()).unwrap();
 
         let aux = (&self.context.sid_hash, &from, &self.rid);
-        if !msg.psi.verify(&data.cap_a, &data.cap_x, &aux) {
+        if !broadcast_msg.psi.verify(&data.cap_a, &data.cap_x, &aux) {
             return Err(ReceiveError::Provable(KeyInitError::R3InvalidSchProof));
         }
         Ok(())

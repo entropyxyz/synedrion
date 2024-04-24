@@ -1,7 +1,6 @@
 //! Signing using previously calculated presigning data, in the paper ECDSA Signing (Fig. 8).
 
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -16,8 +15,8 @@ use crate::common::{KeySharePrecomputed, PresigningData};
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
 use crate::rounds::{
-    all_parties_except, try_to_holevec, FinalizableToResult, FinalizeError, FirstRound, InitError,
-    PartyIdx, ProtocolResult, ReceiveError, Round, ToResult,
+    all_parties_except, no_direct_messages, try_to_holevec, FinalizableToResult, FinalizeError,
+    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, Round, ToResult,
 };
 use crate::tools::{
     collections::HoleRange,
@@ -113,27 +112,30 @@ impl<P: SchemeParams> Round for Round1<P> {
         self.party_idx
     }
 
-    type Message = Round1Message;
+    type BroadcastMessage = Round1Message;
+    type DirectMessage = ();
     type Payload = Round1Payload;
     type Artifact = ();
 
     fn message_destinations(&self) -> Vec<PartyIdx> {
         all_parties_except(self.num_parties(), self.party_idx())
     }
-    fn make_message(
-        &self,
-        _rng: &mut impl CryptoRngCore,
-        _destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
-        Ok((Round1Message { sigma: self.sigma }, ()))
+
+    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+        Round1Message { sigma: self.sigma }
     }
+
+    no_direct_messages!();
 
     fn verify_message(
         &self,
         _from: PartyIdx,
-        msg: Self::Message,
+        broadcast_msg: Self::BroadcastMessage,
+        _direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        Ok(Round1Payload { sigma: msg.sigma })
+        Ok(Round1Payload {
+            sigma: broadcast_msg.sigma,
+        })
     }
 }
 

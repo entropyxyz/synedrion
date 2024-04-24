@@ -6,7 +6,6 @@
 //! (Specifically, REDIST protocol).
 
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -139,11 +138,14 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Round1Message {
-    subshare: Scalar,
-    // TODO: this should be echoed
+pub struct Round1BroadcastMessage {
     public_polynomial: PublicPolynomial,
     old_share_idx: ShareIdx,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Round1DirectMessage {
+    subshare: Scalar,
 }
 
 pub struct Round1Payload {
@@ -166,7 +168,9 @@ impl<P: SchemeParams> Round for Round1<P> {
         self.party_idx
     }
 
-    type Message = Round1Message;
+    const REQUIRES_ECHO: bool = true;
+    type BroadcastMessage = Round1BroadcastMessage;
+    type DirectMessage = Round1DirectMessage;
     type Payload = Round1Payload;
     type Artifact = ();
 
@@ -178,32 +182,39 @@ impl<P: SchemeParams> Round for Round1<P> {
         }
     }
 
-    fn make_message(
+    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+        if let Some(old_holder) = self.old_holder.as_ref() {
+            Round1BroadcastMessage {
+                public_polynomial: old_holder.public_polynomial.clone(),
+                old_share_idx: old_holder.inputs.key_share_seed.index(),
+            }
+        } else {
+            // TODO: this should be prevented by type system
+            panic!("This node does not send messages in this round");
+        }
+    }
+
+    fn make_direct_message(
         &self,
         _rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
+    ) -> (Self::DirectMessage, Self::Artifact) {
         if let Some(old_holder) = self.old_holder.as_ref() {
             let subshare = old_holder
                 .polynomial
                 .evaluate(&self.new_share_idxs[&destination]);
-            Ok((
-                Round1Message {
-                    subshare,
-                    public_polynomial: old_holder.public_polynomial.clone(),
-                    old_share_idx: old_holder.inputs.key_share_seed.index(),
-                },
-                (),
-            ))
+            (Round1DirectMessage { subshare }, ())
         } else {
-            Err("This node does not send messages in this round".into())
+            // TODO: this should be prevented by type system
+            panic!("This node does not send messages in this round");
         }
     }
 
     fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
+        broadcast_msg: Self::BroadcastMessage,
+        direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder
@@ -212,10 +223,10 @@ impl<P: SchemeParams> Round for Round1<P> {
                 .iter()
                 .any(|party_idx| party_idx == &from)
             {
-                let public_subshare_from_poly = msg
+                let public_subshare_from_poly = broadcast_msg
                     .public_polynomial
                     .evaluate(&self.new_share_idxs[&self.party_idx()]);
-                let public_subshare_from_private = msg.subshare.mul_by_generator();
+                let public_subshare_from_private = direct_msg.subshare.mul_by_generator();
 
                 // Check that the public polynomial sent in the broadcast corresponds to the secret share
                 // sent in the direct message.
@@ -224,9 +235,9 @@ impl<P: SchemeParams> Round for Round1<P> {
                 }
 
                 return Ok(Round1Payload {
-                    subshare: msg.subshare,
-                    public_polynomial: msg.public_polynomial,
-                    old_share_idx: msg.old_share_idx,
+                    subshare: direct_msg.subshare,
+                    public_polynomial: broadcast_msg.public_polynomial,
+                    old_share_idx: broadcast_msg.old_share_idx,
                 });
             }
         }

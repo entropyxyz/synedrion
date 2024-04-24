@@ -1,4 +1,3 @@
-use alloc::string::String;
 use alloc::vec::Vec;
 
 use rand_core::CryptoRngCore;
@@ -17,7 +16,6 @@ pub(crate) fn wrap_receive_error<T: ProtocolResult, Res: ResultWrapper<T>>(
     error: ReceiveError<T>,
 ) -> ReceiveError<Res> {
     match error {
-        ReceiveError::InvalidType => ReceiveError::InvalidType,
         ReceiveError::Provable(err) => ReceiveError::Provable(Res::wrap_error(err)),
     }
 }
@@ -54,27 +52,35 @@ impl<T: RoundWrapper> Round for T {
     }
 
     const REQUIRES_ECHO: bool = T::InnerRound::REQUIRES_ECHO;
-    type Message = <T::InnerRound as Round>::Message;
+    type BroadcastMessage = <T::InnerRound as Round>::BroadcastMessage;
+    type DirectMessage = <T::InnerRound as Round>::DirectMessage;
     type Payload = <T::InnerRound as Round>::Payload;
     type Artifact = <T::InnerRound as Round>::Artifact;
 
     fn message_destinations(&self) -> Vec<PartyIdx> {
         self.inner_round().message_destinations()
     }
-    fn make_message(
+
+    fn make_broadcast_message(&self, rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+        self.inner_round().make_broadcast_message(rng)
+    }
+
+    fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
-        self.inner_round().make_message(rng, destination)
+    ) -> (Self::DirectMessage, Self::Artifact) {
+        self.inner_round().make_direct_message(rng, destination)
     }
+
     fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
+        broadcast_msg: Self::BroadcastMessage,
+        direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         self.inner_round()
-            .verify_message(from, msg)
+            .verify_message(from, broadcast_msg, direct_msg)
             .map_err(wrap_receive_error)
     }
     fn finalization_requirement() -> FinalizationRequirement {

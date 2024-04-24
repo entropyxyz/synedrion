@@ -54,12 +54,9 @@ where
         serialize_message(&message).unwrap()
     }
 
-    pub fn verify_broadcast(
-        &self,
-        from: PartyIdx,
-        verified_message: VerifiedMessage<Sig>,
-    ) -> Result<(), ConsensusError> {
-        let message: Message<Sig> = deserialize_message(verified_message.payload())
+    pub fn verify_broadcast(&self, from: PartyIdx, payload: &[u8]) -> Result<(), ConsensusError> {
+        // TODO (#68): check that the direct payload is empty?
+        let message: Message<Sig> = deserialize_message(payload)
             .map_err(|err| ConsensusError::CannotDeserialize(err.to_string()))?;
 
         // TODO (#68): check that there are no repeating indices, and the indices are in range.

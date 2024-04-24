@@ -54,5 +54,5 @@ pub use constructors::{
 };
 pub use curve::RecoverableSignature;
 pub use rounds::ProtocolResult;
-pub use sessions::{FinalizeOutcome, Session, SignedMessage};
+pub use sessions::{CombinedMessage, FinalizeOutcome, Session};
 pub use threshold::ThresholdKeyShare;

@@ -60,6 +60,9 @@ pub enum RemoteErrorEnum {
     DuplicateMessage,
     /// The message signature does not match its contents: {0}.
     InvalidSignature(String),
+    /// The message has invalid contents, but the fault is unprovable: {0}.
+    // (e.g. correctly signed messages belonging to a different session, possibly a replay attack)
+    InvalidContents(String),
 }
 
 /// A provable fault of another party.

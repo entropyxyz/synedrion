@@ -31,7 +31,7 @@ pub(crate) fn step_round<R>(
 ) -> Result<Vec<AssembledRound<R>>, StepError>
 where
     R: Round,
-    <R as Round>::Message: Clone,
+    <R as Round>::BroadcastMessage: Clone,
 {
     // Collect outgoing messages
 
@@ -40,15 +40,21 @@ where
         .collect::<Vec<_>>();
 
     // `to, from, message`
-    let mut messages = Vec::<(PartyIdx, PartyIdx, <R as Round>::Message)>::new();
+    let mut messages = Vec::<(
+        PartyIdx,
+        PartyIdx,
+        (<R as Round>::BroadcastMessage, <R as Round>::DirectMessage),
+    )>::new();
 
     for (idx_from, round) in rounds.iter().enumerate() {
         let idx_from = PartyIdx::from_usize(idx_from);
 
         let destinations = round.message_destinations();
+        let broadcast = round.make_broadcast_message(rng);
+
         for idx_to in destinations {
-            let (message, artifact) = round.make_message(rng, idx_to).unwrap();
-            messages.push((idx_to, idx_from, message));
+            let (direct, artifact) = round.make_direct_message(rng, idx_to);
+            messages.push((idx_to, idx_from, (broadcast.clone(), direct)));
             assert!(artifact_accums[idx_from.as_usize()]
                 .insert(idx_to, artifact)
                 .is_none());
@@ -60,10 +66,10 @@ where
     let mut payload_accums = (0..rounds.len())
         .map(|_| BTreeMap::new())
         .collect::<Vec<_>>();
-    for (idx_to, idx_from, message) in messages.into_iter() {
+    for (idx_to, idx_from, (broadcast, direct)) in messages.into_iter() {
         let round = &rounds[idx_to.as_usize()];
         let payload = round
-            .verify_message(idx_from, message)
+            .verify_message(idx_from, broadcast, direct)
             .map_err(|err| StepError::Receive(format!("{:?}", err)))?;
         payload_accums[idx_to.as_usize()].insert(idx_from, payload);
     }

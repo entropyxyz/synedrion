@@ -16,8 +16,9 @@ use crate::common::{KeyShare, KeySharePrecomputed, PresigningData};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, CiphertextMod, PaillierParams, Randomizer, RandomizerMod};
 use crate::rounds::{
-    all_parties_except, try_to_holevec, FinalizableToNextRound, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, Round, ToNextRound, ToResult,
+    all_parties_except, no_broadcast_messages, try_to_holevec, FinalizableToNextRound,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult,
+    ReceiveError, Round, ToNextRound, ToResult,
 };
 use crate::tools::{
     collections::{HoleRange, HoleVec},
@@ -113,15 +114,17 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "Ciphertext<P::Paillier>: Serialize,
-    EncProof<P>: Serialize"))]
-#[serde(bound(deserialize = "Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
-    EncProof<P>: for<'x> Deserialize<'x>"))]
-pub struct Round1Message<P: SchemeParams> {
-    // TODO: only these two need to be echoed
+#[serde(bound(serialize = "Ciphertext<P::Paillier>: Serialize"))]
+#[serde(bound(deserialize = "Ciphertext<P::Paillier>: for<'x> Deserialize<'x>"))]
+pub struct Round1BroadcastMessage<P: SchemeParams> {
     cap_k: Ciphertext<P::Paillier>,
     cap_g: Ciphertext<P::Paillier>,
-    // This one doesn't need to be echoed
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "EncProof<P>: Serialize"))]
+#[serde(bound(deserialize = "EncProof<P>: for<'x> Deserialize<'x>"))]
+pub struct Round1DirectMessage<P: SchemeParams> {
     psi0: EncProof<P>,
 }
 
@@ -145,7 +148,8 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 
     const REQUIRES_ECHO: bool = true;
-    type Message = Round1Message<P>;
+    type BroadcastMessage = Round1BroadcastMessage<P>;
+    type DirectMessage = Round1DirectMessage<P>;
     type Payload = Round1Payload<P>;
     type Artifact = ();
 
@@ -156,11 +160,18 @@ impl<P: SchemeParams> Round for Round1<P> {
         )
     }
 
-    fn make_message(
+    fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {
+        Round1BroadcastMessage {
+            cap_k: self.cap_k.retrieve(),
+            cap_g: self.cap_g.retrieve(),
+        }
+    }
+
+    fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
+    ) -> (Self::DirectMessage, Self::Artifact) {
         let aux = (&self.context.ssid_hash, &destination);
         let psi0 = EncProof::new(
             rng,
@@ -172,20 +183,14 @@ impl<P: SchemeParams> Round for Round1<P> {
             &aux,
         );
 
-        Ok((
-            Round1Message {
-                cap_k: self.cap_k.retrieve(),
-                cap_g: self.cap_g.retrieve(),
-                psi0,
-            },
-            (),
-        ))
+        (Round1DirectMessage { psi0 }, ())
     }
 
     fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
+        broadcast_msg: Self::BroadcastMessage,
+        direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let aux = (&self.context.ssid_hash, &self.party_idx());
 
@@ -193,9 +198,9 @@ impl<P: SchemeParams> Round for Round1<P> {
 
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
-        if !msg.psi0.verify(
+        if !direct_msg.psi0.verify(
             from_pk,
-            &msg.cap_k.to_mod(from_pk),
+            &broadcast_msg.cap_k.to_mod(from_pk),
             &public_aux.rp_params,
             &aux,
         ) {
@@ -205,8 +210,8 @@ impl<P: SchemeParams> Round for Round1<P> {
         }
 
         Ok(Round1Payload {
-            cap_k: msg.cap_k,
-            cap_g: msg.cap_g,
+            cap_k: broadcast_msg.cap_k,
+            cap_g: broadcast_msg.cap_g,
         })
     }
 }
@@ -302,7 +307,8 @@ impl<P: SchemeParams> Round for Round2<P> {
         self.context.key_share.party_index()
     }
 
-    type Message = Round2Message<P>;
+    type BroadcastMessage = ();
+    type DirectMessage = Round2Message<P>;
     type Payload = Round2Payload<P>;
     type Artifact = Round2Artifact<P>;
 
@@ -313,11 +319,13 @@ impl<P: SchemeParams> Round for Round2<P> {
         )
     }
 
-    fn make_message(
+    no_broadcast_messages!();
+
+    fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
+    ) -> (Self::DirectMessage, Self::Artifact) {
         let aux = (
             &self.context.ssid_hash,
             &self.context.key_share.party_index(),
@@ -416,13 +424,14 @@ impl<P: SchemeParams> Round for Round2<P> {
             hat_cap_f,
         };
 
-        Ok((msg, artifact))
+        (msg, artifact)
     }
 
     fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
+        _broadcast_msg: Self::BroadcastMessage,
+        direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let aux = (&self.context.ssid_hash, &from);
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
@@ -434,16 +443,16 @@ impl<P: SchemeParams> Round for Round2<P> {
             &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
         let rp = &public_aux.rp_params;
 
-        let cap_d = msg.cap_d.to_mod(pk);
-        let hat_cap_d = msg.hat_cap_d.to_mod(pk);
+        let cap_d = direct_msg.cap_d.to_mod(pk);
+        let hat_cap_d = direct_msg.hat_cap_d.to_mod(pk);
 
-        if !msg.psi.verify(
+        if !direct_msg.psi.verify(
             pk,
             from_pk,
             &self.all_cap_k[self.context.key_share.party_index().as_usize()],
             &cap_d,
-            &msg.cap_f.to_mod(from_pk),
-            &msg.cap_gamma,
+            &direct_msg.cap_f.to_mod(from_pk),
+            &direct_msg.cap_gamma,
             rp,
             &aux,
         ) {
@@ -452,12 +461,12 @@ impl<P: SchemeParams> Round for Round2<P> {
             )));
         }
 
-        if !msg.hat_psi.verify(
+        if !direct_msg.hat_psi.verify(
             pk,
             from_pk,
             &self.all_cap_k[self.context.key_share.party_index().as_usize()],
             &hat_cap_d,
-            &msg.hat_cap_f.to_mod(from_pk),
+            &direct_msg.hat_cap_f.to_mod(from_pk),
             &cap_x,
             rp,
             &aux,
@@ -467,11 +476,11 @@ impl<P: SchemeParams> Round for Round2<P> {
             )));
         }
 
-        if !msg.hat_psi_prime.verify(
+        if !direct_msg.hat_psi_prime.verify(
             from_pk,
             &self.all_cap_g[from.as_usize()],
             &Point::GENERATOR,
-            &msg.cap_gamma,
+            &direct_msg.cap_gamma,
             rp,
             &aux,
         ) {
@@ -494,7 +503,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             .unwrap();
 
         Ok(Round2Payload {
-            cap_gamma: msg.cap_gamma,
+            cap_gamma: direct_msg.cap_gamma,
             alpha,
             hat_alpha,
             cap_d,
@@ -595,7 +604,8 @@ impl<P: SchemeParams> Round for Round3<P> {
         self.context.key_share.party_index()
     }
 
-    type Message = Round3Message<P>;
+    type BroadcastMessage = ();
+    type DirectMessage = Round3Message<P>;
     type Payload = Round3Payload;
     type Artifact = ();
 
@@ -606,11 +616,13 @@ impl<P: SchemeParams> Round for Round3<P> {
         )
     }
 
-    fn make_message(
+    no_broadcast_messages!();
+
+    fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
+    ) -> (Self::DirectMessage, Self::Artifact) {
         let aux = (
             &self.context.ssid_hash,
             &self.context.key_share.party_index(),
@@ -638,13 +650,14 @@ impl<P: SchemeParams> Round for Round3<P> {
             psi_pprime,
         };
 
-        Ok((message, ()))
+        (message, ())
     }
 
     fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
+        _broadcast_msg: Self::BroadcastMessage,
+        direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
         let aux = (&self.context.ssid_hash, &from);
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
@@ -653,11 +666,11 @@ impl<P: SchemeParams> Round for Round3<P> {
             &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
         let rp = &public_aux.rp_params;
 
-        if !msg.psi_pprime.verify(
+        if !direct_msg.psi_pprime.verify(
             from_pk,
             &self.all_cap_k[from.as_usize()],
             &self.cap_gamma,
-            &msg.cap_delta,
+            &direct_msg.cap_delta,
             rp,
             &aux,
         ) {
@@ -666,8 +679,8 @@ impl<P: SchemeParams> Round for Round3<P> {
             )));
         }
         Ok(Round3Payload {
-            delta: msg.delta,
-            cap_delta: msg.cap_delta,
+            delta: direct_msg.delta,
+            cap_delta: direct_msg.cap_delta,
         })
     }
 }

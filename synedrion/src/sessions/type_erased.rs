@@ -8,7 +8,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use core::any::Any;
+use core::any::{Any, TypeId};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,7 @@ pub enum AccumFinalizeError {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ReceiveError<Res: ProtocolResult> {
+    InvalidContents(String),
     /// Error while deserializing the given message.
     CannotDeserialize(String),
     /// An error from the protocol level
@@ -87,7 +88,13 @@ impl<'a> rand_core::RngCore for BoxedRng<'a> {
 
 pub(crate) struct DynPayload(Box<dyn Any + Send>);
 
-pub(crate) struct DynArtifact(pub(crate) Box<dyn Any + Send>);
+pub(crate) struct DynArtifact(Box<dyn Any + Send>);
+
+impl DynArtifact {
+    pub fn null() -> Self {
+        Self(Box::new(()))
+    }
+}
 
 /// An object-safe trait wrapping `Round`.
 pub(crate) trait DynRound<Res: ProtocolResult>: Send {
@@ -96,23 +103,35 @@ pub(crate) trait DynRound<Res: ProtocolResult>: Send {
 
     fn requires_echo(&self) -> bool;
     fn message_destinations(&self) -> Vec<PartyIdx>;
-    fn make_message(
+    fn make_broadcast_message(
+        &self,
+        rng: &mut dyn CryptoRngCore,
+    ) -> Result<Option<Box<[u8]>>, LocalError>;
+    #[allow(clippy::type_complexity)]
+    fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, DynArtifact), LocalError>;
+    ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError>;
     fn verify_message(
         &self,
         from: PartyIdx,
-        message: &[u8],
+        broadcast_data: Option<&[u8]>,
+        direct_data: Option<&[u8]>,
     ) -> Result<DynPayload, ReceiveError<Res>>;
     fn can_finalize(&self, accum: &DynRoundAccum) -> bool;
     fn missing_payloads(&self, accum: &DynRoundAccum) -> BTreeSet<PartyIdx>;
 }
 
+fn is_null_type<T: 'static>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<()>()
+}
+
 impl<R> DynRound<R::Result> for R
 where
     R: Round + Send,
+    <R as Round>::BroadcastMessage: 'static,
+    <R as Round>::DirectMessage: 'static,
     <R as Round>::Payload: 'static + Send,
     <R as Round>::Artifact: 'static + Send,
 {
@@ -128,31 +147,88 @@ where
         self.message_destinations()
     }
 
-    fn make_message(
+    fn make_broadcast_message(
+        &self,
+        rng: &mut dyn CryptoRngCore,
+    ) -> Result<Option<Box<[u8]>>, LocalError> {
+        if is_null_type::<R::BroadcastMessage>() {
+            return Ok(None);
+        }
+
+        let mut boxed_rng = BoxedRng(rng);
+        let typed_message = self.make_broadcast_message(&mut boxed_rng);
+        let serialized = serialize_message(&typed_message)?;
+        Ok(Some(serialized))
+    }
+
+    fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, DynArtifact), LocalError> {
+    ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError> {
+        let null_message = is_null_type::<R::DirectMessage>();
+        let null_artifact = is_null_type::<R::Artifact>();
+
+        if null_message && null_artifact {
+            return Ok((None, DynArtifact::null()));
+        }
+
         let mut boxed_rng = BoxedRng(rng);
-        let (typed_message, typed_artifact) = self
-            .make_message(&mut boxed_rng, destination)
-            .map_err(|err| LocalError(format!("Failed to make a message: {err:?}")))?;
-        let message = serialize_message(&typed_message)?;
+        let (typed_message, typed_artifact) = self.make_direct_message(&mut boxed_rng, destination);
+
+        let message = if null_message {
+            None
+        } else {
+            Some(serialize_message(&typed_message)?)
+        };
+
         Ok((message, DynArtifact(Box::new(typed_artifact))))
     }
 
     fn verify_message(
         &self,
         from: PartyIdx,
-        message: &[u8],
+        broadcast_data: Option<&[u8]>,
+        direct_data: Option<&[u8]>,
     ) -> Result<DynPayload, ReceiveError<R::Result>> {
-        let typed_message: <R as Round>::Message = match deserialize_message(message) {
+        let null_broadcast = is_null_type::<R::BroadcastMessage>();
+        let null_direct = is_null_type::<R::DirectMessage>();
+
+        let broadcast_data = if let Some(data) = broadcast_data {
+            data
+        } else {
+            if !null_broadcast {
+                return Err(ReceiveError::InvalidContents(
+                    "Expected a non-null broadcast message".into(),
+                ));
+            }
+            b""
+        };
+
+        let broadcast_message: <R as Round>::BroadcastMessage =
+            match deserialize_message(broadcast_data) {
+                Ok(message) => message,
+                Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
+            };
+
+        let direct_data = if let Some(data) = direct_data {
+            data
+        } else {
+            if !null_direct {
+                return Err(ReceiveError::InvalidContents(
+                    "Expected a non-null direct message".into(),
+                ));
+            }
+            b""
+        };
+
+        let direct_message: <R as Round>::DirectMessage = match deserialize_message(direct_data) {
             Ok(message) => message,
             Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
         };
 
         let payload = self
-            .verify_message(from, typed_message)
+            .verify_message(from, broadcast_message, direct_message)
             .map_err(ReceiveError::Protocol)?;
 
         Ok(DynPayload(Box::new(payload)))

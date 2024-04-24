@@ -43,8 +43,11 @@ pub(crate) trait Round {
     fn num_parties(&self) -> usize;
     fn party_idx(&self) -> PartyIdx;
 
-    /// The message type.
-    type Message: Serialize + for<'de> Deserialize<'de>;
+    /// The part of the message sent directly to nodes, and can be different for each node.
+    type DirectMessage: Serialize + for<'de> Deserialize<'de>;
+
+    /// The part of the message that is the same for each destination node.
+    type BroadcastMessage: Serialize + for<'de> Deserialize<'de>;
 
     /// Whether all the nodes receiving the broadcast should make sure they got the same message.
     const REQUIRES_ECHO: bool = false;
@@ -55,27 +58,26 @@ pub(crate) trait Round {
     /// Data created when creating a message, to be preserved until the finalization stage.
     type Artifact;
 
-    /// The indices of the parties that should receive the direct messages,
-    /// or `None` if this round does not send any direct messages.
+    /// The indices of the parties that should receive the messages.
     fn message_destinations(&self) -> Vec<PartyIdx>;
 
-    /// Creates a direct message for the given party.
-    fn make_message(
+    /// Creates the direct message for the given party.
+    fn make_direct_message(
         &self,
-        #[allow(unused_variables)] rng: &mut impl CryptoRngCore,
-        #[allow(unused_variables)] destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
-        Err("This round does not send out direct messages".into())
-    }
+        rng: &mut impl CryptoRngCore,
+        destination: PartyIdx,
+    ) -> (Self::DirectMessage, Self::Artifact);
+
+    /// Creates the broadcast message.
+    fn make_broadcast_message(&self, rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage;
 
     /// Processes a direct messsage received from the party `from`.
     fn verify_message(
         &self,
-        #[allow(unused_variables)] from: PartyIdx,
-        #[allow(unused_variables)] msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        Err(ReceiveError::InvalidType)
-    }
+        from: PartyIdx,
+        broadcast_msg: Self::BroadcastMessage,
+        direct_msg: Self::DirectMessage,
+    ) -> Result<Self::Payload, ReceiveError<Self::Result>>;
 
     fn finalization_requirement() -> FinalizationRequirement {
         FinalizationRequirement::All
@@ -169,8 +171,6 @@ pub(crate) trait FinalizableToNextRound: Round<Type = ToNextRound> {
 #[derive(Debug, Clone)]
 pub enum ReceiveError<Res: ProtocolResult> {
     Provable(Res::ProvableError),
-    /// This round does not expect messages of the given type (broadcast/direct)
-    InvalidType,
 }
 
 #[derive(Debug, Clone)]
@@ -244,3 +244,27 @@ pub(crate) fn try_to_holevec<T>(
     }
     accum.finalize()
 }
+
+// These will be possible to do via trait specialization when it becomes stable.
+
+macro_rules! no_broadcast_messages {
+    () => {
+        fn make_broadcast_message(&self, _rng: &mut impl CryptoRngCore) -> Self::BroadcastMessage {}
+    };
+}
+
+pub(crate) use no_broadcast_messages;
+
+macro_rules! no_direct_messages {
+    () => {
+        fn make_direct_message(
+            &self,
+            _rng: &mut impl CryptoRngCore,
+            _destination: PartyIdx,
+        ) -> (Self::DirectMessage, Self::Artifact) {
+            ((), ())
+        }
+    };
+}
+
+pub(crate) use no_direct_messages;

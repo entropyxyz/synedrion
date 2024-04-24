@@ -42,8 +42,9 @@ fn message_hash(
 /// Protocol message type.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum MessageType {
+    Broadcast,
     /// Regular messaging part of the round.
-    Normal,
+    Direct,
     /// A service message for echo-broadcast.
     Echo,
 }
@@ -51,8 +52,9 @@ pub enum MessageType {
 impl Hashable for MessageType {
     fn chain<C: Chain>(&self, digest: C) -> C {
         let value: u8 = match self {
-            Self::Normal => 0,
-            Self::Echo => 1,
+            Self::Broadcast => 0,
+            Self::Direct => 1,
+            Self::Echo => 2,
         };
         digest.chain(&value)
     }
@@ -156,9 +158,5 @@ impl<Sig> VerifiedMessage<Sig> {
 
     pub fn payload(&self) -> &[u8] {
         &self.0.payload
-    }
-
-    pub fn message_type(&self) -> MessageType {
-        self.0.message_type
     }
 }
