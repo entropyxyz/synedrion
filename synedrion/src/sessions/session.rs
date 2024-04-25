@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::format;
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
@@ -576,14 +576,14 @@ where
                     };
                     Ok(FinalizeOutcome::AnotherRound {
                         session,
-                        cached_messages: accum.cached_messages,
+                        cached_messages: accum.cached_messages.into_values().collect(),
                     })
                 } else {
                     let session =
                         Session::new_internal(rng, context, next_round).map_err(Error::Local)?;
                     Ok(FinalizeOutcome::AnotherRound {
                         session,
-                        cached_messages: accum.cached_messages,
+                        cached_messages: accum.cached_messages.into_values().collect(),
                     })
                 }
             }
@@ -608,7 +608,7 @@ where
 
         Ok(FinalizeOutcome::AnotherRound {
             session,
-            cached_messages: accum.cached_messages,
+            cached_messages: accum.cached_messages.into_values().collect(),
         })
     }
 }
@@ -617,8 +617,7 @@ where
 pub struct RoundAccumulator<Sig> {
     received_messages: Vec<(PartyIdx, VerifiedCombinedMessage<Sig>)>,
     processed: DynRoundAccum,
-    cached_messages: Vec<PreprocessedMessage<Sig>>,
-    cached_message_count: Vec<usize>,
+    cached_messages: BTreeMap<PartyIdx, PreprocessedMessage<Sig>>,
     echo_accum: Option<EchoAccum>,
 }
 
@@ -628,8 +627,7 @@ impl<Sig> RoundAccumulator<Sig> {
         Self {
             received_messages: Vec::new(),
             processed: DynRoundAccum::new(),
-            cached_messages: Vec::new(),
-            cached_message_count: vec![0; num_parties],
+            cached_messages: BTreeMap::new(),
             echo_accum: if is_echo_round {
                 Some(EchoAccum::new(num_parties, party_idx))
             } else {
@@ -697,15 +695,12 @@ impl<Sig> RoundAccumulator<Sig> {
     }
 
     fn is_already_cached(&self, preprocessed: &PreprocessedMessage<Sig>) -> bool {
-        // Since we don't know yet whether the next round requires two types of messages
-        // (direct & broadcast) or just one, we limit the cached messages with 2 per party.
-        // This is enough to not get DDOS'ed by messages for the next round.
-        self.cached_message_count[preprocessed.from_idx.as_usize()] == 2
+        self.cached_messages.contains_key(&preprocessed.from_idx)
     }
 
     fn add_cached_message(&mut self, preprocessed: PreprocessedMessage<Sig>) {
-        self.cached_message_count[preprocessed.from_idx.as_usize()] += 1;
-        self.cached_messages.push(preprocessed);
+        self.cached_messages
+            .insert(preprocessed.from_idx, preprocessed);
     }
 }
 
