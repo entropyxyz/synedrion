@@ -11,8 +11,8 @@ use signature::{
     Keypair,
 };
 
-use super::broadcast::{BcConsensusAccum, BroadcastConsensus};
 use super::combined_message::{CheckedCombinedMessage, CombinedMessage, VerifiedCombinedMessage};
+use super::echo::{EchoAccum, EchoRound};
 use super::error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
 use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
@@ -34,9 +34,9 @@ enum SessionType<Res, Sig> {
         this_round: Box<dyn DynFinalizable<Res>>,
         broadcast: Option<SignedMessage<Sig>>,
     },
-    Bc {
+    Echo {
         next_round: Box<dyn DynFinalizable<Res>>,
-        bc: BroadcastConsensus<Sig>,
+        echo_round: EchoRound<Sig>,
     },
 }
 
@@ -60,17 +60,17 @@ fn route_message_normal<Res: ProtocolResult, Sig>(
     let requires_echo = round.requires_echo();
 
     let message_round = message.round();
-    let message_bc = message.is_echo();
+    let message_is_echo = message.is_echo();
 
-    if message_round == this_round && !message_bc {
+    if message_round == this_round && !message_is_echo {
         return Ok(MessageFor::ThisRound);
     }
 
     let for_next_round =
-    // This is a non-broadcast round, and the next round exists, and the message is for it
-    (!requires_echo && next_round.is_some() && message_round == next_round.unwrap() && !message_bc) ||
-    // This is a broadcast round, and the message is from the broadcast consensus round
-    (requires_echo && message_round == this_round && message_bc);
+    // This is a normal round, and the next round exists, and the message is for it
+    (!requires_echo && next_round.is_some() && message_round == next_round.unwrap() && !message_is_echo) ||
+    // This is an echo round, and the message is from the echo round
+    (requires_echo && message_round == this_round && message_is_echo);
 
     if for_next_round {
         return Ok(MessageFor::NextRound);
@@ -79,19 +79,19 @@ fn route_message_normal<Res: ProtocolResult, Sig>(
     Err(RemoteErrorEnum::OutOfOrderMessage)
 }
 
-fn route_message_bc<Res: ProtocolResult, Sig>(
+fn route_message_echo<Res: ProtocolResult, Sig>(
     next_round: &dyn DynFinalizable<Res>,
     message: &CheckedCombinedMessage<Sig>,
 ) -> Result<MessageFor, RemoteErrorEnum> {
     let next_round = next_round.round_num();
     let message_round = message.round();
-    let message_bc = message.is_echo();
+    let message_is_echo = message.is_echo();
 
-    if message_round == next_round - 1 && message_bc {
+    if message_round == next_round - 1 && message_is_echo {
         return Ok(MessageFor::ThisRound);
     }
 
-    if message_round == next_round && !message_bc {
+    if message_round == next_round && !message_is_echo {
         return Ok(MessageFor::NextRound);
     }
 
@@ -214,11 +214,11 @@ where
         self.context.signer.verifying_key()
     }
 
-    /// Returns a pair of the current round index and whether it is a broadcast consensus stage.
+    /// Returns a pair of the current round index and whether it is an echo round.
     pub fn current_round(&self) -> (u8, bool) {
         match &self.tp {
             SessionType::Normal { this_round, .. } => (this_round.round_num(), false),
-            SessionType::Bc { next_round, .. } => (next_round.round_num() - 1, true),
+            SessionType::Echo { next_round, .. } => (next_round.round_num() - 1, true),
         }
     }
 
@@ -227,7 +227,7 @@ where
         RoundAccumulator::new(
             self.context.verifiers.len(),
             self.context.party_idx,
-            self.is_broadcast_consensus_round(),
+            self.is_echo_round(),
         )
     }
 
@@ -235,12 +235,11 @@ where
     pub fn can_finalize(&self, accum: &RoundAccumulator<Sig>) -> Result<bool, LocalError> {
         match &self.tp {
             SessionType::Normal { this_round, .. } => Ok(this_round.can_finalize(&accum.processed)),
-            SessionType::Bc { .. } => Ok(accum
-                .bc_accum
+            SessionType::Echo { .. } => Ok(accum
+                .echo_accum
                 .as_ref()
                 .ok_or(LocalError(
-                    "This is a BC consensus round, but the accumulator is in an invalid state"
-                        .into(),
+                    "This is an echo round, but the accumulator is in an invalid state".into(),
                 ))?
                 .can_finalize()),
         }
@@ -256,12 +255,11 @@ where
                 .missing_payloads(&accum.processed)
                 .into_iter()
                 .collect()),
-            SessionType::Bc { .. } => {
-                let bc_accum = accum.bc_accum.as_ref().ok_or(LocalError(
-                    "This is a BC consensus round, but the accumulator is in an invalid state"
-                        .into(),
+            SessionType::Echo { .. } => {
+                let echo_accum = accum.echo_accum.as_ref().ok_or(LocalError(
+                    "This is an echo round, but the accumulator is in an invalid state".into(),
                 ))?;
-                Ok(bc_accum.missing_messages())
+                Ok(echo_accum.missing_messages())
             }
         };
 
@@ -272,10 +270,10 @@ where
         })
     }
 
-    fn is_broadcast_consensus_round(&self) -> bool {
+    fn is_echo_round(&self) -> bool {
         match &self.tp {
             SessionType::Normal { .. } => false,
-            SessionType::Bc { .. } => true,
+            SessionType::Echo { .. } => true,
         }
     }
 
@@ -287,7 +285,7 @@ where
                 .iter()
                 .map(|idx| self.context.verifiers[idx.as_usize()].clone())
                 .collect(),
-            SessionType::Bc { .. } => {
+            SessionType::Echo { .. } => {
                 // TODO (#82): technically we should remember the range
                 // to which the initial broadcasts were sent to and use that.
                 let range = HoleRange::new(
@@ -357,9 +355,12 @@ where
                     },
                 ))
             }
-            SessionType::Bc { next_round, bc } => {
+            SessionType::Echo {
+                next_round,
+                echo_round,
+            } => {
                 let round_num = next_round.round_num() - 1;
-                let payload = bc.make_broadcast();
+                let payload = echo_round.make_broadcast();
                 let artifact = DynArtifact::null();
                 let message = VerifiedMessage::new(
                     rng,
@@ -391,7 +392,9 @@ where
             SessionType::Normal { this_round, .. } => {
                 route_message_normal(this_round.as_ref(), message)
             }
-            SessionType::Bc { next_round, .. } => route_message_bc(next_round.as_ref(), message),
+            SessionType::Echo { next_round, .. } => {
+                route_message_echo(next_round.as_ref(), message)
+            }
         };
 
         message_for.map_err(|err| {
@@ -497,11 +500,12 @@ where
                     message: ProcessedMessageEnum::Payload { payload, message },
                 })
             }
-            SessionType::Bc { bc, .. } => {
-                bc.verify_broadcast(from_idx, message.echo_payload().unwrap())
+            SessionType::Echo { echo_round, .. } => {
+                echo_round
+                    .verify_broadcast(from_idx, message.echo_payload().unwrap())
                     .map_err(|err| Error::Provable {
                         party: from.clone(),
-                        error: ProvableError::Consensus(err),
+                        error: ProvableError::Echo(err),
                     })?;
                 Ok(ProcessedMessage {
                     from: from.clone(),
@@ -522,7 +526,7 @@ where
             SessionType::Normal { this_round, .. } => {
                 Self::finalize_regular_round(self.context, this_round, rng, accum)
             }
-            SessionType::Bc { next_round, .. } => {
+            SessionType::Echo { next_round, .. } => {
                 Self::finalize_bc_round(self.context, next_round, rng, accum)
             }
         }
@@ -562,9 +566,12 @@ where
                         })
                         .collect::<Vec<_>>();
 
-                    let bc = BroadcastConsensus::new(broadcasts);
+                    let echo_round = EchoRound::new(broadcasts);
                     let session = Session {
-                        tp: SessionType::Bc { next_round, bc },
+                        tp: SessionType::Echo {
+                            next_round,
+                            echo_round,
+                        },
                         context,
                     };
                     Ok(FinalizeOutcome::AnotherRound {
@@ -589,11 +596,11 @@ where
         rng: &mut impl CryptoRngCore,
         accum: RoundAccumulator<Sig>,
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Verifier>> {
-        let bc_accum = accum.bc_accum.ok_or(Error::Local(LocalError(
-            "The accumulator is in the invalid state for the broadcast consensus round".into(),
+        let echo_accum = accum.echo_accum.ok_or(Error::Local(LocalError(
+            "The accumulator is in the invalid state for the echo round".into(),
         )))?;
 
-        bc_accum
+        echo_accum
             .finalize()
             .ok_or(Error::Local(LocalError("Cannot finalize".into())))?;
 
@@ -612,19 +619,19 @@ pub struct RoundAccumulator<Sig> {
     processed: DynRoundAccum,
     cached_messages: Vec<PreprocessedMessage<Sig>>,
     cached_message_count: Vec<usize>,
-    bc_accum: Option<BcConsensusAccum>,
+    echo_accum: Option<EchoAccum>,
 }
 
 impl<Sig> RoundAccumulator<Sig> {
-    fn new(num_parties: usize, party_idx: PartyIdx, is_bc_consensus_round: bool) -> Self {
+    fn new(num_parties: usize, party_idx: PartyIdx, is_echo_round: bool) -> Self {
         // TODO (#68): can return an error if party_idx is out of bounds
         Self {
             received_messages: Vec::new(),
             processed: DynRoundAccum::new(),
             cached_messages: Vec::new(),
             cached_message_count: vec![0; num_parties],
-            bc_accum: if is_bc_consensus_round {
-                Some(BcConsensusAccum::new(num_parties, party_idx))
+            echo_accum: if is_echo_round {
+                Some(EchoAccum::new(num_parties, party_idx))
             } else {
                 None
             },
@@ -663,7 +670,7 @@ impl<Sig> RoundAccumulator<Sig> {
                 }
                 self.received_messages.push((pm.from_idx, message));
             }
-            ProcessedMessageEnum::Bc => match &mut self.bc_accum {
+            ProcessedMessageEnum::Bc => match &mut self.echo_accum {
                 Some(accum) => {
                     if accum.add_echo_received(pm.from_idx).is_none() {
                         return Ok(Err(RemoteError {
@@ -672,7 +679,7 @@ impl<Sig> RoundAccumulator<Sig> {
                         }));
                     }
                 }
-                None => return Err(LocalError("This is not a broadcast consensus round".into())),
+                None => return Err(LocalError("This is not an echo round".into())),
             },
         }
         Ok(Ok(()))
@@ -680,7 +687,7 @@ impl<Sig> RoundAccumulator<Sig> {
 
     fn is_already_processed(&self, preprocessed: &PreprocessedMessage<Sig>) -> bool {
         if preprocessed.message.is_echo() {
-            self.bc_accum
+            self.echo_accum
                 .as_ref()
                 .unwrap()
                 .contains(preprocessed.from_idx)

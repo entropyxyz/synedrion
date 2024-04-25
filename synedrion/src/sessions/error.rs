@@ -2,7 +2,7 @@ use alloc::string::String;
 
 use displaydoc::Display;
 
-use super::broadcast::ConsensusError;
+use super::echo::EchoError;
 use crate::rounds::ProtocolResult;
 
 /// Possible errors returned by session methods.
@@ -72,6 +72,6 @@ pub enum ProvableError<Res: ProtocolResult> {
     Protocol(Res::ProvableError),
     /// Failed to deserialize the message.
     CannotDeserialize(String),
-    /// Broadcast consensus check failed.
-    Consensus(ConsensusError),
+    /// Echo round failed.
+    Echo(EchoError),
 }

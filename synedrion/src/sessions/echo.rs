@@ -11,7 +11,7 @@ use crate::rounds::PartyIdx;
 use crate::tools::collections::HoleVecAccum;
 
 #[derive(Clone)]
-pub(crate) struct BroadcastConsensus<Sig> {
+pub(crate) struct EchoRound<Sig> {
     broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
 }
 
@@ -20,21 +20,21 @@ struct Message<Sig> {
     broadcasts: Vec<(PartyIdx, SignedMessage<Sig>)>,
 }
 
-/// Errors that can occur during broadcast consensus check.
+/// Errors that can occur during an echo round.
 #[derive(Debug, Clone)]
-pub enum ConsensusError {
+pub enum EchoError {
     /// Cannot deserialize the message.
     CannotDeserialize(String),
     /// Unexpected number of broadcasts in the message.
     UnexpectedNumberOfBroadcasts,
     /// A broadcast from one of the parties is missing.
     MissingBroadcast,
-    /// The broadcasts received during the consensus round
+    /// The broadcasts received during the echo round
     /// do not match the ones received previously.
     ConflictingBroadcasts,
 }
 
-impl<Sig> BroadcastConsensus<Sig>
+impl<Sig> EchoRound<Sig>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
@@ -54,16 +54,16 @@ where
         serialize_message(&message).unwrap()
     }
 
-    pub fn verify_broadcast(&self, from: PartyIdx, payload: &[u8]) -> Result<(), ConsensusError> {
+    pub fn verify_broadcast(&self, from: PartyIdx, payload: &[u8]) -> Result<(), EchoError> {
         // TODO (#68): check that the direct payload is empty?
         let message: Message<Sig> = deserialize_message(payload)
-            .map_err(|err| ConsensusError::CannotDeserialize(err.to_string()))?;
+            .map_err(|err| EchoError::CannotDeserialize(err.to_string()))?;
 
         // TODO (#68): check that there are no repeating indices, and the indices are in range.
         let bc_map = message.broadcasts.into_iter().collect::<BTreeMap<_, _>>();
 
         if bc_map.len() != self.broadcasts.len() {
-            return Err(ConsensusError::UnexpectedNumberOfBroadcasts);
+            return Err(EchoError::UnexpectedNumberOfBroadcasts);
         }
 
         for (idx, broadcast) in self.broadcasts.iter() {
@@ -73,10 +73,10 @@ where
                 continue;
             }
 
-            let echoed_bc = bc_map.get(idx).ok_or(ConsensusError::MissingBroadcast)?;
+            let echoed_bc = bc_map.get(idx).ok_or(EchoError::MissingBroadcast)?;
 
             if !broadcast.as_unverified().is_same_as(echoed_bc) {
-                return Err(ConsensusError::ConflictingBroadcasts);
+                return Err(EchoError::ConflictingBroadcasts);
             }
         }
 
@@ -84,11 +84,11 @@ where
     }
 }
 
-pub(crate) struct BcConsensusAccum {
+pub(crate) struct EchoAccum {
     received_echo_from: HoleVecAccum<()>,
 }
 
-impl BcConsensusAccum {
+impl EchoAccum {
     pub fn new(num_parties: usize, party_idx: PartyIdx) -> Self {
         Self {
             received_echo_from: HoleVecAccum::new(num_parties, party_idx.as_usize()),
