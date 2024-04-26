@@ -340,9 +340,6 @@ impl<P: SchemeParams> Round for Round3<P> {
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
-        // TODO: even though key_init payloads are empty here,
-        // we still need to check we got all of them, which key_init's finalize()
-        // does not currently do.
         #[allow(clippy::let_unit_value)]
         let key_init_payload = self
             .key_init_round

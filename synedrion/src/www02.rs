@@ -205,7 +205,7 @@ impl<P: SchemeParams> Round for Round1<P> {
                 .evaluate(&self.new_share_idxs[&destination]);
             (Round1DirectMessage { subshare }, ())
         } else {
-            // TODO: this should be prevented by type system
+            // TODO (#54): this should be prevented by type system
             panic!("This node does not send messages in this round");
         }
     }
@@ -311,7 +311,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             })
             .sum();
         if new_holder.inputs.verifying_key != vkey {
-            // TODO: this is unattributable.
+            // TODO (#113): this is unattributable.
             // Should we add an enum variant to `FinalizeError`?
             // or take the public shares as an input (assuming the nodes published those previously)
             panic!("Invalid shares");
