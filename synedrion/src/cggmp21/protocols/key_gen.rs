@@ -2,22 +2,19 @@
 //! Since both take three rounds and are independent, we can execute them in parallel.
 
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use super::key_init::{self, KeyInitResult};
 use super::key_refresh::{self, KeyRefreshResult};
 use crate::cggmp21::SchemeParams;
 use crate::common::KeyShare;
 use crate::rounds::{
-    wrap_finalize_error, wrap_receive_error, BaseRound, BroadcastRound, DirectRound, Finalizable,
-    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
-    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, ResultWrapper, ToNextRound,
-    ToResult,
+    no_direct_messages, wrap_finalize_error, CorrectnessProofWrapper, FinalizableToNextRound,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, Round,
+    ToNextRound, ToResult,
 };
 
 /// Possible results of the merged KeyGen and KeyRefresh protocols.
@@ -48,10 +45,7 @@ pub enum KeyGenProof<P: SchemeParams> {
     KeyRefresh(<KeyRefreshResult<P> as ProtocolResult>::CorrectnessProof),
 }
 
-impl<P: SchemeParams> ResultWrapper<KeyInitResult> for KeyGenResult<P> {
-    fn wrap_error(error: <KeyInitResult as ProtocolResult>::ProvableError) -> Self::ProvableError {
-        KeyGenError::KeyInit(error)
-    }
+impl<P: SchemeParams> CorrectnessProofWrapper<KeyInitResult> for KeyGenResult<P> {
     fn wrap_proof(
         proof: <KeyInitResult as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
@@ -59,12 +53,7 @@ impl<P: SchemeParams> ResultWrapper<KeyInitResult> for KeyGenResult<P> {
     }
 }
 
-impl<P: SchemeParams> ResultWrapper<KeyRefreshResult<P>> for KeyGenResult<P> {
-    fn wrap_error(
-        error: <KeyRefreshResult<P> as ProtocolResult>::ProvableError,
-    ) -> Self::ProvableError {
-        KeyGenError::KeyRefresh(error)
-    }
+impl<P: SchemeParams> CorrectnessProofWrapper<KeyRefreshResult<P>> for KeyGenResult<P> {
     fn wrap_proof(
         proof: <KeyRefreshResult<P> as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
@@ -97,21 +86,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "<key_init::Round1<P> as BroadcastRound>::Message: Serialize,
-    <key_refresh::Round1<P> as BroadcastRound>::Message: Serialize"
-))]
-#[serde(bound(
-    deserialize = "<key_init::Round1<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>,
-    <key_refresh::Round1<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>"
-))]
-pub struct Round1Message<P: SchemeParams> {
-    key_init_message: <key_init::Round1<P> as BroadcastRound>::Message,
-    key_refresh_message: <key_refresh::Round1<P> as BroadcastRound>::Message,
-}
-
-impl<P: SchemeParams> BaseRound for Round1<P> {
+impl<P: SchemeParams> Round for Round1<P> {
     type Type = ToNextRound;
     type Result = KeyGenResult<P>;
     const ROUND_NUM: u8 = 1;
@@ -124,56 +99,56 @@ impl<P: SchemeParams> BaseRound for Round1<P> {
     fn party_idx(&self) -> PartyIdx {
         self.key_init_round.party_idx()
     }
-}
 
-impl<P: SchemeParams> BroadcastRound for Round1<P> {
-    const REQUIRES_CONSENSUS: bool = <key_init::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS
-        || <key_refresh::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS;
-    type Message = Round1Message<P>;
-    type Payload = (
-        <key_init::Round1<P> as BroadcastRound>::Payload,
-        <key_refresh::Round1<P> as BroadcastRound>::Payload,
+    const REQUIRES_ECHO: bool = <key_init::Round1<P> as Round>::REQUIRES_ECHO
+        || <key_refresh::Round1<P> as Round>::REQUIRES_ECHO;
+    type BroadcastMessage = (
+        <key_init::Round1<P> as Round>::BroadcastMessage,
+        <key_refresh::Round1<P> as Round>::BroadcastMessage,
     );
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        let key_init_dest = self.key_init_round.broadcast_destinations();
-        let key_refresh_dest = self.key_refresh_round.broadcast_destinations();
+    type DirectMessage = ();
+    type Payload = (
+        <key_init::Round1<P> as Round>::Payload,
+        <key_refresh::Round1<P> as Round>::Payload,
+    );
+    type Artifact = ();
+
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        let key_init_dest = self.key_init_round.message_destinations();
+        let key_refresh_dest = self.key_refresh_round.message_destinations();
         assert!(key_init_dest == key_refresh_dest);
         key_init_dest
     }
-    fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        let key_init_message = self.key_init_round.make_broadcast(rng)?;
-        let key_refresh_message = self.key_refresh_round.make_broadcast(rng)?;
-        Ok(Round1Message {
-            key_init_message,
-            key_refresh_message,
-        })
+
+    fn make_broadcast_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        // Can unwrap here since both protocols always send out broadcasts.
+        let key_init_message = self.key_init_round.make_broadcast_message(rng).unwrap();
+        let key_refresh_message = self.key_refresh_round.make_broadcast_message(rng).unwrap();
+
+        Some((key_init_message, key_refresh_message))
     }
-    fn verify_broadcast(
+
+    no_direct_messages!();
+
+    fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+        broadcast_msg: Self::BroadcastMessage,
+        _direct_msg: Self::DirectMessage,
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+        let (key_init_message, key_refresh_message) = broadcast_msg;
         let key_init_payload = self
             .key_init_round
-            .verify_broadcast(from, msg.key_init_message)
-            .map_err(wrap_receive_error)?;
+            .verify_message(from, key_init_message, ())
+            .map_err(KeyGenError::KeyInit)?;
         let key_refresh_payload = self
             .key_refresh_round
-            .verify_broadcast(from, msg.key_refresh_message)
-            .map_err(wrap_receive_error)?;
+            .verify_message(from, key_refresh_message, ())
+            .map_err(KeyGenError::KeyRefresh)?;
         Ok((key_init_payload, key_refresh_payload))
-    }
-}
-
-impl<P: SchemeParams> DirectRound for Round1<P> {
-    type Message = ();
-    type Payload = ();
-    type Artifact = ();
-}
-
-impl<P: SchemeParams> Finalizable for Round1<P> {
-    fn requirement() -> FinalizationRequirement {
-        FinalizationRequirement::AllBroadcasts
     }
 }
 
@@ -182,11 +157,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let (key_init_bc_payloads, key_refresh_bc_payloads) = bc_payloads
+        let (key_init_payloads, key_refresh_payloads) = payloads
             .into_iter()
             .map(|(idx, (init_payload, refresh_payload))| {
                 ((idx, init_payload), (idx, refresh_payload))
@@ -195,16 +169,11 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
 
         let key_init_round = self
             .key_init_round
-            .finalize_to_next_round(rng, key_init_bc_payloads, BTreeMap::new(), BTreeMap::new())
+            .finalize_to_next_round(rng, key_init_payloads, BTreeMap::new())
             .map_err(wrap_finalize_error)?;
         let key_refresh_round = self
             .key_refresh_round
-            .finalize_to_next_round(
-                rng,
-                key_refresh_bc_payloads,
-                BTreeMap::new(),
-                BTreeMap::new(),
-            )
+            .finalize_to_next_round(rng, key_refresh_payloads, BTreeMap::new())
             .map_err(wrap_finalize_error)?;
         Ok(Round2 {
             key_init_round,
@@ -218,21 +187,7 @@ pub(crate) struct Round2<P: SchemeParams> {
     key_refresh_round: key_refresh::Round2<P>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "<key_init::Round2<P> as BroadcastRound>::Message: Serialize,
-    <key_refresh::Round2<P> as BroadcastRound>::Message: Serialize"
-))]
-#[serde(bound(
-    deserialize = "<key_init::Round2<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>,
-    <key_refresh::Round2<P> as BroadcastRound>::Message: for<'x> Deserialize<'x>"
-))]
-pub struct Round2Message<P: SchemeParams> {
-    key_init_message: <key_init::Round2<P> as BroadcastRound>::Message,
-    key_refresh_message: <key_refresh::Round2<P> as BroadcastRound>::Message,
-}
-
-impl<P: SchemeParams> BaseRound for Round2<P> {
+impl<P: SchemeParams> Round for Round2<P> {
     type Type = ToNextRound;
     type Result = KeyGenResult<P>;
     const ROUND_NUM: u8 = 2;
@@ -245,58 +200,56 @@ impl<P: SchemeParams> BaseRound for Round2<P> {
     fn party_idx(&self) -> PartyIdx {
         self.key_init_round.party_idx()
     }
-}
 
-impl<P: SchemeParams> BroadcastRound for Round2<P> {
-    const REQUIRES_CONSENSUS: bool = <key_init::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS
-        || <key_refresh::Round1<P> as BroadcastRound>::REQUIRES_CONSENSUS;
-    type Message = Round2Message<P>;
-    type Payload = (
-        <key_init::Round2<P> as BroadcastRound>::Payload,
-        <key_refresh::Round2<P> as BroadcastRound>::Payload,
+    const REQUIRES_ECHO: bool = <key_init::Round1<P> as Round>::REQUIRES_ECHO
+        || <key_refresh::Round1<P> as Round>::REQUIRES_ECHO;
+    type BroadcastMessage = (
+        <key_init::Round2<P> as Round>::BroadcastMessage,
+        <key_refresh::Round2<P> as Round>::BroadcastMessage,
     );
+    type DirectMessage = ();
+    type Payload = (
+        <key_init::Round2<P> as Round>::Payload,
+        <key_refresh::Round2<P> as Round>::Payload,
+    );
+    type Artifact = ();
 
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        let key_init_dest = self.key_init_round.broadcast_destinations();
-        let key_refresh_dest = self.key_refresh_round.broadcast_destinations();
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        let key_init_dest = self.key_init_round.message_destinations();
+        let key_refresh_dest = self.key_refresh_round.message_destinations();
         assert!(key_init_dest == key_refresh_dest);
         key_init_dest
     }
-    fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        let key_init_message = self.key_init_round.make_broadcast(rng)?;
-        let key_refresh_message = self.key_refresh_round.make_broadcast(rng)?;
-        Ok(Round2Message {
-            key_init_message,
-            key_refresh_message,
-        })
+
+    fn make_broadcast_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        // Can unwrap here since both protocols always send out broadcasts.
+        let key_init_message = self.key_init_round.make_broadcast_message(rng).unwrap();
+        let key_refresh_message = self.key_refresh_round.make_broadcast_message(rng).unwrap();
+
+        Some((key_init_message, key_refresh_message))
     }
 
-    fn verify_broadcast(
+    no_direct_messages!();
+
+    fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+        broadcast_msg: Self::BroadcastMessage,
+        _direct_msg: Self::DirectMessage,
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+        let (key_init_message, key_refresh_message) = broadcast_msg;
         let key_init_payload = self
             .key_init_round
-            .verify_broadcast(from, msg.key_init_message)
-            .map_err(wrap_receive_error)?;
+            .verify_message(from, key_init_message, ())
+            .map_err(KeyGenError::KeyInit)?;
         let key_refresh_payload = self
             .key_refresh_round
-            .verify_broadcast(from, msg.key_refresh_message)
-            .map_err(wrap_receive_error)?;
+            .verify_message(from, key_refresh_message, ())
+            .map_err(KeyGenError::KeyRefresh)?;
         Ok((key_init_payload, key_refresh_payload))
-    }
-}
-
-impl<P: SchemeParams> DirectRound for Round2<P> {
-    type Message = ();
-    type Payload = ();
-    type Artifact = ();
-}
-
-impl<P: SchemeParams> Finalizable for Round2<P> {
-    fn requirement() -> FinalizationRequirement {
-        FinalizationRequirement::AllBroadcasts
     }
 }
 
@@ -305,11 +258,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        _dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        _dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let (key_init_bc_payloads, key_refresh_bc_payloads) = bc_payloads
+        let (key_init_payloads, key_refresh_payloads) = payloads
             .into_iter()
             .map(|(idx, (init_payload, refresh_payload))| {
                 ((idx, init_payload), (idx, refresh_payload))
@@ -318,16 +270,11 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
 
         let key_init_round = self
             .key_init_round
-            .finalize_to_next_round(rng, key_init_bc_payloads, BTreeMap::new(), BTreeMap::new())
+            .finalize_to_next_round(rng, key_init_payloads, BTreeMap::new())
             .map_err(wrap_finalize_error)?;
         let key_refresh_round = self
             .key_refresh_round
-            .finalize_to_next_round(
-                rng,
-                key_refresh_bc_payloads,
-                BTreeMap::new(),
-                BTreeMap::new(),
-            )
+            .finalize_to_next_round(rng, key_refresh_payloads, BTreeMap::new())
             .map_err(wrap_finalize_error)?;
         Ok(Round3 {
             key_init_round,
@@ -341,7 +288,7 @@ pub(crate) struct Round3<P: SchemeParams> {
     key_refresh_round: key_refresh::Round3<P>,
 }
 
-impl<P: SchemeParams> BaseRound for Round3<P> {
+impl<P: SchemeParams> Round for Round3<P> {
     type Type = ToResult;
     type Result = KeyGenResult<P>;
     const ROUND_NUM: u8 = 3;
@@ -354,61 +301,55 @@ impl<P: SchemeParams> BaseRound for Round3<P> {
     fn party_idx(&self) -> PartyIdx {
         self.key_init_round.party_idx()
     }
-}
 
-impl<P: SchemeParams> BroadcastRound for Round3<P> {
-    const REQUIRES_CONSENSUS: bool = key_init::Round3::<P>::REQUIRES_CONSENSUS;
-    type Message = <key_init::Round3<P> as BroadcastRound>::Message;
-    type Payload = <key_init::Round3<P> as BroadcastRound>::Payload;
+    const REQUIRES_ECHO: bool = <key_init::Round3<P> as Round>::REQUIRES_ECHO
+        || <key_refresh::Round3<P> as Round>::REQUIRES_ECHO;
+    type BroadcastMessage = <key_init::Round3<P> as Round>::BroadcastMessage;
+    type DirectMessage = <key_refresh::Round3<P> as Round>::DirectMessage;
+    type Payload = (
+        <key_init::Round3<P> as Round>::Payload,
+        <key_refresh::Round3<P> as Round>::Payload,
+    );
+    type Artifact = <key_refresh::Round3<P> as Round>::Artifact;
 
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        self.key_init_round.broadcast_destinations()
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        let key_init_dest = self.key_init_round.message_destinations();
+        let key_refresh_dest = self.key_refresh_round.message_destinations();
+        assert!(key_init_dest == key_refresh_dest);
+        key_init_dest
     }
-    fn make_broadcast(&self, rng: &mut impl CryptoRngCore) -> Result<Self::Message, String> {
-        self.key_init_round.make_broadcast(rng)
-    }
 
-    fn verify_broadcast(
+    fn make_broadcast_message(
         &self,
-        from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        self.key_init_round
-            .verify_broadcast(from, msg)
-            .map_err(wrap_receive_error)
+        rng: &mut impl CryptoRngCore,
+    ) -> Option<Self::BroadcastMessage> {
+        self.key_init_round.make_broadcast_message(rng)
     }
-}
 
-impl<P: SchemeParams> DirectRound for Round3<P> {
-    type Artifact = <key_refresh::Round3<P> as DirectRound>::Artifact;
-    type Message = <key_refresh::Round3<P> as DirectRound>::Message;
-    type Payload = <key_refresh::Round3<P> as DirectRound>::Payload;
-
-    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
-        self.key_refresh_round.direct_message_destinations()
-    }
     fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Self::Message, Self::Artifact), String> {
+    ) -> (Self::DirectMessage, Self::Artifact) {
         self.key_refresh_round.make_direct_message(rng, destination)
     }
 
-    fn verify_direct_message(
+    fn verify_message(
         &self,
         from: PartyIdx,
-        msg: Self::Message,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
-        self.key_refresh_round
-            .verify_direct_message(from, msg)
-            .map_err(wrap_receive_error)
-    }
-}
-
-impl<P: SchemeParams> Finalizable for Round3<P> {
-    fn requirement() -> FinalizationRequirement {
-        FinalizationRequirement::AllBroadcastsAndDms
+        broadcast_msg: Self::BroadcastMessage,
+        direct_msg: Self::DirectMessage,
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+        #[allow(clippy::let_unit_value)]
+        let key_init_payload = self
+            .key_init_round
+            .verify_message(from, broadcast_msg, ())
+            .map_err(KeyGenError::KeyInit)?;
+        let key_refresh_payload = self
+            .key_refresh_round
+            .verify_message(from, (), direct_msg)
+            .map_err(KeyGenError::KeyRefresh)?;
+        Ok((key_init_payload, key_refresh_payload))
     }
 }
 
@@ -416,17 +357,23 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        bc_payloads: BTreeMap<PartyIdx, <Self as BroadcastRound>::Payload>,
-        dm_payloads: BTreeMap<PartyIdx, <Self as DirectRound>::Payload>,
-        dm_artifacts: BTreeMap<PartyIdx, <Self as DirectRound>::Artifact>,
+        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
+        let (key_init_payloads, key_refresh_payloads) = payloads
+            .into_iter()
+            .map(|(idx, (init_payload, refresh_payload))| {
+                ((idx, init_payload), (idx, refresh_payload))
+            })
+            .unzip();
+
         let keyshare_seed = self
             .key_init_round
-            .finalize_to_result(rng, bc_payloads, BTreeMap::new(), BTreeMap::new())
+            .finalize_to_result(rng, key_init_payloads, BTreeMap::new())
             .map_err(wrap_finalize_error)?;
         let keyshare_change = self
             .key_refresh_round
-            .finalize_to_result(rng, BTreeMap::new(), dm_payloads, dm_artifacts)
+            .finalize_to_result(rng, key_refresh_payloads, artifacts)
             .map_err(wrap_finalize_error)?;
         Ok(KeyShare::new(keyshare_seed, keyshare_change))
     }

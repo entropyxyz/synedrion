@@ -7,12 +7,12 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_interactive_signing_session, make_key_gen_session, FinalizeOutcome, KeyShare,
-    ProtocolResult, Session, SignedMessage, TestParams,
+    make_interactive_signing_session, make_key_gen_session, CombinedMessage, FinalizeOutcome,
+    KeyShare, ProtocolResult, Session, TestParams,
 };
 
-type MessageOut = (VerifyingKey, VerifyingKey, SignedMessage<Signature>);
-type MessageIn = (VerifyingKey, SignedMessage<Signature>);
+type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
+type MessageIn = (VerifyingKey, CombinedMessage<Signature>);
 
 fn key_to_str(key: &VerifyingKey) -> String {
     hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])
@@ -45,38 +45,21 @@ async fn run_session<Res: ProtocolResult>(
         // can be done in parallel, with the results being assembled into `accum`
         // sequentially in the host task.
 
-        let destinations = session.broadcast_destinations();
-        if let Some(destinations) = destinations {
+        let destinations = session.message_destinations();
+        for destination in destinations.iter() {
             // In production usage, this will happen in a spawned task
-            let message = session.make_broadcast(&mut OsRng).unwrap();
-            for destination in destinations.iter() {
-                println!(
-                    "{key_str}: sending a broadcast to {}",
-                    key_to_str(destination)
-                );
-                tx.send((key, *destination, message.clone())).await.unwrap();
-            }
-        }
+            // (since it can take some time to create a message),
+            // and the artifact will be sent back to the host task
+            // to be added to the accumulator.
+            let (message, artifact) = session.make_message(&mut OsRng, destination).unwrap();
+            println!(
+                "{key_str}: sending a message to {}",
+                key_to_str(destination)
+            );
+            tx.send((key, *destination, message)).await.unwrap();
 
-        let destinations = session.direct_message_destinations();
-        if let Some(destinations) = destinations {
-            for destination in destinations.iter() {
-                // In production usage, this will happen in a spawned task
-                // (since it can take some time to create a message),
-                // and the artifact will be sent back to the host task
-                // to be added to the accumulator.
-                let (message, artifact) = session
-                    .make_direct_message(&mut OsRng, destination)
-                    .unwrap();
-                println!(
-                    "{key_str}: sending a direct message to {}",
-                    key_to_str(destination)
-                );
-                tx.send((key, *destination, message)).await.unwrap();
-
-                // This will happen in a host task
-                accum.add_artifact(artifact).unwrap();
-            }
+            // This will happen in a host task
+            accum.add_artifact(artifact).unwrap();
         }
 
         for preprocessed in cached_messages {

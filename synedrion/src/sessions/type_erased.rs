@@ -8,15 +8,15 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use core::any::Any;
+use core::any::{Any, TypeId};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
 use crate::rounds::{
-    self, BroadcastRound, DirectRound, FinalizableToNextRound, FinalizableToResult, PartyIdx,
-    ProtocolResult, Round, ToNextRound, ToResult,
+    self, FinalizableToNextRound, FinalizableToResult, PartyIdx, ProtocolResult, Round,
+    ToNextRound, ToResult,
 };
 
 pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, LocalError> {
@@ -49,10 +49,11 @@ pub enum AccumFinalizeError {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ReceiveError<Res: ProtocolResult> {
+    InvalidContents(String),
     /// Error while deserializing the given message.
     CannotDeserialize(String),
     /// An error from the protocol level
-    Protocol(rounds::ReceiveError<Res>),
+    Protocol(Res::ProvableError),
 }
 
 #[derive(Debug, Clone)]
@@ -85,47 +86,54 @@ impl<'a> rand_core::RngCore for BoxedRng<'a> {
     }
 }
 
-pub(crate) struct DynBcPayload(Box<dyn Any + Send>);
+pub(crate) struct DynPayload(Box<dyn Any + Send>);
 
-pub(crate) struct DynDmPayload(Box<dyn Any + Send>);
+pub(crate) struct DynArtifact(Box<dyn Any + Send>);
 
-pub(crate) struct DynDmArtifact(Box<dyn Any + Send>);
+impl DynArtifact {
+    pub fn null() -> Self {
+        Self(Box::new(()))
+    }
+}
 
 /// An object-safe trait wrapping `Round`.
 pub(crate) trait DynRound<Res: ProtocolResult>: Send {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
 
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>>;
-    fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, LocalError>;
-    fn requires_broadcast_consensus(&self) -> bool;
-    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>>;
+    fn requires_echo(&self) -> bool;
+    fn message_destinations(&self) -> Vec<PartyIdx>;
+    fn make_broadcast_message(
+        &self,
+        rng: &mut dyn CryptoRngCore,
+    ) -> Result<Option<Box<[u8]>>, LocalError>;
+    #[allow(clippy::type_complexity)]
     fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, DynDmArtifact), LocalError>;
-
-    fn verify_broadcast(
+    ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError>;
+    fn verify_message(
         &self,
         from: PartyIdx,
-        message: &[u8],
-    ) -> Result<DynBcPayload, ReceiveError<Res>>;
-    fn verify_direct_message(
-        &self,
-        from: PartyIdx,
-        message: &[u8],
-    ) -> Result<DynDmPayload, ReceiveError<Res>>;
+        broadcast_data: Option<&[u8]>,
+        direct_data: Option<&[u8]>,
+    ) -> Result<DynPayload, ReceiveError<Res>>;
     fn can_finalize(&self, accum: &DynRoundAccum) -> bool;
     fn missing_payloads(&self, accum: &DynRoundAccum) -> BTreeSet<PartyIdx>;
+}
+
+fn is_null_type<T: 'static>() -> bool {
+    TypeId::of::<T>() == TypeId::of::<()>()
 }
 
 impl<R> DynRound<R::Result> for R
 where
     R: Round + Send,
-    <R as BroadcastRound>::Payload: 'static + Send,
-    <R as DirectRound>::Payload: 'static + Send,
-    <R as DirectRound>::Artifact: 'static + Send,
+    <R as Round>::BroadcastMessage: 'static,
+    <R as Round>::DirectMessage: 'static,
+    <R as Round>::Payload: 'static + Send,
+    <R as Round>::Artifact: 'static + Send,
 {
     fn round_num(&self) -> u8 {
         R::ROUND_NUM
@@ -135,186 +143,176 @@ where
         R::NEXT_ROUND_NUM
     }
 
-    fn verify_broadcast(
+    fn message_destinations(&self) -> Vec<PartyIdx> {
+        self.message_destinations()
+    }
+
+    fn make_broadcast_message(
         &self,
-        from: PartyIdx,
-        message: &[u8],
-    ) -> Result<DynBcPayload, ReceiveError<R::Result>> {
-        let typed_message: <R as BroadcastRound>::Message = match deserialize_message(message) {
-            Ok(message) => message,
-            Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
-        };
+        rng: &mut dyn CryptoRngCore,
+    ) -> Result<Option<Box<[u8]>>, LocalError> {
+        if is_null_type::<R::BroadcastMessage>() {
+            return Ok(None);
+        }
 
-        let payload = self
-            .verify_broadcast(from, typed_message)
-            .map_err(ReceiveError::Protocol)?;
-
-        Ok(DynBcPayload(Box::new(payload)))
-    }
-
-    fn verify_direct_message(
-        &self,
-        from: PartyIdx,
-        message: &[u8],
-    ) -> Result<DynDmPayload, ReceiveError<R::Result>> {
-        let typed_message: <R as DirectRound>::Message = match deserialize_message(message) {
-            Ok(message) => message,
-            Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
-        };
-
-        let payload = self
-            .verify_direct_message(from, typed_message)
-            .map_err(ReceiveError::Protocol)?;
-
-        Ok(DynDmPayload(Box::new(payload)))
-    }
-
-    fn broadcast_destinations(&self) -> Option<Vec<PartyIdx>> {
-        self.broadcast_destinations()
-    }
-
-    fn make_broadcast(&self, rng: &mut dyn CryptoRngCore) -> Result<Box<[u8]>, LocalError> {
         let mut boxed_rng = BoxedRng(rng);
-        let serialized = self
-            .make_broadcast(&mut boxed_rng)
-            .map_err(|err| LocalError(format!("Failed to make a broadcast message: {err:?}")))?;
-        serialize_message(&serialized)
-    }
-
-    fn requires_broadcast_consensus(&self) -> bool {
-        <R as BroadcastRound>::REQUIRES_CONSENSUS
-    }
-
-    fn direct_message_destinations(&self) -> Option<Vec<PartyIdx>> {
-        self.direct_message_destinations()
+        let typed_message = self.make_broadcast_message(&mut boxed_rng);
+        let serialized = typed_message
+            .map(|message| serialize_message(&message))
+            .transpose()?;
+        Ok(serialized)
     }
 
     fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: PartyIdx,
-    ) -> Result<(Box<[u8]>, DynDmArtifact), LocalError> {
+    ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError> {
+        let null_message = is_null_type::<R::DirectMessage>();
+        let null_artifact = is_null_type::<R::Artifact>();
+
+        if null_message && null_artifact {
+            return Ok((None, DynArtifact::null()));
+        }
+
         let mut boxed_rng = BoxedRng(rng);
-        let (typed_message, typed_artifact) = self
-            .make_direct_message(&mut boxed_rng, destination)
-            .map_err(|err| LocalError(format!("Failed to make a direct message: {err:?}")))?;
-        let message = serialize_message(&typed_message)?;
-        Ok((message, DynDmArtifact(Box::new(typed_artifact))))
+        let (typed_message, typed_artifact) = self.make_direct_message(&mut boxed_rng, destination);
+
+        let message = if null_message {
+            None
+        } else {
+            Some(serialize_message(&typed_message)?)
+        };
+
+        Ok((message, DynArtifact(Box::new(typed_artifact))))
+    }
+
+    fn verify_message(
+        &self,
+        from: PartyIdx,
+        broadcast_data: Option<&[u8]>,
+        direct_data: Option<&[u8]>,
+    ) -> Result<DynPayload, ReceiveError<R::Result>> {
+        let null_broadcast = is_null_type::<R::BroadcastMessage>();
+        let null_direct = is_null_type::<R::DirectMessage>();
+
+        let broadcast_data = if let Some(data) = broadcast_data {
+            data
+        } else {
+            if !null_broadcast {
+                return Err(ReceiveError::InvalidContents(
+                    "Expected a non-null broadcast message".into(),
+                ));
+            }
+            b""
+        };
+
+        let broadcast_message: <R as Round>::BroadcastMessage =
+            match deserialize_message(broadcast_data) {
+                Ok(message) => message,
+                Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
+            };
+
+        let direct_data = if let Some(data) = direct_data {
+            data
+        } else {
+            if !null_direct {
+                return Err(ReceiveError::InvalidContents(
+                    "Expected a non-null direct message".into(),
+                ));
+            }
+            b""
+        };
+
+        let direct_message: <R as Round>::DirectMessage = match deserialize_message(direct_data) {
+            Ok(message) => message,
+            Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
+        };
+
+        let payload = self
+            .verify_message(from, broadcast_message, direct_message)
+            .map_err(ReceiveError::Protocol)?;
+
+        Ok(DynPayload(Box::new(payload)))
+    }
+
+    fn requires_echo(&self) -> bool {
+        <R as Round>::REQUIRES_ECHO
     }
 
     fn can_finalize(&self, accum: &DynRoundAccum) -> bool {
-        self.can_finalize(
-            accum.bc_payloads.keys(),
-            accum.dm_payloads.keys(),
-            accum.dm_artifacts.keys(),
-        )
+        self.can_finalize(accum.payloads.keys(), accum.artifacts.keys())
     }
 
     fn missing_payloads(&self, accum: &DynRoundAccum) -> BTreeSet<PartyIdx> {
-        self.missing_payloads(
-            accum.bc_payloads.keys(),
-            accum.dm_payloads.keys(),
-            accum.dm_artifacts.keys(),
-        )
+        self.missing_payloads(accum.payloads.keys(), accum.artifacts.keys())
     }
 }
 
 pub(crate) struct DynRoundAccum {
-    bc_payloads: BTreeMap<PartyIdx, DynBcPayload>,
-    dm_payloads: BTreeMap<PartyIdx, DynDmPayload>,
-    dm_artifacts: BTreeMap<PartyIdx, DynDmArtifact>,
+    payloads: BTreeMap<PartyIdx, DynPayload>,
+    artifacts: BTreeMap<PartyIdx, DynArtifact>,
 }
 
 struct RoundAccum<R: Round> {
-    bc_payloads: BTreeMap<PartyIdx, <R as BroadcastRound>::Payload>,
-    dm_payloads: BTreeMap<PartyIdx, <R as DirectRound>::Payload>,
-    dm_artifacts: BTreeMap<PartyIdx, <R as DirectRound>::Artifact>,
+    payloads: BTreeMap<PartyIdx, <R as Round>::Payload>,
+    artifacts: BTreeMap<PartyIdx, <R as Round>::Artifact>,
 }
 
 impl DynRoundAccum {
     pub fn new() -> Self {
         Self {
-            bc_payloads: BTreeMap::new(),
-            dm_payloads: BTreeMap::new(),
-            dm_artifacts: BTreeMap::new(),
+            payloads: BTreeMap::new(),
+            artifacts: BTreeMap::new(),
         }
     }
 
-    pub fn contains(&self, from: PartyIdx, broadcast: bool) -> bool {
-        if broadcast {
-            self.bc_payloads.contains_key(&from)
-        } else {
-            self.dm_payloads.contains_key(&from)
-        }
+    pub fn contains(&self, from: PartyIdx) -> bool {
+        self.payloads.contains_key(&from)
     }
 
-    pub fn add_bc_payload(
+    pub fn add_payload(
         &mut self,
         from: PartyIdx,
-        payload: DynBcPayload,
+        payload: DynPayload,
     ) -> Result<(), AccumAddError> {
-        if self.bc_payloads.contains_key(&from) {
+        if self.payloads.contains_key(&from) {
             return Err(AccumAddError::SlotTaken);
         }
-        self.bc_payloads.insert(from, payload);
+        self.payloads.insert(from, payload);
         Ok(())
     }
 
-    pub fn add_dm_payload(
-        &mut self,
-        from: PartyIdx,
-        payload: DynDmPayload,
-    ) -> Result<(), AccumAddError> {
-        if self.dm_payloads.contains_key(&from) {
-            return Err(AccumAddError::SlotTaken);
-        }
-        self.dm_payloads.insert(from, payload);
-        Ok(())
-    }
-
-    pub fn add_dm_artifact(
+    pub fn add_artifact(
         &mut self,
         destination: PartyIdx,
-        artifact: DynDmArtifact,
+        artifact: DynArtifact,
     ) -> Result<(), AccumAddError> {
-        if self.dm_artifacts.contains_key(&destination) {
+        if self.artifacts.contains_key(&destination) {
             return Err(AccumAddError::SlotTaken);
         }
-        self.dm_artifacts.insert(destination, artifact);
+        self.artifacts.insert(destination, artifact);
         Ok(())
     }
 
     fn finalize<R: Round>(self) -> Result<RoundAccum<R>, AccumFinalizeError>
     where
-        <R as BroadcastRound>::Payload: 'static,
-        <R as DirectRound>::Payload: 'static,
-        <R as DirectRound>::Artifact: 'static,
+        <R as Round>::Payload: 'static,
+        <R as Round>::Artifact: 'static,
     {
-        let bc_payloads = self
-            .bc_payloads
+        let payloads = self
+            .payloads
             .into_iter()
-            .map(|(idx, elem)| {
-                downcast::<<R as BroadcastRound>::Payload>(elem.0).map(|elem| (idx, elem))
-            })
+            .map(|(idx, elem)| downcast::<<R as Round>::Payload>(elem.0).map(|elem| (idx, elem)))
             .collect::<Result<BTreeMap<_, _>, _>>()?;
-        let dm_payloads = self
-            .dm_payloads
+        let artifacts = self
+            .artifacts
             .into_iter()
-            .map(|(idx, elem)| {
-                downcast::<<R as DirectRound>::Payload>(elem.0).map(|elem| (idx, elem))
-            })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
-        let dm_artifacts = self
-            .dm_artifacts
-            .into_iter()
-            .map(|(idx, elem)| {
-                downcast::<<R as DirectRound>::Artifact>(elem.0).map(|elem| (idx, elem))
-            })
+            .map(|(idx, elem)| downcast::<<R as Round>::Artifact>(elem.0).map(|elem| (idx, elem)))
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(RoundAccum {
-            bc_payloads,
-            dm_payloads,
-            dm_artifacts,
+            payloads,
+            artifacts,
         })
     }
 }
@@ -359,9 +357,8 @@ const _: () = {
     impl<R> DynFinalizable<R::Result> for R
     where
         R: Round + Send + 'static,
-        <R as BroadcastRound>::Payload: Send,
-        <R as DirectRound>::Payload: Send,
-        <R as DirectRound>::Artifact: Send,
+        <R as Round>::Payload: Send,
+        <R as Round>::Artifact: Send,
         Self: _DynFinalizable<R::Result, R::Type>,
     {
         fn finalize(
@@ -387,12 +384,7 @@ const _: () = {
             let mut boxed_rng = BoxedRng(rng);
             let typed_accum = accum.finalize::<R>().map_err(FinalizeError::Accumulator)?;
             let result = (*self)
-                .finalize_to_result(
-                    &mut boxed_rng,
-                    typed_accum.bc_payloads,
-                    typed_accum.dm_payloads,
-                    typed_accum.dm_artifacts,
-                )
+                .finalize_to_result(&mut boxed_rng, typed_accum.payloads, typed_accum.artifacts)
                 .map_err(FinalizeError::Protocol)?;
             Ok(FinalizeOutcome::Success(result))
         }
@@ -411,12 +403,7 @@ const _: () = {
             let mut boxed_rng = BoxedRng(rng);
             let typed_accum = accum.finalize::<R>().map_err(FinalizeError::Accumulator)?;
             let next_round = (*self)
-                .finalize_to_next_round(
-                    &mut boxed_rng,
-                    typed_accum.bc_payloads,
-                    typed_accum.dm_payloads,
-                    typed_accum.dm_artifacts,
-                )
+                .finalize_to_next_round(&mut boxed_rng, typed_accum.payloads, typed_accum.artifacts)
                 .map_err(FinalizeError::Protocol)?;
             Ok(FinalizeOutcome::AnotherRound(Box::new(next_round)))
         }
