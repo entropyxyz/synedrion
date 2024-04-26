@@ -17,8 +17,8 @@ use crate::common::KeyShareSeed;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
     all_parties_except, no_direct_messages, try_to_holevec, FinalizableToNextRound,
-    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult,
-    ReceiveError, Round, ToNextRound, ToResult,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, Round,
+    ToNextRound, ToResult,
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
@@ -183,7 +183,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         _from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         Ok(Round1Payload {
             cap_v: broadcast_msg.cap_v,
         })
@@ -264,11 +264,11 @@ impl<P: SchemeParams> Round for Round2<P> {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         if &broadcast_msg.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from.as_usize()).unwrap()
         {
-            return Err(ReceiveError::Provable(KeyInitError::R2HashMismatch));
+            return Err(KeyInitError::R2HashMismatch);
         }
 
         Ok(Round2Payload {
@@ -360,12 +360,12 @@ impl<P: SchemeParams> Round for Round3<P> {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let data = self.others_data.get(from.as_usize()).unwrap();
 
         let aux = (&self.context.sid_hash, &from, &self.rid);
         if !broadcast_msg.psi.verify(&data.cap_a, &data.cap_x, &aux) {
-            return Err(ReceiveError::Provable(KeyInitError::R3InvalidSchProof));
+            return Err(KeyInitError::R3InvalidSchProof);
         }
         Ok(())
     }

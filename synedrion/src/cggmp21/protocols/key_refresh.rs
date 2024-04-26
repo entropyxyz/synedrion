@@ -24,7 +24,7 @@ use crate::paillier::{
 use crate::rounds::{
     all_parties_except, no_broadcast_messages, no_direct_messages, try_to_holevec,
     FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx,
-    ProtocolResult, ReceiveError, Round, ToNextRound, ToResult,
+    ProtocolResult, Round, ToNextRound, ToResult,
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
@@ -264,7 +264,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         _from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         Ok(Round1Payload {
             cap_v: broadcast_msg.cap_v,
         })
@@ -344,26 +344,26 @@ impl<P: SchemeParams> Round for Round2<P> {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         if &broadcast_msg.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from.as_usize()).unwrap()
         {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("Hash mismatch".into()),
+            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+                "Hash mismatch".into(),
             )));
         }
 
         let paillier_pk = broadcast_msg.data.paillier_pk.to_precomputed();
 
         if paillier_pk.modulus().bits_vartime() < 8 * P::SECURITY_PARAMETER {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("Paillier modulus is too small".into()),
+            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+                "Paillier modulus is too small".into(),
             )));
         }
 
         if broadcast_msg.data.cap_x_to_send.iter().sum::<Point>() != Point::IDENTITY {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("Sum of X points is not identity".into()),
+            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+                "Sum of X points is not identity".into(),
             )));
         }
 
@@ -371,8 +371,8 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let rp_params = broadcast_msg.data.rp_params.to_mod(&paillier_pk);
         if !broadcast_msg.data.hat_psi.verify(&rp_params, &aux) {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("PRM verification failed".into()),
+            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+                "PRM verification failed".into(),
             )));
         }
 
@@ -539,7 +539,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         from: PartyIdx,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let sender_data = &self.others_data.get(from.as_usize()).unwrap();
 
         let enc_x = direct_msg
@@ -552,13 +552,13 @@ impl<P: SchemeParams> Round for Round3<P> {
         if x.mul_by_generator() != sender_data.data.cap_x_to_send[self.context.party_idx.as_usize()]
         {
             let mu = enc_x.derive_randomizer(&self.context.paillier_sk);
-            return Err(ReceiveError::Provable(KeyRefreshError(
+            return Err(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3MismatchedSecret {
                     cap_c: direct_msg.data2.paillier_enc_x,
                     x,
                     mu: mu.retrieve(),
                 },
-            )));
+            ));
         }
 
         let aux = (&self.context.sid_hash, &from, &self.rho);
@@ -568,8 +568,8 @@ impl<P: SchemeParams> Round for Round3<P> {
             .psi_mod
             .verify(&sender_data.paillier_pk, &aux)
         {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Mod proof verification failed".into()),
+            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+                "Mod proof verification failed".into(),
             )));
         }
 
@@ -578,8 +578,8 @@ impl<P: SchemeParams> Round for Round3<P> {
             &self.context.data_precomp.rp_params,
             &aux,
         ) {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Fac proof verification failed".into()),
+            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+                "Fac proof verification failed".into(),
             )));
         }
 
@@ -588,8 +588,8 @@ impl<P: SchemeParams> Round for Round3<P> {
             .pi
             .verify(&sender_data.data.cap_b, &sender_data.data.cap_y, &aux)
         {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Sch proof verification (Y) failed".into()),
+            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+                "Sch proof verification (Y) failed".into(),
             )));
         }
 
@@ -598,8 +598,8 @@ impl<P: SchemeParams> Round for Round3<P> {
             &sender_data.data.cap_x_to_send[self.context.party_idx.as_usize()],
             &aux,
         ) {
-            return Err(ReceiveError::Provable(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Sch proof verification (X) failed".into()),
+            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+                "Sch proof verification (X) failed".into(),
             )));
         }
 

@@ -3,24 +3,18 @@ use alloc::vec::Vec;
 use rand_core::CryptoRngCore;
 
 use super::generic::{
-    FinalizableType, FinalizationRequirement, FinalizeError, PartyIdx, ProtocolResult,
-    ReceiveError, Round,
+    FinalizableType, FinalizationRequirement, FinalizeError, PartyIdx, ProtocolResult, Round,
 };
 
-pub(crate) trait ResultWrapper<Res: ProtocolResult>: ProtocolResult {
+pub(crate) trait ProvableErrorWrapper<Res: ProtocolResult>: ProtocolResult {
     fn wrap_error(error: Res::ProvableError) -> Self::ProvableError;
+}
+
+pub(crate) trait CorrectnessProofWrapper<Res: ProtocolResult>: ProtocolResult {
     fn wrap_proof(proof: Res::CorrectnessProof) -> Self::CorrectnessProof;
 }
 
-pub(crate) fn wrap_receive_error<T: ProtocolResult, Res: ResultWrapper<T>>(
-    error: ReceiveError<T>,
-) -> ReceiveError<Res> {
-    match error {
-        ReceiveError::Provable(err) => ReceiveError::Provable(Res::wrap_error(err)),
-    }
-}
-
-pub(crate) fn wrap_finalize_error<T: ProtocolResult, Res: ResultWrapper<T>>(
+pub(crate) fn wrap_finalize_error<T: ProtocolResult, Res: CorrectnessProofWrapper<T>>(
     error: FinalizeError<T>,
 ) -> FinalizeError<Res> {
     match error {
@@ -30,7 +24,7 @@ pub(crate) fn wrap_finalize_error<T: ProtocolResult, Res: ResultWrapper<T>>(
 }
 
 pub(crate) trait RoundWrapper: 'static + Sized + Send {
-    type Result: ProtocolResult + ResultWrapper<<Self::InnerRound as Round>::Result>;
+    type Result: ProtocolResult + ProvableErrorWrapper<<Self::InnerRound as Round>::Result>;
     type Type: FinalizableType;
     type InnerRound: Round;
     const ROUND_NUM: u8;
@@ -81,10 +75,10 @@ impl<T: RoundWrapper> Round for T {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         self.inner_round()
             .verify_message(from, broadcast_msg, direct_msg)
-            .map_err(wrap_receive_error)
+            .map_err(Self::Result::wrap_error)
     }
     fn finalization_requirement() -> FinalizationRequirement {
         T::InnerRound::finalization_requirement()

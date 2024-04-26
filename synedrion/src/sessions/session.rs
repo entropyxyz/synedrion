@@ -114,11 +114,9 @@ fn wrap_receive_result<Res: ProtocolResult, Verifier: Clone, T>(
             party: from.clone(),
             error: ProvableError::CannotDeserialize(msg),
         },
-        ReceiveError::Protocol(err) => match err {
-            rounds::ReceiveError::Provable(err) => Error::Provable {
-                party: from.clone(),
-                error: ProvableError::Protocol(err),
-            },
+        ReceiveError::Protocol(err) => Error::Provable {
+            party: from.clone(),
+            error: ProvableError::Protocol(err),
         },
     })
 }

@@ -12,9 +12,9 @@ use super::key_refresh::{self, KeyRefreshResult};
 use crate::cggmp21::SchemeParams;
 use crate::common::KeyShare;
 use crate::rounds::{
-    no_direct_messages, wrap_finalize_error, wrap_receive_error, FinalizableToNextRound,
-    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult,
-    ReceiveError, ResultWrapper, Round, ToNextRound, ToResult,
+    no_direct_messages, wrap_finalize_error, CorrectnessProofWrapper, FinalizableToNextRound,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, Round,
+    ToNextRound, ToResult,
 };
 
 /// Possible results of the merged KeyGen and KeyRefresh protocols.
@@ -45,10 +45,7 @@ pub enum KeyGenProof<P: SchemeParams> {
     KeyRefresh(<KeyRefreshResult<P> as ProtocolResult>::CorrectnessProof),
 }
 
-impl<P: SchemeParams> ResultWrapper<KeyInitResult> for KeyGenResult<P> {
-    fn wrap_error(error: <KeyInitResult as ProtocolResult>::ProvableError) -> Self::ProvableError {
-        KeyGenError::KeyInit(error)
-    }
+impl<P: SchemeParams> CorrectnessProofWrapper<KeyInitResult> for KeyGenResult<P> {
     fn wrap_proof(
         proof: <KeyInitResult as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
@@ -56,12 +53,7 @@ impl<P: SchemeParams> ResultWrapper<KeyInitResult> for KeyGenResult<P> {
     }
 }
 
-impl<P: SchemeParams> ResultWrapper<KeyRefreshResult<P>> for KeyGenResult<P> {
-    fn wrap_error(
-        error: <KeyRefreshResult<P> as ProtocolResult>::ProvableError,
-    ) -> Self::ProvableError {
-        KeyGenError::KeyRefresh(error)
-    }
+impl<P: SchemeParams> CorrectnessProofWrapper<KeyRefreshResult<P>> for KeyGenResult<P> {
     fn wrap_proof(
         proof: <KeyRefreshResult<P> as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
@@ -146,16 +138,16 @@ impl<P: SchemeParams> Round for Round1<P> {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let (key_init_message, key_refresh_message) = broadcast_msg;
         let key_init_payload = self
             .key_init_round
             .verify_message(from, key_init_message, ())
-            .map_err(wrap_receive_error)?;
+            .map_err(KeyGenError::KeyInit)?;
         let key_refresh_payload = self
             .key_refresh_round
             .verify_message(from, key_refresh_message, ())
-            .map_err(wrap_receive_error)?;
+            .map_err(KeyGenError::KeyRefresh)?;
         Ok((key_init_payload, key_refresh_payload))
     }
 }
@@ -247,16 +239,16 @@ impl<P: SchemeParams> Round for Round2<P> {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let (key_init_message, key_refresh_message) = broadcast_msg;
         let key_init_payload = self
             .key_init_round
             .verify_message(from, key_init_message, ())
-            .map_err(wrap_receive_error)?;
+            .map_err(KeyGenError::KeyInit)?;
         let key_refresh_payload = self
             .key_refresh_round
             .verify_message(from, key_refresh_message, ())
-            .map_err(wrap_receive_error)?;
+            .map_err(KeyGenError::KeyRefresh)?;
         Ok((key_init_payload, key_refresh_payload))
     }
 }
@@ -347,7 +339,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         // TODO: even though key_init payloads are empty here,
         // we still need to check we got all of them, which key_init's finalize()
         // does not currently do.
@@ -355,11 +347,11 @@ impl<P: SchemeParams> Round for Round3<P> {
         let key_init_payload = self
             .key_init_round
             .verify_message(from, broadcast_msg, ())
-            .map_err(wrap_receive_error)?;
+            .map_err(KeyGenError::KeyInit)?;
         let key_refresh_payload = self
             .key_refresh_round
             .verify_message(from, (), direct_msg)
-            .map_err(wrap_receive_error)?;
+            .map_err(KeyGenError::KeyRefresh)?;
         Ok((key_init_payload, key_refresh_payload))
     }
 }

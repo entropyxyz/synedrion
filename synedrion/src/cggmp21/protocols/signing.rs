@@ -16,7 +16,7 @@ use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
 use crate::rounds::{
     all_parties_except, no_direct_messages, try_to_holevec, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, PartyIdx, ProtocolResult, ReceiveError, Round, ToResult,
+    FirstRound, InitError, PartyIdx, ProtocolResult, Round, ToResult,
 };
 use crate::tools::{
     collections::HoleRange,
@@ -135,7 +135,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         _from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         Ok(Round1Payload {
             sigma: broadcast_msg.sigma,
         })

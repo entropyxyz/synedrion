@@ -16,7 +16,7 @@ use crate::cggmp21::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
     FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError, PartyIdx,
-    ProtocolResult, ReceiveError, Round, ToResult,
+    ProtocolResult, Round, ToResult,
 };
 use crate::threshold::ThresholdKeyShareSeed;
 use crate::tools::{
@@ -215,7 +215,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder
                 .inputs
@@ -231,7 +231,7 @@ impl<P: SchemeParams> Round for Round1<P> {
                 // Check that the public polynomial sent in the broadcast corresponds to the secret share
                 // sent in the direct message.
                 if public_subshare_from_poly != public_subshare_from_private {
-                    return Err(ReceiveError::Provable(KeyResharingError::SubshareMismatch));
+                    return Err(KeyResharingError::SubshareMismatch);
                 }
 
                 return Ok(Round1Payload {
@@ -241,7 +241,7 @@ impl<P: SchemeParams> Round for Round1<P> {
                 });
             }
         }
-        Err(ReceiveError::Provable(KeyResharingError::UnexpectedSender))
+        Err(KeyResharingError::UnexpectedSender)
     }
 
     fn finalization_requirement() -> FinalizationRequirement {

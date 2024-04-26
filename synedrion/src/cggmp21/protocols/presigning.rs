@@ -17,8 +17,8 @@ use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, CiphertextMod, PaillierParams, Randomizer, RandomizerMod};
 use crate::rounds::{
     all_parties_except, no_broadcast_messages, try_to_holevec, FinalizableToNextRound,
-    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult,
-    ReceiveError, Round, ToNextRound, ToResult,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, Round,
+    ToNextRound, ToResult,
 };
 use crate::tools::{
     collections::{HoleRange, HoleVec},
@@ -194,7 +194,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let aux = (&self.context.ssid_hash, &self.party_idx());
 
         let public_aux = &self.context.key_share.public_aux[self.party_idx().as_usize()];
@@ -207,9 +207,7 @@ impl<P: SchemeParams> Round for Round1<P> {
             &public_aux.rp_params,
             &aux,
         ) {
-            return Err(ReceiveError::Provable(PresigningError::Round1(
-                "Failed to verify EncProof".into(),
-            )));
+            return Err(PresigningError::Round1("Failed to verify EncProof".into()));
         }
 
         Ok(Round1Payload {
@@ -435,7 +433,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         from: PartyIdx,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let aux = (&self.context.ssid_hash, &from);
         let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
@@ -459,9 +457,9 @@ impl<P: SchemeParams> Round for Round2<P> {
             rp,
             &aux,
         ) {
-            return Err(ReceiveError::Provable(PresigningError::Round2(
+            return Err(PresigningError::Round2(
                 "Failed to verify AffGProof (psi)".into(),
-            )));
+            ));
         }
 
         if !direct_msg.hat_psi.verify(
@@ -474,9 +472,9 @@ impl<P: SchemeParams> Round for Round2<P> {
             rp,
             &aux,
         ) {
-            return Err(ReceiveError::Provable(PresigningError::Round2(
+            return Err(PresigningError::Round2(
                 "Failed to verify AffGProof (hat_psi)".into(),
-            )));
+            ));
         }
 
         if !direct_msg.hat_psi_prime.verify(
@@ -487,9 +485,9 @@ impl<P: SchemeParams> Round for Round2<P> {
             rp,
             &aux,
         ) {
-            return Err(ReceiveError::Provable(PresigningError::Round2(
+            return Err(PresigningError::Round2(
                 "Failed to verify LogStarProof".into(),
-            )));
+            ));
         }
 
         let alpha = cap_d.decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
@@ -661,7 +659,7 @@ impl<P: SchemeParams> Round for Round3<P> {
         from: PartyIdx,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let aux = (&self.context.ssid_hash, &from);
         let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
 
@@ -677,9 +675,9 @@ impl<P: SchemeParams> Round for Round3<P> {
             rp,
             &aux,
         ) {
-            return Err(ReceiveError::Provable(PresigningError::Round3(
+            return Err(PresigningError::Round3(
                 "Failed to verify Log-Star proof".into(),
-            )));
+            ));
         }
         Ok(Round3Payload {
             delta: direct_msg.delta,

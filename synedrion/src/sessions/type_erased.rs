@@ -53,7 +53,7 @@ pub(crate) enum ReceiveError<Res: ProtocolResult> {
     /// Error while deserializing the given message.
     CannotDeserialize(String),
     /// An error from the protocol level
-    Protocol(rounds::ReceiveError<Res>),
+    Protocol(Res::ProvableError),
 }
 
 #[derive(Debug, Clone)]

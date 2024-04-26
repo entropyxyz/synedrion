@@ -89,7 +89,7 @@ pub(crate) trait Round {
         from: PartyIdx,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, ReceiveError<Self::Result>>;
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError>;
 
     fn finalization_requirement() -> FinalizationRequirement {
         FinalizationRequirement::All
@@ -178,11 +178,6 @@ pub(crate) trait FinalizableToNextRound: Round<Type = ToNextRound> {
         payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
         artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>>;
-}
-
-#[derive(Debug, Clone)]
-pub enum ReceiveError<Res: ProtocolResult> {
-    Provable(Res::ProvableError),
 }
 
 #[derive(Debug, Clone)]

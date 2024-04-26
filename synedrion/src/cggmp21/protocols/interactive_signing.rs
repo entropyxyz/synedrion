@@ -10,8 +10,9 @@ use crate::cggmp21::params::SchemeParams;
 use crate::common::KeyShare;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::rounds::{
-    wrap_finalize_error, FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound,
-    InitError, PartyIdx, ProtocolResult, ResultWrapper, Round, RoundWrapper, ToNextRound, ToResult,
+    wrap_finalize_error, CorrectnessProofWrapper, FinalizableToNextRound, FinalizableToResult,
+    FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, ProvableErrorWrapper, Round,
+    RoundWrapper, ToNextRound, ToResult,
 };
 
 /// Possible results of the merged Presigning and Signing protocols.
@@ -42,12 +43,15 @@ pub enum InteractiveSigningProof<P: SchemeParams> {
     Signing(<SigningResult<P> as ProtocolResult>::CorrectnessProof),
 }
 
-impl<P: SchemeParams> ResultWrapper<PresigningResult<P>> for InteractiveSigningResult<P> {
+impl<P: SchemeParams> ProvableErrorWrapper<PresigningResult<P>> for InteractiveSigningResult<P> {
     fn wrap_error(
         error: <PresigningResult<P> as ProtocolResult>::ProvableError,
     ) -> Self::ProvableError {
         InteractiveSigningError::Presigning(error)
     }
+}
+
+impl<P: SchemeParams> CorrectnessProofWrapper<PresigningResult<P>> for InteractiveSigningResult<P> {
     fn wrap_proof(
         proof: <PresigningResult<P> as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
@@ -55,12 +59,15 @@ impl<P: SchemeParams> ResultWrapper<PresigningResult<P>> for InteractiveSigningR
     }
 }
 
-impl<P: SchemeParams> ResultWrapper<SigningResult<P>> for InteractiveSigningResult<P> {
+impl<P: SchemeParams> ProvableErrorWrapper<SigningResult<P>> for InteractiveSigningResult<P> {
     fn wrap_error(
         error: <SigningResult<P> as ProtocolResult>::ProvableError,
     ) -> Self::ProvableError {
         InteractiveSigningError::Signing(error)
     }
+}
+
+impl<P: SchemeParams> CorrectnessProofWrapper<SigningResult<P>> for InteractiveSigningResult<P> {
     fn wrap_proof(
         proof: <SigningResult<P> as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
