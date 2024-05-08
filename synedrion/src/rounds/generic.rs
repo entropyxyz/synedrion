@@ -145,6 +145,9 @@ pub trait ProtocolResult: Debug {
     type CorrectnessProof: Debug + Clone;
 }
 
+// This trait is used to fix the possible options for `Round::Type`.
+// Techincally it is not used besides that, so clippy complains.
+#[allow(dead_code)]
 pub trait FinalizableType {}
 
 pub struct ToResult;

@@ -346,8 +346,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             .iter()
             .map(|party_idx| {
                 (
-                    payloads[&party_idx].old_share_idx,
-                    payloads[&party_idx].subshare,
+                    payloads[party_idx].old_share_idx,
+                    payloads[party_idx].subshare,
                 )
             })
             .collect::<BTreeMap<_, _>>();
@@ -358,7 +358,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             .new_share_idxs
             .keys()
             .map(|party_idx| {
-                let share_idx = self.new_share_idxs[&party_idx];
+                let share_idx = self.new_share_idxs[party_idx];
                 let public_subshares = payloads
                     .values()
                     .map(|p| (p.old_share_idx, p.public_polynomial.evaluate(&share_idx)))

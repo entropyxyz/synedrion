@@ -19,6 +19,7 @@ const MAX_MSG_LEN: u64 = 1000 * 1000; // 1 MB
 
 #[wasm_bindgen]
 extern "C" {
+    /// A type alias for optional `SigningKey`
     #[wasm_bindgen(typescript_type = "SigningKey | undefined")]
     pub type OptionalSigningKey;
 }
