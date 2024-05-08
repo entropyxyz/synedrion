@@ -42,6 +42,7 @@ fn message_hash(
 /// Protocol message type.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum MessageType {
+    /// Broadcast to all other participants.
     Broadcast,
     /// Regular messaging part of the round.
     Direct,
