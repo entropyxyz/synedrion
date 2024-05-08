@@ -13,3 +13,4 @@ pub use error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
 pub use session::{
     Artifact, FinalizeOutcome, PreprocessedMessage, ProcessedMessage, RoundAccumulator, Session,
 };
+pub use signed_message::{MessageType, SignedMessage};
