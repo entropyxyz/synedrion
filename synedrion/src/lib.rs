@@ -49,7 +49,8 @@ pub use cggmp21::{
 };
 pub use common::{KeyShare, KeyShareChange, PresigningData};
 pub use constructors::{
-    make_interactive_signing_session, make_key_gen_session, make_key_refresh_session,
+    make_interactive_signing_session, make_key_gen_session, make_key_init_session,
+    make_key_refresh_session, make_key_resharing_session, KeyResharingInputs, NewHolder, OldHolder,
     PrehashedMessage,
 };
 pub use curve::RecoverableSignature;

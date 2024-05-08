@@ -167,6 +167,10 @@ impl Point {
         Scalar(<BackendScalar as Reduce<U256>>::reduce_bytes(&bytes))
     }
 
+    pub fn from_verifying_key(key: &VerifyingKey) -> Self {
+        Self(key.as_affine().into())
+    }
+
     pub fn to_verifying_key(self) -> Option<VerifyingKey> {
         VerifyingKey::from_affine(self.0.to_affine()).ok()
     }

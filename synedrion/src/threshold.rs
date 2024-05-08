@@ -1,6 +1,5 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use k256::ecdsa::VerifyingKey;
@@ -11,12 +10,8 @@ use crate::cggmp21::SchemeParams;
 use crate::common::{make_aux_info, KeyShare, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
-use crate::tools::{
-    bitvec::BitVec,
-    hashing::HashOutput,
-    sss::{
-        interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx,
-    },
+use crate::tools::sss::{
+    interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx,
 };
 
 #[derive(Clone)]
@@ -25,13 +20,16 @@ pub struct ThresholdKeyShareSeed<P: SchemeParams> {
     pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
     pub(crate) public_shares: BTreeMap<ShareIdx, Point>,
-    pub(crate) init_id: BitVec,
     pub(crate) phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
     pub fn index(&self) -> ShareIdx {
         self.index
+    }
+
+    pub fn threshold(&self) -> usize {
+        self.threshold as usize
     }
 
     pub fn secret(&self) -> Scalar {
@@ -59,15 +57,12 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
             .map(|(idx, share)| (*idx, share.mul_by_generator()))
             .collect::<BTreeMap<_, _>>();
 
-        let init_id = BitVec::random(rng, P::SECURITY_PARAMETER);
-
         (0..num_parties)
             .map(|idx| Self {
                 index: share_idxs[idx],
                 threshold: threshold as u32,
                 secret_share: secret_shares[&share_idxs[idx]],
                 public_shares: public_shares.clone(),
-                init_id: init_id.clone(),
                 phantom: PhantomData,
             })
             .collect()
@@ -102,8 +97,6 @@ pub struct ThresholdKeyShare<P: SchemeParams> {
     pub(crate) public_shares: BTreeMap<ShareIdx, Point>,
     pub(crate) secret_aux: SecretAuxInfo<P>,
     pub(crate) public_aux: BTreeMap<ShareIdx, PublicAuxInfo<P>>,
-    pub(crate) init_id: BitVec,
-    pub(crate) share_set_id: HashOutput,
 }
 
 impl<P: SchemeParams> ThresholdKeyShare<P> {
@@ -138,18 +131,6 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .map(|(idx, public)| (share_idxs[idx], public))
             .collect::<BTreeMap<_, _>>();
 
-        let init_id = BitVec::random(rng, P::SECURITY_PARAMETER);
-
-        // TODO (#20): this will probably be changed as we integrate
-        // the threshold structures into the rest of the library better.
-        // Making `make_share_set_id()` take an iterator creates a bunch of ugly conversions
-        // and typing problems, so we just make some copies to create a slice it can take.
-        let public_shares_vec = public_shares.values().cloned().collect::<Vec<_>>();
-        let public_aux_vec = public_aux.values().cloned().collect::<Vec<_>>();
-
-        let share_set_id =
-            KeyShare::make_share_set_id(&init_id, &public_shares_vec, &public_aux_vec);
-
         secret_aux
             .into_vec()
             .into_iter()
@@ -161,8 +142,6 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
                 public_shares: public_shares.clone(),
                 secret_aux,
                 public_aux: public_aux.clone(),
-                init_id: init_id.clone(),
-                share_set_id,
             })
             .collect()
     }
@@ -213,8 +192,6 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             public_shares,
             secret_aux: self.secret_aux.clone(),
             public_aux,
-            init_id: self.init_id.clone(),
-            share_set_id: self.share_set_id,
         }
     }
 }

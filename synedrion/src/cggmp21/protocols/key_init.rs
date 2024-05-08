@@ -378,12 +378,13 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         _payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
         _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
+        let index = self.party_idx();
         let all_data = self.others_data.into_vec(self.context.public_data);
         let all_cap_x = all_data.into_iter().map(|data| data.cap_x).collect();
         Ok(KeyShareSeed {
+            index,
             secret_share: self.context.x,
             public_shares: all_cap_x,
-            init_id: self.rid,
         })
     }
 }
