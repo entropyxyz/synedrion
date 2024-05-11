@@ -110,7 +110,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             let public_polynomial = polynomial.public();
             OldHolderData {
                 polynomial,
-                share_idx: old_holder.key_share_seed.index(),
+                share_idx: old_holder.key_share_seed.share_index(),
                 public_polynomial,
             }
         });
@@ -307,9 +307,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         // add a simulated payload to the mapping, as if it sent a message to itself.
         if let Some(old_holder) = self.old_holder.as_ref() {
             if self.new_holder.as_ref().is_some() {
-                let subshare = old_holder
-                    .polynomial
-                    .evaluate(&self.new_share_idxs[&self.party_idx()]);
+                let subshare = old_holder.polynomial.evaluate(&share_idx);
                 let my_payload = Round1Payload {
                     subshare,
                     public_polynomial: old_holder.public_polynomial.clone(),
@@ -368,10 +366,17 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             })
             .collect();
 
+        let holders = self
+            .new_share_idxs
+            .iter()
+            .map(|(party_idx, share_idx)| (*share_idx, *party_idx))
+            .collect();
+
         Ok(Some(ThresholdKeyShareSeed {
             index: share_idx,
             threshold: self.new_threshold as u32,
             secret_share,
+            holders,
             public_shares,
             phantom: PhantomData,
         }))
@@ -510,7 +515,7 @@ mod tests {
         // Check that the public keys correspond to the secret key shares
         for share in shares {
             let public = share.secret_share.mul_by_generator();
-            assert_eq!(public, share.public_shares[&share.index()]);
+            assert_eq!(public, share.public_shares[&share.share_index()]);
         }
     }
 }

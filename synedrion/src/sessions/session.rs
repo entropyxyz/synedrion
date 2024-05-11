@@ -21,6 +21,11 @@ use super::type_erased::{
 use crate::rounds::{self, FirstRound, PartyIdx, ProtocolResult, Round};
 use crate::tools::collections::HoleRange;
 
+pub trait MappedResult<Verifier>: ProtocolResult {
+    type MappedSuccess;
+    fn map_success(inner: Self::Success, verifiers: &[Verifier]) -> Self::MappedSuccess;
+}
+
 struct Context<Signer, Verifier> {
     signer: Signer,
     verifiers: Vec<Verifier>,
@@ -122,9 +127,9 @@ fn wrap_receive_result<Res: ProtocolResult, Verifier: Clone, T>(
 }
 
 /// Possible outcomes of successfully finalizing a round.
-pub enum FinalizeOutcome<Res: ProtocolResult, Sig, Signer, Verifier> {
+pub enum FinalizeOutcome<Res: MappedResult<Verifier>, Sig, Signer, Verifier> {
     /// The protocol result is available.
-    Success(Res::Success),
+    Success(Res::MappedSuccess),
     /// Starting the next round.
     AnotherRound {
         /// The new session object.
@@ -136,7 +141,7 @@ pub enum FinalizeOutcome<Res: ProtocolResult, Sig, Signer, Verifier> {
 
 impl<Res, Sig, Signer, Verifier> Session<Res, Sig, Signer, Verifier>
 where
-    Res: ProtocolResult,
+    Res: MappedResult<Verifier>,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
     Verifier: Debug + Clone + PrehashVerifier<Sig> + Ord,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
@@ -553,7 +558,9 @@ where
             })?;
 
         match outcome {
-            type_erased::FinalizeOutcome::Success(res) => Ok(FinalizeOutcome::Success(res)),
+            type_erased::FinalizeOutcome::Success(res) => Ok(FinalizeOutcome::Success(
+                Res::map_success(res, &context.verifiers),
+            )),
             type_erased::FinalizeOutcome::AnotherRound(next_round) => {
                 if requires_echo {
                     let broadcasts = accum

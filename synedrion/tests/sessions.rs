@@ -8,7 +8,7 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     make_interactive_signing_session, make_key_gen_session, CombinedMessage, FinalizeOutcome,
-    KeyShare, ProtocolResult, Session, TestParams,
+    KeyShare, MappedResult, Session, TestParams,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
@@ -18,11 +18,11 @@ fn key_to_str(key: &VerifyingKey) -> String {
     hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])
 }
 
-async fn run_session<Res: ProtocolResult>(
+async fn run_session<Res: MappedResult<VerifyingKey>>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
     session: Session<Res, Signature, SigningKey, VerifyingKey>,
-) -> <Res as ProtocolResult>::Success {
+) -> Res::MappedSuccess {
     let mut rx = rx;
 
     let mut session = session;
@@ -157,10 +157,10 @@ fn make_signers(num_parties: usize) -> (Vec<SigningKey>, Vec<VerifyingKey>) {
 
 async fn run_nodes<Res>(
     sessions: Vec<Session<Res, Signature, SigningKey, VerifyingKey>>,
-) -> Vec<<Res as ProtocolResult>::Success>
+) -> Vec<Res::MappedSuccess>
 where
-    Res: ProtocolResult + Send + 'static,
-    <Res as ProtocolResult>::Success: Send + 'static,
+    Res: MappedResult<VerifyingKey> + Send + 'static,
+    Res::MappedSuccess: Send + 'static,
 {
     let num_parties = sessions.len();
 
@@ -178,7 +178,7 @@ where
     let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
     let dispatcher = tokio::spawn(dispatcher_task);
 
-    let handles: Vec<tokio::task::JoinHandle<<Res as ProtocolResult>::Success>> = rxs
+    let handles: Vec<tokio::task::JoinHandle<Res::MappedSuccess>> = rxs
         .into_iter()
         .zip(sessions.into_iter())
         .map(|(rx, session)| {
@@ -223,7 +223,7 @@ async fn keygen_and_aux() {
     let key_shares = run_nodes(sessions).await;
 
     for (idx, key_share) in key_shares.iter().enumerate() {
-        assert_eq!(key_share.party_index(), idx);
+        assert_eq!(key_share.owner(), &verifiers[idx]);
         assert_eq!(key_share.num_parties(), num_parties);
         assert_eq!(key_share.verifying_key(), key_shares[0].verifying_key());
     }
@@ -234,7 +234,8 @@ async fn interactive_signing() {
     let num_parties = 3;
     let (signers, verifiers) = make_signers(num_parties);
 
-    let key_shares = KeyShare::<TestParams>::new_centralized(&mut OsRng, num_parties, None);
+    let key_shares =
+        KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &verifiers, None);
     let shared_randomness = b"1234567890";
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 

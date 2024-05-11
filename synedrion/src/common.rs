@@ -1,6 +1,5 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::marker::PhantomData;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
@@ -13,7 +12,7 @@ use crate::paillier::{
     RPParamsMod, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::PartyIdx;
-use crate::threshold::{ThresholdKeyShare, ThresholdKeyShareSeed};
+use crate::threshold::ThresholdKeyShare;
 use crate::tools::sss::{interpolation_coeff, ShareIdx};
 use crate::tools::{
     collections::HoleVec,
@@ -138,33 +137,6 @@ pub struct PresigningData<P: SchemeParams> {
 }
 
 impl KeyShareSeed {
-    pub fn to_threshold_key_share_seed<P: SchemeParams>(&self) -> ThresholdKeyShareSeed<P> {
-        let num_parties = self.public_shares.len();
-        let share_idxs = (1..=num_parties).map(ShareIdx::new).collect::<Vec<_>>();
-        let index = ShareIdx::new(self.index.as_usize() + 1);
-
-        let secret_share =
-            self.secret_share * interpolation_coeff(&share_idxs, &index).invert().unwrap();
-        let public_shares = (0..num_parties)
-            .map(|idx| {
-                let share_idx = ShareIdx::new(idx + 1);
-                let public_share = self.public_shares[idx]
-                    * interpolation_coeff(&share_idxs, &share_idx)
-                        .invert()
-                        .unwrap();
-                (share_idx, public_share)
-            })
-            .collect();
-
-        ThresholdKeyShareSeed {
-            index,
-            threshold: num_parties as u32,
-            secret_share,
-            public_shares,
-            phantom: PhantomData,
-        }
-    }
-
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         num_parties: usize,

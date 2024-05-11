@@ -14,11 +14,10 @@ use crate::cggmp21::{
     interactive_signing, key_gen, key_init, key_refresh, InteractiveSigningResult, KeyGenResult,
     KeyInitResult, KeyRefreshResult, SchemeParams,
 };
-use crate::common::KeyShare;
 use crate::curve::{Point, Scalar};
+use crate::entities::{KeyShare, ThresholdKeyShareSeed};
 use crate::rounds::PartyIdx;
 use crate::sessions::{LocalError, Session};
-use crate::threshold::ThresholdKeyShareSeed;
 use crate::www02::{self, KeyResharingResult};
 
 /// Prehashed message to sign.
@@ -78,7 +77,7 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     shared_randomness: &[u8],
     signer: Signer,
     verifiers: &[Verifier],
-    key_share: &KeyShare<P>,
+    key_share: &KeyShare<P, Verifier>,
     prehashed_message: &PrehashedMessage,
 ) -> Result<Session<InteractiveSigningResult<P>, Sig, Signer, Verifier>, LocalError>
 where
@@ -103,7 +102,7 @@ where
     let scalar_message = Scalar::from_reduced_bytes(prehashed_message);
 
     let inputs = interactive_signing::Inputs {
-        key_share: key_share.clone(),
+        key_share: key_share.map_verifiers(verifiers),
         message: scalar_message,
     };
 
@@ -118,9 +117,9 @@ where
 
 /// Old share data.
 #[derive(Clone)]
-pub struct OldHolder<P: SchemeParams> {
+pub struct OldHolder<P: SchemeParams, V> {
     /// The threshold key share.
-    pub key_share_seed: ThresholdKeyShareSeed<P>,
+    pub key_share_seed: ThresholdKeyShareSeed<P, V>,
 }
 
 /// New share data.
@@ -138,7 +137,7 @@ pub struct NewHolder<Verifier> {
 #[derive(Clone)]
 pub struct KeyResharingInputs<P: SchemeParams, Verifier> {
     /// Old share data if the node holds it, or `None`.
-    pub old_holder: Option<OldHolder<P>>,
+    pub old_holder: Option<OldHolder<P, Verifier>>,
     /// New share data if the node is one of the new holders, or `None`.
     pub new_holder: Option<NewHolder<Verifier>>,
     /// A list of new holders of the shares (order not important).
@@ -190,7 +189,7 @@ where
         .old_holder
         .as_ref()
         .map(|old_holder| www02::OldHolder {
-            key_share_seed: old_holder.key_share_seed.clone(),
+            key_share_seed: old_holder.key_share_seed.map_verifiers(verifiers),
         });
 
     let new_holders = inputs

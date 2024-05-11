@@ -1,7 +1,11 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand_core::OsRng;
 
-use synedrion::{cggmp21::benches, KeyShare, PresigningData, TestParams};
+use synedrion::{
+    cggmp21::benches,
+    common::{KeyShare, PresigningData},
+    TestParams,
+};
 
 fn bench_happy_paths(c: &mut Criterion) {
     let mut group = c.benchmark_group("happy path");

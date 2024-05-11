@@ -19,12 +19,13 @@ pub struct ThresholdKeyShareSeed<P: SchemeParams> {
     pub(crate) index: ShareIdx,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
+    pub(crate) holders: BTreeMap<ShareIdx, PartyIdx>,
     pub(crate) public_shares: BTreeMap<ShareIdx, Point>,
     pub(crate) phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
-    pub fn index(&self) -> ShareIdx {
+    pub fn share_index(&self) -> ShareIdx {
         self.index
     }
 
@@ -56,12 +57,18 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
             .iter()
             .map(|(idx, share)| (*idx, share.mul_by_generator()))
             .collect::<BTreeMap<_, _>>();
+        let holders = share_idxs
+            .iter()
+            .enumerate()
+            .map(|(idx, share_idx)| (*share_idx, PartyIdx::from_usize(idx)))
+            .collect::<BTreeMap<_, _>>();
 
         (0..num_parties)
             .map(|idx| Self {
                 index: share_idxs[idx],
                 threshold: threshold as u32,
                 secret_share: secret_shares[&share_idxs[idx]],
+                holders: holders.clone(),
                 public_shares: public_shares.clone(),
                 phantom: PhantomData,
             })

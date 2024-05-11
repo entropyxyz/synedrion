@@ -45,7 +45,7 @@ impl SigningKey {
 #[derive(TryFromJsValue)]
 #[wasm_bindgen]
 #[derive(Clone)]
-pub struct KeyShare(synedrion::KeyShare<TestParams>);
+pub struct KeyShare(synedrion::common::KeyShare<TestParams>);
 
 #[wasm_bindgen]
 impl KeyShare {
@@ -74,7 +74,7 @@ impl KeyShare {
 
         let backend_sk = typed_sk.map(|sk| sk.0);
 
-        let shares = synedrion::KeyShare::<TestParams>::new_centralized(
+        let shares = synedrion::common::KeyShare::<TestParams>::new_centralized(
             &mut OsRng,
             num_parties,
             backend_sk.as_ref(),

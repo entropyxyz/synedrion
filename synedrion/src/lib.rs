@@ -6,7 +6,7 @@
     clippy::mod_module_files,
     // TODO (#76): handle unwraps gracefully and enable this lint
     // clippy::unwrap_used,
-    missing_docs,
+    //missing_docs,
     missing_copy_implementations,
     rust_2018_idioms,
     trivial_casts,
@@ -25,9 +25,10 @@ cfg_if::cfg_if! {
     }
 }
 
-mod common;
+pub mod common;
 mod constructors;
 mod curve;
+mod entities;
 mod paillier;
 mod rounds;
 pub mod sessions;
@@ -47,13 +48,14 @@ pub use cggmp21::{
     PresigningProof, PresigningResult, ProductionParams, SchemeParams, SigningProof, SigningResult,
     TestParams,
 };
-pub use common::{KeyShare, KeyShareChange, PresigningData};
 pub use constructors::{
     make_interactive_signing_session, make_key_gen_session, make_key_init_session,
     make_key_refresh_session, make_key_resharing_session, KeyResharingInputs, NewHolder, OldHolder,
     PrehashedMessage,
 };
 pub use curve::RecoverableSignature;
+pub use entities::{KeyShare, KeyShareChange, ThresholdKeyShareSeed};
 pub use rounds::ProtocolResult;
-pub use sessions::{CombinedMessage, FinalizeOutcome, Session};
+pub use sessions::{CombinedMessage, FinalizeOutcome, MappedResult, Session};
 pub use threshold::ThresholdKeyShare;
+pub use www02::KeyResharingResult;
