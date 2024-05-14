@@ -9,6 +9,7 @@ use tokio::time::{sleep, Duration};
 use synedrion::{
     make_key_init_session, make_key_refresh_session, make_key_resharing_session, CombinedMessage,
     FinalizeOutcome, KeyResharingInputs, MappedResult, NewHolder, OldHolder, Session, TestParams,
+    ThresholdKeyShare,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
@@ -313,6 +314,9 @@ async fn full_sequence() {
     println!("\nRunning KeyRefresh\n");
     let key_share_changes = run_nodes(sessions).await;
 
-    //let t_key_shares = new_t_key_share_seeds.iter().zip(key_share_changes.iter()).
-    //    map(|(seed, change)| ThresholdKeyShare::new(seed, change)).collect::<Vec<_>>();
+    let t_key_shares = new_t_key_share_seeds
+        .into_iter()
+        .zip(key_share_changes.into_iter())
+        .map(|(seed, change)| ThresholdKeyShare::new(seed, change))
+        .collect::<Vec<_>>();
 }

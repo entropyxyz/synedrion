@@ -272,29 +272,37 @@ impl<P: SchemeParams> KeyShare<P> {
         let share_idxs = (1..=self.num_parties())
             .map(ShareIdx::new)
             .collect::<Vec<_>>();
-        let index = ShareIdx::new(self.party_index());
 
-        let secret_share =
-            self.secret_share * interpolation_coeff(&share_idxs, &index).invert().unwrap();
-        let public_shares = (1..=self.num_parties())
+        let secret_share = self.secret_share
+            * interpolation_coeff(&share_idxs, &share_idxs[self.party_index()])
+                .invert()
+                .unwrap();
+        let public_shares = (0..self.num_parties())
             .map(|idx| {
-                let share_idx = ShareIdx::new(idx);
+                let share_idx = share_idxs[idx];
                 let public_share = self.public_shares[idx]
                     * interpolation_coeff(&share_idxs, &share_idx)
                         .invert()
                         .unwrap();
-                (share_idx, public_share)
+                (PartyIdx::from_usize(idx), public_share)
             })
             .collect();
 
-        let public_aux = (1..=self.num_parties())
-            .map(|idx| (ShareIdx::new(idx), self.public_aux[idx].clone()))
+        let holders = share_idxs
+            .iter()
+            .enumerate()
+            .map(|(idx, share_idx)| (PartyIdx::from_usize(idx), *share_idx))
+            .collect();
+
+        let public_aux = (0..self.num_parties())
+            .map(|idx| (PartyIdx::from_usize(idx), self.public_aux[idx].clone()))
             .collect();
 
         ThresholdKeyShare {
-            index,
+            index: PartyIdx::from_usize(self.party_index()),
             threshold: self.num_parties() as u32,
             secret_share,
+            holders,
             public_shares,
             secret_aux: self.secret_aux.clone(),
             public_aux,

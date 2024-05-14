@@ -38,8 +38,8 @@ pub struct KeyShareSeed<V> {
 impl<V: Ord + Clone> KeyShareSeed<V> {
     pub fn to_threshold_key_share_seed<P: SchemeParams>(&self) -> ThresholdKeyShareSeed<P, V> {
         let num_parties = self.public_shares.len();
-        let verifiers = self.public_shares.keys().collect::<Vec<_>>();
-        let my_index = verifiers.iter().position(|v| v == &&self.owner).unwrap();
+        let verifiers = self.public_shares.keys().cloned().collect::<Vec<_>>();
+        let my_index = verifiers.iter().position(|v| v == &self.owner).unwrap();
         let share_idxs = (1..=num_parties).map(ShareIdx::new).collect::<Vec<_>>();
         let share_index = share_idxs[my_index];
 
@@ -50,17 +50,20 @@ impl<V: Ord + Clone> KeyShareSeed<V> {
         let public_shares = (0..num_parties)
             .map(|idx| {
                 let share_idx = share_idxs[idx];
-                let public_share = self.public_shares[verifiers[idx]]
+                let public_share = self.public_shares[&verifiers[idx]]
                     * interpolation_coeff(&share_idxs, &share_idx)
                         .invert()
                         .unwrap();
-                ((*verifiers[idx]).clone(), (share_idx, public_share))
+                (verifiers[idx].clone(), public_share)
             })
             .collect();
 
+        let share_idxs = verifiers.iter().cloned().zip(share_idxs).collect();
+
         ThresholdKeyShareSeed {
-            index: share_index,
+            owner: self.owner.clone(),
             threshold: num_parties as u32,
+            share_idxs,
             secret_share,
             public_shares,
             phantom: PhantomData,
@@ -235,10 +238,11 @@ impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for InteractiveSigningResu
 
 #[derive(Clone)]
 pub struct ThresholdKeyShareSeed<P: SchemeParams, V> {
-    pub(crate) index: ShareIdx,
+    pub(crate) owner: V,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
-    pub(crate) public_shares: BTreeMap<V, (ShareIdx, Point)>,
+    pub(crate) share_idxs: BTreeMap<V, ShareIdx>,
+    pub(crate) public_shares: BTreeMap<V, Point>,
     pub(crate) phantom: PhantomData<P>,
 }
 
@@ -249,9 +253,9 @@ impl<P: SchemeParams, V: Ord> ThresholdKeyShareSeed<P, V> {
 
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         shamir_join_points(
-            self.public_shares
-                .values()
-                .map(|(k, v)| (k, v))
+            self.share_idxs
+                .iter()
+                .map(|(v, share_idx)| (share_idx, &self.public_shares[v]))
                 .take(self.threshold as usize),
         )
     }
@@ -270,13 +274,17 @@ impl<P: SchemeParams, V: Ord> ThresholdKeyShareSeed<P, V> {
             .map(|(idx, v)| (v, PartyIdx::from_usize(idx)))
             .collect::<BTreeMap<_, _>>();
         let holders = self
-            .public_shares
+            .share_idxs
             .iter()
-            .map(|(v, (idx, _share))| (*idx, verifiers_to_idxs[v]))
+            .map(|(v, share_idx)| (verifiers_to_idxs[v], *share_idx))
             .collect();
-        let public_shares = self.public_shares.values().cloned().collect();
+        let public_shares = self
+            .share_idxs
+            .keys()
+            .map(|v| (verifiers_to_idxs[v], self.public_shares[v]))
+            .collect();
         threshold::ThresholdKeyShareSeed {
-            index: self.index,
+            index: verifiers_to_idxs[&self.owner],
             threshold: self.threshold,
             secret_share: self.secret_share,
             holders,
@@ -290,23 +298,60 @@ impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for KeyResharingResult<P> 
     type MappedSuccess = Option<ThresholdKeyShareSeed<P, V>>;
     fn map_success(inner: Self::Success, verifiers: &[V]) -> Self::MappedSuccess {
         inner.map(|inner| {
+            let share_idxs = inner
+                .holders
+                .iter()
+                .map(|(idx, share_idx)| (verifiers[idx.as_usize()].clone(), *share_idx))
+                .collect();
             let public_shares = inner
                 .holders
-                .into_iter()
-                .map(|(share_idx, party_idx)| {
+                .keys()
+                .map(|party_idx| {
                     (
                         verifiers[party_idx.as_usize()].clone(),
-                        (share_idx, inner.public_shares[&share_idx]),
+                        inner.public_shares[party_idx],
                     )
                 })
                 .collect();
             ThresholdKeyShareSeed {
-                index: inner.index,
+                owner: verifiers[inner.index.as_usize()].clone(),
                 threshold: inner.threshold,
                 secret_share: inner.secret_share,
+                share_idxs,
                 public_shares,
                 phantom: PhantomData,
             }
         })
+    }
+}
+
+pub struct ThresholdKeyShare<P: SchemeParams, V> {
+    pub(crate) owner: V,
+    pub(crate) threshold: u32,
+    pub(crate) secret_share: Scalar,
+    pub(crate) share_idxs: BTreeMap<V, ShareIdx>,
+    pub(crate) public_shares: BTreeMap<V, Point>,
+    pub(crate) secret_aux: common::SecretAuxInfo<P>,
+    pub(crate) public_aux: BTreeMap<V, common::PublicAuxInfo<P>>,
+}
+
+impl<P: SchemeParams, V: Clone + Ord> ThresholdKeyShare<P, V> {
+    pub fn new(seed: ThresholdKeyShareSeed<P, V>, change: KeyShareChange<P, V>) -> Self {
+        let secret_share = seed.secret_share + change.secret_share_change;
+        let public_shares = seed
+            .public_shares
+            .into_iter()
+            .map(|(v, public_share)| (v.clone(), public_share + change.public_share_changes[&v]))
+            .collect();
+
+        Self {
+            owner: seed.owner,
+            threshold: seed.threshold,
+            secret_share,
+            public_shares,
+            share_idxs: seed.share_idxs,
+            secret_aux: change.secret_aux,
+            public_aux: change.public_aux,
+        }
     }
 }

@@ -362,21 +362,15 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                     .map(|p| (p.old_share_idx, p.public_polynomial.evaluate(&share_idx)))
                     .collect::<BTreeMap<_, _>>();
                 let public_share = shamir_join_points(public_subshares.iter());
-                (share_idx, public_share)
+                (*party_idx, public_share)
             })
             .collect();
 
-        let holders = self
-            .new_share_idxs
-            .iter()
-            .map(|(party_idx, share_idx)| (*share_idx, *party_idx))
-            .collect();
-
         Ok(Some(ThresholdKeyShareSeed {
-            index: share_idx,
+            index: self.party_idx(),
             threshold: self.new_threshold as u32,
             secret_share,
-            holders,
+            holders: self.new_share_idxs,
             public_shares,
             phantom: PhantomData,
         }))
@@ -515,7 +509,7 @@ mod tests {
         // Check that the public keys correspond to the secret key shares
         for share in shares {
             let public = share.secret_share.mul_by_generator();
-            assert_eq!(public, share.public_shares[&share.share_index()]);
+            assert_eq!(public, share.public_shares[&share.index]);
         }
     }
 }
