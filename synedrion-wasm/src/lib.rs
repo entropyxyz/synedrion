@@ -9,10 +9,10 @@ use bincode::{
 };
 use js_sys::Error;
 use rand_core::OsRng;
-use wasm_bindgen::{prelude::wasm_bindgen, JsValue, JsCast};
-use wasm_bindgen_derive::TryFromJsValue;
-use synedrion::k256::ecdsa;
 use serde::{Serialize, Serializer};
+use synedrion::k256::ecdsa;
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen_derive::{try_from_js_array, try_from_js_option, TryFromJsValue};
 
 use synedrion::TestParams;
 
@@ -35,23 +35,6 @@ extern "C" {
 
 fn map_js_err<T: fmt::Display>(err: T) -> Error {
     Error::new(&format!("{err}"))
-}
-
-fn try_from_js_array<T>(value: &JsValue) -> Result<Vec<T>, Error>
-where
-    for<'a> T: TryFrom<&'a JsValue>,
-    for<'a> <T as TryFrom<&'a JsValue>>::Error: core::fmt::Display,
-{
-    let array: &js_sys::Array = value
-        .dyn_ref()
-        .ok_or_else(|| Error::new("Got a non-array argument where an array was expected"))?;
-    let length: usize = array.length().try_into().map_err(map_js_err)?;
-    let mut result = Vec::<T>::with_capacity(length);
-    for js in array.iter() {
-        let typed_elem = T::try_from(&js).map_err(map_js_err)?;
-        result.push(typed_elem);
-    }
-    Ok(result)
 }
 
 /// Secp256k1 signing key.
@@ -117,15 +100,9 @@ impl KeyShare {
         parties: &VerifyingKeyList,
         signing_key: &OptionalSigningKey,
     ) -> Result<Vec<KeyShare>, Error> {
-        let sk_js: &JsValue = signing_key.as_ref();
-        let typed_sk: Option<SigningKey> = if sk_js.is_undefined() {
-            None
-        } else {
-            Some(SigningKey::try_from(sk_js).map_err(|err| Error::new(&err))?)
-        };
-
-        let backend_sk = typed_sk.map(|sk| sk.0);
-        let parties = try_from_js_array::<VerifyingKey>(parties)?;
+        let sk = try_from_js_option::<SigningKey>(signing_key).map_err(map_js_err)?;
+        let backend_sk = sk.map(|sk| sk.0);
+        let parties = try_from_js_array::<VerifyingKey>(parties).map_err(map_js_err)?;
 
         let shares = synedrion::KeyShare::<TestParams, VerifyingKey>::new_centralized(
             &mut OsRng,

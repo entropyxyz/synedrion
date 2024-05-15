@@ -31,7 +31,8 @@ where
 fn test_make_key_shares() {
     let sk: Option<SigningKey> = None;
     let parties = (0..3).map(|_| VerifyingKey::random()).collect::<Vec<_>>();
-    let shares: Vec<KeyShare> = KeyShare::new_centralized(&into_js_array(parties), &into_js_option(sk)).unwrap();
+    let shares: Vec<KeyShare> =
+        KeyShare::new_centralized(&into_js_array(parties), &into_js_option(sk)).unwrap();
     let _shares_serialized = shares
         .iter()
         .map(|share| share.to_bytes())
