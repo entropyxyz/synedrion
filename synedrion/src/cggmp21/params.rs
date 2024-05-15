@@ -78,7 +78,9 @@ impl PaillierParams for PaillierProduction {
 /// Signing scheme parameters.
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
-pub trait SchemeParams: Clone + Send + PartialEq + Eq + core::fmt::Debug + 'static {
+pub trait SchemeParams:
+    Clone + Send + PartialEq + Eq + core::fmt::Debug + Send + Sync + 'static
+{
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
