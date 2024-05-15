@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 
-use k256::ecdsa::{Signature, SigningKey, VerifyingKey};
+use k256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, SigningKey, VerifyingKey};
 use rand::Rng;
 use rand_core::OsRng;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_key_init_session, make_key_refresh_session, make_key_resharing_session, CombinedMessage,
-    FinalizeOutcome, KeyResharingInputs, MappedResult, NewHolder, OldHolder, Session, TestParams,
-    ThresholdKeyShare,
+    make_interactive_signing_session, make_key_init_session, make_key_refresh_session,
+    make_key_resharing_session, CombinedMessage, FinalizeOutcome, KeyResharingInputs, MappedResult,
+    NewHolder, OldHolder, Session, TestParams, ThresholdKeyShare,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
@@ -299,6 +299,7 @@ async fn full_sequence() {
     );
 
     // Generate auxiliary data
+
     let sessions = (0..n)
         .map(|idx| {
             make_key_refresh_session::<TestParams, Signature, SigningKey, VerifyingKey>(
@@ -314,9 +315,57 @@ async fn full_sequence() {
     println!("\nRunning KeyRefresh\n");
     let key_share_changes = run_nodes(sessions).await;
 
+    // Combine auxiliary data with the threshold key share seeds to make actual key shares.
+
     let t_key_shares = new_t_key_share_seeds
         .into_iter()
         .zip(key_share_changes.into_iter())
         .map(|(seed, change)| ThresholdKeyShare::new(seed, change))
         .collect::<Vec<_>>();
+
+    // For signing, we select `t` parties and these parties convert their threshold key shares
+    // into regular key shares.
+
+    let selected_signers = vec![signers[0].clone(), signers[2].clone(), signers[4].clone()];
+    let selected_parties = vec![verifiers[0], verifiers[2], verifiers[4]];
+    let key_shares = vec![
+        t_key_shares[0].to_key_share(&selected_parties),
+        t_key_shares[2].to_key_share(&selected_parties),
+        t_key_shares[4].to_key_share(&selected_parties),
+    ];
+
+    // Perform signing with the key shares
+
+    let message = b"abcdefghijklmnopqrstuvwxyz123456";
+
+    let sessions = key_shares
+        .iter()
+        .zip(selected_signers.into_iter())
+        .map(|(key_share, signer)| {
+            make_interactive_signing_session::<_, Signature, _, _>(
+                &mut OsRng,
+                shared_randomness,
+                signer,
+                &selected_parties,
+                key_share,
+                message,
+            )
+            .unwrap()
+        })
+        .collect();
+
+    println!("\nRunning InteractiveSigning\n");
+    let signatures = run_nodes(sessions).await;
+
+    for signature in signatures {
+        let (sig, rec_id) = signature.to_backend();
+        let vkey = key_shares[0].verifying_key();
+
+        // Check that the signature can be verified
+        vkey.verify_prehash(message, &sig).unwrap();
+
+        // Check that the key can be recovered
+        let recovered_key = VerifyingKey::recover_from_prehash(message, &sig, rec_id).unwrap();
+        assert_eq!(recovered_key, vkey);
+    }
 }

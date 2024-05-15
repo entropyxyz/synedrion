@@ -204,10 +204,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     /// that can be used in the presigning/signing protocols.
     pub fn to_key_share(&self, party_idxs: &[PartyIdx]) -> KeyShare<P> {
         debug_assert!(party_idxs.len() == self.threshold as usize);
-        debug_assert!(party_idxs
-            .iter()
-            .position(|idx| idx == &self.index)
-            .is_some());
+        debug_assert!(party_idxs.iter().any(|idx| idx == &self.index));
         // TODO (#68): assert that all indices are distinct
 
         let share_idx = self.holders[&self.index];

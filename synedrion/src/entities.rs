@@ -354,4 +354,40 @@ impl<P: SchemeParams, V: Clone + Ord> ThresholdKeyShare<P, V> {
             public_aux: change.public_aux,
         }
     }
+
+    pub fn to_key_share(&self, verifiers: &[V]) -> KeyShare<P, V> {
+        debug_assert!(verifiers.len() == self.threshold as usize);
+        debug_assert!(verifiers.iter().any(|v| v == &self.owner));
+        // TODO (#68): assert that all indices are distinct
+
+        let share_idx = self.share_idxs[&self.owner];
+        let share_idxs = verifiers
+            .iter()
+            .map(|v| self.share_idxs[v])
+            .collect::<Vec<_>>();
+
+        let secret_share = self.secret_share * interpolation_coeff(&share_idxs, &share_idx);
+        let public_shares = verifiers
+            .iter()
+            .map(|v| {
+                (
+                    v.clone(),
+                    self.public_shares[v] * interpolation_coeff(&share_idxs, &self.share_idxs[v]),
+                )
+            })
+            .collect();
+
+        let public_aux = verifiers
+            .iter()
+            .map(|v| (v.clone(), self.public_aux[v].clone()))
+            .collect();
+
+        KeyShare {
+            owner: self.owner.clone(),
+            secret_share,
+            public_shares,
+            secret_aux: self.secret_aux.clone(),
+            public_aux,
+        }
+    }
 }
