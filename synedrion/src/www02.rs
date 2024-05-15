@@ -1,8 +1,8 @@
 //! Threshold key resharing protocol.
 //!
 //! Based on T. M. Wong, C. Wang, J. M. Wing "Verifiable Secret Redistribution for Archive Systems"
-//! https://www.cs.cmu.edu/~wing/publications/Wong-Winga02.pdf
-//! https://doi.org/10.1109/SISW.2002.1183515
+//! <https://www.cs.cmu.edu/~wing/publications/Wong-Winga02.pdf>
+//! <https://doi.org/10.1109/SISW.2002.1183515>
 //! (Specifically, REDIST protocol).
 
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -19,14 +19,12 @@ use crate::rounds::{
     ProtocolResult, Round, ToResult,
 };
 use crate::threshold::ThresholdKeyShareSeed;
-use crate::tools::{
-    bitvec::BitVec,
-    sss::{
-        interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial,
-        ShareIdx,
-    },
+use crate::tools::sss::{
+    interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial,
+    ShareIdx,
 };
 
+/// The outcomes of KeyResharing protocol.
 #[derive(Debug)]
 pub struct KeyResharingResult<P: SchemeParams>(PhantomData<P>);
 
@@ -36,32 +34,33 @@ impl<P: SchemeParams> ProtocolResult for KeyResharingResult<P> {
     type CorrectnessProof = ();
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum KeyResharingError {
     UnexpectedSender,
     SubshareMismatch,
 }
 
 pub struct OldHolder<P: SchemeParams> {
-    key_share_seed: ThresholdKeyShareSeed<P>,
+    pub key_share_seed: ThresholdKeyShareSeed<P>,
 }
 
 pub struct NewHolder {
-    verifying_key: Point,
-    init_id: BitVec,
-    old_threshold: usize,
-    old_holders: Vec<PartyIdx>,
+    pub verifying_key: Point,
+    pub old_threshold: usize,
+    pub old_holders: Vec<PartyIdx>,
 }
 
 pub struct KeyResharingContext<P: SchemeParams> {
-    old_holder: Option<OldHolder<P>>,
-    new_holder: Option<NewHolder>,
-    new_holders: Vec<PartyIdx>,
-    new_threshold: usize,
+    pub old_holder: Option<OldHolder<P>>,
+    pub new_holder: Option<NewHolder>,
+    // TODO: do we even need this? It's only used to generate new share indices,
+    // which we might as well just generate at random.
+    pub new_holders: Vec<PartyIdx>,
+    pub new_threshold: usize,
 }
 
-struct OldHolderData<P: SchemeParams> {
-    inputs: OldHolder<P>,
+struct OldHolderData {
+    share_idx: ShareIdx,
     polynomial: Polynomial,
     public_polynomial: PublicPolynomial,
 }
@@ -71,13 +70,13 @@ struct NewHolderData {
 }
 
 pub struct Round1<P: SchemeParams> {
-    old_holder: Option<OldHolderData<P>>,
+    old_holder: Option<OldHolderData>,
     new_holder: Option<NewHolderData>,
     new_share_idxs: BTreeMap<PartyIdx, ShareIdx>,
     new_threshold: usize,
     num_parties: usize,
     party_idx: PartyIdx,
-    init_id: BitVec,
+    phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
@@ -97,11 +96,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             .map(|(idx, party_idx)| (*party_idx, ShareIdx::new(idx + 1)))
             .collect();
 
-        let init_id = if let Some(old_holder) = inputs.old_holder.as_ref() {
-            old_holder.key_share_seed.init_id.clone()
-        } else if let Some(new_holder) = inputs.new_holder.as_ref() {
-            new_holder.init_id.clone()
-        } else {
+        if inputs.old_holder.is_none() && inputs.new_holder.is_none() {
             return Err(InitError(
                 "Either old holder or new holder data must be provided".into(),
             ));
@@ -116,8 +111,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             let public_polynomial = polynomial.public();
             OldHolderData {
                 polynomial,
+                share_idx: old_holder.key_share_seed.share_index(),
                 public_polynomial,
-                inputs: old_holder,
             }
         });
 
@@ -132,7 +127,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             new_threshold: inputs.new_threshold,
             party_idx,
             num_parties,
-            init_id,
+            phantom: PhantomData,
         })
     }
 }
@@ -158,7 +153,7 @@ impl<P: SchemeParams> Round for Round1<P> {
     type Type = ToResult;
     type Result = KeyResharingResult<P>;
     const ROUND_NUM: u8 = 1;
-    const NEXT_ROUND_NUM: Option<u8> = Some(2);
+    const NEXT_ROUND_NUM: Option<u8> = None;
 
     fn num_parties(&self) -> usize {
         self.num_parties
@@ -176,7 +171,13 @@ impl<P: SchemeParams> Round for Round1<P> {
 
     fn message_destinations(&self) -> Vec<PartyIdx> {
         if self.old_holder.is_some() {
-            self.new_share_idxs.keys().cloned().collect()
+            // It is possible that a party is both an old holder and a new holder.
+            // This will be processed separately.
+            self.new_share_idxs
+                .keys()
+                .cloned()
+                .filter(|idx| idx != &self.party_idx())
+                .collect()
         } else {
             Vec::new()
         }
@@ -190,7 +191,7 @@ impl<P: SchemeParams> Round for Round1<P> {
             .as_ref()
             .map(|old_holder| Round1BroadcastMessage {
                 public_polynomial: old_holder.public_polynomial.clone(),
-                old_share_idx: old_holder.inputs.key_share_seed.index(),
+                old_share_idx: old_holder.share_idx,
             })
     }
 
@@ -255,7 +256,11 @@ impl<P: SchemeParams> Round for Round1<P> {
     ) -> bool {
         if let Some(new_holder) = self.new_holder.as_ref() {
             let set = payloads.cloned().collect::<BTreeSet<_>>();
-            let threshold = new_holder.inputs.old_threshold;
+            let threshold = if self.old_holder.is_some() && self.new_holder.is_some() {
+                new_holder.inputs.old_threshold - 1
+            } else {
+                new_holder.inputs.old_threshold
+            };
             set.len() >= threshold
         } else {
             true
@@ -274,7 +279,7 @@ impl<P: SchemeParams> Round for Round1<P> {
                 .old_holders
                 .iter()
                 .cloned()
-                .filter(|idx| !set.contains(idx))
+                .filter(|idx| !set.contains(idx) && idx != &self.party_idx())
                 .collect()
         } else {
             BTreeSet::new()
@@ -296,6 +301,22 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         };
 
         let share_idx = self.new_share_idxs[&self.party_idx()];
+
+        let mut payloads = payloads;
+
+        // If this node is both an old and a new holder,
+        // add a simulated payload to the mapping, as if it sent a message to itself.
+        if let Some(old_holder) = self.old_holder.as_ref() {
+            if self.new_holder.as_ref().is_some() {
+                let subshare = old_holder.polynomial.evaluate(&share_idx);
+                let my_payload = Round1Payload {
+                    subshare,
+                    public_polynomial: old_holder.public_polynomial.clone(),
+                    old_share_idx: old_holder.share_idx,
+                };
+                payloads.insert(self.party_idx(), my_payload);
+            }
+        }
 
         // Check that the 0-th coefficients of public polynomials (that is, the old shares)
         // add up to the expected verifying key.
@@ -324,8 +345,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             .iter()
             .map(|party_idx| {
                 (
-                    payloads[&party_idx].old_share_idx,
-                    payloads[&party_idx].subshare,
+                    payloads[party_idx].old_share_idx,
+                    payloads[party_idx].subshare,
                 )
             })
             .collect::<BTreeMap<_, _>>();
@@ -336,22 +357,22 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             .new_share_idxs
             .keys()
             .map(|party_idx| {
-                let share_idx = self.new_share_idxs[&party_idx];
+                let share_idx = self.new_share_idxs[party_idx];
                 let public_subshares = payloads
                     .values()
                     .map(|p| (p.old_share_idx, p.public_polynomial.evaluate(&share_idx)))
                     .collect::<BTreeMap<_, _>>();
                 let public_share = shamir_join_points(public_subshares.iter());
-                (share_idx, public_share)
+                (*party_idx, public_share)
             })
             .collect();
 
         Ok(Some(ThresholdKeyShareSeed {
-            index: share_idx,
+            index: self.party_idx(),
             threshold: self.new_threshold as u32,
             secret_share,
+            holders: self.new_share_idxs,
             public_shares,
-            init_id: self.init_id,
             phantom: PhantomData,
         }))
     }
@@ -390,8 +411,6 @@ mod tests {
             PartyIdx::from_usize(3),
         ];
 
-        let init_id = old_key_shares[0].init_id.clone();
-
         let party0 = Round1::new(
             &mut OsRng,
             &shared_randomness,
@@ -419,7 +438,6 @@ mod tests {
                 }),
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
-                    init_id: init_id.clone(),
                     old_threshold: 2,
                     old_holders: old_holders.clone(),
                 }),
@@ -440,7 +458,6 @@ mod tests {
                 }),
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
-                    init_id: init_id.clone(),
                     old_threshold: 2,
                     old_holders: old_holders.clone(),
                 }),
@@ -459,7 +476,6 @@ mod tests {
                 old_holder: None,
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
-                    init_id: init_id.clone(),
                     old_threshold: 2,
                     old_holders: old_holders.clone(),
                 }),
@@ -494,7 +510,7 @@ mod tests {
         // Check that the public keys correspond to the secret key shares
         for share in shares {
             let public = share.secret_share.mul_by_generator();
-            assert_eq!(public, share.public_shares[&share.index()]);
+            assert_eq!(public, share.public_shares[&share.index]);
         }
     }
 }

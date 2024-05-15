@@ -70,9 +70,11 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         // This includes the info of $ssid$ in the paper
         // (scheme parameters + public data from all shares - hashed in `share_set_id`),
         // with the session randomness added.
-        let ssid_hash = Hash::new_with_dst(b"SSID")
+        let ssid_hash = Hash::new_with_dst(b"ShareSetID")
+            .chain_type::<P>()
             .chain(&shared_randomness)
-            .chain(&inputs.key_share.share_set_id)
+            .chain_slice(&inputs.key_share.public_shares)
+            .chain_slice(&inputs.key_share.public_aux)
             .finalize();
 
         let r = inputs.presigning.nonce;

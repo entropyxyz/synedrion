@@ -2,18 +2,13 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use digest::{Digest, ExtendableOutput, Update, XofReader};
+use digest::{Digest, ExtendableOutput, Update};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::{Shake256, Shake256Reader};
 
 use crate::curve::Scalar;
 use crate::tools::serde_bytes;
-
-/// Encodes the object into bytes for hashing purposes.
-pub(crate) trait HashInto {
-    fn from_reader(reader: &mut impl XofReader) -> Self;
-}
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {

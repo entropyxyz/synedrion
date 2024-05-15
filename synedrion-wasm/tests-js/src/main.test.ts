@@ -1,10 +1,11 @@
 import {
-  KeyShare,
+  KeyShare, VerifyingKey
 } from "synedrion";
 
 describe("KeyShare.newCentralized()", () => {
   it("creates shares", () => {
-    const shares = KeyShare.newCentralized(2, undefined);
+    const parties = [VerifyingKey.random(), VerifyingKey.random()];
+    const shares = KeyShare.newCentralized(parties, undefined);
     expect(shares.length).toEqual(2);
     expect(shares[0]).toEqual(expect.any(KeyShare));
     expect(shares[1]).toEqual(expect.any(KeyShare));
@@ -13,7 +14,8 @@ describe("KeyShare.newCentralized()", () => {
 
 describe("KeyShare", () => {
   it("serializes", () => {
-    const shares = KeyShare.newCentralized(2, undefined);
+    const parties = [VerifyingKey.random(), VerifyingKey.random()];
+    const shares = KeyShare.newCentralized(parties, undefined);
     expect(shares[0].toBytes()).toEqual(expect.any(Uint8Array));
   });
 });

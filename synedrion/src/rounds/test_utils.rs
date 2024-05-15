@@ -17,6 +17,9 @@ pub(crate) enum StepError {
     /// Error when verifying a received message.
     #[displaydoc("Error when verifying a received message ({0})")]
     Receive(String),
+    /// A party attempted to send a message to itself.
+    #[displaydoc("A party {0:?} attempted to send a message to itself")]
+    MessageToItself(PartyIdx),
 }
 
 pub(crate) struct AssembledRound<R: Round> {
@@ -53,6 +56,10 @@ where
         let broadcast = round.make_broadcast_message(rng);
 
         for idx_to in destinations {
+            if idx_to == idx_from {
+                return Err(StepError::MessageToItself(idx_from));
+            }
+
             let (direct, artifact) = round.make_direct_message(rng, idx_to);
             // Can unwrap here since the destinations list is not empty
             messages.push((idx_to, idx_from, (broadcast.clone().unwrap(), direct)));

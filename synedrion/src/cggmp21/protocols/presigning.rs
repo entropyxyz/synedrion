@@ -76,9 +76,11 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         // This includes the info of $ssid$ in the paper
         // (scheme parameters + public data from all shares - hashed in `share_set_id`),
         // with the session randomness added.
-        let ssid_hash = Hash::new_with_dst(b"SSID")
+        let ssid_hash = Hash::new_with_dst(b"ShareSetID")
+            .chain_type::<P>()
             .chain(&shared_randomness)
-            .chain(&key_share.share_set_id)
+            .chain_slice(&inputs.public_shares)
+            .chain_slice(&inputs.public_aux)
             .finalize();
 
         // TODO (#68): check that KeyShare is consistent with num_parties/party_idx

@@ -1,44 +1,49 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
 use core::marker::PhantomData;
+
+#[cfg(test)]
+use alloc::vec::Vec;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::cggmp21::SchemeParams;
-use crate::common::{make_aux_info, KeyShare, PublicAuxInfo, SecretAuxInfo};
+use crate::common::{PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
-use crate::tools::{
-    bitvec::BitVec,
-    hashing::HashOutput,
-    sss::{
-        interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx,
-    },
+use crate::tools::sss::{shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx};
+
+#[cfg(test)]
+use crate::{
+    common::{make_aux_info, KeyShare},
+    tools::sss::interpolation_coeff,
 };
 
 #[derive(Clone)]
 pub struct ThresholdKeyShareSeed<P: SchemeParams> {
-    pub(crate) index: ShareIdx,
+    pub(crate) index: PartyIdx,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
-    pub(crate) public_shares: BTreeMap<ShareIdx, Point>,
-    pub(crate) init_id: BitVec,
+    pub(crate) holders: BTreeMap<PartyIdx, ShareIdx>,
+    pub(crate) public_shares: BTreeMap<PartyIdx, Point>,
     pub(crate) phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
-    pub fn index(&self) -> ShareIdx {
-        self.index
+    pub fn share_index(&self) -> ShareIdx {
+        self.holders[&self.index]
+    }
+
+    pub fn threshold(&self) -> usize {
+        self.threshold as usize
     }
 
     pub fn secret(&self) -> Scalar {
         self.secret_share
     }
 
-    #[allow(dead_code)]
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         threshold: usize,
@@ -54,31 +59,44 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
 
         let share_idxs = shamir_evaluation_points(num_parties);
         let secret_shares = shamir_split(rng, &secret, threshold, &share_idxs);
-        let public_shares = secret_shares
+        let public_shares = share_idxs
             .iter()
-            .map(|(idx, share)| (*idx, share.mul_by_generator()))
+            .enumerate()
+            .map(|(idx, share_idx)| {
+                (
+                    PartyIdx::from_usize(idx),
+                    secret_shares[share_idx].mul_by_generator(),
+                )
+            })
             .collect::<BTreeMap<_, _>>();
-
-        let init_id = BitVec::random(rng, P::SECURITY_PARAMETER);
+        let holders = share_idxs
+            .iter()
+            .enumerate()
+            .map(|(idx, share_idx)| (PartyIdx::from_usize(idx), *share_idx))
+            .collect::<BTreeMap<_, _>>();
 
         (0..num_parties)
             .map(|idx| Self {
-                index: share_idxs[idx],
+                index: PartyIdx::from_usize(idx),
                 threshold: threshold as u32,
                 secret_share: secret_shares[&share_idxs[idx]],
+                holders: holders.clone(),
                 public_shares: public_shares.clone(),
-                init_id: init_id.clone(),
                 phantom: PhantomData,
             })
             .collect()
     }
 
     pub(crate) fn verifying_key_as_point(&self) -> Point {
-        shamir_join_points(self.public_shares.iter().take(self.threshold as usize))
+        shamir_join_points(
+            self.holders
+                .iter()
+                .map(|(party_idx, share_idx)| (share_idx, &self.public_shares[party_idx]))
+                .take(self.threshold as usize),
+        )
     }
 
     /// Return the verifying key to which this set of shares corresponds.
-    #[allow(dead_code)]
     pub fn verifying_key(&self) -> VerifyingKey {
         // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
@@ -96,19 +114,19 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
 #[serde(bound(deserialize = "SecretAuxInfo<P>: for <'x> Deserialize<'x>,
         PublicAuxInfo<P>: for <'x> Deserialize<'x>"))]
 pub struct ThresholdKeyShare<P: SchemeParams> {
-    pub(crate) index: ShareIdx,
+    pub(crate) index: PartyIdx,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
-    pub(crate) public_shares: BTreeMap<ShareIdx, Point>,
+    pub(crate) holders: BTreeMap<PartyIdx, ShareIdx>,
+    pub(crate) public_shares: BTreeMap<PartyIdx, Point>,
     pub(crate) secret_aux: SecretAuxInfo<P>,
-    pub(crate) public_aux: BTreeMap<ShareIdx, PublicAuxInfo<P>>,
-    pub(crate) init_id: BitVec,
-    pub(crate) share_set_id: HashOutput,
+    pub(crate) public_aux: BTreeMap<PartyIdx, PublicAuxInfo<P>>,
 }
 
 impl<P: SchemeParams> ThresholdKeyShare<P> {
     /// Returns `num_parties` of random self-consistent key shares
     /// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
+    #[cfg(test)]
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         threshold: usize,
@@ -124,9 +142,20 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
 
         let share_idxs = shamir_evaluation_points(num_parties);
         let secret_shares = shamir_split(rng, &secret, threshold, &share_idxs);
-        let public_shares = secret_shares
+        let public_shares = share_idxs
             .iter()
-            .map(|(idx, share)| (*idx, share.mul_by_generator()))
+            .enumerate()
+            .map(|(idx, share_idx)| {
+                (
+                    PartyIdx::from_usize(idx),
+                    secret_shares[share_idx].mul_by_generator(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let holders = share_idxs
+            .iter()
+            .enumerate()
+            .map(|(idx, share_idx)| (PartyIdx::from_usize(idx), *share_idx))
             .collect::<BTreeMap<_, _>>();
 
         let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
@@ -135,107 +164,79 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .into_vec()
             .into_iter()
             .enumerate()
-            .map(|(idx, public)| (share_idxs[idx], public))
+            .map(|(idx, public)| (PartyIdx::from_usize(idx), public))
             .collect::<BTreeMap<_, _>>();
-
-        let init_id = BitVec::random(rng, P::SECURITY_PARAMETER);
-
-        // TODO (#20): this will probably be changed as we integrate
-        // the threshold structures into the rest of the library better.
-        // Making `make_share_set_id()` take an iterator creates a bunch of ugly conversions
-        // and typing problems, so we just make some copies to create a slice it can take.
-        let public_shares_vec = public_shares.values().cloned().collect::<Vec<_>>();
-        let public_aux_vec = public_aux.values().cloned().collect::<Vec<_>>();
-
-        let share_set_id =
-            KeyShare::make_share_set_id(&init_id, &public_shares_vec, &public_aux_vec);
 
         secret_aux
             .into_vec()
             .into_iter()
             .enumerate()
             .map(|(idx, secret_aux)| ThresholdKeyShare {
-                index: share_idxs[idx],
+                index: PartyIdx::from_usize(idx),
                 threshold: threshold as u32,
                 secret_share: secret_shares[&share_idxs[idx]],
+                holders: holders.clone(),
                 public_shares: public_shares.clone(),
                 secret_aux,
                 public_aux: public_aux.clone(),
-                init_id: init_id.clone(),
-                share_set_id,
             })
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn verifying_key_as_point(&self) -> Point {
-        shamir_join_points(self.public_shares.iter().take(self.threshold as usize))
+        shamir_join_points(
+            self.holders
+                .iter()
+                .map(|(party_idx, share_idx)| (share_idx, &self.public_shares[party_idx]))
+                .take(self.threshold as usize),
+        )
     }
 
     /// Return the verifying key to which this set of shares corresponds.
+    #[cfg(test)]
     pub fn verifying_key(&self) -> VerifyingKey {
         // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
-    /// Returns the index of this share's party.
-    pub fn index(&self) -> ShareIdx {
-        self.index
-    }
-
     /// Converts a t-of-n key share into a t-of-t key share
     /// (for the `t` share indices supplied as `share_idxs`)
     /// that can be used in the presigning/signing protocols.
-    pub fn to_key_share(&self, share_idxs: &[ShareIdx]) -> KeyShare<P> {
-        debug_assert!(share_idxs.len() == self.threshold as usize);
+    #[cfg(test)]
+    pub fn to_key_share(&self, party_idxs: &[PartyIdx]) -> KeyShare<P> {
+        debug_assert!(party_idxs.len() == self.threshold as usize);
+        debug_assert!(party_idxs.iter().any(|idx| idx == &self.index));
         // TODO (#68): assert that all indices are distinct
-        let my_idx_position = share_idxs
-            .iter()
-            .position(|idx| idx == &self.index)
-            .unwrap();
 
-        let secret_share = self.secret_share * interpolation_coeff(share_idxs, &self.index);
-        let public_shares = share_idxs
+        let share_idx = self.holders[&self.index];
+        let share_idxs = party_idxs
             .iter()
-            .map(|share_idx| {
-                self.public_shares[share_idx] * interpolation_coeff(share_idxs, share_idx)
+            .map(|idx| self.holders[idx])
+            .collect::<Vec<_>>();
+
+        let secret_share = self.secret_share * interpolation_coeff(&share_idxs, &share_idx);
+        let public_shares = party_idxs
+            .iter()
+            .map(|party_idx| {
+                self.public_shares[party_idx]
+                    * interpolation_coeff(&share_idxs, &self.holders[party_idx])
             })
             .collect();
 
-        let public_aux = share_idxs
+        let public_aux = party_idxs
             .iter()
             .map(|idx| self.public_aux[idx].clone())
             .collect();
 
         KeyShare {
-            index: PartyIdx::from_usize(my_idx_position),
+            index: self.index,
             secret_share,
             public_shares,
             secret_aux: self.secret_aux.clone(),
             public_aux,
-            init_id: self.init_id.clone(),
-            share_set_id: self.share_set_id,
         }
-    }
-}
-
-// A custom Debug impl that skips the secret values
-impl<P: SchemeParams + core::fmt::Debug> core::fmt::Debug for ThresholdKeyShare<P> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(
-            f,
-            concat![
-                "KeyShare {{",
-                "index: {:?}, ",
-                "threshold: {:?} ",
-                "secret_share: <...>, ",
-                "public_shares: {:?}, ",
-                "secret_aux: {:?}, ",
-                "public_aux: {:?} ",
-                "}}"
-            ],
-            self.index, self.threshold, self.public_shares, self.secret_aux, self.public_aux
-        )
     }
 }
 
@@ -247,6 +248,7 @@ mod tests {
     use super::ThresholdKeyShare;
     use crate::cggmp21::TestParams;
     use crate::curve::Scalar;
+    use crate::rounds::PartyIdx;
 
     #[test]
     fn threshold_key_share_centralized() {
@@ -259,15 +261,15 @@ mod tests {
 
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
 
-        let share_idxs = [shares[2].index(), shares[0].index()];
-        let nt_share0 = shares[0].to_key_share(&share_idxs);
-        let nt_share1 = shares[2].to_key_share(&share_idxs);
+        let party_idxs = [PartyIdx::from_usize(2), PartyIdx::from_usize(0)];
+        let nt_share0 = shares[0].to_key_share(&party_idxs);
+        let nt_share1 = shares[2].to_key_share(&party_idxs);
 
-        assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
-        assert_eq!(&nt_share1.verifying_key(), sk.verifying_key());
         assert_eq!(
             nt_share0.secret_share + nt_share1.secret_share,
             Scalar::from(sk.as_nonzero_scalar())
         );
+        assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
+        assert_eq!(&nt_share1.verifying_key(), sk.verifying_key());
     }
 }

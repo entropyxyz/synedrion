@@ -167,6 +167,10 @@ impl Point {
         Scalar(<BackendScalar as Reduce<U256>>::reduce_bytes(&bytes))
     }
 
+    pub fn from_verifying_key(key: &VerifyingKey) -> Self {
+        Self(key.as_affine().into())
+    }
+
     pub fn to_verifying_key(self) -> Option<VerifyingKey> {
         VerifyingKey::from_affine(self.0.to_affine()).ok()
     }
@@ -328,7 +332,7 @@ impl Mul<&Scalar> for &Scalar {
 
 impl core::iter::Sum for Scalar {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(core::ops::Add::add).unwrap_or(Self::ZERO)
+        iter.reduce(Add::add).unwrap_or(Self::ZERO)
     }
 }
 
@@ -340,13 +344,13 @@ impl<'a> core::iter::Sum<&'a Self> for Scalar {
 
 impl core::iter::Product for Scalar {
     fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(core::ops::Mul::mul).unwrap_or(Self::ONE)
+        iter.reduce(Mul::mul).unwrap_or(Self::ONE)
     }
 }
 
 impl core::iter::Sum for Point {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(core::ops::Add::add).unwrap_or(Self::IDENTITY)
+        iter.reduce(Add::add).unwrap_or(Self::IDENTITY)
     }
 }
 

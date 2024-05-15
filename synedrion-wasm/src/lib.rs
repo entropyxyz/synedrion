@@ -1,3 +1,5 @@
+use core::fmt;
+
 use bincode::{
     config::{
         BigEndian, Bounded, RejectTrailing, VarintEncoding, WithOtherEndian, WithOtherIntEncoding,
@@ -7,8 +9,10 @@ use bincode::{
 };
 use js_sys::Error;
 use rand_core::OsRng;
-use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
-use wasm_bindgen_derive::TryFromJsValue;
+use serde::{Serialize, Serializer};
+use synedrion::k256::ecdsa;
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen_derive::{try_from_js_array, try_from_js_option, TryFromJsValue};
 
 use synedrion::TestParams;
 
@@ -19,24 +23,56 @@ const MAX_MSG_LEN: u64 = 1000 * 1000; // 1 MB
 
 #[wasm_bindgen]
 extern "C" {
+    /// A type alias for optional `SigningKey`
     #[wasm_bindgen(typescript_type = "SigningKey | undefined")]
     pub type OptionalSigningKey;
+
+    /// A type alias for optional `SigningKey`
+    #[wasm_bindgen(typescript_type = "VerifyingKey[]")]
+    pub type VerifyingKeyList;
+
+}
+
+fn map_js_err<T: fmt::Display>(err: T) -> Error {
+    Error::new(&format!("{err}"))
 }
 
 /// Secp256k1 signing key.
 #[derive(TryFromJsValue)]
 #[wasm_bindgen]
 #[derive(Clone)]
-pub struct SigningKey(synedrion::k256::ecdsa::SigningKey);
+pub struct SigningKey(ecdsa::SigningKey);
 
 #[wasm_bindgen]
 impl SigningKey {
     /// Creates the object from the serialized big-endian scalar
     #[wasm_bindgen(js_name = fromBeBytes)]
     pub fn from_be_bytes(bytes: &[u8]) -> Result<SigningKey, Error> {
-        synedrion::k256::ecdsa::SigningKey::from_slice(bytes)
+        ecdsa::SigningKey::from_slice(bytes)
             .map(Self)
             .map_err(|err| Error::new(&format!("{}", err)))
+    }
+}
+
+#[derive(TryFromJsValue)]
+#[wasm_bindgen]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VerifyingKey(ecdsa::VerifyingKey);
+
+#[wasm_bindgen]
+impl VerifyingKey {
+    #[wasm_bindgen]
+    pub fn random() -> Self {
+        Self(*ecdsa::SigningKey::random(&mut OsRng).verifying_key())
+    }
+}
+
+impl Serialize for VerifyingKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(self.0.to_encoded_point(true).as_bytes())
     }
 }
 
@@ -44,7 +80,7 @@ impl SigningKey {
 #[derive(TryFromJsValue)]
 #[wasm_bindgen]
 #[derive(Clone)]
-pub struct KeyShare(synedrion::KeyShare<TestParams>);
+pub struct KeyShare(synedrion::KeyShare<TestParams, VerifyingKey>);
 
 #[wasm_bindgen]
 impl KeyShare {
@@ -61,21 +97,16 @@ impl KeyShare {
     /// Creates a set of key shares.
     #[wasm_bindgen(js_name = newCentralized)]
     pub fn new_centralized(
-        num_parties: usize,
+        parties: &VerifyingKeyList,
         signing_key: &OptionalSigningKey,
     ) -> Result<Vec<KeyShare>, Error> {
-        let sk_js: &JsValue = signing_key.as_ref();
-        let typed_sk: Option<SigningKey> = if sk_js.is_undefined() {
-            None
-        } else {
-            Some(SigningKey::try_from(sk_js).map_err(|err| Error::new(&err))?)
-        };
+        let sk = try_from_js_option::<SigningKey>(signing_key).map_err(map_js_err)?;
+        let backend_sk = sk.map(|sk| sk.0);
+        let parties = try_from_js_array::<VerifyingKey>(parties).map_err(map_js_err)?;
 
-        let backend_sk = typed_sk.map(|sk| sk.0);
-
-        let shares = synedrion::KeyShare::<TestParams>::new_centralized(
+        let shares = synedrion::KeyShare::<TestParams, VerifyingKey>::new_centralized(
             &mut OsRng,
-            num_parties,
+            &parties,
             backend_sk.as_ref(),
         );
         Ok(shares.into_vec().into_iter().map(KeyShare).collect())

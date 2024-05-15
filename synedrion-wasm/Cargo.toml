@@ -15,7 +15,8 @@ js-sys = "0.3.55"
 getrandom = { version = "0.2", features = ["js"] }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 wasm-bindgen = "0.2.88"
-wasm-bindgen-derive = "0.2"
+wasm-bindgen-derive = "0.3"
+serde = "1"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.28"
