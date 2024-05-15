@@ -1,8 +1,8 @@
 //! Threshold key resharing protocol.
 //!
 //! Based on T. M. Wong, C. Wang, J. M. Wing "Verifiable Secret Redistribution for Archive Systems"
-//! https://www.cs.cmu.edu/~wing/publications/Wong-Winga02.pdf
-//! https://doi.org/10.1109/SISW.2002.1183515
+//! <https://www.cs.cmu.edu/~wing/publications/Wong-Winga02.pdf>
+//! <https://doi.org/10.1109/SISW.2002.1183515>
 //! (Specifically, REDIST protocol).
 
 use alloc::collections::{BTreeMap, BTreeSet};

@@ -641,7 +641,7 @@ impl<Sig> RoundAccumulator<Sig> {
         }
     }
 
-    /// Save an artifact produced by [`Session::make_direct_message`].
+    /// Save an artifact produced by [`Session::make_message`].
     pub fn add_artifact<Verifier: Debug>(
         &mut self,
         artifact: Artifact<Verifier>,
