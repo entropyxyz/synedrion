@@ -12,8 +12,6 @@ use crate::paillier::{
     RPParamsMod, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::PartyIdx;
-use crate::threshold::ThresholdKeyShare;
-use crate::tools::sss::{interpolation_coeff, ShareIdx};
 use crate::tools::{
     collections::HoleVec,
     hashing::{Chain, Hashable},
@@ -41,11 +39,7 @@ pub struct KeyShareSeed {
 /// The full key share with auxiliary parameters.
 // TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "SecretAuxInfo<P>: Serialize,
-        PublicAuxInfo<P>: Serialize"))]
-#[serde(bound(deserialize = "SecretAuxInfo<P>: for<'x> Deserialize<'x>,
-        PublicAuxInfo<P>: for <'x> Deserialize<'x>"))]
+#[derive(Clone)]
 pub struct KeyShare<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     pub(crate) secret_share: Scalar,
@@ -134,35 +128,6 @@ pub struct PresigningData<P: SchemeParams> {
     /// Sent $\hat{D}$, that is $\hat{D}_{j,i}$, $j != i$, where $i$ is this party's index.
     pub(crate) hat_cap_d: HoleVec<CiphertextMod<P::Paillier>>,
     pub(crate) hat_cap_f: HoleVec<CiphertextMod<P::Paillier>>,
-}
-
-impl KeyShareSeed {
-    pub fn new_centralized(
-        rng: &mut impl CryptoRngCore,
-        num_parties: usize,
-        signing_key: Option<&k256::ecdsa::SigningKey>,
-    ) -> Box<[Self]> {
-        let secret = match signing_key {
-            None => Scalar::random(rng),
-            Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
-        };
-
-        let secret_shares = secret.split(rng, num_parties);
-        let public_shares = secret_shares
-            .iter()
-            .map(|s| s.mul_by_generator())
-            .collect::<Box<_>>();
-
-        secret_shares
-            .into_iter()
-            .enumerate()
-            .map(|(idx, secret_share)| KeyShareSeed {
-                index: PartyIdx::from_usize(idx),
-                secret_share,
-                public_shares: public_shares.clone(),
-            })
-            .collect()
-    }
 }
 
 impl<P: SchemeParams> KeyShare<P> {
@@ -262,50 +227,6 @@ impl<P: SchemeParams> KeyShare<P> {
                     }
                 })
                 .collect(),
-        }
-    }
-
-    /// Converts a non-threshold key share into a t-of-t key share
-    /// (for the `t` share indices supplied as `share_idxs`)
-    /// that can be used in the presigning/signing protocols.
-    pub fn to_threshold_key_share(&self) -> ThresholdKeyShare<P> {
-        let share_idxs = (1..=self.num_parties())
-            .map(ShareIdx::new)
-            .collect::<Vec<_>>();
-
-        let secret_share = self.secret_share
-            * interpolation_coeff(&share_idxs, &share_idxs[self.party_index()])
-                .invert()
-                .unwrap();
-        let public_shares = (0..self.num_parties())
-            .map(|idx| {
-                let share_idx = share_idxs[idx];
-                let public_share = self.public_shares[idx]
-                    * interpolation_coeff(&share_idxs, &share_idx)
-                        .invert()
-                        .unwrap();
-                (PartyIdx::from_usize(idx), public_share)
-            })
-            .collect();
-
-        let holders = share_idxs
-            .iter()
-            .enumerate()
-            .map(|(idx, share_idx)| (PartyIdx::from_usize(idx), *share_idx))
-            .collect();
-
-        let public_aux = (0..self.num_parties())
-            .map(|idx| (PartyIdx::from_usize(idx), self.public_aux[idx].clone()))
-            .collect();
-
-        ThresholdKeyShare {
-            index: PartyIdx::from_usize(self.party_index()),
-            threshold: self.num_parties() as u32,
-            secret_share,
-            holders,
-            public_shares,
-            secret_aux: self.secret_aux.clone(),
-            public_aux,
         }
     }
 

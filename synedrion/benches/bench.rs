@@ -2,8 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use rand_core::OsRng;
 
 use synedrion::{
-    cggmp21::benches,
-    common::{KeyShare, PresigningData},
+    bench_internals::{benches, KeyShare, PresigningData},
     TestParams,
 };
 

@@ -16,16 +16,12 @@
 
 extern crate alloc;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "bench-internals")] {
-        pub mod cggmp21;
-    }
-    else {
-        mod cggmp21;
-    }
-}
+// Expose interal entities for benchmarks
+#[cfg(feature = "bench-internals")]
+pub mod bench_internals;
 
-pub mod common;
+mod cggmp21;
+mod common;
 mod constructors;
 mod curve;
 mod entities;

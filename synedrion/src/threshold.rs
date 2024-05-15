@@ -1,18 +1,24 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
 use core::marker::PhantomData;
+
+#[cfg(test)]
+use alloc::vec::Vec;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::cggmp21::SchemeParams;
-use crate::common::{make_aux_info, KeyShare, PublicAuxInfo, SecretAuxInfo};
+use crate::common::{PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
-use crate::tools::sss::{
-    interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx,
+use crate::tools::sss::{shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx};
+
+#[cfg(test)]
+use crate::{
+    common::{make_aux_info, KeyShare},
+    tools::sss::interpolation_coeff,
 };
 
 #[derive(Clone)]
@@ -38,7 +44,6 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
         self.secret_share
     }
 
-    #[allow(dead_code)]
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         threshold: usize,
@@ -92,7 +97,6 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
     }
 
     /// Return the verifying key to which this set of shares corresponds.
-    #[allow(dead_code)]
     pub fn verifying_key(&self) -> VerifyingKey {
         // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
@@ -122,6 +126,7 @@ pub struct ThresholdKeyShare<P: SchemeParams> {
 impl<P: SchemeParams> ThresholdKeyShare<P> {
     /// Returns `num_parties` of random self-consistent key shares
     /// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
+    #[cfg(test)]
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         threshold: usize,
@@ -178,6 +183,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         shamir_join_points(
             self.holders
@@ -188,20 +194,17 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     }
 
     /// Return the verifying key to which this set of shares corresponds.
+    #[cfg(test)]
     pub fn verifying_key(&self) -> VerifyingKey {
         // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
-    /// Returns the index of this share's party.
-    pub fn share_index(&self) -> ShareIdx {
-        self.holders[&self.index]
-    }
-
     /// Converts a t-of-n key share into a t-of-t key share
     /// (for the `t` share indices supplied as `share_idxs`)
     /// that can be used in the presigning/signing protocols.
+    #[cfg(test)]
     pub fn to_key_share(&self, party_idxs: &[PartyIdx]) -> KeyShare<P> {
         debug_assert!(party_idxs.len() == self.threshold as usize);
         debug_assert!(party_idxs.iter().any(|idx| idx == &self.index));

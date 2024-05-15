@@ -5,8 +5,9 @@ use core::marker::PhantomData;
 
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use rand_core::CryptoRngCore;
+use serde::{Deserialize, Serialize};
 
-use crate::common;
+use crate::common::{self, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
 use crate::sessions::MappedResult;
@@ -113,8 +114,8 @@ impl<V: Clone + Ord> MappedResult<V> for KeyInitResult {
 pub struct KeyShareChange<P: SchemeParams, V> {
     pub(crate) secret_share_change: Scalar,
     pub(crate) public_share_changes: BTreeMap<V, Point>,
-    pub(crate) secret_aux: common::SecretAuxInfo<P>,
-    pub(crate) public_aux: BTreeMap<V, common::PublicAuxInfo<P>>,
+    pub(crate) secret_aux: SecretAuxInfo<P>,
+    pub(crate) public_aux: BTreeMap<V, PublicAuxInfo<P>>,
 }
 
 impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for KeyRefreshResult<P> {
@@ -129,13 +130,20 @@ impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for KeyRefreshResult<P> {
     }
 }
 
-#[derive(Clone)]
-pub struct KeyShare<P: SchemeParams, V> {
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "V: Serialize,
+        SecretAuxInfo<P>: Serialize,
+        PublicAuxInfo<P>: Serialize"))]
+#[serde(bound(deserialize = "
+        V: for<'x> Deserialize<'x>,
+        SecretAuxInfo<P>: for<'x> Deserialize<'x>,
+        PublicAuxInfo<P>: for <'x> Deserialize<'x>"))]
+pub struct KeyShare<P: SchemeParams, V: Ord> {
     pub(crate) owner: V,
     pub(crate) secret_share: Scalar,
     pub(crate) public_shares: BTreeMap<V, Point>,
-    pub(crate) secret_aux: common::SecretAuxInfo<P>,
-    pub(crate) public_aux: BTreeMap<V, common::PublicAuxInfo<P>>,
+    pub(crate) secret_aux: SecretAuxInfo<P>,
+    pub(crate) public_aux: BTreeMap<V, PublicAuxInfo<P>>,
 }
 
 impl<P: SchemeParams, V: Clone + Ord> KeyShare<P, V> {
@@ -331,8 +339,8 @@ pub struct ThresholdKeyShare<P: SchemeParams, V> {
     pub(crate) secret_share: Scalar,
     pub(crate) share_idxs: BTreeMap<V, ShareIdx>,
     pub(crate) public_shares: BTreeMap<V, Point>,
-    pub(crate) secret_aux: common::SecretAuxInfo<P>,
-    pub(crate) public_aux: BTreeMap<V, common::PublicAuxInfo<P>>,
+    pub(crate) secret_aux: SecretAuxInfo<P>,
+    pub(crate) public_aux: BTreeMap<V, PublicAuxInfo<P>>,
 }
 
 impl<P: SchemeParams, V: Clone + Ord> ThresholdKeyShare<P, V> {
