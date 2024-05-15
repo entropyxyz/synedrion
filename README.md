@@ -72,31 +72,20 @@ loop {
     // can be done in parallel, with the results being assembled into `accum`
     // sequentially in the host task.
 
-    let destinations = session.broadcast_destinations();
-    if let Some(destinations) = destinations {
+    let destinations = session.message_destinations();
+    for destination in destinations.iter() {
         // In production usage, this will happen in a spawned task
-        let message = session.make_broadcast(&mut OsRng).unwrap();
-        for destination in destinations.iter() {
-            // <<< send out `message` to `destination` here >>>
-        }
-    }
+        // (since it can take some time to create a message),
+        // and the artifact will be sent back to the host task
+        // to be added to the accumulator.
+        let (message, artifact) = session
+            .make_message(&mut OsRng, destination)
+            .unwrap();
 
-    let destinations = session.direct_message_destinations();
-    if let Some(destinations) = destinations {
-        for destination in destinations.iter() {
-            // In production usage, this will happen in a spawned task
-            // (since it can take some time to create a message),
-            // and the artifact will be sent back to the host task
-            // to be added to the accumulator.
-            let (message, artifact) = session
-                .make_direct_message(&mut OsRng, destination)
-                .unwrap();
+        // <<< send out `message` to `destination` here >>>
 
-            // <<< send out `message` to `destination` here >>>
-
-            // This will happen in a host task
-            accum.add_artifact(artifact).unwrap();
-        }
+        // This will happen in a host task
+        accum.add_artifact(artifact).unwrap();
     }
 
     for preprocessed in cached_messages {

@@ -6,7 +6,7 @@
     clippy::mod_module_files,
     // TODO (#76): handle unwraps gracefully and enable this lint
     // clippy::unwrap_used,
-    //missing_docs,
+    missing_docs,
     missing_copy_implementations,
     rust_2018_idioms,
     trivial_casts,
@@ -50,7 +50,9 @@ pub use constructors::{
     PrehashedMessage,
 };
 pub use curve::RecoverableSignature;
-pub use entities::{KeyShare, KeyShareChange, ThresholdKeyShare, ThresholdKeyShareSeed};
+pub use entities::{
+    KeyShare, KeyShareChange, KeyShareSeed, ThresholdKeyShare, ThresholdKeyShareSeed,
+};
 pub use rounds::ProtocolResult;
 pub use sessions::{CombinedMessage, FinalizeOutcome, MappedResult, Session};
 pub use www02::KeyResharingResult;

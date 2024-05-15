@@ -24,6 +24,7 @@ use crate::tools::sss::{
     ShareIdx,
 };
 
+/// The outcomes of KeyResharing protocol.
 #[derive(Debug)]
 pub struct KeyResharingResult<P: SchemeParams>(PhantomData<P>);
 

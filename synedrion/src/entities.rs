@@ -29,6 +29,7 @@ fn map_iter<T, V: Clone + Ord>(
         .collect()
 }
 
+/// The result of the KeyInit protocol.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct KeyShareSeed<V: Ord> {
     pub(crate) owner: V,
@@ -37,6 +38,7 @@ pub struct KeyShareSeed<V: Ord> {
 }
 
 impl<V: Ord + Clone> KeyShareSeed<V> {
+    /// Creates a t-of-t threshold keyshare that can be used in KeyResharing protocol.
     pub fn to_threshold_key_share_seed<P: SchemeParams>(&self) -> ThresholdKeyShareSeed<P, V> {
         let num_parties = self.public_shares.len();
         let verifiers = self.public_shares.keys().cloned().collect::<Vec<_>>();
@@ -71,6 +73,8 @@ impl<V: Ord + Clone> KeyShareSeed<V> {
         }
     }
 
+    /// Creates a set of key shares corresponding to the given signing key,
+    /// or to a random one if none is provided.
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         verifiers: &[V],
@@ -111,6 +115,7 @@ impl<V: Clone + Ord> MappedResult<V> for KeyInitResult {
     }
 }
 
+/// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
         V: Serialize,
@@ -139,6 +144,7 @@ impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for KeyRefreshResult<P> {
     }
 }
 
+/// The full key share with auxiliary parameters.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
         V: Serialize,
@@ -157,10 +163,12 @@ pub struct KeyShare<P: SchemeParams, V: Ord> {
 }
 
 impl<P: SchemeParams, V: Clone + Ord> KeyShare<P, V> {
+    /// The owner of this key share.
     pub fn owner(&self) -> &V {
         &self.owner
     }
 
+    /// The number of parties in this key share.
     pub fn num_parties(&self) -> usize {
         self.public_shares.len()
     }
@@ -169,14 +177,14 @@ impl<P: SchemeParams, V: Clone + Ord> KeyShare<P, V> {
         self.public_shares.values().sum()
     }
 
-    /// Return the verifying key to which this set of shares corresponds.
+    /// Returns the verifying key to which this set of shares corresponds.
     pub fn verifying_key(&self) -> VerifyingKey {
         // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
-    pub fn map_verifiers(&self, verifiers: &[V]) -> common::KeyShare<P> {
+    pub(crate) fn map_verifiers(&self, verifiers: &[V]) -> common::KeyShare<P> {
         let verifiers_to_idxs = verifiers
             .iter()
             .enumerate()
@@ -196,6 +204,8 @@ impl<P: SchemeParams, V: Clone + Ord> KeyShare<P, V> {
         }
     }
 
+    /// Creates a set of key shares corresponding to the given signing key,
+    /// or a random one if none is provided.
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         verifiers: &[V],
@@ -254,6 +264,8 @@ impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for InteractiveSigningResu
     }
 }
 
+/// A threshold variant of the key share seed, where any `threshold` shares our of the total number
+/// is enough to perform signing.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ThresholdKeyShareSeed<P: SchemeParams, V: Ord> {
     pub(crate) owner: V,
@@ -265,6 +277,7 @@ pub struct ThresholdKeyShareSeed<P: SchemeParams, V: Ord> {
 }
 
 impl<P: SchemeParams, V: Ord> ThresholdKeyShareSeed<P, V> {
+    /// This key share's threshold.
     pub fn threshold(&self) -> usize {
         self.threshold as usize
     }
@@ -285,7 +298,7 @@ impl<P: SchemeParams, V: Ord> ThresholdKeyShareSeed<P, V> {
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
-    pub fn map_verifiers(&self, verifiers: &[V]) -> threshold::ThresholdKeyShareSeed<P> {
+    pub(crate) fn map_verifiers(&self, verifiers: &[V]) -> threshold::ThresholdKeyShareSeed<P> {
         let verifiers_to_idxs = verifiers
             .iter()
             .enumerate()
@@ -343,6 +356,8 @@ impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for KeyResharingResult<P> 
     }
 }
 
+/// A threshold variant of the key share, where any `threshold` shares our of the total number
+/// is enough to perform signing.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
         V: Serialize,
@@ -363,6 +378,7 @@ pub struct ThresholdKeyShare<P: SchemeParams, V: Ord> {
 }
 
 impl<P: SchemeParams, V: Clone + Ord> ThresholdKeyShare<P, V> {
+    /// Creates a new key share from a seed and auxiliary data.
     pub fn new(seed: ThresholdKeyShareSeed<P, V>, change: KeyShareChange<P, V>) -> Self {
         let secret_share = seed.secret_share + change.secret_share_change;
         let public_shares = seed
@@ -382,6 +398,7 @@ impl<P: SchemeParams, V: Clone + Ord> ThresholdKeyShare<P, V> {
         }
     }
 
+    /// Creates a non-threshold key share suitable for signing.
     pub fn to_key_share(&self, verifiers: &[V]) -> KeyShare<P, V> {
         debug_assert!(verifiers.len() == self.threshold as usize);
         debug_assert!(verifiers.iter().any(|v| v == &self.owner));

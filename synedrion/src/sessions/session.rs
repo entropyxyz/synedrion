@@ -21,8 +21,12 @@ use super::type_erased::{
 use crate::rounds::{self, FirstRound, PartyIdx, ProtocolResult, Round};
 use crate::tools::collections::HoleRange;
 
+/// A protocol result with internal party IDs mapped to external ones.
 pub trait MappedResult<Verifier>: ProtocolResult {
+    /// [`ProtocolResult::Success`] with external party IDs.
     type MappedSuccess;
+
+    /// Map internal party IDs for the protocol success result.
     fn map_success(inner: Self::Success, verifiers: &[Verifier]) -> Self::MappedSuccess;
 }
 
