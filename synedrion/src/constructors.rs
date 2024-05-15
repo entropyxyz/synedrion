@@ -117,7 +117,7 @@ where
 
 /// Old share data.
 #[derive(Clone)]
-pub struct OldHolder<P: SchemeParams, V> {
+pub struct OldHolder<P: SchemeParams, V: Ord> {
     /// The threshold key share.
     pub key_share_seed: ThresholdKeyShareSeed<P, V>,
 }
@@ -135,7 +135,7 @@ pub struct NewHolder<Verifier> {
 
 /// Inputs for the Key Resharing protocol.
 #[derive(Clone)]
-pub struct KeyResharingInputs<P: SchemeParams, Verifier> {
+pub struct KeyResharingInputs<P: SchemeParams, Verifier: Ord> {
     /// Old share data if the node holds it, or `None`.
     pub old_holder: Option<OldHolder<P, Verifier>>,
     /// New share data if the node is one of the new holders, or `None`.

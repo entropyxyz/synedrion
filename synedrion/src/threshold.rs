@@ -240,26 +240,6 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     }
 }
 
-// A custom Debug impl that skips the secret values
-impl<P: SchemeParams + core::fmt::Debug> core::fmt::Debug for ThresholdKeyShare<P> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(
-            f,
-            concat![
-                "KeyShare {{",
-                "index: {:?}, ",
-                "threshold: {:?} ",
-                "secret_share: <...>, ",
-                "public_shares: {:?}, ",
-                "secret_aux: {:?}, ",
-                "public_aux: {:?} ",
-                "}}"
-            ],
-            self.index, self.threshold, self.public_shares, self.secret_aux, self.public_aux
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use k256::ecdsa::SigningKey;

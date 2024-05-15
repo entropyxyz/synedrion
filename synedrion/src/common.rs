@@ -1,4 +1,6 @@
 use alloc::boxed::Box;
+
+#[cfg(any(test, feature = "bench-internals"))]
 use alloc::vec::Vec;
 
 use k256::ecdsa::VerifyingKey;
@@ -94,7 +96,7 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct KeyShareChange<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     /// The value to be added to the secret share.
@@ -186,26 +188,6 @@ impl<P: SchemeParams> KeyShare<P> {
             .collect()
     }
 
-    /// Return the updated key share using the share change
-    /// obtained from the KeyRefresh+Auxiliary protocol).
-    pub fn update(self, change: KeyShareChange<P>) -> Self {
-        // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
-        let secret_share = self.secret_share + change.secret_share_change;
-        let public_shares = self
-            .public_shares
-            .iter()
-            .zip(change.public_share_changes.into_vec())
-            .map(|(public_share, public_share_change)| public_share + &public_share_change)
-            .collect::<Box<_>>();
-        Self {
-            index: change.index,
-            secret_share,
-            public_shares,
-            secret_aux: change.secret_aux,
-            public_aux: change.public_aux,
-        }
-    }
-
     pub(crate) fn to_precomputed(&self) -> KeySharePrecomputed<P> {
         KeySharePrecomputed {
             index: self.index,
@@ -239,20 +221,6 @@ impl<P: SchemeParams> KeyShare<P> {
         // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
-    }
-
-    /// Returns the number of parties in this set of shares.
-    pub fn num_parties(&self) -> usize {
-        // TODO (#31): technically it is `num_shares`, but for now we are equating the two,
-        // since we assume that one party has one share.
-        self.public_shares.len()
-    }
-
-    /// Returns the index of this share's party.
-    pub fn party_index(&self) -> usize {
-        // TODO (#31): technically it is the share index, but for now we are equating the two,
-        // since we assume that one party has one share.
-        self.index.as_usize()
     }
 }
 
@@ -386,54 +354,6 @@ impl<P: SchemeParams> PresigningData<P> {
         }
 
         presigning.into()
-    }
-}
-
-// A custom Debug impl that skips the secret value
-impl core::fmt::Debug for KeyShareSeed {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(
-            f,
-            "KeySeed {{ secret_share: <...>, public_shares: {:?} }}",
-            self.public_shares,
-        )
-    }
-}
-
-// A custom Debug impl that skips the secret value
-impl<P: SchemeParams> core::fmt::Debug for SecretAuxInfo<P> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(f, "SecretAuxInfo {{ <...> }}",)
-    }
-}
-
-// A custom Debug impl that skips the secret values
-impl<P: SchemeParams + core::fmt::Debug> core::fmt::Debug for KeyShare<P> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(
-            f,
-            concat![
-                "KeyShare {{",
-                "index: {:?}, ",
-                "secret_share: <...>, ",
-                "public_shares: {:?}, ",
-                "secret_aux: {:?}, ",
-                "public_aux: {:?} ",
-                "}}"
-            ],
-            self.index, self.public_shares, self.secret_aux, self.public_aux
-        )
-    }
-}
-
-impl<P: SchemeParams> core::fmt::Display for KeyShare<P> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        write!(
-            f,
-            "KeyShare(idx={}, vkey={})",
-            self.index.as_usize(),
-            hex::encode(self.verifying_key_as_point().to_compressed_array())
-        )
     }
 }
 
