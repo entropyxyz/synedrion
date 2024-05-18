@@ -13,7 +13,7 @@ use crate::cggmp21::SchemeParams;
 use crate::common::{PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
-use crate::tools::sss::{shamir_evaluation_points, shamir_join_points, shamir_split, ShareIdx};
+use crate::tools::sss::{shamir_evaluation_points, shamir_join_points, shamir_split, ShareId};
 
 #[cfg(test)]
 use crate::{
@@ -26,14 +26,14 @@ pub struct ThresholdKeyShareSeed<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
-    pub(crate) holders: BTreeMap<PartyIdx, ShareIdx>,
+    pub(crate) share_ids: BTreeMap<PartyIdx, ShareId>,
     pub(crate) public_shares: BTreeMap<PartyIdx, Point>,
     pub(crate) phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
-    pub fn share_index(&self) -> ShareIdx {
-        self.holders[&self.index]
+    pub fn share_index(&self) -> ShareId {
+        self.share_ids[&self.index]
     }
 
     pub fn threshold(&self) -> usize {
@@ -57,30 +57,30 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
             Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
         };
 
-        let share_idxs = shamir_evaluation_points(num_parties);
-        let secret_shares = shamir_split(rng, &secret, threshold, &share_idxs);
-        let public_shares = share_idxs
+        let share_ids = shamir_evaluation_points(num_parties);
+        let secret_shares = shamir_split(rng, &secret, threshold, &share_ids);
+        let public_shares = share_ids
             .iter()
             .enumerate()
-            .map(|(idx, share_idx)| {
+            .map(|(idx, share_id)| {
                 (
                     PartyIdx::from_usize(idx),
-                    secret_shares[share_idx].mul_by_generator(),
+                    secret_shares[share_id].mul_by_generator(),
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let holders = share_idxs
+        let share_ids = share_ids
             .iter()
             .enumerate()
-            .map(|(idx, share_idx)| (PartyIdx::from_usize(idx), *share_idx))
+            .map(|(idx, share_id)| (PartyIdx::from_usize(idx), *share_id))
             .collect::<BTreeMap<_, _>>();
 
         (0..num_parties)
             .map(|idx| Self {
                 index: PartyIdx::from_usize(idx),
                 threshold: threshold as u32,
-                secret_share: secret_shares[&share_idxs[idx]],
-                holders: holders.clone(),
+                secret_share: secret_shares[&share_ids[&PartyIdx::from_usize(idx)]],
+                share_ids: share_ids.clone(),
                 public_shares: public_shares.clone(),
                 phantom: PhantomData,
             })
@@ -89,9 +89,9 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
 
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         shamir_join_points(
-            self.holders
+            self.share_ids
                 .iter()
-                .map(|(party_idx, share_idx)| (share_idx, &self.public_shares[party_idx]))
+                .map(|(party_idx, share_id)| (share_id, &self.public_shares[party_idx]))
                 .take(self.threshold as usize),
         )
     }
@@ -117,7 +117,7 @@ pub struct ThresholdKeyShare<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
-    pub(crate) holders: BTreeMap<PartyIdx, ShareIdx>,
+    pub(crate) share_ids: BTreeMap<PartyIdx, ShareId>,
     pub(crate) public_shares: BTreeMap<PartyIdx, Point>,
     pub(crate) secret_aux: SecretAuxInfo<P>,
     pub(crate) public_aux: BTreeMap<PartyIdx, PublicAuxInfo<P>>,
@@ -140,22 +140,22 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
         };
 
-        let share_idxs = shamir_evaluation_points(num_parties);
-        let secret_shares = shamir_split(rng, &secret, threshold, &share_idxs);
-        let public_shares = share_idxs
+        let share_ids = shamir_evaluation_points(num_parties);
+        let secret_shares = shamir_split(rng, &secret, threshold, &share_ids);
+        let public_shares = share_ids
             .iter()
             .enumerate()
-            .map(|(idx, share_idx)| {
+            .map(|(idx, share_id)| {
                 (
                     PartyIdx::from_usize(idx),
-                    secret_shares[share_idx].mul_by_generator(),
+                    secret_shares[share_id].mul_by_generator(),
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let holders = share_idxs
+        let share_ids = share_ids
             .iter()
             .enumerate()
-            .map(|(idx, share_idx)| (PartyIdx::from_usize(idx), *share_idx))
+            .map(|(idx, share_id)| (PartyIdx::from_usize(idx), *share_id))
             .collect::<BTreeMap<_, _>>();
 
         let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
@@ -174,8 +174,8 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             .map(|(idx, secret_aux)| ThresholdKeyShare {
                 index: PartyIdx::from_usize(idx),
                 threshold: threshold as u32,
-                secret_share: secret_shares[&share_idxs[idx]],
-                holders: holders.clone(),
+                secret_share: secret_shares[&share_ids[&PartyIdx::from_usize(idx)]],
+                share_ids: share_ids.clone(),
                 public_shares: public_shares.clone(),
                 secret_aux,
                 public_aux: public_aux.clone(),
@@ -186,9 +186,9 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     #[cfg(test)]
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         shamir_join_points(
-            self.holders
+            self.share_ids
                 .iter()
-                .map(|(party_idx, share_idx)| (share_idx, &self.public_shares[party_idx]))
+                .map(|(party_idx, share_id)| (share_id, &self.public_shares[party_idx]))
                 .take(self.threshold as usize),
         )
     }
@@ -202,7 +202,7 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
     }
 
     /// Converts a t-of-n key share into a t-of-t key share
-    /// (for the `t` share indices supplied as `share_idxs`)
+    /// (for the `t` share indices supplied as `share_ids`)
     /// that can be used in the presigning/signing protocols.
     #[cfg(test)]
     pub fn to_key_share(&self, party_idxs: &[PartyIdx]) -> KeyShare<P> {
@@ -210,18 +210,18 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
         debug_assert!(party_idxs.iter().any(|idx| idx == &self.index));
         // TODO (#68): assert that all indices are distinct
 
-        let share_idx = self.holders[&self.index];
-        let share_idxs = party_idxs
+        let share_id = self.share_ids[&self.index];
+        let share_ids = party_idxs
             .iter()
-            .map(|idx| self.holders[idx])
+            .map(|idx| self.share_ids[idx])
             .collect::<Vec<_>>();
 
-        let secret_share = self.secret_share * interpolation_coeff(&share_idxs, &share_idx);
+        let secret_share = self.secret_share * interpolation_coeff(&share_ids, &share_id);
         let public_shares = party_idxs
             .iter()
             .map(|party_idx| {
                 self.public_shares[party_idx]
-                    * interpolation_coeff(&share_idxs, &self.holders[party_idx])
+                    * interpolation_coeff(&share_ids, &self.share_ids[party_idx])
             })
             .collect();
 

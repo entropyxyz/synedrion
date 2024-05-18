@@ -21,7 +21,7 @@ use crate::rounds::{
 use crate::threshold::ThresholdKeyShareSeed;
 use crate::tools::sss::{
     interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial,
-    ShareIdx,
+    ShareId,
 };
 
 /// The outcomes of KeyResharing protocol.
@@ -60,7 +60,7 @@ pub struct KeyResharingContext<P: SchemeParams> {
 }
 
 struct OldHolderData {
-    share_idx: ShareIdx,
+    share_id: ShareId,
     polynomial: Polynomial,
     public_polynomial: PublicPolynomial,
 }
@@ -72,7 +72,7 @@ struct NewHolderData {
 pub struct Round1<P: SchemeParams> {
     old_holder: Option<OldHolderData>,
     new_holder: Option<NewHolderData>,
-    new_share_idxs: BTreeMap<PartyIdx, ShareIdx>,
+    new_share_ids: BTreeMap<PartyIdx, ShareId>,
     new_threshold: usize,
     num_parties: usize,
     party_idx: PartyIdx,
@@ -89,11 +89,11 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         // Start new share indices from 1.
-        let new_share_idxs = inputs
+        let new_share_ids = inputs
             .new_holders
             .iter()
             .enumerate()
-            .map(|(idx, party_idx)| (*party_idx, ShareIdx::new(idx + 1)))
+            .map(|(idx, party_idx)| (*party_idx, ShareId::new(idx + 1)))
             .collect();
 
         if inputs.old_holder.is_none() && inputs.new_holder.is_none() {
@@ -111,7 +111,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             let public_polynomial = polynomial.public();
             OldHolderData {
                 polynomial,
-                share_idx: old_holder.key_share_seed.share_index(),
+                share_id: old_holder.key_share_seed.share_index(),
                 public_polynomial,
             }
         });
@@ -123,7 +123,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         Ok(Round1 {
             old_holder,
             new_holder,
-            new_share_idxs,
+            new_share_ids,
             new_threshold: inputs.new_threshold,
             party_idx,
             num_parties,
@@ -135,7 +135,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Round1BroadcastMessage {
     public_polynomial: PublicPolynomial,
-    old_share_idx: ShareIdx,
+    old_share_id: ShareId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,7 +146,7 @@ pub struct Round1DirectMessage {
 pub struct Round1Payload {
     subshare: Scalar,
     public_polynomial: PublicPolynomial,
-    old_share_idx: ShareIdx,
+    old_share_id: ShareId,
 }
 
 impl<P: SchemeParams> Round for Round1<P> {
@@ -173,7 +173,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         if self.old_holder.is_some() {
             // It is possible that a party is both an old holder and a new holder.
             // This will be processed separately.
-            self.new_share_idxs
+            self.new_share_ids
                 .keys()
                 .cloned()
                 .filter(|idx| idx != &self.party_idx())
@@ -191,7 +191,7 @@ impl<P: SchemeParams> Round for Round1<P> {
             .as_ref()
             .map(|old_holder| Round1BroadcastMessage {
                 public_polynomial: old_holder.public_polynomial.clone(),
-                old_share_idx: old_holder.share_idx,
+                old_share_id: old_holder.share_id,
             })
     }
 
@@ -203,7 +203,7 @@ impl<P: SchemeParams> Round for Round1<P> {
         if let Some(old_holder) = self.old_holder.as_ref() {
             let subshare = old_holder
                 .polynomial
-                .evaluate(&self.new_share_idxs[&destination]);
+                .evaluate(&self.new_share_ids[&destination]);
             (Round1DirectMessage { subshare }, ())
         } else {
             // TODO (#54): this should be prevented by type system
@@ -226,7 +226,7 @@ impl<P: SchemeParams> Round for Round1<P> {
             {
                 let public_subshare_from_poly = broadcast_msg
                     .public_polynomial
-                    .evaluate(&self.new_share_idxs[&self.party_idx()]);
+                    .evaluate(&self.new_share_ids[&self.party_idx()]);
                 let public_subshare_from_private = direct_msg.subshare.mul_by_generator();
 
                 // Check that the public polynomial sent in the broadcast corresponds to the secret share
@@ -238,7 +238,7 @@ impl<P: SchemeParams> Round for Round1<P> {
                 return Ok(Round1Payload {
                     subshare: direct_msg.subshare,
                     public_polynomial: broadcast_msg.public_polynomial,
-                    old_share_idx: broadcast_msg.old_share_idx,
+                    old_share_id: broadcast_msg.old_share_id,
                 });
             }
         }
@@ -300,7 +300,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             None => return Ok(None),
         };
 
-        let share_idx = self.new_share_idxs[&self.party_idx()];
+        let share_id = self.new_share_ids[&self.party_idx()];
 
         let mut payloads = payloads;
 
@@ -308,11 +308,11 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
         // add a simulated payload to the mapping, as if it sent a message to itself.
         if let Some(old_holder) = self.old_holder.as_ref() {
             if self.new_holder.as_ref().is_some() {
-                let subshare = old_holder.polynomial.evaluate(&share_idx);
+                let subshare = old_holder.polynomial.evaluate(&share_id);
                 let my_payload = Round1Payload {
                     subshare,
                     public_polynomial: old_holder.public_polynomial.clone(),
-                    old_share_idx: old_holder.share_idx,
+                    old_share_id: old_holder.share_id,
                 };
                 payloads.insert(self.party_idx(), my_payload);
             }
@@ -320,15 +320,15 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         // Check that the 0-th coefficients of public polynomials (that is, the old shares)
         // add up to the expected verifying key.
-        let old_share_idxs = payloads
+        let old_share_ids = payloads
             .values()
-            .map(|payload| payload.old_share_idx)
+            .map(|payload| payload.old_share_id)
             .collect::<Vec<_>>();
         let vkey = payloads
             .values()
             .map(|payload| {
                 payload.public_polynomial.coeff0()
-                    * interpolation_coeff(&old_share_idxs, &payload.old_share_idx)
+                    * interpolation_coeff(&old_share_ids, &payload.old_share_id)
             })
             .sum();
         if new_holder.inputs.verifying_key != vkey {
@@ -345,7 +345,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             .iter()
             .map(|party_idx| {
                 (
-                    payloads[party_idx].old_share_idx,
+                    payloads[party_idx].old_share_id,
                     payloads[party_idx].subshare,
                 )
             })
@@ -354,13 +354,13 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         // Generate the public shares of all the new holders.
         let public_shares = self
-            .new_share_idxs
+            .new_share_ids
             .keys()
             .map(|party_idx| {
-                let share_idx = self.new_share_idxs[party_idx];
+                let share_id = self.new_share_ids[party_idx];
                 let public_subshares = payloads
                     .values()
-                    .map(|p| (p.old_share_idx, p.public_polynomial.evaluate(&share_idx)))
+                    .map(|p| (p.old_share_id, p.public_polynomial.evaluate(&share_id)))
                     .collect::<BTreeMap<_, _>>();
                 let public_share = shamir_join_points(public_subshares.iter());
                 (*party_idx, public_share)
@@ -371,7 +371,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             index: self.party_idx(),
             threshold: self.new_threshold as u32,
             secret_share,
-            holders: self.new_share_idxs,
+            share_ids: self.new_share_ids,
             public_shares,
             phantom: PhantomData,
         }))
