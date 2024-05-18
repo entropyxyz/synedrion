@@ -21,7 +21,6 @@ extern crate alloc;
 pub mod bench_internals;
 
 mod cggmp21;
-mod common;
 mod constructors;
 mod curve;
 mod entities;

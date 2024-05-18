@@ -4,10 +4,10 @@ use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 
+use super::super::params::SchemeParams;
+use super::super::KeyShare;
 use super::presigning::{self, PresigningResult};
 use super::signing::{self, SigningResult};
-use crate::cggmp21::params::SchemeParams;
-use crate::common::KeyShare;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::rounds::{
     wrap_finalize_error, CorrectnessProofWrapper, FinalizableToNextRound, FinalizableToResult,
@@ -268,8 +268,7 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::{Inputs, Round1};
-    use crate::cggmp21::TestParams;
-    use crate::common::KeyShare;
+    use crate::cggmp21::{KeyShare, TestParams};
     use crate::curve::Scalar;
     use crate::rounds::{
         test_utils::{step_next_round, step_result, step_round},

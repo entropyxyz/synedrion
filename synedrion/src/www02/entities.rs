@@ -14,7 +14,7 @@ use crate::tools::sss::{shamir_evaluation_points, shamir_join_points, shamir_spl
 use crate::SchemeParams;
 
 #[cfg(test)]
-use crate::{common::KeyShareSeed, tools::sss::interpolation_coeff};
+use crate::{cggmp21::KeyShareSeed, tools::sss::interpolation_coeff};
 
 #[derive(Clone)]
 pub struct ThresholdKeyShareSeed<P: SchemeParams> {

@@ -9,11 +9,10 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::{
+use super::super::{
     sigma::{SchCommitment, SchProof, SchSecret},
-    SchemeParams,
+    KeyShareSeed, SchemeParams,
 };
-use crate::common::KeyShareSeed;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
     all_parties_except, no_direct_messages, try_to_holevec, FinalizableToNextRound,

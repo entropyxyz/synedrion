@@ -7,6 +7,7 @@
 //! The equation and figure numbers in the comments, and the notation used
 //! refers to the version of the paper published at <https://eprint.iacr.org/2021/060.pdf>
 
+mod entities;
 mod params;
 mod protocols;
 mod sigma;
@@ -14,6 +15,10 @@ mod sigma;
 #[cfg(feature = "bench-internals")]
 pub mod benches;
 
+pub(crate) use entities::{
+    make_aux_info, KeyShareChange, KeySharePrecomputed, KeyShareSeed, PublicAuxInfo, SecretAuxInfo,
+};
+pub use entities::{KeyShare, PresigningData};
 pub use params::{ProductionParams, SchemeParams, TestParams};
 pub(crate) use protocols::{interactive_signing, key_gen, key_init, key_refresh};
 pub use protocols::{

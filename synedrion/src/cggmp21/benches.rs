@@ -5,9 +5,8 @@ use rand_core::CryptoRngCore;
 
 use super::{
     protocols::{key_init, key_refresh, presigning, signing},
-    SchemeParams,
+    KeyShare, PresigningData, SchemeParams,
 };
-use crate::common::{KeyShare, PresigningData};
 use crate::curve::Scalar;
 use crate::rounds::{
     test_utils::{step_next_round, step_result, step_round},

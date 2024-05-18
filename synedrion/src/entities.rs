@@ -7,7 +7,7 @@ use k256::ecdsa::{SigningKey, VerifyingKey};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::common::{self, PublicAuxInfo, SecretAuxInfo};
+use crate::cggmp21::{self, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
 use crate::sessions::MappedResult;
@@ -182,7 +182,7 @@ impl<P: SchemeParams, V: Clone + Ord> KeyShare<P, V> {
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
-    pub(crate) fn map_verifiers(&self, verifiers: &[V]) -> common::KeyShare<P> {
+    pub(crate) fn map_verifiers(&self, verifiers: &[V]) -> cggmp21::KeyShare<P> {
         let verifiers_to_idxs = verifiers
             .iter()
             .enumerate()
@@ -193,7 +193,7 @@ impl<P: SchemeParams, V: Clone + Ord> KeyShare<P, V> {
             .iter()
             .map(|v| self.public_aux[v].clone())
             .collect();
-        common::KeyShare {
+        cggmp21::KeyShare {
             index: verifiers_to_idxs[&self.owner],
             secret_share: self.secret_share,
             public_shares,
@@ -221,7 +221,7 @@ impl<P: SchemeParams, V: Clone + Ord> KeyShare<P, V> {
             .map(|(v, s)| (v.clone(), s.mul_by_generator()))
             .collect::<BTreeMap<_, _>>();
 
-        let (secret_aux, public_aux) = common::make_aux_info(rng, verifiers.len());
+        let (secret_aux, public_aux) = cggmp21::make_aux_info(rng, verifiers.len());
         let public_aux = verifiers
             .iter()
             .cloned()

@@ -7,10 +7,9 @@ use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 
+use super::super::{KeyShare, SchemeParams};
 use super::key_init::{self, KeyInitResult};
 use super::key_refresh::{self, KeyRefreshResult};
-use crate::cggmp21::SchemeParams;
-use crate::common::KeyShare;
 use crate::rounds::{
     no_direct_messages, wrap_finalize_error, CorrectnessProofWrapper, FinalizableToNextRound,
     FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, Round,

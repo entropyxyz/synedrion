@@ -11,11 +11,10 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::{
+use super::super::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
-    SchemeParams,
+    KeyShareChange, PublicAuxInfo, SchemeParams, SecretAuxInfo,
 };
-use crate::common::{KeyShareChange, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
     Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,

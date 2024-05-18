@@ -7,7 +7,7 @@ use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::SchemeParams;
+use super::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
     CiphertextMod, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
