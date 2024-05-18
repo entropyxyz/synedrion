@@ -11,8 +11,8 @@ use crate::common::{self, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
 use crate::sessions::MappedResult;
-use crate::threshold;
 use crate::tools::sss::{interpolation_coeff, shamir_join_points, ShareId};
+use crate::www02;
 use crate::{
     InteractiveSigningResult, KeyGenResult, KeyInitResult, KeyRefreshResult, KeyResharingResult,
     SchemeParams,
@@ -296,7 +296,7 @@ impl<P: SchemeParams, V: Ord> ThresholdKeyShareSeed<P, V> {
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
 
-    pub(crate) fn map_verifiers(&self, verifiers: &[V]) -> threshold::ThresholdKeyShareSeed<P> {
+    pub(crate) fn map_verifiers(&self, verifiers: &[V]) -> www02::ThresholdKeyShareSeed<P> {
         let verifiers_to_idxs = verifiers
             .iter()
             .enumerate()
@@ -312,7 +312,7 @@ impl<P: SchemeParams, V: Ord> ThresholdKeyShareSeed<P, V> {
             .keys()
             .map(|v| (verifiers_to_idxs[v], self.public_shares[v]))
             .collect();
-        threshold::ThresholdKeyShareSeed {
+        www02::ThresholdKeyShareSeed {
             index: verifiers_to_idxs[&self.owner],
             threshold: self.threshold,
             secret_share: self.secret_share,

@@ -132,6 +132,19 @@ pub struct PresigningData<P: SchemeParams> {
     pub(crate) hat_cap_f: HoleVec<CiphertextMod<P::Paillier>>,
 }
 
+impl KeyShareSeed {
+    pub(crate) fn verifying_key_as_point(&self) -> Point {
+        self.public_shares.iter().sum()
+    }
+
+    /// Return the verifying key to which this set of shares corresponds.
+    pub fn verifying_key(&self) -> VerifyingKey {
+        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
+        // (that is, the sum of public keys does not evaluate to the infinity point)
+        self.verifying_key_as_point().to_verifying_key().unwrap()
+    }
+}
+
 impl<P: SchemeParams> KeyShare<P> {
     /// Creates a key share out of the seed (obtained from the KeyGen protocol)
     /// and the share change (obtained from the KeyRefresh+Auxiliary protocol).

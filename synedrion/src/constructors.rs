@@ -18,7 +18,7 @@ use crate::curve::{Point, Scalar};
 use crate::entities::{KeyShare, ThresholdKeyShareSeed};
 use crate::rounds::PartyIdx;
 use crate::sessions::{LocalError, Session};
-use crate::www02::{self, KeyResharingResult};
+use crate::www02::{key_resharing, KeyResharingResult};
 
 /// Prehashed message to sign.
 pub type PrehashedMessage = [u8; 32];
@@ -177,7 +177,7 @@ where
                         ))
                 })
                 .collect::<Result<Vec<_>, LocalError>>()?;
-            Ok(www02::NewHolder {
+            Ok(key_resharing::NewHolder {
                 verifying_key: Point::from_verifying_key(&new_holder.verifying_key),
                 old_threshold: new_holder.old_threshold,
                 old_holders,
@@ -188,7 +188,7 @@ where
     let old_holder = inputs
         .old_holder
         .as_ref()
-        .map(|old_holder| www02::OldHolder {
+        .map(|old_holder| key_resharing::OldHolder {
             key_share_seed: old_holder.key_share_seed.map_verifiers(verifiers),
         });
 
@@ -206,11 +206,11 @@ where
         })
         .collect::<Result<Vec<_>, LocalError>>()?;
 
-    let context = www02::KeyResharingContext {
+    let context = key_resharing::KeyResharingContext {
         old_holder,
         new_holder,
         new_holders,
         new_threshold: inputs.new_threshold,
     };
-    Session::new::<www02::Round1<P>>(rng, shared_randomness, signer, verifiers, context)
+    Session::new::<key_resharing::Round1<P>>(rng, shared_randomness, signer, verifiers, context)
 }

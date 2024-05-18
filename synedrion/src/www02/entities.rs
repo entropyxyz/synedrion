@@ -7,19 +7,14 @@ use alloc::vec::Vec;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::SchemeParams;
-use crate::common::{PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::rounds::PartyIdx;
 use crate::tools::sss::{shamir_evaluation_points, shamir_join_points, shamir_split, ShareId};
+use crate::SchemeParams;
 
 #[cfg(test)]
-use crate::{
-    common::{make_aux_info, KeyShare},
-    tools::sss::interpolation_coeff,
-};
+use crate::{common::KeyShareSeed, tools::sss::interpolation_coeff};
 
 #[derive(Clone)]
 pub struct ThresholdKeyShareSeed<P: SchemeParams> {
@@ -102,110 +97,12 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key().unwrap()
     }
-}
-
-/// A threshold variant of the key share, where any `threshold` shares our of the total number
-/// is enough to perform signing.
-// TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
-// or in a `SecretBox`-type wrapper.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "SecretAuxInfo<P>: Serialize,
-        PublicAuxInfo<P>: Serialize"))]
-#[serde(bound(deserialize = "SecretAuxInfo<P>: for <'x> Deserialize<'x>,
-        PublicAuxInfo<P>: for <'x> Deserialize<'x>"))]
-pub struct ThresholdKeyShare<P: SchemeParams> {
-    pub(crate) index: PartyIdx,
-    pub(crate) threshold: u32,
-    pub(crate) secret_share: Scalar,
-    pub(crate) share_ids: BTreeMap<PartyIdx, ShareId>,
-    pub(crate) public_shares: BTreeMap<PartyIdx, Point>,
-    pub(crate) secret_aux: SecretAuxInfo<P>,
-    pub(crate) public_aux: BTreeMap<PartyIdx, PublicAuxInfo<P>>,
-}
-
-impl<P: SchemeParams> ThresholdKeyShare<P> {
-    /// Returns `num_parties` of random self-consistent key shares
-    /// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
-    #[cfg(test)]
-    pub fn new_centralized(
-        rng: &mut impl CryptoRngCore,
-        threshold: usize,
-        num_parties: usize,
-        signing_key: Option<&k256::ecdsa::SigningKey>,
-    ) -> Box<[Self]> {
-        debug_assert!(threshold <= num_parties); // TODO (#68): make the method fallible
-
-        let secret = match signing_key {
-            None => Scalar::random(rng),
-            Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
-        };
-
-        let share_ids = shamir_evaluation_points(num_parties);
-        let secret_shares = shamir_split(rng, &secret, threshold, &share_ids);
-        let public_shares = share_ids
-            .iter()
-            .enumerate()
-            .map(|(idx, share_id)| {
-                (
-                    PartyIdx::from_usize(idx),
-                    secret_shares[share_id].mul_by_generator(),
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-        let share_ids = share_ids
-            .iter()
-            .enumerate()
-            .map(|(idx, share_id)| (PartyIdx::from_usize(idx), *share_id))
-            .collect::<BTreeMap<_, _>>();
-
-        let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
-
-        let public_aux = public_aux
-            .into_vec()
-            .into_iter()
-            .enumerate()
-            .map(|(idx, public)| (PartyIdx::from_usize(idx), public))
-            .collect::<BTreeMap<_, _>>();
-
-        secret_aux
-            .into_vec()
-            .into_iter()
-            .enumerate()
-            .map(|(idx, secret_aux)| ThresholdKeyShare {
-                index: PartyIdx::from_usize(idx),
-                threshold: threshold as u32,
-                secret_share: secret_shares[&share_ids[&PartyIdx::from_usize(idx)]],
-                share_ids: share_ids.clone(),
-                public_shares: public_shares.clone(),
-                secret_aux,
-                public_aux: public_aux.clone(),
-            })
-            .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn verifying_key_as_point(&self) -> Point {
-        shamir_join_points(
-            self.share_ids
-                .iter()
-                .map(|(party_idx, share_id)| (share_id, &self.public_shares[party_idx]))
-                .take(self.threshold as usize),
-        )
-    }
-
-    /// Return the verifying key to which this set of shares corresponds.
-    #[cfg(test)]
-    pub fn verifying_key(&self) -> VerifyingKey {
-        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
-        // (that is, the sum of public keys does not evaluate to the infinity point)
-        self.verifying_key_as_point().to_verifying_key().unwrap()
-    }
 
     /// Converts a t-of-n key share into a t-of-t key share
     /// (for the `t` share indices supplied as `share_ids`)
     /// that can be used in the presigning/signing protocols.
     #[cfg(test)]
-    pub fn to_key_share(&self, party_idxs: &[PartyIdx]) -> KeyShare<P> {
+    pub fn to_key_share_seed(&self, party_idxs: &[PartyIdx]) -> KeyShareSeed {
         debug_assert!(party_idxs.len() == self.threshold as usize);
         debug_assert!(party_idxs.iter().any(|idx| idx == &self.index));
         // TODO (#68): assert that all indices are distinct
@@ -225,17 +122,10 @@ impl<P: SchemeParams> ThresholdKeyShare<P> {
             })
             .collect();
 
-        let public_aux = party_idxs
-            .iter()
-            .map(|idx| self.public_aux[idx].clone())
-            .collect();
-
-        KeyShare {
+        KeyShareSeed {
             index: self.index,
             secret_share,
             public_shares,
-            secret_aux: self.secret_aux.clone(),
-            public_aux,
         }
     }
 }
@@ -245,15 +135,16 @@ mod tests {
     use k256::ecdsa::SigningKey;
     use rand_core::OsRng;
 
-    use super::ThresholdKeyShare;
-    use crate::cggmp21::TestParams;
+    use super::ThresholdKeyShareSeed;
     use crate::curve::Scalar;
     use crate::rounds::PartyIdx;
+    use crate::TestParams;
 
     #[test]
     fn threshold_key_share_centralized() {
         let sk = SigningKey::random(&mut OsRng);
-        let shares = ThresholdKeyShare::<TestParams>::new_centralized(&mut OsRng, 2, 3, Some(&sk));
+        let shares =
+            ThresholdKeyShareSeed::<TestParams>::new_centralized(&mut OsRng, 2, 3, Some(&sk));
 
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
         assert_eq!(&shares[1].verifying_key(), sk.verifying_key());
@@ -262,8 +153,8 @@ mod tests {
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
 
         let party_idxs = [PartyIdx::from_usize(2), PartyIdx::from_usize(0)];
-        let nt_share0 = shares[0].to_key_share(&party_idxs);
-        let nt_share1 = shares[2].to_key_share(&party_idxs);
+        let nt_share0 = shares[0].to_key_share_seed(&party_idxs);
+        let nt_share1 = shares[2].to_key_share_seed(&party_idxs);
 
         assert_eq!(
             nt_share0.secret_share + nt_share1.secret_share,

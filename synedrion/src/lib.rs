@@ -28,7 +28,6 @@ mod entities;
 mod paillier;
 mod rounds;
 pub mod sessions;
-mod threshold;
 mod tools;
 mod uint;
 mod www02;
