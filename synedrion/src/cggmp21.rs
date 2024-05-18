@@ -12,9 +12,6 @@ mod params;
 mod protocols;
 mod sigma;
 
-#[cfg(feature = "bench-internals")]
-pub mod benches;
-
 pub(crate) use entities::{
     make_aux_info, KeyShareChange, KeySharePrecomputed, KeyShareSeed, PublicAuxInfo, SecretAuxInfo,
 };
@@ -26,3 +23,6 @@ pub use protocols::{
     KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, PresigningError,
     PresigningProof, PresigningResult, SigningProof, SigningResult,
 };
+
+#[cfg(feature = "bench-internals")]
+pub(crate) use protocols::{presigning, signing};
