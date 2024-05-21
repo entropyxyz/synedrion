@@ -59,7 +59,8 @@ pub trait UintLike:
 }
 
 pub trait HasWide: Sized + Zero {
-    type Wide: UintLike;
+    // type Wide: UintLike;
+    type Wide: Integer;
     fn mul_wide(&self, other: &Self) -> Self::Wide;
     fn square_wide(&self) -> Self::Wide;
     fn into_wide(self) -> Self::Wide;
@@ -73,101 +74,101 @@ pub trait HasWide: Sized + Zero {
     }
 }
 
-impl<const L: usize> UintLike for Uint<L>
-where
-    Uint<L>: Encoding,
-{
-    type ModUint = DynResidue<L>;
+// impl<const L: usize> UintLike for Uint<L>
+// where
+//     Uint<L>: Encoding,
+// {
+//     type ModUint = DynResidue<L>;
 
-    fn from_xof(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self {
-        let backend_modulus = modulus.as_ref();
+//     fn from_xof(reader: &mut impl XofReader, modulus: &NonZero<Self>) -> Self {
+//         let backend_modulus = modulus.as_ref();
 
-        let n_bits = backend_modulus.bits_vartime();
-        let n_bytes = (n_bits + 7) / 8; // ceiling division by 8
+//         let n_bits = backend_modulus.bits_vartime();
+//         let n_bytes = (n_bits + 7) / 8; // ceiling division by 8
 
-        // If the number of bits is not a multiple of 8,
-        // use a mask to zeroize the high bits in the gererated random bytestring,
-        // so that we don't have to reject too much.
-        let mask = if n_bits & 7 != 0 {
-            (1 << (n_bits & 7)) - 1
-        } else {
-            u8::MAX
-        };
+//         // If the number of bits is not a multiple of 8,
+//         // use a mask to zeroize the high bits in the gererated random bytestring,
+//         // so that we don't have to reject too much.
+//         let mask = if n_bits & 7 != 0 {
+//             (1 << (n_bits & 7)) - 1
+//         } else {
+//             u8::MAX
+//         };
 
-        let mut bytes = Uint::<L>::ZERO.to_le_bytes();
+//         let mut bytes = Uint::<L>::ZERO.to_le_bytes();
 
-        loop {
-            reader.read(&mut (bytes.as_mut()[0..n_bytes]));
-            bytes.as_mut()[n_bytes - 1] &= mask;
-            let n = Uint::<L>::from_le_bytes(bytes);
+//         loop {
+//             reader.read(&mut (bytes.as_mut()[0..n_bytes]));
+//             bytes.as_mut()[n_bytes - 1] &= mask;
+//             let n = Uint::<L>::from_le_bytes(bytes);
 
-            if n.ct_lt(backend_modulus).into() {
-                return n;
-            }
-        }
-    }
+//             if n.ct_lt(backend_modulus).into() {
+//                 return n;
+//             }
+//         }
+//     }
 
-    fn add_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self {
-        self.add_mod(rhs, modulus)
-    }
+//     fn add_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self {
+//         self.add_mod(rhs, modulus)
+//     }
 
-    fn sub_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self {
-        self.sub_mod(rhs, modulus)
-    }
+//     fn sub_mod(&self, rhs: &Self, modulus: &NonZero<Self>) -> Self {
+//         self.sub_mod(rhs, modulus)
+//     }
 
-    fn trailing_zeros(&self) -> usize {
-        (*self).trailing_zeros()
-    }
+//     fn trailing_zeros(&self) -> usize {
+//         (*self).trailing_zeros()
+//     }
 
-    fn inv_mod(&self, modulus: &Self) -> CtOption<Self> {
-        let (res, choice) = self.inv_mod(modulus);
-        CtOption::new(res, choice.into())
-    }
+//     fn inv_mod(&self, modulus: &Self) -> CtOption<Self> {
+//         let (res, choice) = self.inv_mod(modulus);
+//         CtOption::new(res, choice.into())
+//     }
 
-    fn wrapping_sub(&self, other: &Self) -> Self {
-        self.wrapping_sub(other)
-    }
+//     fn wrapping_sub(&self, other: &Self) -> Self {
+//         self.wrapping_sub(other)
+//     }
 
-    fn wrapping_mul(&self, other: &Self) -> Self {
-        self.wrapping_mul(other)
-    }
+//     fn wrapping_mul(&self, other: &Self) -> Self {
+//         self.wrapping_mul(other)
+//     }
 
-    fn wrapping_add(&self, other: &Self) -> Self {
-        self.wrapping_add(other)
-    }
+//     fn wrapping_add(&self, other: &Self) -> Self {
+//         self.wrapping_add(other)
+//     }
 
-    fn bits(&self) -> usize {
-        self.bits()
-    }
+//     fn bits(&self) -> usize {
+//         self.bits()
+//     }
 
-    fn bits_vartime(&self) -> usize {
-        self.bits_vartime()
-    }
+//     fn bits_vartime(&self) -> usize {
+//         self.bits_vartime()
+//     }
 
-    fn bit(&self, index: usize) -> Choice {
-        self.bit(index).into()
-    }
+//     fn bit(&self, index: usize) -> Choice {
+//         self.bit(index).into()
+//     }
 
-    fn bit_vartime(&self, index: usize) -> bool {
-        self.bit_vartime(index)
-    }
+//     fn bit_vartime(&self, index: usize) -> bool {
+//         self.bit_vartime(index)
+//     }
 
-    fn neg(&self) -> Self {
-        Self::ZERO.wrapping_sub(self)
-    }
+//     fn neg(&self) -> Self {
+//         Self::ZERO.wrapping_sub(self)
+//     }
 
-    fn neg_mod(&self, modulus: &Self) -> Self {
-        self.neg_mod(modulus)
-    }
+//     fn neg_mod(&self, modulus: &Self) -> Self {
+//         self.neg_mod(modulus)
+//     }
 
-    fn shl_vartime(&self, shift: usize) -> Self {
-        self.shl_vartime(shift)
-    }
+//     fn shl_vartime(&self, shift: usize) -> Self {
+//         self.shl_vartime(shift)
+//     }
 
-    fn shr_vartime(&self, shift: usize) -> Self {
-        self.shr_vartime(shift)
-    }
-}
+//     fn shr_vartime(&self, shift: usize) -> Self {
+//         self.shr_vartime(shift)
+//     }
+// }
 
 impl<const L: usize> Hashable for Uint<L>
 where
@@ -293,26 +294,26 @@ pub trait UintModLike:
     fn square(&self) -> Self;
 }
 
-impl<const L: usize> UintModLike for DynResidue<L>
-where
-    Uint<L>: Encoding,
-{
-    type RawUint = Uint<L>;
-    type Precomputed = DynResidueParams<L>;
+// impl<const L: usize> UintModLike for DynResidue<L>
+// where
+//     Uint<L>: Encoding,
+// {
+//     type RawUint = Uint<L>;
+//     type Precomputed = DynResidueParams<L>;
 
-    fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed {
-        DynResidueParams::<L>::new(modulus)
-    }
-    fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self {
-        Self::new(value, *precomputed)
-    }
-    fn one(precomputed: &Self::Precomputed) -> Self {
-        Self::one(*precomputed)
-    }
-    fn square(&self) -> Self {
-        self.square()
-    }
-}
+//     fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed {
+//         DynResidueParams::<L>::new(modulus)
+//     }
+//     fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self {
+//         Self::new(value, *precomputed)
+//     }
+//     fn one(precomputed: &Self::Precomputed) -> Self {
+//         Self::one(*precomputed)
+//     }
+//     fn square(&self) -> Self {
+//         self.square()
+//     }
+// }
 
 impl HasWide for U512 {
     type Wide = U1024;
