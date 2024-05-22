@@ -1,7 +1,8 @@
 use alloc::string::String;
-use core::ops::{Add, Mul, Neg, Sub};
-use crypto_bigint::{CheckedMul, Encoding, Random, RandomMod, ShlVartime, WrappingSub};
-
+use core::ops::{Add, Mul, Sub};
+#[cfg(test)]
+use crypto_bigint::Random;
+use crypto_bigint::{ShlVartime, WrappingSub};
 use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -12,14 +13,7 @@ use super::{
         Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess,
         CtOption,
     },
-    Bounded,
-    CheckedAdd,
-    HasWide,
-    Integer,
-    NonZero,
-    // RandomMod, UintLike,
-    // UintModLike,
-    // Zero,
+    Bounded, CheckedAdd, Encoding, HasWide, Integer, NonZero, RandomMod,
 };
 
 use crate::tools::hashing::{Chain, Hashable};
