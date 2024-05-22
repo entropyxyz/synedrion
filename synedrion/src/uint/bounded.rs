@@ -2,11 +2,12 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
+use crypto_bigint::Encoding;
 use serde::{Deserialize, Serialize};
 
 use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
-    CheckedAdd, CheckedMul, HasWide, Integer, NonZero, Signed, UintLike,
+    CheckedAdd, CheckedMul, HasWide, Integer, NonZero, Signed,
 };
 use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::serde_bytes;
@@ -21,7 +22,9 @@ pub(crate) struct PackedBounded {
     bytes: Box<[u8]>,
 }
 
-impl<T: UintLike> From<Bounded<T>> for PackedBounded {
+impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> From<Bounded<T>>
+    for PackedBounded
+{
     fn from(val: Bounded<T>) -> Self {
         let repr = val.as_ref().to_be_bytes();
         let bound_bytes = (val.bound() + 7) / 8;
@@ -33,10 +36,12 @@ impl<T: UintLike> From<Bounded<T>> for PackedBounded {
     }
 }
 
-impl<T: UintLike> TryFrom<PackedBounded> for Bounded<T> {
+impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable>
+    TryFrom<PackedBounded> for Bounded<T>
+{
     type Error = String;
     fn try_from(val: PackedBounded) -> Result<Self, Self::Error> {
-        let mut repr = T::ZERO.to_be_bytes();
+        let mut repr = T::zero().to_be_bytes();
         let bytes_len: usize = val.bytes.len();
         let repr_len: usize = repr.as_ref().len();
 
@@ -57,19 +62,21 @@ impl<T: UintLike> TryFrom<PackedBounded> for Bounded<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "PackedBounded", into = "PackedBounded")]
-pub struct Bounded<T: UintLike> {
+pub struct Bounded<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> {
     /// bound on the bit size of the value
     bound: u32,
     value: T,
 }
 
-impl<T: UintLike> Hashable for Bounded<T> {
+impl<T: Integer + Encoding + Hashable + crypto_bigint::Bounded + ConditionallySelectable> Hashable
+    for Bounded<T>
+{
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.bound).chain(&self.value)
     }
 }
 
-impl<T: UintLike> Bounded<T> {
+impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> Bounded<T> {
     pub fn bound(&self) -> u32 {
         self.bound
     }
@@ -80,7 +87,7 @@ impl<T: UintLike> Bounded<T> {
     }
 
     pub fn new(value: T, bound: u32) -> Option<Self> {
-        if bound > T::BITS as u32 || value.bits() as u32 > bound {
+        if bound > T::BITS || value.bits() > bound {
             return None;
         }
         Some(Self { value, bound })
@@ -91,7 +98,7 @@ impl<T: UintLike> Bounded<T> {
         // (although the modulus itself might be)
         Self {
             value: self.value.add_mod(&rhs.value, modulus),
-            bound: modulus.bits_vartime() as u32,
+            bound: modulus.bits_vartime(),
         }
     }
 
@@ -100,13 +107,18 @@ impl<T: UintLike> Bounded<T> {
     }
 }
 
-impl<T: UintLike> AsRef<T> for Bounded<T> {
+impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> AsRef<T>
+    for Bounded<T>
+{
     fn as_ref(&self) -> &T {
         &self.value
     }
 }
 
-impl<T: UintLike + HasWide> Bounded<T> {
+impl<T: Integer + Encoding + HasWide + crypto_bigint::Bounded + ConditionallySelectable> Bounded<T>
+where
+    <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
+{
     pub fn into_wide(self) -> Bounded<T::Wide> {
         Bounded {
             value: self.value.into_wide(),
@@ -123,11 +135,12 @@ impl<T: UintLike + HasWide> Bounded<T> {
     }
 }
 
-impl<T: UintLike> CheckedAdd for Bounded<T> {
-    type Output = Self;
-    fn checked_add(&self, rhs: Self) -> CtOption<Self> {
+impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> CheckedAdd
+    for Bounded<T>
+{
+    fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
-        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+        let in_range = bound.ct_lt(&<T as crypto_bigint::Bounded>::BITS);
 
         let result = Self {
             bound,
@@ -137,11 +150,13 @@ impl<T: UintLike> CheckedAdd for Bounded<T> {
     }
 }
 
-impl<T: UintLike> CheckedMul for Bounded<T> {
-    type Output = Self;
-    fn checked_mul(&self, rhs: Self) -> CtOption<Self> {
+impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> CheckedMul
+    for Bounded<T>
+{
+    // type Output = Self;
+    fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
-        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+        let in_range = bound.ct_lt(&<T as crypto_bigint::Bounded>::BITS);
 
         let result = Self {
             bound,
@@ -151,7 +166,9 @@ impl<T: UintLike> CheckedMul for Bounded<T> {
     }
 }
 
-impl<T: UintLike> ConditionallySelectable for Bounded<T> {
+impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable>
+    ConditionallySelectable for Bounded<T>
+{
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Self {
             bound: u32::conditional_select(&a.bound, &b.bound, choice),

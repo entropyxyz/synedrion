@@ -21,7 +21,7 @@ base64 = { version = "0.21", default-features = false, features = ["alloc"] }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
-crypto-bigint = { version = "0.6.0-pre.12", features = ["serde", "alloc"] }
+crypto-bigint = { version = "0.6.0-pre.12", features = ["serde", "alloc", "rand_core"] }
 crypto-primes = "0.6.0-pre.0"
 
 serde = { version = "1", features = ["derive"] }
