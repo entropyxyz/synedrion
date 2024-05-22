@@ -120,6 +120,20 @@ where
         // Extracted into a method to localize the conversion
         self.bound as usize
     }
+
+    /// Creates a signed value from an unsigned one,
+    /// assuming that it encodes a positive value.
+    pub fn new_positive(value: T, bound: u32) -> Option<Self> {
+        // Reserving one bit as the sign bit
+        if bound >= T::BITS || value.bits() > bound {
+            return None;
+        }
+        let result = Self { value, bound };
+        if result.is_negative().into() {
+            return None;
+        }
+        Some(result)
+    }
 }
 
 impl<T> Signed<T>
@@ -208,20 +222,6 @@ where
             x.conditional_negate(is_negative);
             x
         })
-    }
-
-    /// Creates a signed value from an unsigned one,
-    /// assuming that it encodes a positive value.
-    pub fn new_positive(value: T, bound: u32) -> Option<Self> {
-        // Reserving one bit as the sign bit
-        if bound >= T::BITS || value.bits() > bound {
-            return None;
-        }
-        let result = Self { value, bound };
-        if result.is_negative().into() {
-            return None;
-        }
-        Some(result)
     }
 
     // Asserts that the value has bound less or equal to `bound`

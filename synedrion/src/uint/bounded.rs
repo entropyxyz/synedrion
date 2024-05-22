@@ -2,12 +2,11 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
-use crypto_bigint::Encoding;
 use serde::{Deserialize, Serialize};
 
 use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
-    CheckedAdd, CheckedMul, HasWide, Integer, NonZero, Signed,
+    CheckedAdd, CheckedMul, Encoding, HasWide, Integer, NonZero, Signed,
 };
 use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::serde_bytes;
@@ -22,8 +21,9 @@ pub(crate) struct PackedBounded {
     bytes: Box<[u8]>,
 }
 
-impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> From<Bounded<T>>
-    for PackedBounded
+impl<T> From<Bounded<T>> for PackedBounded
+where
+    T: Integer + Encoding + crypto_bigint::Bounded,
 {
     fn from(val: Bounded<T>) -> Self {
         let repr = val.as_ref().to_be_bytes();
@@ -36,8 +36,9 @@ impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> F
     }
 }
 
-impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable>
-    TryFrom<PackedBounded> for Bounded<T>
+impl<T> TryFrom<PackedBounded> for Bounded<T>
+where
+    T: Integer + Encoding + crypto_bigint::Bounded,
 {
     type Error = String;
     fn try_from(val: PackedBounded) -> Result<Self, Self::Error> {
@@ -61,22 +62,30 @@ impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable>
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "PackedBounded", into = "PackedBounded")]
-pub struct Bounded<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> {
+#[serde(
+    try_from = "PackedBounded",
+    into = "PackedBounded",
+    bound = "T: Integer + Encoding + crypto_bigint::Bounded"
+)]
+pub struct Bounded<T> {
     /// bound on the bit size of the value
     bound: u32,
     value: T,
 }
 
-impl<T: Integer + Encoding + Hashable + crypto_bigint::Bounded + ConditionallySelectable> Hashable
-    for Bounded<T>
+impl<T> Hashable for Bounded<T>
+where
+    T: Hashable,
 {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest.chain(&self.bound).chain(&self.value)
     }
 }
 
-impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> Bounded<T> {
+impl<T> Bounded<T>
+where
+    T: Integer + crypto_bigint::Bounded,
+{
     pub fn bound(&self) -> u32 {
         self.bound
     }
@@ -107,17 +116,15 @@ impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> B
     }
 }
 
-impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> AsRef<T>
-    for Bounded<T>
-{
+impl<T> AsRef<T> for Bounded<T> {
     fn as_ref(&self) -> &T {
         &self.value
     }
 }
 
-impl<T: Integer + Encoding + HasWide + crypto_bigint::Bounded + ConditionallySelectable> Bounded<T>
+impl<T> Bounded<T>
 where
-    <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
+    T: HasWide,
 {
     pub fn into_wide(self) -> Bounded<T::Wide> {
         Bounded {
@@ -135,8 +142,9 @@ where
     }
 }
 
-impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> CheckedAdd
-    for Bounded<T>
+impl<T> CheckedAdd for Bounded<T>
+where
+    T: Integer + crypto_bigint::Bounded,
 {
     fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
@@ -150,10 +158,10 @@ impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> C
     }
 }
 
-impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> CheckedMul
-    for Bounded<T>
+impl<T> CheckedMul for Bounded<T>
+where
+    T: Integer + crypto_bigint::Bounded,
 {
-    // type Output = Self;
     fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
         let in_range = bound.ct_lt(&<T as crypto_bigint::Bounded>::BITS);
@@ -166,8 +174,9 @@ impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable> C
     }
 }
 
-impl<T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable>
-    ConditionallySelectable for Bounded<T>
+impl<T> ConditionallySelectable for Bounded<T>
+where
+    T: ConditionallySelectable,
 {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Self {
