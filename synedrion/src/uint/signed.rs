@@ -33,40 +33,44 @@ struct PackedSigned {
     abs_value: PackedBounded,
 }
 
-// impl<T> From<Signed<T>> for PackedSigned
-// where
-//     T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable + RandomMod,
-// {
-//     fn from(val: Signed<T>) -> Self {
-//         Self {
-//             is_negative: val.is_negative().into(),
-//             abs_value: PackedBounded::from(val.abs_bounded()),
-//         }
-//     }
-// }
+impl<T> From<Signed<T>> for PackedSigned
+where
+    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable,
+{
+    fn from(val: Signed<T>) -> Self {
+        Self {
+            is_negative: val.is_negative().into(),
+            abs_value: PackedBounded::from(val.abs_bounded()),
+        }
+    }
+}
 
-// impl<T> TryFrom<PackedSigned> for Signed<T>
-// where
-//     T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable + RandomMod,
-// {
-//     type Error = String;
-//     fn try_from(val: PackedSigned) -> Result<Self, Self::Error> {
-//         let abs_value = Bounded::try_from(val.abs_value)?;
-//         Self::new_from_abs(
-//             *abs_value.as_ref(),
-//             abs_value.bound(),
-//             Choice::from(val.is_negative as u8),
-//         )
-//         .ok_or_else(|| "Invalid values for the signed integer".into())
-//     }
-// }
+impl<T> TryFrom<PackedSigned> for Signed<T>
+where
+    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable,
+{
+    type Error = String;
+    fn try_from(val: PackedSigned) -> Result<Self, Self::Error> {
+        let abs_value = Bounded::try_from(val.abs_value)?;
+        Self::new_from_abs(
+            *abs_value.as_ref(),
+            abs_value.bound(),
+            Choice::from(val.is_negative as u8),
+        )
+        .ok_or_else(|| "Invalid values for the signed integer".into())
+    }
+}
 
 /// A wrapper over unsigned integers that treats two's complement numbers as negative.
 // In principle, Bounded could be separate from Signed, but we only use it internally,
 // and pretty much every time we need a bounded value, it's also signed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-// TODO: can we relax the bounds a bit here? Just T: Clone?
-// #[serde(try_from = "PackedSigned", into = "PackedSigned")]
+#[serde(
+    try_from = "PackedSigned",
+    into = "PackedSigned",
+    bound = "T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable"
+)]
+
 pub struct Signed<T> {
     /// bound on the bit size of the absolute value
     bound: u32,
@@ -82,7 +86,6 @@ where
     }
 }
 
-// Minimal bounds required
 impl<T> Signed<T>
 where
     T: Integer + crypto_bigint::Bounded,
@@ -242,16 +245,11 @@ where
         self.abs() <= T::one() << bound_bits
     }
 }
-// Lots of bounds
+
+#[cfg(test)]
 impl<T> Signed<T>
 where
-    T: Integer
-        + Encoding
-        + crypto_bigint::Bounded
-        + ConditionallySelectable
-        + RandomMod
-        + Random // TODO: only used in tests –– move to own test-only impl?
-        + ConditionallyNegatable,
+    T: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable + Random,
 {
     /// Returns a random value in the whole available range,
     /// that is `[-(2^(BITS-1)-1), 2^(BITS-1)-1]`.
@@ -264,7 +262,17 @@ where
             }
         }
     }
+}
 
+impl<T> Signed<T>
+where
+    T: Integer
+        + Encoding
+        + crypto_bigint::Bounded
+        + ConditionallySelectable
+        + ConditionallyNegatable
+        + RandomMod,
+{
     /// Returns a random value in range `[-bound, bound]`.
     ///
     /// Note: variable time in bit size of `bound`.
@@ -299,40 +307,15 @@ where
             .expect("Just asserted that bound is smaller than precision; qed")
             .checked_add(&T::one())
             .unwrap();
-        let positive_result = Self::from_xof(rng, &NonZero::new(positive_bound).unwrap());
-        // Will not panic because of the assertion above
-        Self::new_from_unsigned(positive_result.wrapping_sub(bound.as_ref()), bound_bits).unwrap()
+        let positive_result = from_xof(
+            rng,
+            &NonZero::new(positive_bound)
+                .expect("Guaranteed to be greater than zero because we added 1"),
+        );
+        Self::new_from_unsigned(positive_result.wrapping_sub(bound.as_ref()), bound_bits)
+            .expect("Guaranteed to be Some because we checked the bounds just above")
     }
 
-    // TODO: copied this from impl<const L: usize> UintLike for Uint<L> but could either be
-    // inlined into from_xof_reader_bounded or put somewhere else
-    fn from_xof(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T {
-        let backend_modulus = modulus.as_ref();
-
-        let n_bits = backend_modulus.bits_vartime();
-        let n_bytes = (n_bits + 7) / 8; // ceiling division by 8
-
-        // If the number of bits is not a multiple of 8,
-        // use a mask to zeroize the high bits in the gererated random bytestring,
-        // so that we don't have to reject too much.
-        let mask = if n_bits & 7 != 0 {
-            (1 << (n_bits & 7)) - 1
-        } else {
-            u8::MAX
-        };
-
-        let mut bytes = T::zero().to_le_bytes();
-        // let mut b = bytes.as_mut();
-        loop {
-            reader.read(&mut (bytes.as_mut()[0..n_bytes as usize]));
-            bytes.as_mut()[n_bytes as usize - 1] &= mask;
-            let n = T::from_le_bytes(bytes);
-
-            if n.ct_lt(backend_modulus).into() {
-                return n;
-            }
-        }
-    }
     /// Returns a random value in range `[-2^bound_bits, 2^bound_bits]`.
     ///
     /// Note: variable time in `bound_bits`.
@@ -352,7 +335,10 @@ impl<T: Integer> Default for Signed<T> {
     }
 }
 
-impl<T: Integer + ConditionallySelectable> ConditionallySelectable for Signed<T> {
+impl<T> ConditionallySelectable for Signed<T>
+where
+    T: Integer + ConditionallySelectable,
+{
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Self {
             bound: u32::conditional_select(&a.bound, &b.bound, choice),
@@ -363,7 +349,7 @@ impl<T: Integer + ConditionallySelectable> ConditionallySelectable for Signed<T>
 
 impl<T> ConditionallyNegatable for Signed<T>
 where
-    T: ConditionallySelectable + Integer,
+    T: Integer + ConditionallySelectable,
 {
     #[inline]
     fn conditional_negate(&mut self, choice: Choice) {
@@ -378,8 +364,8 @@ where
 
 impl<T> Signed<T>
 where
-    T: Integer + HasWide + Encoding + crypto_bigint::Bounded + ConditionallySelectable + RandomMod,
-    <T as HasWide>::Wide: Encoding + crypto_bigint::Bounded + ConditionallySelectable + RandomMod,
+    T: Integer + crypto_bigint::Bounded + HasWide,
+    <T as HasWide>::Wide: RandomMod,
 {
     /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
     ///
@@ -415,7 +401,7 @@ where
 impl<T> Signed<T>
 where
     T: Integer + HasWide + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
-    T::Wide: HasWide + crypto_bigint::Bounded + ConditionallySelectable + ShlVartime,
+    T::Wide: HasWide + crypto_bigint::Bounded + ConditionallySelectable, //+ ShlVartime,
     <T::Wide as HasWide>::Wide: RandomMod + WrappingSub,
 {
     pub fn into_wide(self) -> Signed<T::Wide> {
@@ -536,7 +522,7 @@ where
 
 impl<T> core::iter::Sum for Signed<T>
 where
-    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable,
+    T: Integer + Encoding + crypto_bigint::Bounded,
 {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(|x, y| x.checked_add(&y).unwrap())
@@ -546,9 +532,40 @@ where
 
 impl<'a, T> core::iter::Sum<&'a Self> for Signed<T>
 where
-    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable,
+    T: Integer + Encoding + crypto_bigint::Bounded,
 {
     fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
         iter.cloned().sum()
+    }
+}
+
+// Build a `T` integer from an extendable Reader function
+fn from_xof<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
+where
+    T: Integer + Encoding,
+{
+    let backend_modulus = modulus.as_ref();
+
+    let n_bits = backend_modulus.bits_vartime();
+    let n_bytes = (n_bits + 7) / 8; // ceiling division by 8
+
+    // If the number of bits is not a multiple of 8,
+    // use a mask to zeroize the high bits in the gererated random bytestring,
+    // so that we don't have to reject too much.
+    let mask = if n_bits & 7 != 0 {
+        (1 << (n_bits & 7)) - 1
+    } else {
+        u8::MAX
+    };
+
+    let mut bytes = T::zero().to_le_bytes();
+    loop {
+        reader.read(&mut (bytes.as_mut()[0..n_bytes as usize]));
+        bytes.as_mut()[n_bytes as usize - 1] &= mask;
+        let n = T::from_le_bytes(bytes);
+
+        if n.ct_lt(backend_modulus).into() {
+            return n;
+        }
     }
 }
