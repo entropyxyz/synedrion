@@ -48,9 +48,7 @@ pub use constructors::{
     PrehashedMessage,
 };
 pub use curve::RecoverableSignature;
-pub use entities::{
-    KeyShare, KeyShareChange, KeyShareSeed, ThresholdKeyShare, ThresholdKeyShareSeed,
-};
+pub use entities::{AuxInfo, KeyShare, KeyShareChange, ThresholdKeyShare};
 pub use rounds::ProtocolResult;
 pub use sessions::{CombinedMessage, FinalizeOutcome, MappedResult, Session};
 pub use www02::KeyResharingResult;

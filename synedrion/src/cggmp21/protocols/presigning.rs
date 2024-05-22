@@ -9,8 +9,9 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
+    entities::AuxInfoPrecomputed,
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
-    KeyShare, KeySharePrecomputed, PresigningData, SchemeParams,
+    AuxInfo, KeyShare, PresigningData, SchemeParams,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, CiphertextMod, PaillierParams, Randomizer, RandomizerMod};
@@ -48,7 +49,8 @@ pub enum PresigningError {
 
 struct Context<P: SchemeParams> {
     ssid_hash: HashOutput,
-    key_share: KeySharePrecomputed<P>,
+    key_share: KeyShare<P>,
+    aux_info: AuxInfoPrecomputed<P>,
     k: Scalar,
     gamma: Scalar,
     rho: RandomizerMod<P::Paillier>,
@@ -62,7 +64,7 @@ pub struct Round1<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Inputs = KeyShare<P>;
+    type Inputs = (KeyShare<P>, AuxInfo<P>);
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
@@ -70,7 +72,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         _party_idx: PartyIdx,
         inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
-        let key_share = inputs.to_precomputed();
+        let (key_share, aux_info) = inputs;
+        let aux_info = aux_info.to_precomputed();
 
         // This includes the info of $ssid$ in the paper
         // (scheme parameters + public data from all shares - hashed in `share_set_id`),
@@ -78,8 +81,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let ssid_hash = Hash::new_with_dst(b"ShareSetID")
             .chain_type::<P>()
             .chain(&shared_randomness)
-            .chain_slice(&inputs.public_shares)
-            .chain_slice(&inputs.public_aux)
+            .chain_slice(&key_share.public_shares)
+            .chain_slice(&aux_info.public_aux)
             .finalize();
 
         // TODO (#68): check that KeyShare is consistent with num_parties/party_idx
@@ -89,7 +92,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         // The share of the mask used to generate the inverse of the ephemeral scalar
         let gamma = Scalar::random(rng);
 
-        let pk = key_share.secret_aux.paillier_sk.public_key();
+        let pk = aux_info.secret_aux.paillier_sk.public_key();
 
         let nu = RandomizerMod::<P::Paillier>::random(rng, pk);
         let cap_g =
@@ -103,6 +106,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             context: Context {
                 ssid_hash,
                 key_share,
+                aux_info,
                 k,
                 gamma,
                 rho,
@@ -181,9 +185,9 @@ impl<P: SchemeParams> Round for Round1<P> {
             rng,
             &P::signed_from_scalar(&self.context.k),
             &self.context.rho,
-            self.context.key_share.secret_aux.paillier_sk.public_key(),
+            self.context.aux_info.secret_aux.paillier_sk.public_key(),
             &self.cap_k,
-            &self.context.key_share.public_aux[destination.as_usize()].rp_params,
+            &self.context.aux_info.public_aux[destination.as_usize()].rp_params,
             &aux,
         );
 
@@ -198,9 +202,9 @@ impl<P: SchemeParams> Round for Round1<P> {
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let aux = (&self.context.ssid_hash, &self.party_idx());
 
-        let public_aux = &self.context.key_share.public_aux[self.party_idx().as_usize()];
+        let public_aux = &self.context.aux_info.public_aux[self.party_idx().as_usize()];
 
-        let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
+        let from_pk = &self.context.aux_info.public_aux[from.as_usize()].paillier_pk;
 
         if !direct_msg.psi0.verify(
             from_pk,
@@ -233,10 +237,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
             .unzip();
 
         let others_cap_k = others_cap_k.map_enumerate(|(i, ciphertext)| {
-            ciphertext.to_mod(&self.context.key_share.public_aux[i].paillier_pk)
+            ciphertext.to_mod(&self.context.aux_info.public_aux[i].paillier_pk)
         });
         let others_cap_g = others_cap_g.map_enumerate(|(i, ciphertext)| {
-            ciphertext.to_mod(&self.context.key_share.public_aux[i].paillier_pk)
+            ciphertext.to_mod(&self.context.aux_info.public_aux[i].paillier_pk)
         });
 
         let all_cap_k = others_cap_k.into_vec(self.cap_k);
@@ -334,10 +338,10 @@ impl<P: SchemeParams> Round for Round2<P> {
         );
 
         let cap_gamma = self.context.gamma.mul_by_generator();
-        let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
+        let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
         let idx = destination.as_usize();
 
-        let target_pk = &self.context.key_share.public_aux[idx].paillier_pk;
+        let target_pk = &self.context.aux_info.public_aux[idx].paillier_pk;
 
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
         let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
@@ -355,7 +359,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             * P::signed_from_scalar(&self.context.key_share.secret_share)
             + CiphertextMod::new_with_randomizer_signed(target_pk, &-hat_beta, &hat_s.retrieve());
 
-        let public_aux = &self.context.key_share.public_aux[idx];
+        let public_aux = &self.context.aux_info.public_aux[idx];
         let rp = &public_aux.rp_params;
 
         let psi = AffGProof::new(
@@ -436,13 +440,13 @@ impl<P: SchemeParams> Round for Round2<P> {
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let aux = (&self.context.ssid_hash, &from);
-        let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
-        let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
+        let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
+        let from_pk = &self.context.aux_info.public_aux[from.as_usize()].paillier_pk;
 
         let cap_x = self.context.key_share.public_shares[from.as_usize()];
 
         let public_aux =
-            &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
+            &self.context.aux_info.public_aux[self.context.key_share.party_index().as_usize()];
         let rp = &public_aux.rp_params;
 
         let cap_d = direct_msg.cap_d.to_mod(pk);
@@ -491,8 +495,8 @@ impl<P: SchemeParams> Round for Round2<P> {
             ));
         }
 
-        let alpha = cap_d.decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
-        let hat_alpha = hat_cap_d.decrypt_signed(&self.context.key_share.secret_aux.paillier_sk);
+        let alpha = cap_d.decrypt_signed(&self.context.aux_info.secret_aux.paillier_sk);
+        let hat_alpha = hat_cap_d.decrypt_signed(&self.context.aux_info.secret_aux.paillier_sk);
 
         // `alpha == x * y + z` where `0 <= x, y < q`, and `-2^l' <= z <= 2^l'`,
         // where `q` is the curve order.
@@ -629,10 +633,10 @@ impl<P: SchemeParams> Round for Round3<P> {
             &self.context.ssid_hash,
             &self.context.key_share.party_index(),
         );
-        let pk = &self.context.key_share.secret_aux.paillier_sk.public_key();
+        let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
         let idx = destination.as_usize();
 
-        let public_aux = &self.context.key_share.public_aux[idx];
+        let public_aux = &self.context.aux_info.public_aux[idx];
         let rp = &public_aux.rp_params;
 
         let psi_pprime = LogStarProof::new(
@@ -662,10 +666,10 @@ impl<P: SchemeParams> Round for Round3<P> {
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let aux = (&self.context.ssid_hash, &from);
-        let from_pk = &self.context.key_share.public_aux[from.as_usize()].paillier_pk;
+        let from_pk = &self.context.aux_info.public_aux[from.as_usize()].paillier_pk;
 
         let public_aux =
-            &self.context.key_share.public_aux[self.context.key_share.party_index().as_usize()];
+            &self.context.aux_info.public_aux[self.context.key_share.party_index().as_usize()];
         let rp = &public_aux.rp_params;
 
         if !direct_msg.psi_pprime.verify(
@@ -754,7 +758,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
         // Construct the correctness proofs
 
-        let sk = &self.context.key_share.secret_aux.paillier_sk;
+        let sk = &self.context.aux_info.secret_aux.paillier_sk;
         let pk = sk.public_key();
         let num_parties = self.context.key_share.num_parties();
 
@@ -780,8 +784,8 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 if l == j {
                     continue;
                 }
-                let target_pk = &self.context.key_share.public_aux[j].paillier_pk;
-                let rp = &self.context.key_share.public_aux[l].rp_params;
+                let target_pk = &self.context.aux_info.public_aux[j].paillier_pk;
+                let rp = &self.context.aux_info.public_aux[l].rp_params;
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
@@ -862,14 +866,14 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 pk,
                 &scalar_delta,
                 &ciphertext,
-                &self.context.key_share.public_aux[j].rp_params,
+                &self.context.aux_info.public_aux[j].rp_params,
                 &aux,
             );
             assert!(p_dec.verify(
                 pk,
                 &scalar_delta,
                 &ciphertext,
-                &self.context.key_share.public_aux[j].rp_params,
+                &self.context.aux_info.public_aux[j].rp_params,
                 &aux
             ));
             dec_proofs.push((PartyIdx::from_usize(j), p_dec));
@@ -888,7 +892,7 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::Round1;
-    use crate::cggmp21::{KeyShare, TestParams};
+    use crate::cggmp21::{AuxInfo, KeyShare, TestParams};
     use crate::curve::Scalar;
     use crate::rounds::{
         test_utils::{step_next_round, step_result, step_round},
@@ -902,6 +906,7 @@ mod tests {
 
         let num_parties = 3;
         let key_shares = KeyShare::new_centralized(&mut OsRng, num_parties, None);
+        let aux_infos = AuxInfo::new_centralized(&mut OsRng, num_parties);
         let r1 = (0..num_parties)
             .map(|idx| {
                 Round1::<TestParams>::new(
@@ -909,7 +914,7 @@ mod tests {
                     &shared_randomness,
                     num_parties,
                     PartyIdx::from_usize(idx),
-                    key_shares[idx].clone(),
+                    (key_shares[idx].clone(), aux_infos[idx].clone()),
                 )
                 .unwrap()
             })

@@ -12,9 +12,7 @@ mod params;
 mod protocols;
 mod sigma;
 
-pub(crate) use entities::{
-    make_aux_info, KeyShareChange, KeySharePrecomputed, KeyShareSeed, PublicAuxInfo, SecretAuxInfo,
-};
+pub(crate) use entities::{AuxInfo, KeyShareChange, PublicAuxInfo, SecretAuxInfo};
 pub use entities::{KeyShare, PresigningData};
 pub use params::{ProductionParams, SchemeParams, TestParams};
 pub(crate) use protocols::{interactive_signing, key_gen, key_init, key_refresh};

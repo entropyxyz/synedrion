@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
-    KeyShareChange, PublicAuxInfo, SchemeParams, SecretAuxInfo,
+    AuxInfo, KeyShareChange, PublicAuxInfo, SchemeParams, SecretAuxInfo,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
@@ -35,7 +35,7 @@ use crate::uint::UintLike;
 pub struct KeyRefreshResult<P: SchemeParams>(PhantomData<P>);
 
 impl<P: SchemeParams> ProtocolResult for KeyRefreshResult<P> {
-    type Success = KeyShareChange<P>;
+    type Success = (KeyShareChange<P>, AuxInfo<P>);
     type ProvableError = KeyRefreshError<P>;
     type CorrectnessProof = ();
 }
@@ -651,11 +651,16 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             index: self.context.party_idx,
             secret_share_change: x_star,
             public_share_changes: cap_x_star,
+            phantom: PhantomData,
+        };
+
+        let aux_info = AuxInfo {
+            index: self.context.party_idx,
             secret_aux,
             public_aux,
         };
 
-        Ok(key_share_change)
+        Ok((key_share_change, aux_info))
     }
 }
 
@@ -696,7 +701,9 @@ mod tests {
         let r2a = step_round(&mut OsRng, r2).unwrap();
         let r3 = step_next_round(&mut OsRng, r2a).unwrap();
         let r3a = step_round(&mut OsRng, r3).unwrap();
-        let changes = step_result(&mut OsRng, r3a).unwrap();
+        let results = step_result(&mut OsRng, r3a).unwrap();
+
+        let (changes, aux_infos): (Vec<_>, Vec<_>) = results.into_iter().unzip();
 
         // Check that public points correspond to secret scalars
         for (idx, change) in changes.iter().enumerate() {
@@ -705,9 +712,14 @@ mod tests {
                     change.secret_share_change.mul_by_generator(),
                     other_change.public_share_changes[idx]
                 );
+            }
+        }
+
+        for (idx, aux_info) in aux_infos.iter().enumerate() {
+            for other_aux_info in aux_infos.iter() {
                 assert_eq!(
-                    change.secret_aux.el_gamal_sk.mul_by_generator(),
-                    other_change.public_aux[idx].el_gamal_pk
+                    aux_info.secret_aux.el_gamal_sk.mul_by_generator(),
+                    other_aux_info.public_aux[idx].el_gamal_pk
                 );
             }
         }

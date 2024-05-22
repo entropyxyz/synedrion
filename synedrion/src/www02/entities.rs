@@ -14,19 +14,20 @@ use crate::tools::sss::{shamir_evaluation_points, shamir_join_points, shamir_spl
 use crate::SchemeParams;
 
 #[cfg(test)]
-use crate::{cggmp21::KeyShareSeed, tools::sss::interpolation_coeff};
+use crate::{cggmp21::KeyShare, tools::sss::interpolation_coeff};
 
 #[derive(Clone)]
-pub struct ThresholdKeyShareSeed<P: SchemeParams> {
+pub struct ThresholdKeyShare<P: SchemeParams> {
     pub(crate) index: PartyIdx,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Scalar,
     pub(crate) share_ids: BTreeMap<PartyIdx, ShareId>,
     pub(crate) public_shares: BTreeMap<PartyIdx, Point>,
+    // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
     pub(crate) phantom: PhantomData<P>,
 }
 
-impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
+impl<P: SchemeParams> ThresholdKeyShare<P> {
     pub fn share_index(&self) -> ShareId {
         self.share_ids[&self.index]
     }
@@ -102,7 +103,7 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
     /// (for the `t` share indices supplied as `share_ids`)
     /// that can be used in the presigning/signing protocols.
     #[cfg(test)]
-    pub fn to_key_share_seed(&self, party_idxs: &[PartyIdx]) -> KeyShareSeed {
+    pub fn to_key_share(&self, party_idxs: &[PartyIdx]) -> KeyShare<P> {
         debug_assert!(party_idxs.len() == self.threshold as usize);
         debug_assert!(party_idxs.iter().any(|idx| idx == &self.index));
         // TODO (#68): assert that all indices are distinct
@@ -122,10 +123,11 @@ impl<P: SchemeParams> ThresholdKeyShareSeed<P> {
             })
             .collect();
 
-        KeyShareSeed {
+        KeyShare {
             index: self.index,
             secret_share,
             public_shares,
+            phantom: PhantomData,
         }
     }
 }
@@ -135,7 +137,7 @@ mod tests {
     use k256::ecdsa::SigningKey;
     use rand_core::OsRng;
 
-    use super::ThresholdKeyShareSeed;
+    use super::ThresholdKeyShare;
     use crate::curve::Scalar;
     use crate::rounds::PartyIdx;
     use crate::TestParams;
@@ -143,8 +145,7 @@ mod tests {
     #[test]
     fn threshold_key_share_centralized() {
         let sk = SigningKey::random(&mut OsRng);
-        let shares =
-            ThresholdKeyShareSeed::<TestParams>::new_centralized(&mut OsRng, 2, 3, Some(&sk));
+        let shares = ThresholdKeyShare::<TestParams>::new_centralized(&mut OsRng, 2, 3, Some(&sk));
 
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
         assert_eq!(&shares[1].verifying_key(), sk.verifying_key());
@@ -153,8 +154,8 @@ mod tests {
         assert_eq!(&shares[0].verifying_key(), sk.verifying_key());
 
         let party_idxs = [PartyIdx::from_usize(2), PartyIdx::from_usize(0)];
-        let nt_share0 = shares[0].to_key_share_seed(&party_idxs);
-        let nt_share1 = shares[2].to_key_share_seed(&party_idxs);
+        let nt_share0 = shares[0].to_key_share(&party_idxs);
+        let nt_share1 = shares[2].to_key_share(&party_idxs);
 
         assert_eq!(
             nt_share0.secret_share + nt_share1.secret_share,

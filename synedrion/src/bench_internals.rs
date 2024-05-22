@@ -8,7 +8,7 @@ use alloc::boxed::Box;
 use rand_core::CryptoRngCore;
 
 use super::cggmp21::{
-    key_init, key_refresh, presigning, signing, KeyShare, PresigningData, SchemeParams,
+    key_init, key_refresh, presigning, signing, AuxInfo, KeyShare, PresigningData, SchemeParams,
 };
 use crate::curve::Scalar;
 use crate::rounds::{
@@ -70,12 +70,20 @@ pub fn key_refresh<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: u
 
 /// A public struct to use for benchmarking of Presigning protocol,
 /// to avoid exposing actual crate-private entities.
-pub struct PresigningInputs<P: SchemeParams>(Box<[KeyShare<P>]>);
+pub struct PresigningInputs<P: SchemeParams> {
+    key_shares: Box<[KeyShare<P>]>,
+    aux_infos: Box<[AuxInfo<P>]>,
+}
 
 impl<P: SchemeParams> PresigningInputs<P> {
     /// Creates new test data to use in the Presigning and Signing benchmarks.
     pub fn new(rng: &mut impl CryptoRngCore, num_parties: usize) -> Self {
-        Self(KeyShare::new_centralized(rng, num_parties, None))
+        let key_shares = KeyShare::new_centralized(rng, num_parties, None);
+        let aux_infos = AuxInfo::new_centralized(rng, num_parties);
+        Self {
+            key_shares,
+            aux_infos,
+        }
     }
 }
 
@@ -84,7 +92,7 @@ pub fn presigning<P: SchemeParams>(rng: &mut impl CryptoRngCore, inputs: &Presig
     let mut shared_randomness = [0u8; 32];
     rng.fill_bytes(&mut shared_randomness);
 
-    let num_parties = inputs.0.len();
+    let num_parties = inputs.key_shares.len();
     let r1 = (0..num_parties)
         .map(|idx| {
             presigning::Round1::<P>::new(
@@ -92,7 +100,10 @@ pub fn presigning<P: SchemeParams>(rng: &mut impl CryptoRngCore, inputs: &Presig
                 &shared_randomness,
                 num_parties,
                 PartyIdx::from_usize(idx),
-                inputs.0[idx].clone(),
+                (
+                    inputs.key_shares[idx].clone(),
+                    inputs.aux_infos[idx].clone(),
+                ),
             )
             .unwrap()
         })
@@ -113,7 +124,11 @@ pub struct SigningInputs<P: SchemeParams>(Box<[PresigningData<P>]>);
 impl<P: SchemeParams> SigningInputs<P> {
     /// Creates new test data to use in the Signing benchmark.
     pub fn new(rng: &mut impl CryptoRngCore, presigning_inputs: &PresigningInputs<P>) -> Self {
-        Self(PresigningData::new_centralized(rng, &presigning_inputs.0))
+        Self(PresigningData::new_centralized(
+            rng,
+            &presigning_inputs.key_shares,
+            &presigning_inputs.aux_infos,
+        ))
     }
 }
 
@@ -139,7 +154,8 @@ pub fn signing<P: SchemeParams>(
                 signing::Inputs {
                     message,
                     presigning: signing_inputs.0[idx].clone(),
-                    key_share: presigning_inputs.0[idx].to_precomputed(),
+                    key_share: presigning_inputs.key_shares[idx].clone(),
+                    aux_info: presigning_inputs.aux_infos[idx].clone(),
                 },
             )
             .unwrap()

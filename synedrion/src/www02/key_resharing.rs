@@ -12,7 +12,7 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::ThresholdKeyShareSeed;
+use super::ThresholdKeyShare;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
     FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError, PartyIdx,
@@ -29,7 +29,7 @@ use crate::SchemeParams;
 pub struct KeyResharingResult<P: SchemeParams>(PhantomData<P>);
 
 impl<P: SchemeParams> ProtocolResult for KeyResharingResult<P> {
-    type Success = Option<ThresholdKeyShareSeed<P>>;
+    type Success = Option<ThresholdKeyShare<P>>;
     type ProvableError = KeyResharingError;
     type CorrectnessProof = ();
 }
@@ -41,7 +41,7 @@ pub enum KeyResharingError {
 }
 
 pub struct OldHolder<P: SchemeParams> {
-    pub key_share_seed: ThresholdKeyShareSeed<P>,
+    pub key_share_seed: ThresholdKeyShare<P>,
 }
 
 pub struct NewHolder {
@@ -367,7 +367,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             })
             .collect();
 
-        Ok(Some(ThresholdKeyShareSeed {
+        Ok(Some(ThresholdKeyShare {
             index: self.party_idx(),
             threshold: self.new_threshold as u32,
             secret_share,
@@ -382,7 +382,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 mod tests {
     use rand_core::{OsRng, RngCore};
 
-    use super::ThresholdKeyShareSeed;
+    use super::ThresholdKeyShare;
     use super::{KeyResharingContext, NewHolder, OldHolder, Round1};
     use crate::cggmp21::TestParams;
     use crate::rounds::{
@@ -397,7 +397,7 @@ mod tests {
 
         let num_parties = 4;
         let old_key_shares =
-            ThresholdKeyShareSeed::<TestParams>::new_centralized(&mut OsRng, 2, 3, None);
+            ThresholdKeyShare::<TestParams>::new_centralized(&mut OsRng, 2, 3, None);
         let old_vkey = old_key_shares[0].verifying_key_as_point();
 
         let old_holders = vec![
@@ -494,7 +494,7 @@ mod tests {
         assert!(shares[0].is_none());
 
         // Unwrap the results of the new holders
-        let shares: Vec<ThresholdKeyShareSeed<_>> = shares[1..4]
+        let shares: Vec<ThresholdKeyShare<_>> = shares[1..4]
             .iter()
             .cloned()
             .map(|share| share.unwrap())
