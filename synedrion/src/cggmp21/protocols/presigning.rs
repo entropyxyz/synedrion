@@ -260,12 +260,16 @@ pub struct Round2<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "Ciphertext<P::Paillier>: Serialize,
+#[serde(bound(serialize = "
+    Ciphertext<P::Paillier>: Serialize,
     AffGProof<P>: Serialize,
-    LogStarProof<P>: Serialize"))]
-#[serde(bound(deserialize = "Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
+    LogStarProof<P>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
     AffGProof<P>: for<'x> Deserialize<'x>,
-    LogStarProof<P>: for<'x> Deserialize<'x>"))]
+    LogStarProof<P>: for<'x> Deserialize<'x>,
+"))]
 pub struct Round2Message<P: SchemeParams> {
     cap_gamma: Point,
     cap_d: Ciphertext<P::Paillier>,

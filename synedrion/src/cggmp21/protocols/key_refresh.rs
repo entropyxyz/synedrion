@@ -414,12 +414,16 @@ pub struct Round3<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "ModProof<P>: Serialize,
+#[serde(bound(serialize = "
+    ModProof<P>: Serialize,
     FacProof<P>: Serialize,
-    Ciphertext<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "ModProof<P>: for<'x> Deserialize<'x>,
+    Ciphertext<P::Paillier>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    ModProof<P>: for<'x> Deserialize<'x>,
     FacProof<P>: for<'x> Deserialize<'x>,
-    Ciphertext<P::Paillier>: for<'x> Deserialize<'x>"))]
+    Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
+"))]
 pub struct PublicData2<P: SchemeParams> {
     psi_mod: ModProof<P>, // $\psi_i$, a P^{mod} for the Paillier modulus
     phi: FacProof<P>,

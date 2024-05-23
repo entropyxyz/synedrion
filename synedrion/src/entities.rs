@@ -160,13 +160,15 @@ pub struct KeyShareChange<P: SchemeParams, V: Ord> {
 /// The result of the KeyInit protocol.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
-        V: Serialize,
-        SecretAuxInfo<P>: Serialize,
-        PublicAuxInfo<P>: Serialize"))]
+    V: Serialize,
+    SecretAuxInfo<P>: Serialize,
+    PublicAuxInfo<P>: Serialize,
+"))]
 #[serde(bound(deserialize = "
-        V: for<'x> Deserialize<'x>,
-        SecretAuxInfo<P>: for<'x> Deserialize<'x>,
-        PublicAuxInfo<P>: for <'x> Deserialize<'x>"))]
+    V: for<'x> Deserialize<'x>,
+    SecretAuxInfo<P>: for<'x> Deserialize<'x>,
+    PublicAuxInfo<P>: for <'x> Deserialize<'x>,
+"))]
 pub struct AuxInfo<P: SchemeParams, V: Ord> {
     pub(crate) owner: V,
     pub(crate) secret_aux: SecretAuxInfo<P>,
