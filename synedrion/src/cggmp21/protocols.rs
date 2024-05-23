@@ -1,3 +1,4 @@
+pub(crate) mod aux_gen;
 pub(crate) mod interactive_signing;
 pub(crate) mod key_gen;
 pub(crate) mod key_init;
@@ -5,6 +6,7 @@ pub(crate) mod key_refresh;
 pub(crate) mod presigning;
 pub(crate) mod signing;
 
+pub use aux_gen::{AuxGenError, AuxGenResult};
 pub use interactive_signing::{
     InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult,
 };

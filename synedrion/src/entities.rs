@@ -14,8 +14,8 @@ use crate::sessions::MappedResult;
 use crate::tools::sss::{interpolation_coeff, shamir_join_points, ShareId};
 use crate::www02;
 use crate::{
-    InteractiveSigningResult, KeyGenResult, KeyInitResult, KeyRefreshResult, KeyResharingResult,
-    SchemeParams,
+    AuxGenResult, InteractiveSigningResult, KeyGenResult, KeyInitResult, KeyRefreshResult,
+    KeyResharingResult, SchemeParams,
 };
 
 fn map_iter<T, V: Clone + Ord>(
@@ -251,6 +251,17 @@ impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for KeyGenResult<P> {
             public_aux: map_iter(aux_info.public_aux.into_vec(), verifiers),
         };
         (mapped_key_share, mapped_aux_info)
+    }
+}
+
+impl<P: SchemeParams, V: Clone + Ord> MappedResult<V> for AuxGenResult<P> {
+    type MappedSuccess = AuxInfo<P, V>;
+    fn map_success(inner: Self::Success, verifiers: &[V]) -> Self::MappedSuccess {
+        AuxInfo {
+            owner: verifiers[inner.index.as_usize()].clone(),
+            secret_aux: inner.secret_aux,
+            public_aux: map_iter(inner.public_aux.into_vec(), verifiers),
+        }
     }
 }
 

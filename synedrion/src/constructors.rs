@@ -11,8 +11,8 @@ use signature::{
 };
 
 use crate::cggmp21::{
-    interactive_signing, key_gen, key_init, key_refresh, InteractiveSigningResult, KeyGenResult,
-    KeyInitResult, KeyRefreshResult, SchemeParams,
+    aux_gen, interactive_signing, key_gen, key_init, key_refresh, AuxGenResult,
+    InteractiveSigningResult, KeyGenResult, KeyInitResult, KeyRefreshResult, SchemeParams,
 };
 use crate::curve::{Point, Scalar};
 use crate::entities::{AuxInfo, KeyShare, ThresholdKeyShare};
@@ -53,6 +53,22 @@ where
     Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
     Session::new::<key_gen::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
+}
+
+/// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
+pub fn make_aux_gen_session<P, Sig, Signer, Verifier>(
+    rng: &mut impl CryptoRngCore,
+    shared_randomness: &[u8],
+    signer: Signer,
+    verifiers: &[Verifier],
+) -> Result<Session<AuxGenResult<P>, Sig, Signer, Verifier>, LocalError>
+where
+    Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
+    P: SchemeParams + 'static,
+    Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
+    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
+{
+    Session::new::<aux_gen::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
 
 /// Creates the initial state for the KeyRefresh+Auxiliary protocol.

@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_interactive_signing_session, make_key_init_session, make_key_refresh_session,
+    make_aux_gen_session, make_interactive_signing_session, make_key_init_session,
     make_key_resharing_session, CombinedMessage, FinalizeOutcome, KeyResharingInputs, MappedResult,
     NewHolder, OldHolder, Session, TestParams,
 };
@@ -302,7 +302,7 @@ async fn full_sequence() {
 
     let sessions = (0..n)
         .map(|idx| {
-            make_key_refresh_session::<TestParams, Signature, SigningKey, VerifyingKey>(
+            make_aux_gen_session::<TestParams, Signature, SigningKey, VerifyingKey>(
                 &mut OsRng,
                 shared_randomness,
                 signers[idx].clone(),
@@ -312,11 +312,8 @@ async fn full_sequence() {
         })
         .collect::<Vec<_>>();
 
-    println!("\nRunning KeyRefresh/AuxInfo\n");
-    let (_key_share_changes, aux_infos): (Vec<_>, Vec<_>) =
-        run_nodes(sessions).await.into_iter().unzip();
-
-    // Note: key share changes currently cannot be applied to threshold shares
+    println!("\nRunning AuxGen\n");
+    let aux_infos = run_nodes(sessions).await;
 
     // For signing, we select `t` parties and these parties convert their threshold key shares
     // into regular key shares.

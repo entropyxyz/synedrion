@@ -37,15 +37,15 @@ pub use k256::ecdsa;
 pub use signature;
 
 pub use cggmp21::{
-    InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult, KeyGenError,
-    KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult, KeyRefreshResult, PresigningError,
-    PresigningProof, PresigningResult, ProductionParams, SchemeParams, SigningProof, SigningResult,
-    TestParams,
+    AuxGenError, AuxGenResult, InteractiveSigningError, InteractiveSigningProof,
+    InteractiveSigningResult, KeyGenError, KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult,
+    KeyRefreshResult, PresigningError, PresigningProof, PresigningResult, ProductionParams,
+    SchemeParams, SigningProof, SigningResult, TestParams,
 };
 pub use constructors::{
-    make_interactive_signing_session, make_key_gen_session, make_key_init_session,
-    make_key_refresh_session, make_key_resharing_session, KeyResharingInputs, NewHolder, OldHolder,
-    PrehashedMessage,
+    make_aux_gen_session, make_interactive_signing_session, make_key_gen_session,
+    make_key_init_session, make_key_refresh_session, make_key_resharing_session,
+    KeyResharingInputs, NewHolder, OldHolder, PrehashedMessage,
 };
 pub use curve::RecoverableSignature;
 pub use entities::{AuxInfo, KeyShare, KeyShareChange, ThresholdKeyShare};
