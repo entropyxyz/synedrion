@@ -682,7 +682,7 @@ mod tests {
     };
 
     #[test]
-    fn execute_auxiliary() {
+    fn execute_key_refresh() {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
