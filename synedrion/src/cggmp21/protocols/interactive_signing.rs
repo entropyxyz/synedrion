@@ -75,7 +75,7 @@ impl<P: SchemeParams> CorrectnessProofWrapper<SigningResult<P>> for InteractiveS
     }
 }
 
-struct RoundContext<P: SchemeParams> {
+struct Context<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
     key_share: KeyShare<P>,
     aux_info: AuxInfo<P>,
@@ -91,7 +91,7 @@ pub(crate) struct Inputs<P: SchemeParams> {
 
 pub(crate) struct Round1<P: SchemeParams> {
     round: presigning::Round1<P>,
-    context: RoundContext<P>,
+    context: Context<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
@@ -110,7 +110,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             party_idx,
             (inputs.key_share.clone(), inputs.aux_info.clone()),
         )?;
-        let context = RoundContext {
+        let context = Context {
             shared_randomness: shared_randomness.into(),
             key_share: inputs.key_share,
             aux_info: inputs.aux_info,
@@ -152,7 +152,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
 
 pub(crate) struct Round2<P: SchemeParams> {
     round: presigning::Round2<P>,
-    context: RoundContext<P>,
+    context: Context<P>,
 }
 
 impl<P: SchemeParams> RoundWrapper for Round2<P> {
@@ -187,7 +187,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
 
 pub(crate) struct Round3<P: SchemeParams> {
     round: presigning::Round3<P>,
-    context: RoundContext<P>,
+    context: Context<P>,
 }
 
 impl<P: SchemeParams> RoundWrapper for Round3<P> {

@@ -125,8 +125,7 @@ pub struct PresigningData<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> KeyShare<P> {
-    /// Creates a key share out of the seed (obtained from the KeyGen protocol)
-    /// and the share change (obtained from the KeyRefresh+Auxiliary protocol).
+    /// Updates a key share with a change obtained from KeyRefresh protocol.
     pub(crate) fn update(self, change: KeyShareChange<P>) -> Self {
         // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
         assert_eq!(self.index, change.index);

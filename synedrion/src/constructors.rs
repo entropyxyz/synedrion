@@ -191,7 +191,7 @@ where
         .old_holder
         .as_ref()
         .map(|old_holder| key_resharing::OldHolder {
-            key_share_seed: old_holder.key_share.map_verifiers(verifiers),
+            key_share: old_holder.key_share.map_verifiers(verifiers),
         });
 
     let new_holders = inputs
@@ -208,11 +208,11 @@ where
         })
         .collect::<Result<Vec<_>, LocalError>>()?;
 
-    let context = key_resharing::KeyResharingContext {
+    let inputs = key_resharing::KeyResharingInputs {
         old_holder,
         new_holder,
         new_holders,
         new_threshold: inputs.new_threshold,
     };
-    Session::new::<key_resharing::Round1<P>>(rng, shared_randomness, signer, verifiers, context)
+    Session::new::<key_resharing::Round1<P>>(rng, shared_randomness, signer, verifiers, inputs)
 }

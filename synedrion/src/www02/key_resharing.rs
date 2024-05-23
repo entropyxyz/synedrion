@@ -41,7 +41,7 @@ pub enum KeyResharingError {
 }
 
 pub struct OldHolder<P: SchemeParams> {
-    pub key_share_seed: ThresholdKeyShare<P>,
+    pub key_share: ThresholdKeyShare<P>,
 }
 
 pub struct NewHolder {
@@ -50,7 +50,7 @@ pub struct NewHolder {
     pub old_holders: Vec<PartyIdx>,
 }
 
-pub struct KeyResharingContext<P: SchemeParams> {
+pub struct KeyResharingInputs<P: SchemeParams> {
     pub old_holder: Option<OldHolder<P>>,
     pub new_holder: Option<NewHolder>,
     // TODO: do we even need this? It's only used to generate new share indices,
@@ -80,7 +80,7 @@ pub struct Round1<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Inputs = KeyResharingContext<P>;
+    type Inputs = KeyResharingInputs<P>;
     fn new(
         rng: &mut impl CryptoRngCore,
         _shared_randomness: &[u8],
@@ -103,15 +103,12 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         };
 
         let old_holder = inputs.old_holder.map(|old_holder| {
-            let polynomial = Polynomial::random(
-                rng,
-                &old_holder.key_share_seed.secret(),
-                inputs.new_threshold,
-            );
+            let polynomial =
+                Polynomial::random(rng, &old_holder.key_share.secret(), inputs.new_threshold);
             let public_polynomial = polynomial.public();
             OldHolderData {
                 polynomial,
-                share_id: old_holder.key_share_seed.share_index(),
+                share_id: old_holder.key_share.share_index(),
                 public_polynomial,
             }
         });
@@ -383,7 +380,7 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::ThresholdKeyShare;
-    use super::{KeyResharingContext, NewHolder, OldHolder, Round1};
+    use super::{KeyResharingInputs, NewHolder, OldHolder, Round1};
     use crate::cggmp21::TestParams;
     use crate::rounds::{
         test_utils::{step_result, step_round},
@@ -416,9 +413,9 @@ mod tests {
             &shared_randomness,
             num_parties,
             PartyIdx::from_usize(0),
-            KeyResharingContext {
+            KeyResharingInputs {
                 old_holder: Some(OldHolder {
-                    key_share_seed: old_key_shares[0].clone(),
+                    key_share: old_key_shares[0].clone(),
                 }),
                 new_holder: None,
                 new_holders: new_holders.clone(),
@@ -432,9 +429,9 @@ mod tests {
             &shared_randomness,
             num_parties,
             PartyIdx::from_usize(1),
-            KeyResharingContext {
+            KeyResharingInputs {
                 old_holder: Some(OldHolder {
-                    key_share_seed: old_key_shares[1].clone(),
+                    key_share: old_key_shares[1].clone(),
                 }),
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
@@ -452,9 +449,9 @@ mod tests {
             &shared_randomness,
             num_parties,
             PartyIdx::from_usize(2),
-            KeyResharingContext {
+            KeyResharingInputs {
                 old_holder: Some(OldHolder {
-                    key_share_seed: old_key_shares[2].clone(),
+                    key_share: old_key_shares[2].clone(),
                 }),
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
@@ -472,7 +469,7 @@ mod tests {
             &shared_randomness,
             num_parties,
             PartyIdx::from_usize(3),
-            KeyResharingContext {
+            KeyResharingInputs {
                 old_holder: None,
                 new_holder: Some(NewHolder {
                     verifying_key: old_vkey,
