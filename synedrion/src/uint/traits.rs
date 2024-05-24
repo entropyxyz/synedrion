@@ -182,6 +182,7 @@ where
 pub trait UintModLike:
     PowBoundedExp<Self::RawUint>
     + Send
+    + Sync
     + core::fmt::Debug
     + Add<Output = Self>
     + Neg<Output = Self>
@@ -201,7 +202,7 @@ pub trait UintModLike:
     type RawUint: UintLike<ModUint = Self>;
 
     /// Precomputed data for converting a regular integer to the modulo representation.
-    type Precomputed: Clone + Copy + core::fmt::Debug + PartialEq + Eq + Send;
+    type Precomputed: Clone + Copy + core::fmt::Debug + PartialEq + Eq + Send + Sync;
 
     fn new_precomputed(modulus: &NonZero<Self::RawUint>) -> Self::Precomputed;
     fn new(value: &Self::RawUint, precomputed: &Self::Precomputed) -> Self;

@@ -1,8 +1,6 @@
-//! KeyRefresh protocol, in the paper Auxiliary Info. & Key Refresh in Three Rounds (Fig. 6).
-//! This protocol generates an update to the secret key shares and new auxiliary parameters
-//! for ZK proofs (e.g. Paillier keys).
+//! AuxGen protocol, a part of the paper's Auxiliary Info. & Key Refresh in Three Rounds (Fig. 6)
+//! that only generates the auxiliary data.
 
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -13,12 +11,12 @@ use serde::{Deserialize, Serialize};
 
 use super::super::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
-    AuxInfo, KeyShareChange, PublicAuxInfo, SchemeParams, SecretAuxInfo,
+    AuxInfo, PublicAuxInfo, SchemeParams, SecretAuxInfo,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
-    Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
-    RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+    PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod, RPSecret,
+    SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::{
     all_parties_except, no_broadcast_messages, no_direct_messages, try_to_holevec,
@@ -30,42 +28,34 @@ use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 use crate::uint::UintLike;
 
-/// Possible results of the KeyRefresh protocol.
+/// Possible results of the AuxGen protocol.
 #[derive(Debug, Clone, Copy)]
-pub struct KeyRefreshResult<P: SchemeParams>(PhantomData<P>);
+pub struct AuxGenResult<P: SchemeParams>(PhantomData<P>);
 
-impl<P: SchemeParams> ProtocolResult for KeyRefreshResult<P> {
-    type Success = (KeyShareChange<P>, AuxInfo<P>);
-    type ProvableError = KeyRefreshError<P>;
+impl<P: SchemeParams> ProtocolResult for AuxGenResult<P> {
+    type Success = AuxInfo<P>;
+    type ProvableError = AuxGenError;
     type CorrectnessProof = ();
 }
 
+/// Possible errors for AuxGen protocol.
 #[derive(Debug, Clone)]
-pub struct KeyRefreshError<P: SchemeParams>(KeyRefreshErrorEnum<P>);
+pub struct AuxGenError(#[allow(dead_code)] AuxGenErrorEnum);
 
 #[derive(Debug, Clone)]
-enum KeyRefreshErrorEnum<P: SchemeParams> {
+enum AuxGenErrorEnum {
     // TODO (#43): this can be removed when error verification is added
     #[allow(dead_code)]
     Round2(String),
     // TODO (#43): this can be removed when error verification is added
     #[allow(dead_code)]
     Round3(String),
-    // TODO (#43): this can be removed when error verification is added
-    #[allow(dead_code)]
-    Round3MismatchedSecret {
-        cap_c: Ciphertext<P::Paillier>,
-        x: Scalar,
-        mu: Randomizer<P::Paillier>,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PrmProof<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
 pub struct PublicData1<P: SchemeParams> {
-    cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
-    cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
     cap_y: Point,
     cap_b: SchCommitment,
     paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
@@ -85,9 +75,7 @@ pub struct PublicData1Precomp<P: SchemeParams> {
 struct Context<P: SchemeParams> {
     paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
     y: Scalar,
-    x_to_send: Vec<Scalar>, // $x_i^j$ where $i$ is this party's index
     tau_y: SchSecret,
-    tau_x: Vec<SchSecret>,
     data_precomp: PublicData1Precomp<P>,
     party_idx: PartyIdx,
     num_parties: usize,
@@ -97,8 +85,6 @@ struct Context<P: SchemeParams> {
 impl<P: SchemeParams> Hashable for PublicData1<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {
         digest
-            .chain(&self.cap_x_to_send)
-            .chain(&self.cap_a_to_send)
             .chain(&self.cap_y)
             .chain(&self.cap_b)
             .chain(&self.paillier_pk)
@@ -151,15 +137,6 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let tau_y = SchSecret::random(rng); // $\tau$
         let cap_b = SchCommitment::new(&tau_y);
 
-        // Secret share updates for each node ($x_i^j$ where $i$ is this party's index).
-        let x_to_send = Scalar::ZERO.split(rng, num_parties);
-        // Public counterparts of secret share updates ($X_i^j$ where $i$ is this party's index).
-        let cap_x_to_send = x_to_send
-            .iter()
-            .cloned()
-            .map(|x| x.mul_by_generator())
-            .collect::<Vec<_>>();
-
         let lambda = RPSecret::random(rng, &paillier_sk);
         // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
         let rp_params = RPParamsMod::random_with_secret(rng, &lambda, paillier_pk);
@@ -167,18 +144,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let aux = (&sid_hash, &party_idx);
         let hat_psi = PrmProof::<P>::new(rng, &paillier_sk, &lambda, &rp_params, &aux);
 
-        // The secrets share changes ($\tau_j$, not to be confused with $\tau$)
-        let tau_x: Vec<SchSecret> = (0..num_parties).map(|_| SchSecret::random(rng)).collect();
-
-        // The commitments for share changes ($A_i^j$ where $i$ is this party's index)
-        let cap_a_to_send = tau_x.iter().map(SchCommitment::new).collect();
-
         let rho = BitVec::random(rng, P::SECURITY_PARAMETER);
         let u = BitVec::random(rng, P::SECURITY_PARAMETER);
 
         let data = PublicData1 {
-            cap_x_to_send,
-            cap_a_to_send,
             cap_y,
             cap_b,
             paillier_pk: paillier_pk.to_minimal(),
@@ -197,8 +166,6 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let context = Context {
             paillier_sk,
             y,
-            x_to_send,
-            tau_x,
             tau_y,
             data_precomp,
             party_idx,
@@ -221,7 +188,7 @@ pub struct Round1Payload {
 
 impl<P: SchemeParams> Round for Round1<P> {
     type Type = ToNextRound;
-    type Result = KeyRefreshResult<P>;
+    type Result = AuxGenResult<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 
@@ -306,7 +273,7 @@ pub struct Round2Payload<P: SchemeParams> {
 
 impl<P: SchemeParams> Round for Round2<P> {
     type Type = ToNextRound;
-    type Result = KeyRefreshResult<P>;
+    type Result = AuxGenResult<P>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
 
@@ -347,22 +314,14 @@ impl<P: SchemeParams> Round for Round2<P> {
         if &broadcast_msg.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from.as_usize()).unwrap()
         {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
-                "Hash mismatch".into(),
-            )));
+            return Err(AuxGenError(AuxGenErrorEnum::Round2("Hash mismatch".into())));
         }
 
         let paillier_pk = broadcast_msg.data.paillier_pk.to_precomputed();
 
         if paillier_pk.modulus().bits_vartime() < 8 * P::SECURITY_PARAMETER {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+            return Err(AuxGenError(AuxGenErrorEnum::Round2(
                 "Paillier modulus is too small".into(),
-            )));
-        }
-
-        if broadcast_msg.data.cap_x_to_send.iter().sum::<Point>() != Point::IDENTITY {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
-                "Sum of X points is not identity".into(),
             )));
         }
 
@@ -370,7 +329,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let rp_params = broadcast_msg.data.rp_params.to_mod(&paillier_pk);
         if !broadcast_msg.data.hat_psi.verify(&rp_params, &aux) {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+            return Err(AuxGenError(AuxGenErrorEnum::Round2(
                 "PRM verification failed".into(),
             )));
         }
@@ -417,19 +376,15 @@ pub struct Round3<P: SchemeParams> {
 #[serde(bound(serialize = "
     ModProof<P>: Serialize,
     FacProof<P>: Serialize,
-    Ciphertext<P::Paillier>: Serialize,
 "))]
 #[serde(bound(deserialize = "
     ModProof<P>: for<'x> Deserialize<'x>,
     FacProof<P>: for<'x> Deserialize<'x>,
-    Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
 "))]
 pub struct PublicData2<P: SchemeParams> {
     psi_mod: ModProof<P>, // $\psi_i$, a P^{mod} for the Paillier modulus
     phi: FacProof<P>,
     pi: SchProof,
-    paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
-    psi_sch: SchProof,                       // $psi_i^j$, a P^{sch} for the secret share change
 }
 
 impl<P: SchemeParams> Round3<P> {
@@ -467,13 +422,9 @@ pub struct Round3Message<P: SchemeParams> {
     data2: PublicData2<P>,
 }
 
-pub struct Round3Payload {
-    x: Scalar, // $x_j^i$, a secret share change received from the party $j$
-}
-
 impl<P: SchemeParams> Round for Round3<P> {
     type Type = ToResult;
-    type Result = KeyRefreshResult<P>;
+    type Result = AuxGenResult<P>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
 
@@ -487,7 +438,7 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     type BroadcastMessage = ();
     type DirectMessage = Round3Message<P>;
-    type Payload = Round3Payload;
+    type Payload = ();
     type Artifact = ();
 
     fn message_destinations(&self) -> Vec<PartyIdx> {
@@ -504,7 +455,6 @@ impl<P: SchemeParams> Round for Round3<P> {
         let aux = (&self.context.sid_hash, &self.context.party_idx, &self.rho);
 
         let idx = destination.as_usize();
-        let data = self.others_data.get(idx).unwrap();
 
         let phi = FacProof::new(
             rng,
@@ -513,25 +463,10 @@ impl<P: SchemeParams> Round for Round3<P> {
             &aux,
         );
 
-        let x_secret = self.context.x_to_send[idx];
-        let x_public = self.context.data_precomp.data.cap_x_to_send[idx];
-        let ciphertext =
-            CiphertextMod::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
-
-        let psi_sch = SchProof::new(
-            &self.context.tau_x[idx],
-            &x_secret,
-            &self.context.data_precomp.data.cap_a_to_send[idx],
-            &x_public,
-            &aux,
-        );
-
         let data2 = PublicData2 {
             psi_mod: self.psi_mod.clone(),
             phi,
             pi: self.pi.clone(),
-            paillier_enc_x: ciphertext.retrieve(),
-            psi_sch,
         };
 
         (Round3Message { data2 }, ())
@@ -545,25 +480,6 @@ impl<P: SchemeParams> Round for Round3<P> {
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let sender_data = &self.others_data.get(from.as_usize()).unwrap();
 
-        let enc_x = direct_msg
-            .data2
-            .paillier_enc_x
-            .to_mod(self.context.paillier_sk.public_key());
-
-        let x = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
-
-        if x.mul_by_generator() != sender_data.data.cap_x_to_send[self.context.party_idx.as_usize()]
-        {
-            let mu = enc_x.derive_randomizer(&self.context.paillier_sk);
-            return Err(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3MismatchedSecret {
-                    cap_c: direct_msg.data2.paillier_enc_x,
-                    x,
-                    mu: mu.retrieve(),
-                },
-            ));
-        }
-
         let aux = (&self.context.sid_hash, &from, &self.rho);
 
         if !direct_msg
@@ -571,7 +487,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             .psi_mod
             .verify(&sender_data.paillier_pk, &aux)
         {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+            return Err(AuxGenError(AuxGenErrorEnum::Round3(
                 "Mod proof verification failed".into(),
             )));
         }
@@ -581,7 +497,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             &self.context.data_precomp.rp_params,
             &aux,
         ) {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+            return Err(AuxGenError(AuxGenErrorEnum::Round3(
                 "Fac proof verification failed".into(),
             )));
         }
@@ -591,22 +507,12 @@ impl<P: SchemeParams> Round for Round3<P> {
             .pi
             .verify(&sender_data.data.cap_b, &sender_data.data.cap_y, &aux)
         {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+            return Err(AuxGenError(AuxGenErrorEnum::Round3(
                 "Sch proof verification (Y) failed".into(),
             )));
         }
 
-        if !direct_msg.data2.psi_sch.verify(
-            &sender_data.data.cap_a_to_send[self.context.party_idx.as_usize()],
-            &sender_data.data.cap_x_to_send[self.context.party_idx.as_usize()],
-            &aux,
-        ) {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
-                "Sch proof verification (X) failed".into(),
-            )));
-        }
-
-        Ok(Round3Payload { x })
+        Ok(())
     }
 }
 
@@ -614,28 +520,10 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
+        _payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
         _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let others_x = try_to_holevec(payloads, self.num_parties(), self.party_idx())
-            .unwrap()
-            .map(|payload| payload.x);
-
-        // The combined secret share change
-        let x_star = others_x.iter().sum::<Scalar>()
-            + self.context.x_to_send[self.context.party_idx.as_usize()];
-
         let all_data = self.others_data.into_vec(self.context.data_precomp);
-
-        // The combined public share changes for each node
-        let cap_x_star = (0..all_data.len())
-            .map(|idx| {
-                all_data
-                    .iter()
-                    .map(|data| data.data.cap_x_to_send[idx])
-                    .sum()
-            })
-            .collect::<Box<_>>();
 
         let public_aux = all_data
             .into_iter()
@@ -651,20 +539,13 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             el_gamal_sk: self.context.y,
         };
 
-        let key_share_change = KeyShareChange {
-            index: self.context.party_idx,
-            secret_share_change: x_star,
-            public_share_changes: cap_x_star,
-            phantom: PhantomData,
-        };
-
         let aux_info = AuxInfo {
             index: self.context.party_idx,
             secret_aux,
             public_aux,
         };
 
-        Ok((key_share_change, aux_info))
+        Ok(aux_info)
     }
 }
 
@@ -675,14 +556,13 @@ mod tests {
 
     use super::Round1;
     use crate::cggmp21::TestParams;
-    use crate::curve::Scalar;
     use crate::rounds::{
         test_utils::{step_next_round, step_result, step_round},
         FirstRound, PartyIdx,
     };
 
     #[test]
-    fn execute_key_refresh() {
+    fn execute_aux_gen() {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
@@ -705,19 +585,7 @@ mod tests {
         let r2a = step_round(&mut OsRng, r2).unwrap();
         let r3 = step_next_round(&mut OsRng, r2a).unwrap();
         let r3a = step_round(&mut OsRng, r3).unwrap();
-        let results = step_result(&mut OsRng, r3a).unwrap();
-
-        let (changes, aux_infos): (Vec<_>, Vec<_>) = results.into_iter().unzip();
-
-        // Check that public points correspond to secret scalars
-        for (idx, change) in changes.iter().enumerate() {
-            for other_change in changes.iter() {
-                assert_eq!(
-                    change.secret_share_change.mul_by_generator(),
-                    other_change.public_share_changes[idx]
-                );
-            }
-        }
+        let aux_infos = step_result(&mut OsRng, r3a).unwrap();
 
         for (idx, aux_info) in aux_infos.iter().enumerate() {
             for other_aux_info in aux_infos.iter() {
@@ -727,13 +595,5 @@ mod tests {
                 );
             }
         }
-
-        // The resulting sum of masks should be zero, since the combined secret key
-        // should not change after applying the masks at each node.
-        let mask_sum: Scalar = changes
-            .iter()
-            .map(|change| change.secret_share_change)
-            .sum();
-        assert_eq!(mask_sum, Scalar::ZERO);
     }
 }

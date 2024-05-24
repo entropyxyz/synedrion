@@ -11,14 +11,14 @@ use signature::{
 };
 
 use crate::cggmp21::{
-    interactive_signing, key_gen, key_init, key_refresh, InteractiveSigningResult, KeyGenResult,
-    KeyInitResult, KeyRefreshResult, SchemeParams,
+    aux_gen, interactive_signing, key_gen, key_init, key_refresh, AuxGenResult,
+    InteractiveSigningResult, KeyGenResult, KeyInitResult, KeyRefreshResult, SchemeParams,
 };
 use crate::curve::{Point, Scalar};
-use crate::entities::{KeyShare, ThresholdKeyShareSeed};
+use crate::entities::{AuxInfo, KeyShare, ThresholdKeyShare};
 use crate::rounds::PartyIdx;
 use crate::sessions::{LocalError, Session};
-use crate::www02::{self, KeyResharingResult};
+use crate::www02::{key_resharing, KeyResharingResult};
 
 /// Prehashed message to sign.
 pub type PrehashedMessage = [u8; 32];
@@ -29,7 +29,7 @@ pub fn make_key_init_session<P, Sig, Signer, Verifier>(
     shared_randomness: &[u8],
     signer: Signer,
     verifiers: &[Verifier],
-) -> Result<Session<KeyInitResult, Sig, Signer, Verifier>, LocalError>
+) -> Result<Session<KeyInitResult<P>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
@@ -55,6 +55,22 @@ where
     Session::new::<key_gen::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
 
+/// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
+pub fn make_aux_gen_session<P, Sig, Signer, Verifier>(
+    rng: &mut impl CryptoRngCore,
+    shared_randomness: &[u8],
+    signer: Signer,
+    verifiers: &[Verifier],
+) -> Result<Session<AuxGenResult<P>, Sig, Signer, Verifier>, LocalError>
+where
+    Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
+    P: SchemeParams + 'static,
+    Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
+    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
+{
+    Session::new::<aux_gen::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
+}
+
 /// Creates the initial state for the KeyRefresh+Auxiliary protocol.
 pub fn make_key_refresh_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
@@ -78,6 +94,7 @@ pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     signer: Signer,
     verifiers: &[Verifier],
     key_share: &KeyShare<P, Verifier>,
+    aux_info: &AuxInfo<P, Verifier>,
     prehashed_message: &PrehashedMessage,
 ) -> Result<Session<InteractiveSigningResult<P>, Sig, Signer, Verifier>, LocalError>
 where
@@ -103,6 +120,7 @@ where
 
     let inputs = interactive_signing::Inputs {
         key_share: key_share.map_verifiers(verifiers),
+        aux_info: aux_info.map_verifiers(verifiers),
         message: scalar_message,
     };
 
@@ -119,7 +137,7 @@ where
 #[derive(Clone)]
 pub struct OldHolder<P: SchemeParams, V: Ord> {
     /// The threshold key share.
-    pub key_share_seed: ThresholdKeyShareSeed<P, V>,
+    pub key_share: ThresholdKeyShare<P, V>,
 }
 
 /// New share data.
@@ -177,7 +195,7 @@ where
                         ))
                 })
                 .collect::<Result<Vec<_>, LocalError>>()?;
-            Ok(www02::NewHolder {
+            Ok(key_resharing::NewHolder {
                 verifying_key: Point::from_verifying_key(&new_holder.verifying_key),
                 old_threshold: new_holder.old_threshold,
                 old_holders,
@@ -188,8 +206,8 @@ where
     let old_holder = inputs
         .old_holder
         .as_ref()
-        .map(|old_holder| www02::OldHolder {
-            key_share_seed: old_holder.key_share_seed.map_verifiers(verifiers),
+        .map(|old_holder| key_resharing::OldHolder {
+            key_share: old_holder.key_share.map_verifiers(verifiers),
         });
 
     let new_holders = inputs
@@ -206,11 +224,11 @@ where
         })
         .collect::<Result<Vec<_>, LocalError>>()?;
 
-    let context = www02::KeyResharingContext {
+    let inputs = key_resharing::KeyResharingInputs {
         old_holder,
         new_holder,
         new_holders,
         new_threshold: inputs.new_threshold,
     };
-    Session::new::<www02::Round1<P>>(rng, shared_randomness, signer, verifiers, context)
+    Session::new::<key_resharing::Round1<P>>(rng, shared_randomness, signer, verifiers, inputs)
 }

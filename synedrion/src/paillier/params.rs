@@ -5,7 +5,7 @@ use crate::uint::{HasWide, UintLike, UintModLike};
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
 
-pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
+pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send + Sync {
     /// The size of one of the pair of RSA primes.
     const PRIME_BITS: usize;
     /// The size of the RSA modulus (a product of two primes).

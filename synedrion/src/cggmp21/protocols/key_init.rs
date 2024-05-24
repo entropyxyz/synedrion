@@ -9,11 +9,10 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::{
+use super::super::{
     sigma::{SchCommitment, SchProof, SchSecret},
-    SchemeParams,
+    KeyShare, SchemeParams,
 };
-use crate::common::KeyShareSeed;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
     all_parties_except, no_direct_messages, try_to_holevec, FinalizableToNextRound,
@@ -26,10 +25,10 @@ use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
 
 /// Possible results of the KeyGen protocol.
 #[derive(Debug, Clone, Copy)]
-pub struct KeyInitResult;
+pub struct KeyInitResult<P: SchemeParams>(PhantomData<P>);
 
-impl ProtocolResult for KeyInitResult {
-    type Success = KeyShareSeed;
+impl<P: SchemeParams> ProtocolResult for KeyInitResult<P> {
+    type Success = KeyShare<P>;
     type ProvableError = KeyInitError;
     type CorrectnessProof = ();
 }
@@ -143,7 +142,7 @@ pub struct Round1Payload {
 
 impl<P: SchemeParams> Round for Round1<P> {
     type Type = ToNextRound;
-    type Result = KeyInitResult;
+    type Result = KeyInitResult<P>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 
@@ -227,7 +226,7 @@ pub struct Round2Payload<P: SchemeParams> {
 
 impl<P: SchemeParams> Round for Round2<P> {
     type Type = ToNextRound;
-    type Result = KeyInitResult;
+    type Result = KeyInitResult<P>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
 
@@ -317,7 +316,7 @@ pub struct Round3Message {
 
 impl<P: SchemeParams> Round for Round3<P> {
     type Type = ToResult;
-    type Result = KeyInitResult;
+    type Result = KeyInitResult<P>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
 
@@ -381,10 +380,11 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         let index = self.party_idx();
         let all_data = self.others_data.into_vec(self.context.public_data);
         let all_cap_x = all_data.into_iter().map(|data| data.cap_x).collect();
-        Ok(KeyShareSeed {
+        Ok(KeyShare {
             index,
             secret_share: self.context.x,
             public_shares: all_cap_x,
+            phantom: PhantomData,
         })
     }
 }

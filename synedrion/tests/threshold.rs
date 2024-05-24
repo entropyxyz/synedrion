@@ -7,9 +7,9 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_interactive_signing_session, make_key_init_session, make_key_refresh_session,
+    make_aux_gen_session, make_interactive_signing_session, make_key_init_session,
     make_key_resharing_session, CombinedMessage, FinalizeOutcome, KeyResharingInputs, MappedResult,
-    NewHolder, OldHolder, Session, TestParams, ThresholdKeyShare,
+    NewHolder, OldHolder, Session, TestParams,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
@@ -224,20 +224,20 @@ async fn full_sequence() {
         .collect();
 
     println!("\nRunning KeyInit\n");
-    let key_share_seeds = run_nodes(sessions).await;
+    let key_shares = run_nodes(sessions).await;
 
     // Convert to t-of-t threshold keyshares
-    let t_key_share_seeds = key_share_seeds
+    let t_key_shares = key_shares
         .iter()
-        .map(|key_share_seed| key_share_seed.to_threshold_key_share_seed())
+        .map(|key_share| key_share.to_threshold_key_share())
         .collect::<Vec<_>>();
 
-    // Reshare the keyshare seeds to `n` nodes
+    // Reshare to `n` nodes
 
     // This will need to be published so that new holders could see it and verify the received data
     let new_holder = NewHolder {
-        verifying_key: t_key_share_seeds[0].verifying_key(),
-        old_threshold: t_key_share_seeds[0].threshold(),
+        verifying_key: t_key_shares[0].verifying_key(),
+        old_threshold: t_key_shares[0].threshold(),
         old_holders: verifiers[..t].to_vec(),
     };
 
@@ -246,7 +246,7 @@ async fn full_sequence() {
         .map(|idx| {
             let inputs = KeyResharingInputs {
                 old_holder: Some(OldHolder {
-                    key_share_seed: t_key_share_seeds[idx].clone(),
+                    key_share: t_key_shares[idx].clone(),
                 }),
                 new_holder: Some(new_holder.clone()),
                 new_holders: verifiers.clone(),
@@ -286,23 +286,23 @@ async fn full_sequence() {
     sessions.extend(new_holder_sessions.into_iter());
 
     println!("\nRunning KeyReshare\n");
-    let new_t_key_share_seeds = run_nodes(sessions).await;
+    let new_t_key_shares = run_nodes(sessions).await;
 
-    let new_t_key_share_seeds = new_t_key_share_seeds
+    let new_t_key_shares = new_t_key_shares
         .into_iter()
-        .map(|seed| seed.unwrap())
+        .map(|key_share| key_share.unwrap())
         .collect::<Vec<_>>();
 
     assert_eq!(
-        new_t_key_share_seeds[0].verifying_key(),
-        t_key_share_seeds[0].verifying_key()
+        new_t_key_shares[0].verifying_key(),
+        t_key_shares[0].verifying_key()
     );
 
     // Generate auxiliary data
 
     let sessions = (0..n)
         .map(|idx| {
-            make_key_refresh_session::<TestParams, Signature, SigningKey, VerifyingKey>(
+            make_aux_gen_session::<TestParams, Signature, SigningKey, VerifyingKey>(
                 &mut OsRng,
                 shared_randomness,
                 signers[idx].clone(),
@@ -312,42 +312,38 @@ async fn full_sequence() {
         })
         .collect::<Vec<_>>();
 
-    println!("\nRunning KeyRefresh\n");
-    let key_share_changes = run_nodes(sessions).await;
-
-    // Combine auxiliary data with the threshold key share seeds to make actual key shares.
-
-    let t_key_shares = new_t_key_share_seeds
-        .into_iter()
-        .zip(key_share_changes.into_iter())
-        .map(|(seed, change)| ThresholdKeyShare::new(seed, change))
-        .collect::<Vec<_>>();
+    println!("\nRunning AuxGen\n");
+    let aux_infos = run_nodes(sessions).await;
 
     // For signing, we select `t` parties and these parties convert their threshold key shares
     // into regular key shares.
 
     let selected_signers = vec![signers[0].clone(), signers[2].clone(), signers[4].clone()];
     let selected_parties = vec![verifiers[0], verifiers[2], verifiers[4]];
-    let key_shares = vec![
-        t_key_shares[0].to_key_share(&selected_parties),
-        t_key_shares[2].to_key_share(&selected_parties),
-        t_key_shares[4].to_key_share(&selected_parties),
+    let selected_key_shares = vec![
+        new_t_key_shares[0].to_key_share(&selected_parties),
+        new_t_key_shares[2].to_key_share(&selected_parties),
+        new_t_key_shares[4].to_key_share(&selected_parties),
+    ];
+    let selected_aux_infos = vec![
+        aux_infos[0].clone(),
+        aux_infos[2].clone(),
+        aux_infos[4].clone(),
     ];
 
     // Perform signing with the key shares
 
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
-    let sessions = key_shares
-        .iter()
-        .zip(selected_signers.into_iter())
-        .map(|(key_share, signer)| {
+    let sessions = (0..3)
+        .map(|idx| {
             make_interactive_signing_session::<_, Signature, _, _>(
                 &mut OsRng,
                 shared_randomness,
-                signer,
+                selected_signers[idx].clone(),
                 &selected_parties,
-                key_share,
+                &selected_key_shares[idx],
+                &selected_aux_infos[idx],
                 message,
             )
             .unwrap()

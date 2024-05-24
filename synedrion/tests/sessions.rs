@@ -7,8 +7,8 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_interactive_signing_session, make_key_gen_session, CombinedMessage, FinalizeOutcome,
-    KeyShare, MappedResult, Session, TestParams,
+    make_interactive_signing_session, make_key_gen_session, AuxInfo, CombinedMessage,
+    FinalizeOutcome, KeyShare, MappedResult, Session, TestParams,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
@@ -220,7 +220,7 @@ async fn keygen_and_aux() {
         })
         .collect();
 
-    let key_shares = run_nodes(sessions).await;
+    let (key_shares, _aux_infos): (Vec<_>, Vec<_>) = run_nodes(sessions).await.into_iter().unzip();
 
     for (idx, key_share) in key_shares.iter().enumerate() {
         assert_eq!(key_share.owner(), &verifiers[idx]);
@@ -236,19 +236,20 @@ async fn interactive_signing() {
 
     let key_shares =
         KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &verifiers, None);
+    let aux_infos = AuxInfo::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &verifiers);
+
     let shared_randomness = b"1234567890";
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
-    let sessions = key_shares
-        .iter()
-        .zip(signers.into_iter())
-        .map(|(key_share, signer)| {
+    let sessions = (0..num_parties)
+        .map(|idx| {
             make_interactive_signing_session::<_, Signature, _, _>(
                 &mut OsRng,
                 shared_randomness,
-                signer,
+                signers[idx].clone(),
                 &verifiers,
-                key_share,
+                &key_shares[idx],
+                &aux_infos[idx],
                 message,
             )
             .unwrap()
