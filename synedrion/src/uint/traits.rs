@@ -1,31 +1,11 @@
 use core::ops::{Add, Mul, Neg, Sub};
 
 use crypto_bigint::{
-    modular::{
-        // runtime_mod::{DynResidue, DynResidueParams},
-        Retrieve,
-    },
-    // nlimbs,
-    subtle::{
-        self,
-        Choice,
-        // ConstantTimeLess,
-        CtOption,
-    },
-    Encoding,
-    Integer,
-    Invert,
-    NonZero,
-    PowBoundedExp,
-    Random,
-    RandomMod,
-    Uint,
-    Zero,
-    U1024,
-    U2048,
-    U4096,
-    U512,
-    U8192,
+    modular::{MontyForm, Retrieve},
+    nlimbs,
+    subtle::{self, Choice, CtOption},
+    Encoding, Integer, Invert, NonZero, PowBoundedExp, Random, RandomMod, Uint, Zero, U1024, U2048,
+    U4096, U512, U8192,
 };
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
@@ -402,7 +382,7 @@ impl HasWide for U4096 {
 }
 
 // TODO: figure out what replaces `DynResidue` – it's `Monty` (and `MontyParams`)
-// pub type U512Mod = DynResidue<{ nlimbs!(512) }>;
-// pub type U1024Mod = DynResidue<{ nlimbs!(1024) }>;
-// pub type U2048Mod = DynResidue<{ nlimbs!(2048) }>;
-// pub type U4096Mod = DynResidue<{ nlimbs!(4096) }>;
+pub type U512Mod = MontyForm<{ nlimbs!(512) }>;
+pub type U1024Mod = MontyForm<{ nlimbs!(1024) }>;
+pub type U2048Mod = MontyForm<{ nlimbs!(2048) }>;
+pub type U4096Mod = MontyForm<{ nlimbs!(4096) }>;
