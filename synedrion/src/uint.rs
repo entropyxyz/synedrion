@@ -11,9 +11,5 @@ pub(crate) use crypto_primes::RandomPrimeWithRng;
 pub(crate) use bounded::Bounded;
 pub(crate) use signed::Signed;
 pub(crate) use traits::{
-    upcast_uint,
-    HasWide,
-    // TODO: U1024Mod, U2048Mod, U4096Mod, U512Mod,
-    UintLike,
-    UintModLike,
+    upcast_uint, HasWide, U1024Mod, U2048Mod, U4096Mod, U512Mod, UintLike, UintModLike,
 };
