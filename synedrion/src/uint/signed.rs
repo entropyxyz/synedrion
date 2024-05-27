@@ -175,6 +175,14 @@ where
         })
     }
 
+    // TODO: Hmm, not sure this helps at all. Or if it's actually correct.
+    pub fn neg(&self) -> Self {
+        Self {
+            value: T::zero().wrapping_sub(&self.value),
+            bound: self.bound,
+        }
+    }
+
     pub fn abs(&self) -> T {
         // TODO: not sure this is ok, copied from the old impl of `neg()`.
         let neg = T::zero().wrapping_sub(&self.value);
@@ -313,8 +321,8 @@ where
     /// Returns a random value in range `[-2^bound_bits, 2^bound_bits]`.
     ///
     /// Note: variable time in `bound_bits`.
-    pub fn random_bounded_bits(rng: &mut impl CryptoRngCore, bound_bits: u32) -> Self {
-        assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS - 1);
+    pub fn random_bounded_bits(rng: &mut impl CryptoRngCore, bound_bits: usize) -> Self {
+        assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS as usize - 1);
         let bound = NonZero::new(T::one() << bound_bits).unwrap();
         Self::random_bounded(rng, &bound)
     }
@@ -366,14 +374,14 @@ where
     /// Note: variable time in `bound_bits` and bit size of `scale`.
     pub fn random_bounded_bits_scaled(
         rng: &mut impl CryptoRngCore,
-        bound_bits: u32, // TODO: check if it's better to cast or change method signature like this
+        bound_bits: usize,
         scale: &Bounded<T>,
     ) -> Signed<T::Wide> {
-        assert!(bound_bits < T::BITS - 1);
+        assert!((bound_bits as u32) < T::BITS - 1);
         let scaled_bound = scale
             .as_ref()
             .into_wide()
-            .overflowing_shl_vartime(bound_bits)
+            .overflowing_shl_vartime(bound_bits as u32)
             .expect("Just asserted that bound bits is smaller than T's bit precision");
 
         // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
@@ -386,7 +394,7 @@ where
         let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
-            bound: bound_bits + scale.bound(),
+            bound: bound_bits as u32 + scale.bound(),
             value: result,
         }
     }
