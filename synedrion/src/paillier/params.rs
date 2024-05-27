@@ -1,6 +1,17 @@
+use core::ops::{Neg, Sub};
+
+use crypto_bigint::{
+    modular::Retrieve,
+    subtle::{ConditionallyNegatable, ConditionallySelectable, CtOption},
+    Bounded, Encoding, Integer, InvMod, Invert, Monty, RandomMod, WrappingSub, Zero,
+};
+use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
 
-use crate::uint::{HasWide, UintLike, UintModLike};
+use crate::{
+    tools::hashing::Hashable,
+    uint::{HasWide, UintLike, UintModLike},
+};
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
@@ -11,30 +22,67 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     /// The size of the RSA modulus (a product of two primes).
     const MODULUS_BITS: usize = Self::PRIME_BITS * 2;
     /// An integer that fits a single RSA prime.
-    type HalfUint: UintLike<ModUint = Self::HalfUintMod> + HasWide<Wide = Self::Uint>;
+    // type HalfUint: UintLike<ModUint = Self::HalfUintMod> + HasWide<Wide = Self::Uint>;
+    type HalfUint: Integer<Monty = Self::HalfUintMod>
+        + Bounded
+        + RandomMod
+        + RandomPrimeWithRng
+        + HasWide<Wide = Self::Uint>;
+
     /// A modulo-residue counterpart of `HalfUint`.
-    type HalfUintMod: UintModLike<RawUint = Self::HalfUint>;
+    // type HalfUintMod: UintModLike<RawUint = Self::HalfUint>;
+    type HalfUintMod: Monty<Integer = Self::HalfUint>
+        + Retrieve<Output = Self::HalfUint>
+        + Invert<Output = CtOption<Self::HalfUintMod>>;
+
     /// An integer that fits the RSA modulus.
-    type Uint: UintLike<ModUint = Self::UintMod>
+    // type Uint: UintLike<ModUint = Self::UintMod>
+    //     + HasWide<Wide = Self::WideUint>
+    //     + Serialize
+    //     + for<'de> Deserialize<'de>;
+    type Uint: Integer<Monty = Self::UintMod>
+        + Bounded
+        + ConditionallySelectable
+        + Encoding
+        + Hashable
         + HasWide<Wide = Self::WideUint>
+        + InvMod
+        + RandomMod
         + Serialize
         + for<'de> Deserialize<'de>;
     /// A modulo-residue counterpart of `Uint`.
-    type UintMod: UintModLike<RawUint = Self::Uint>;
+    // type UintMod: UintModLike<RawUint = Self::Uint>;
+    type UintMod: ConditionallySelectable
+        + Monty<Integer = Self::Uint>
+        + Retrieve<Output = Self::Uint>
+        + Invert<Output = CtOption<Self::UintMod>>;
+
     /// An integer that fits the squared RSA modulus.
     /// Used for Paillier ciphertexts.
-    type WideUint: UintLike<ModUint = Self::WideUintMod>
+    // type WideUint: UintLike<ModUint = Self::WideUintMod>
+    //     + Serialize
+    //     + for<'de> Deserialize<'de>
+    //     + HasWide<Wide = Self::ExtraWideUint>;
+    type WideUint: Integer<Monty = Self::WideUintMod>
+        + Bounded
+        + ConditionallySelectable
+        + Encoding
+        + HasWide<Wide = Self::ExtraWideUint>
+        + RandomMod
         + Serialize
-        + for<'de> Deserialize<'de>
-        + HasWide<Wide = Self::ExtraWideUint>;
+        + for<'de> Deserialize<'de>;
+
     /// A modulo-residue counterpart of `WideUint`.
-    type WideUintMod: UintModLike<RawUint = Self::WideUint>;
+    // type WideUintMod: UintModLike<RawUint = Self::WideUint>;
+    type WideUintMod: Monty<Integer = Self::WideUint>;
+
     /// An integer that fits the squared RSA modulus times a small factor.
     /// Used in some ZK proofs.
     // Technically, it doesn't have to be that large, but the time spent multiplying these
     // is negligible, and when it is used as an exponent, it is bounded anyway.
     // So it is easier to keep it as a double of `WideUint`.
-    type ExtraWideUint: UintLike + Serialize + for<'de> Deserialize<'de>;
+    // type ExtraWideUint: UintLike + Serialize + for<'de> Deserialize<'de>;
+    type ExtraWideUint: Integer + Serialize + for<'de> Deserialize<'de>;
 }
 
 /// Paillier parameters for unit tests in this submodule.
