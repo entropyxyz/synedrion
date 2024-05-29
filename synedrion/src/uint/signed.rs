@@ -1,7 +1,8 @@
 use alloc::string::String;
-use core::ops::{Add, Mul, Sub};
+use core::ops::{Add, Mul, Neg, Sub};
 #[cfg(test)]
 use crypto_bigint::Random;
+// TODO: re-export these too and put them in the `super::` section
 use crypto_bigint::{ShlVartime, WrappingSub};
 use digest::XofReader;
 use rand_core::CryptoRngCore;
@@ -268,12 +269,7 @@ where
 
 impl<T> Signed<T>
 where
-    T: Integer
-        + Encoding
-        + crypto_bigint::Bounded
-        + ConditionallySelectable
-        + ConditionallyNegatable
-        + RandomMod,
+    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable + RandomMod,
 {
     /// Returns a random value in range `[-bound, bound]`.
     ///
@@ -323,7 +319,8 @@ where
     /// Note: variable time in `bound_bits`.
     pub fn random_bounded_bits(rng: &mut impl CryptoRngCore, bound_bits: usize) -> Self {
         assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS as usize - 1);
-        let bound = NonZero::new(T::one() << bound_bits).unwrap();
+        let bound =
+            NonZero::new(T::one() << bound_bits).expect("Checked bound_bits just above; qed");
         Self::random_bounded(rng, &bound)
     }
 }
@@ -346,6 +343,16 @@ where
             bound: u32::conditional_select(&a.bound, &b.bound, choice),
             value: T::conditional_select(&a.value, &b.value, choice),
         }
+    }
+}
+
+impl<T> Neg for Signed<T>
+where
+    T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
+{
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Signed::neg(&self)
     }
 }
 
@@ -380,6 +387,7 @@ where
         assert!((bound_bits as u32) < T::BITS - 1);
         let scaled_bound = scale
             .as_ref()
+            .clone()
             .into_wide()
             .overflowing_shl_vartime(bound_bits as u32)
             .expect("Just asserted that bound bits is smaller than T's bit precision");
@@ -389,7 +397,7 @@ where
             .overflowing_shl_vartime(1)
             .expect("TODO: justify this properly")
             .checked_add(&T::Wide::one())
-            .unwrap();
+            .expect("TODO: justify this properly");
         let positive_result = T::Wide::random_mod(rng, &NonZero::new(positive_bound).unwrap());
         let result = positive_result.wrapping_sub(&scaled_bound);
 
