@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 use core::ops::{Add, Mul};
 
+use crypto_bigint::{Invert, PowBoundedExp};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +10,7 @@ use super::params::PaillierParams;
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    Bounded, HasWide, NonZero, Retrieve, Signed, UintLike, UintModLike,
+    Bounded, HasWide, NonZero, Retrieve, Signed,
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
@@ -39,11 +40,26 @@ impl<P: PaillierParams> RandomizerMod<P> {
     }
 
     pub fn pow_signed(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(self.0.pow_signed(exponent))
+        let abs_exponent = exponent.abs();
+        let abs_result = self.0.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let inv_result = abs_result.invert().expect("TODO: justify this properly");
+        let inner = <P::UintMod as ConditionallySelectable>::conditional_select(
+            &abs_result,
+            &inv_result,
+            exponent.is_negative(),
+        );
+        Self(inner)
     }
 
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(self.0.pow_signed_vartime(exponent))
+        let abs_exponent = exponent.abs();
+        let abs_result = self.0.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let inner = if exponent.is_negative().into() {
+            abs_result.invert().expect("TODO: justify this properly")
+        } else {
+            abs_result
+        };
+        Self(inner)
     }
 }
 
