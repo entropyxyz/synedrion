@@ -6,7 +6,7 @@ use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
-    RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
+    RandomPrimeWithRng, Retrieve, Signed,
 };
 use crypto_bigint::{
     Bounded as TraitBounded, InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd, WrappingSub,

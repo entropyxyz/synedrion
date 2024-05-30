@@ -29,7 +29,7 @@ use crate::rounds::{
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
-use crate::uint::UintLike;
+use crypto_bigint::BitOps;
 
 /// Possible results of the KeyRefresh protocol.
 #[derive(Debug, Clone, Copy)]
@@ -355,7 +355,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let paillier_pk = broadcast_msg.data.paillier_pk.to_precomputed();
 
-        if paillier_pk.modulus().bits_vartime() < 8 * P::SECURITY_PARAMETER {
+        if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
             return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
                 "Paillier modulus is too small".into(),
             )));

@@ -14,8 +14,9 @@ use crate::paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPr
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
-    Bounded, ToMod,
+    Bounded, Retrieve, ToMod,
 };
+use crypto_bigint::PowBoundedExp;
 
 const HASH_TAG: &[u8] = b"P_prm";
 
@@ -43,7 +44,7 @@ impl<P: SchemeParams> PrmCommitment<P> {
         let commitment = secret
             .0
             .iter()
-            .map(|a| base.pow_bounded(a).retrieve())
+            .map(|a| base.pow_bounded_exp(a.as_ref(), a.bound()).retrieve())
             .collect();
         Self(commitment)
     }
@@ -146,7 +147,7 @@ impl<P: SchemeParams> PrmProof<P> {
             let z = self.proof[i];
             let e = challenge.0[i];
             let a = self.commitment.0[i].to_mod(precomputed);
-            let pwr = setup.base.pow_bounded(&z);
+            let pwr = setup.base.pow_bounded_exp(z.as_ref(), z.bound());
             let test = if e { pwr == a * setup.power } else { pwr == a };
             if !test {
                 return false;

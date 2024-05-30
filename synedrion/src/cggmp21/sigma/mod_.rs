@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::ToMod;
-use crypto_bigint::Square;
+use crate::uint::{Retrieve, ToMod};
+use crypto_bigint::{PowBoundedExp, Square};
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -124,7 +124,8 @@ impl<P: SchemeParams> ModProof<P> {
                 let y_4th = sk.rns_join(&y_4th_parts);
 
                 let y = challenge.0[i].to_mod(pk.precomputed_modulus());
-                let z = y.pow_bounded(sk.inv_modulus());
+                let sk_inv_modulus = sk.inv_modulus();
+                let z = y.pow_bounded_exp(sk_inv_modulus.as_ref(), sk_inv_modulus.bound());
 
                 ModProofElem {
                     x: y_4th,
@@ -170,7 +171,8 @@ impl<P: SchemeParams> ModProof<P> {
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
             let z_m = elem.z.to_mod(precomputed);
             let mut y_m = y.to_mod(precomputed);
-            if z_m.pow_bounded(&pk.modulus_bounded()) != y_m {
+            let pk_modulus_bounded = pk.modulus_bounded();
+            if z_m.pow_bounded_exp(pk_modulus_bounded.as_ref(), pk_modulus_bounded.bound()) != y_m {
                 return false;
             }
 

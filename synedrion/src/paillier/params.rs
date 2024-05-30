@@ -1,5 +1,3 @@
-use core::{hash::Hash, ops::Sub};
-
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, CtOption},
@@ -75,8 +73,10 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     /// A modulo-residue counterpart of `WideUint`.
     // type WideUintMod: UintModLike<RawUint = Self::WideUint>;
     type WideUintMod: Monty<Integer = Self::WideUint>
-        + Retrieve<Output = Self::WideUint>
-        + ConditionallyNegatable;
+        + ConditionallyNegatable
+        + ConditionallySelectable
+        + Invert<Output = CtOption<Self::WideUintMod>>
+        + Retrieve<Output = Self::WideUint>;
 
     /// An integer that fits the squared RSA modulus times a small factor.
     /// Used in some ZK proofs.

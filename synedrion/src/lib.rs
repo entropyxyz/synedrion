@@ -59,7 +59,11 @@ pub use www02::KeyResharingResult;
 
 // TODO: find a proper home for this. Used by signed.rs and cggmp21::sigma::mod_.rs
 pub(crate) mod misc {
-    use crate::uint::{Encoding, Integer, NonZero};
+    use crate::uint::{Encoding, Integer, NonZero, PowBoundedExp, Signed};
+    use crypto_bigint::{
+        subtle::{ConditionallySelectable, CtOption},
+        Invert,
+    };
     use digest::XofReader;
     // Build a `T` integer from an extendable Reader function
     pub(crate) fn from_xof<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
@@ -91,4 +95,23 @@ pub(crate) mod misc {
             }
         }
     }
+
+    pub(crate) fn pow_signed<T>(
+        uint: <T as Integer>::Monty,
+        exponent: &Signed<T>,
+    ) -> <T as Integer>::Monty
+    where
+        T: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
+        T::Monty: Invert<Output = CtOption<<T as Integer>::Monty>> + ConditionallySelectable,
+    {
+        let abs_exponent = exponent.abs();
+        let abs_result = uint.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let inv_result = abs_result.invert().expect("TODO: justify this properly");
+        <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
+    // TODO:
+    // pow_signed_wide
+    // pow_signed_extra_wide
+    // pow_signed_vartime
 }
