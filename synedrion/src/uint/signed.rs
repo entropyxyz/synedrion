@@ -305,7 +305,7 @@ where
             .expect("Just asserted that bound is smaller than precision; qed")
             .checked_add(&T::one())
             .unwrap();
-        let positive_result = from_xof(
+        let positive_result = super::super::misc::from_xof(
             rng,
             &NonZero::new(positive_bound)
                 .expect("Guaranteed to be greater than zero because we added 1"),
@@ -356,18 +356,13 @@ where
     }
 }
 
-impl<T> ConditionallyNegatable for Signed<T>
+impl<'a, T> Neg for &'a Signed<T>
 where
-    T: Integer + ConditionallySelectable,
+    T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
 {
-    #[inline]
-    fn conditional_negate(&mut self, choice: Choice) {
-        let self_neg: Signed<T> = Signed {
-            bound: self.bound,
-            value: T::zero().wrapping_sub(&self.value),
-        };
-
-        self.conditional_assign(&self_neg, choice);
+    type Output = Signed<T>;
+    fn neg(self) -> Self::Output {
+        Signed::neg(self)
     }
 }
 
@@ -433,9 +428,11 @@ where
     /// Note: variable time in `bound_bits` and `scale`.
     pub fn random_bounded_bits_scaled_wide(
         rng: &mut impl CryptoRngCore,
-        bound_bits: u32, // TODO: was usize; check what BITS was before and decide if we should cast in the code or change the fn signature
+        bound_bits: usize,
         scale: &Bounded<T::Wide>,
     ) -> Signed<<T::Wide as HasWide>::Wide> {
+        // TODO: @reviewers: this is a bit nasty and feels wrong. Use try_from instead? Or go over all code and make types match?
+        let bound_bits = bound_bits as u32;
         assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS - 1);
         let scaled_bound = scale
             .as_ref()
@@ -546,36 +543,5 @@ where
 {
     fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
         iter.cloned().sum()
-    }
-}
-
-// Build a `T` integer from an extendable Reader function
-fn from_xof<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
-where
-    T: Integer + Encoding,
-{
-    let backend_modulus = modulus.as_ref();
-
-    let n_bits = backend_modulus.bits_vartime();
-    let n_bytes = (n_bits + 7) / 8; // ceiling division by 8
-
-    // If the number of bits is not a multiple of 8,
-    // use a mask to zeroize the high bits in the gererated random bytestring,
-    // so that we don't have to reject too much.
-    let mask = if n_bits & 7 != 0 {
-        (1 << (n_bits & 7)) - 1
-    } else {
-        u8::MAX
-    };
-
-    let mut bytes = T::zero().to_le_bytes();
-    loop {
-        reader.read(&mut (bytes.as_mut()[0..n_bytes as usize]));
-        bytes.as_mut()[n_bytes as usize - 1] &= mask;
-        let n = T::from_le_bytes(bytes);
-
-        if n.ct_lt(backend_modulus).into() {
-            return n;
-        }
     }
 }
