@@ -54,9 +54,17 @@ pub trait UintLike:
         Self::ModUint::new(self, precomputed)
     }
 }
+pub trait ToMod: Integer {
+    fn to_mod(
+        self,
+        precomputed: &<<Self as Integer>::Monty as crypto_bigint::Monty>::Params,
+    ) -> <Self as Integer>::Monty {
+        <<Self as Integer>::Monty as crypto_bigint::Monty>::new(self, precomputed.clone())
+    }
+}
 
 pub trait HasWide: Sized + Zero {
-    type Wide: Integer + Encoding;
+    type Wide: Integer + Encoding + RandomMod;
     fn mul_wide(&self, other: &Self) -> Self::Wide;
     fn square_wide(&self) -> Self::Wide;
     fn into_wide(self) -> Self::Wide;
@@ -386,3 +394,8 @@ pub type U512Mod = MontyForm<{ nlimbs!(512) }>;
 pub type U1024Mod = MontyForm<{ nlimbs!(1024) }>;
 pub type U2048Mod = MontyForm<{ nlimbs!(2048) }>;
 pub type U4096Mod = MontyForm<{ nlimbs!(4096) }>;
+
+impl ToMod for U512 {}
+impl ToMod for U1024 {}
+impl ToMod for U2048 {}
+impl ToMod for U4096 {}
