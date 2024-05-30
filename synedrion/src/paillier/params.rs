@@ -1,17 +1,14 @@
-use core::ops::{Neg, Sub};
+use core::{hash::Hash, ops::Sub};
 
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, CtOption},
-    Bounded, Encoding, Integer, InvMod, Invert, Monty, RandomMod, WrappingSub, Zero,
+    Bounded, Encoding, Integer, InvMod, Invert, Monty, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    tools::hashing::Hashable,
-    uint::{HasWide, UintLike, UintModLike},
-};
+use crate::{tools::hashing::Hashable, uint::HasWide, uint::ToMod};
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
@@ -49,7 +46,8 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
         + InvMod
         + RandomMod
         + Serialize
-        + for<'de> Deserialize<'de>;
+        + for<'de> Deserialize<'de>
+        + ToMod;
     /// A modulo-residue counterpart of `Uint`.
     // type UintMod: UintModLike<RawUint = Self::Uint>;
     type UintMod: ConditionallySelectable
@@ -67,14 +65,18 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
         + Bounded
         + ConditionallySelectable
         + Encoding
+        + Hashable
         + HasWide<Wide = Self::ExtraWideUint>
         + RandomMod
         + Serialize
-        + for<'de> Deserialize<'de>;
+        + for<'de> Deserialize<'de>
+        + ToMod;
 
     /// A modulo-residue counterpart of `WideUint`.
     // type WideUintMod: UintModLike<RawUint = Self::WideUint>;
-    type WideUintMod: Monty<Integer = Self::WideUint>;
+    type WideUintMod: Monty<Integer = Self::WideUint>
+        + Retrieve<Output = Self::WideUint>
+        + ConditionallyNegatable;
 
     /// An integer that fits the squared RSA modulus times a small factor.
     /// Used in some ZK proofs.
@@ -82,7 +84,17 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     // is negligible, and when it is used as an exponent, it is bounded anyway.
     // So it is easier to keep it as a double of `WideUint`.
     // type ExtraWideUint: UintLike + Serialize + for<'de> Deserialize<'de>;
-    type ExtraWideUint: Integer + Serialize + for<'de> Deserialize<'de>;
+    type ExtraWideUint: Bounded
+        // TODO: this makes no sense but "works" (??). Without this the compiler will not let me
+        //       call `into_wide()` on a `WideUint` and I do not understand what the problem is.
+        + HasWide
+        + ConditionallySelectable
+        + Encoding
+        + Hashable
+        + Integer
+        + RandomMod
+        + Serialize
+        + for<'de> Deserialize<'de>;
 }
 
 /// Paillier parameters for unit tests in this submodule.
