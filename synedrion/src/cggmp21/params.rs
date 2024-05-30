@@ -97,7 +97,7 @@ pub trait SchemeParams: Clone + Send + PartialEq + Eq + core::fmt::Debug + 'stat
     /// Converts a curve scalar to the associated integer type.
     fn uint_from_scalar(value: &Scalar) -> <Self::Paillier as PaillierParams>::Uint {
         let scalar_bytes = value.to_bytes();
-        let mut repr = <Self::Paillier as PaillierParams>::Uint::ZERO.to_be_bytes();
+        let mut repr = <Self::Paillier as PaillierParams>::Uint::zero().to_be_bytes();
 
         let uint_len = repr.as_ref().len();
         let scalar_len = scalar_bytes.len();
@@ -183,9 +183,9 @@ impl SchemeParams for TestParams {
     const EPS_BOUND: usize = 320;
     type Paillier = PaillierTest;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        NonZero::<<Self::Paillier as PaillierParams>::Uint>::const_new(upcast_uint(ORDER)).0;
+        NonZero::<<Self::Paillier as PaillierParams>::Uint>::new(upcast_uint(ORDER)).0;
     const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        NonZero::<<Self::Paillier as PaillierParams>::WideUint>::const_new(upcast_uint(ORDER)).0;
+        NonZero::<<Self::Paillier as PaillierParams>::WideUint>::new(upcast_uint(ORDER)).0;
 }
 
 /// Production strength parameters.

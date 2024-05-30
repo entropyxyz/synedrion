@@ -14,7 +14,7 @@ use crate::paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPr
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
-    Bounded, Retrieve, UintLike, UintModLike,
+    Bounded, ToMod,
 };
 
 const HASH_TAG: &[u8] = b"P_prm";

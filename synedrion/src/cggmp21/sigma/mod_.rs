@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{RandomPrimeWithRng, Retrieve, UintLike, UintModLike};
+use crate::uint::ToMod;
+use crypto_bigint::Square;
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -47,7 +48,7 @@ impl<P: SchemeParams> ModChallenge<P> {
 
         let modulus = pk.modulus_nonzero();
         let ys = (0..P::SECURITY_PARAMETER)
-            .map(|_| <P::Paillier as PaillierParams>::Uint::from_xof(&mut reader, &modulus))
+            .map(|_| crate::misc::from_xof(&mut reader, &modulus))
             .collect();
         Self(ys)
     }
