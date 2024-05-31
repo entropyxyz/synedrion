@@ -4,7 +4,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::misc::pow_signed;
+use crate::misc::{pow_signed, pow_signed_wide};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{Bounded, Retrieve, Signed, ToMod};
 use crypto_bigint::{PowBoundedExp, Square};
@@ -75,7 +75,9 @@ impl<P: PaillierParams> RPParamsMod<P> {
         randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(self.base.pow_signed_wide(randomizer) * pow_signed(self.power, secret))
+        RPCommitmentMod(
+            pow_signed_wide::<P::Uint>(self.base, randomizer) * pow_signed(self.power, secret),
+        )
     }
 
     pub fn commit_wide(
@@ -84,7 +86,10 @@ impl<P: PaillierParams> RPParamsMod<P> {
         randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed_wide(secret))
+        RPCommitmentMod(
+            pow_signed_wide::<P::Uint>(self.base, randomizer)
+                * pow_signed_wide::<P::Uint>(self.power, secret),
+        )
     }
 
     pub fn commit_xwide(
@@ -159,7 +164,7 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     }
 
     pub fn pow_signed_wide(&self, exponent: &Signed<P::WideUint>) -> Self {
-        Self(self.0.pow_signed_wide(exponent))
+        Self(pow_signed_wide::<P::Uint>(self.0, exponent))
     }
 }
 

@@ -59,10 +59,10 @@ pub use www02::KeyResharingResult;
 
 // TODO: find a proper home for this. Used by signed.rs and cggmp21::sigma::mod_.rs
 pub(crate) mod misc {
-    use crate::uint::{Encoding, Integer, NonZero, PowBoundedExp, Signed};
+    use crate::uint::{Encoding, HasWide, Integer, NonZero, PowBoundedExp, Signed};
     use crypto_bigint::{
         subtle::{ConditionallySelectable, CtOption},
-        Invert,
+        Invert, Square,
     };
     use digest::XofReader;
     // Build a `T` integer from an extendable Reader function
@@ -110,8 +110,51 @@ pub(crate) mod misc {
         <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
 
+    pub(crate) fn pow_signed_wide<T>(
+        uint: <T as Integer>::Monty,
+        exponent: &Signed<<T as HasWide>::Wide>,
+    ) -> <T as Integer>::Monty
+    where
+        T: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable + HasWide,
+        <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
+        T::Monty: Invert<Output = CtOption<<T as Integer>::Monty>> + ConditionallySelectable,
+    {
+        let abs_exponent = exponent.abs();
+        let abs_result = pow_wide::<T>(uint, &abs_exponent, exponent.bound());
+        let inv_result = abs_result.invert().expect("TODO: justify this properly");
+        <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
+    fn pow_wide<T>(
+        uint: <T as Integer>::Monty,
+        exponent: &<T as HasWide>::Wide,
+        bound: u32,
+    ) -> <T as Integer>::Monty
+    where
+        T: Integer + HasWide + crypto_bigint::Bounded,
+        <T as Integer>::Monty: Square,
+    {
+        let bits = <T as crypto_bigint::Bounded>::BITS;
+        let bound = bound % (2 * bits + 1);
+
+        let (hi, lo) = <T as HasWide>::from_wide(exponent.clone());
+        let lo_res = uint.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
+
+        // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
+        // exponents of any size - it keeps the self^(2^k) already.
+        if bound > bits {
+            let mut hi_res = uint.pow_bounded_exp(&hi, bound - bits);
+            for _ in 0..bits {
+                hi_res = hi_res.square()
+            }
+            hi_res * lo_res
+        } else {
+            lo_res
+        }
+    }
+
     // TODO:
-    // pow_signed_wide
-    // pow_signed_extra_wide
+    // pow_signed_wide ✅
+    // pow_signed_extra_wide ✅
     // pow_signed_vartime
 }
