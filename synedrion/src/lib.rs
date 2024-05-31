@@ -125,6 +125,38 @@ pub(crate) mod misc {
         <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
 
+    pub(crate) fn pow_signed_extra_wide<T>(
+        uint: <T as Integer>::Monty,
+        exponent: &Signed<<<T as HasWide>::Wide as HasWide>::Wide>,
+    ) -> <T as Integer>::Monty
+    where
+        T: Integer + HasWide + crypto_bigint::Bounded + ConditionallySelectable,
+        <T as HasWide>::Wide: HasWide + crypto_bigint::Bounded,
+        <<T as HasWide>::Wide as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
+        T::Monty: ConditionallySelectable + Invert<Output = CtOption<<T as Integer>::Monty>>,
+    {
+        let bits = <<T as HasWide>::Wide as crypto_bigint::Bounded>::BITS;
+        let bound = exponent.bound();
+
+        let abs_exponent = exponent.abs();
+        let (whi, wlo) = <T as HasWide>::Wide::from_wide(abs_exponent);
+
+        let lo_res = pow_wide::<T>(uint, &wlo, core::cmp::min(bits, bound));
+
+        let abs_result = if bound > bits {
+            let mut hi_res = pow_wide::<T>(uint, &whi, bound - bits);
+            for _ in 0..bits {
+                hi_res = hi_res.square();
+            }
+            hi_res * lo_res
+        } else {
+            lo_res
+        };
+
+        let inv_result = abs_result.invert().expect("TODO: Justify this properly");
+        <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
     fn pow_wide<T>(
         uint: <T as Integer>::Monty,
         exponent: &<T as HasWide>::Wide,
