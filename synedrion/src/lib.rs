@@ -157,6 +157,23 @@ pub(crate) mod misc {
         <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
 
+    pub(crate) fn pow_signed_vartime<T>(
+        uint: <T as Integer>::Monty,
+        exponent: &Signed<T>,
+    ) -> <T as Integer>::Monty
+    where
+        T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
+        <T as Integer>::Monty: Invert<Output = CtOption<<T as Integer>::Monty>>,
+    {
+        let abs_exponent = exponent.abs();
+        let abs_result = uint.pow_bounded_exp(&abs_exponent, exponent.bound());
+        if exponent.is_negative().into() {
+            abs_result.invert().expect("TODO: justify this properly")
+        } else {
+            abs_result
+        }
+    }
+
     fn pow_wide<T>(
         uint: <T as Integer>::Monty,
         exponent: &<T as HasWide>::Wide,

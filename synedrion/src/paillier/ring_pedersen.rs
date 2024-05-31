@@ -4,7 +4,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::misc::{pow_signed, pow_signed_extra_wide, pow_signed_wide};
+use crate::misc::{pow_signed, pow_signed_extra_wide, pow_signed_vartime, pow_signed_wide};
 use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{Bounded, Retrieve, Signed, ToMod};
 use crypto_bigint::{PowBoundedExp, Square};
@@ -160,7 +160,7 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     /// Note: this is variable time in `exponent`.
     /// `exponent` will be effectively reduced modulo `totient(N)`.
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(self.0.pow_signed_vartime(exponent))
+        Self(pow_signed_vartime(self.0, exponent))
     }
 
     pub fn pow_signed_wide(&self, exponent: &Signed<P::WideUint>) -> Self {
