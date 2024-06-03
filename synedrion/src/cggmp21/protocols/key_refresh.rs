@@ -18,8 +18,8 @@ use crate::cggmp21::{
 use crate::common::{KeyShareChange, PublicAuxInfo, SecretAuxInfo};
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
-    Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
-    RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed,
+    RPParams, RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::{
     all_parties_except, no_broadcast_messages, no_direct_messages, try_to_holevec,
@@ -29,7 +29,7 @@ use crate::rounds::{
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
-use crypto_bigint::BitOps;
+use crypto_bigint::{BitOps, Odd};
 
 /// Possible results of the KeyRefresh protocol.
 #[derive(Debug, Clone, Copy)]
@@ -60,10 +60,18 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
         mu: Randomizer<P::Paillier>,
     },
 }
-
+// TODO: The requirement that this be Serialize/Deserialize is what causes
+// the awkward explosion of bounds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PrmProof<P>: Serialize"))]
-#[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "
+        PrmProof<P>: Serialize,
+        Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>: Serialize,
+    "))]
+#[serde(bound(deserialize = "
+        PrmProof<P>: for<'x> Deserialize<'x>,
+        Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>: for<'x> Deserialize<'x>,
+        PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>
+    "))]
 pub struct PublicData1<P: SchemeParams> {
     cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
     cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
@@ -271,7 +279,14 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
+impl<P> FinalizableToNextRound for Round1<P>
+where
+    P: SchemeParams + for<'x> Deserialize<'x>,
+    <P as SchemeParams>::Paillier: for<'x> Deserialize<'x>,
+    Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>:
+        Serialize + for<'x> Deserialize<'x>,
+    PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>,
+{
     type NextRound = Round2<P>;
     fn finalize_to_next_round(
         self,
@@ -295,8 +310,16 @@ pub struct Round2<P: SchemeParams> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicData1<P>: Serialize"))]
-#[serde(bound(deserialize = "PublicData1<P>: for<'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "
+        PublicData1<P>: Serialize,
+        Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>: Serialize,
+    "))]
+#[serde(bound(deserialize = "
+        P: for<'x> Deserialize<'x>,
+        <P as SchemeParams>::Paillier: for<'x> Deserialize<'x>,
+        Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>: for<'x> Deserialize<'x>,
+        PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>,
+"))]
 pub struct Round2Message<P: SchemeParams> {
     data: PublicData1<P>,
 }
@@ -305,7 +328,14 @@ pub struct Round2Payload<P: SchemeParams> {
     data: PublicData1Precomp<P>,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P> Round for Round2<P>
+where
+    P: SchemeParams + for<'x> Deserialize<'x>,
+    <P as SchemeParams>::Paillier: for<'x> Deserialize<'x>,
+    Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>:
+        Serialize + for<'x> Deserialize<'x>,
+    PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>,
+{
     type Type = ToNextRound;
     type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 2;
@@ -386,7 +416,14 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
+impl<P> FinalizableToNextRound for Round2<P>
+where
+    P: SchemeParams + for<'x> Deserialize<'x>,
+    <P as SchemeParams>::Paillier: for<'x> Deserialize<'x>,
+    Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>:
+        Serialize + for<'x> Deserialize<'x>,
+    PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>,
+{
     type NextRound = Round3<P>;
     fn finalize_to_next_round(
         self,

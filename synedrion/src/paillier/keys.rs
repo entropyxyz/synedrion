@@ -281,9 +281,14 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     }
 }
 
-// TODO: Sort out serde for `Odd<…>`
-//#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// TODO: making the modulus `Odd` here is part of what makes the bounds
+// so awkward and spread all over the place. Can we do better?
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(bound(serialize = "Odd<<P as PaillierParams>::Uint>: Serialize"))]
+#[serde(bound(deserialize = "
+        Odd<<P as PaillierParams>::Uint>: Deserialize,
+        Odd<<P as PaillierParams>::Uint>: for <'x> Deserialize<'x>
+    "))]
 pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
     modulus: Odd<P::Uint>, // TODO (#104): wrap it in `crypto_bigint::Odd`
 }
@@ -301,9 +306,6 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
             Odd::new(self.modulus.square_wide())
                 .expect("TODO: This can't be correct. Yet it is sort of what the old code did?"),
         );
-        // let precomputed_modulus = P::UintMod::new_precomputed(&NonZero::new(self.modulus).unwrap());
-        // let precomputed_modulus_squared =
-        //     P::WideUintMod::new_precomputed(&NonZero::new(self.modulus.square_wide()).unwrap());
 
         PublicKeyPaillierPrecomputed {
             pk: self.clone(),
