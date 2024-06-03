@@ -6,10 +6,12 @@ use rand_core::{CryptoRngCore, OsRng};
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
+use crate::misc::uint_from_xof;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
 use crate::uint::{Retrieve, ToMod};
 use crypto_bigint::{PowBoundedExp, Square};
+use crypto_primes::RandomPrimeWithRng;
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -48,7 +50,7 @@ impl<P: SchemeParams> ModChallenge<P> {
 
         let modulus = pk.modulus_nonzero();
         let ys = (0..P::SECURITY_PARAMETER)
-            .map(|_| crate::misc::from_xof(&mut reader, &modulus))
+            .map(|_| uint_from_xof(&mut reader, &modulus))
             .collect();
         Self(ys)
     }
@@ -107,8 +109,8 @@ impl<P: SchemeParams> ModProof<P> {
                         y_mod_q = -y_mod_q;
                     }
                     if *b {
-                        y_mod_p = y_mod_p * omega_mod_p;
-                        y_mod_q = y_mod_q * omega_mod_q;
+                        y_mod_p = y_mod_p * omega_mod_p.clone();
+                        y_mod_q = y_mod_q * omega_mod_q.clone();
                     }
 
                     if let Some((p, q)) = sk.sqrt(&(y_mod_p, y_mod_q)) {
