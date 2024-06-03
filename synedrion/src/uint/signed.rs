@@ -139,12 +139,15 @@ where
     T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
     T::Monty: ConditionallySelectable,
 {
-    // TODO: Remove these notes
-    // DynResidue is now MontyForm
-    // DynResidueParams is now MontyParams
-    // UintLike for Uint<L> impl had an assoc type ModUint = DynResidue<L>;
-    // In the new code, the Integer for Uint<L> impl has an assoc type Monty that impls trait  Monty
-    // TODO: ask reviewers to check this very carefully – not at all sure this is doing the same as before.
+    // TODO: Remove these notes DynResidue is now MontyForm DynResidueParams is now MontyParams
+    // UintLike for Uint<L> impl had an assoc type ModUint = DynResidue<L>; In the new code, the
+    // Integer for Uint<L> impl has an assoc type Monty that impls trait  Monty
+    // TODO: is this better than using the `ToMod` trait? Worse? Atm I have three different ways of
+    // tackling the problem of missing methods in the `Integer`/`Monty` traits vs
+    // `UintLike`/`UintModLike`: adding a trait like `ToMod`, freestanding functions like
+    // `pow_signed` and this ad-hoc impl directly on the type. Pick one and normalize all the code.
+    // TODO: ask reviewers to check this very carefully – not at all sure this is doing the same as
+    // before.
     pub fn to_mod(
         self,
         precomputed: <<T as Integer>::Monty as crypto_bigint::Monty>::Params,
@@ -305,7 +308,7 @@ where
             .expect("Just asserted that bound is smaller than precision; qed")
             .checked_add(&T::one())
             .unwrap();
-        let positive_result = super::super::misc::from_xof(
+        let positive_result = super::super::misc::uint_from_xof(
             rng,
             &NonZero::new(positive_bound)
                 .expect("Guaranteed to be greater than zero because we added 1"),
