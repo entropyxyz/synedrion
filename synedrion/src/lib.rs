@@ -65,8 +65,9 @@ pub(crate) mod misc {
         Invert, Square,
     };
     use digest::XofReader;
-    // Build a `T` integer from an extendable Reader function
-    pub(crate) fn from_xof<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
+
+    /// Build a `T` integer from an extendable Reader function
+    pub(crate) fn uint_from_xof<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
     where
         T: Integer + Encoding,
     {
@@ -201,9 +202,4 @@ pub(crate) mod misc {
             lo_res
         }
     }
-
-    // TODO:
-    // pow_signed_wide ✅
-    // pow_signed_extra_wide ✅
-    // pow_signed_vartime
 }
