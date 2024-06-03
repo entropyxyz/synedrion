@@ -17,7 +17,6 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
     /// The size of the RSA modulus (a product of two primes).
     const MODULUS_BITS: usize = Self::PRIME_BITS * 2;
     /// An integer that fits a single RSA prime.
-    // type HalfUint: UintLike<ModUint = Self::HalfUintMod> + HasWide<Wide = Self::Uint>;
     type HalfUint: Integer<Monty = Self::HalfUintMod>
         + Bounded
         + RandomMod
@@ -25,16 +24,11 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
         + HasWide<Wide = Self::Uint>;
 
     /// A modulo-residue counterpart of `HalfUint`.
-    // type HalfUintMod: UintModLike<RawUint = Self::HalfUint>;
     type HalfUintMod: Monty<Integer = Self::HalfUint>
         + Retrieve<Output = Self::HalfUint>
         + Invert<Output = CtOption<Self::HalfUintMod>>;
 
     /// An integer that fits the RSA modulus.
-    // type Uint: UintLike<ModUint = Self::UintMod>
-    //     + HasWide<Wide = Self::WideUint>
-    //     + Serialize
-    //     + for<'de> Deserialize<'de>;
     type Uint: Integer<Monty = Self::UintMod>
         + Bounded
         + ConditionallySelectable
@@ -43,11 +37,11 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
         + HasWide<Wide = Self::WideUint>
         + InvMod
         + RandomMod
+        + RandomPrimeWithRng
         + Serialize
         + for<'de> Deserialize<'de>
         + ToMod;
     /// A modulo-residue counterpart of `Uint`.
-    // type UintMod: UintModLike<RawUint = Self::Uint>;
     type UintMod: ConditionallySelectable
         + Monty<Integer = Self::Uint>
         + Retrieve<Output = Self::Uint>
@@ -55,10 +49,6 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
 
     /// An integer that fits the squared RSA modulus.
     /// Used for Paillier ciphertexts.
-    // type WideUint: UintLike<ModUint = Self::WideUintMod>
-    //     + Serialize
-    //     + for<'de> Deserialize<'de>
-    //     + HasWide<Wide = Self::ExtraWideUint>;
     type WideUint: Integer<Monty = Self::WideUintMod>
         + Bounded
         + ConditionallySelectable
@@ -71,7 +61,6 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send {
         + ToMod;
 
     /// A modulo-residue counterpart of `WideUint`.
-    // type WideUintMod: UintModLike<RawUint = Self::WideUint>;
     type WideUintMod: Monty<Integer = Self::WideUint>
         + ConditionallyNegatable
         + ConditionallySelectable
