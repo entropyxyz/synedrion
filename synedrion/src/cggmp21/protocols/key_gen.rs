@@ -9,6 +9,7 @@ use crypto_bigint::Odd;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+use super::super::{AuxInfo, KeyShare, SchemeParams};
 use super::key_init::{self, KeyInitResult};
 use super::key_refresh::{self, KeyRefreshResult};
 use crate::cggmp21::SchemeParams;
@@ -25,7 +26,7 @@ use crate::rounds::{
 pub struct KeyGenResult<P: SchemeParams>(PhantomData<P>);
 
 impl<P: SchemeParams> ProtocolResult for KeyGenResult<P> {
-    type Success = KeyShare<P>;
+    type Success = (KeyShare<P>, AuxInfo<P>);
     type ProvableError = KeyGenError<P>;
     type CorrectnessProof = KeyGenProof<P>;
 }
@@ -34,7 +35,7 @@ impl<P: SchemeParams> ProtocolResult for KeyGenResult<P> {
 #[derive(Debug, Clone)]
 pub enum KeyGenError<P: SchemeParams> {
     /// An error in the KeyGen part of the protocol.
-    KeyInit(<KeyInitResult as ProtocolResult>::ProvableError),
+    KeyInit(<KeyInitResult<P> as ProtocolResult>::ProvableError),
     /// An error in the KeyRefresh part of the protocol.
     KeyRefresh(<KeyRefreshResult<P> as ProtocolResult>::ProvableError),
 }
@@ -43,14 +44,14 @@ pub enum KeyGenError<P: SchemeParams> {
 #[derive(Debug, Clone)]
 pub enum KeyGenProof<P: SchemeParams> {
     /// A proof for the KeyGen part of the protocol.
-    KeyInit(<KeyInitResult as ProtocolResult>::CorrectnessProof),
+    KeyInit(<KeyInitResult<P> as ProtocolResult>::CorrectnessProof),
     /// A proof for the KeyRefresh part of the protocol.
     KeyRefresh(<KeyRefreshResult<P> as ProtocolResult>::CorrectnessProof),
 }
 
-impl<P: SchemeParams> CorrectnessProofWrapper<KeyInitResult> for KeyGenResult<P> {
+impl<P: SchemeParams> CorrectnessProofWrapper<KeyInitResult<P>> for KeyGenResult<P> {
     fn wrap_proof(
-        proof: <KeyInitResult as ProtocolResult>::CorrectnessProof,
+        proof: <KeyInitResult<P> as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
         KeyGenProof::KeyInit(proof)
     }
@@ -390,14 +391,14 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             })
             .unzip();
 
-        let keyshare_seed = self
+        let key_share = self
             .key_init_round
             .finalize_to_result(rng, key_init_payloads, BTreeMap::new())
             .map_err(wrap_finalize_error)?;
-        let keyshare_change = self
+        let (key_share_change, aux_info) = self
             .key_refresh_round
             .finalize_to_result(rng, key_refresh_payloads, artifacts)
             .map_err(wrap_finalize_error)?;
-        Ok(KeyShare::new(keyshare_seed, keyshare_change))
+        Ok((key_share.update(key_share_change), aux_info))
     }
 }

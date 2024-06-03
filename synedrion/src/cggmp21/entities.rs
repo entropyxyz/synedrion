@@ -1,13 +1,12 @@
 use alloc::boxed::Box;
-
-#[cfg(any(test, feature = "bench-internals"))]
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::SchemeParams;
+use super::SchemeParams;
 use crate::curve::{Point, Scalar};
 use crate::paillier::{
     CiphertextMod, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
@@ -30,22 +29,18 @@ use crate::{
 // TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
 #[derive(Clone)]
-pub struct KeyShareSeed {
+pub struct KeyShare<P> {
     pub(crate) index: PartyIdx,
     /// Secret key share of this node.
     pub(crate) secret_share: Scalar, // `x_i`
-    /// Public key shares of all nodes (including this one).
     pub(crate) public_shares: Box<[Point]>, // `X_j`
+    // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
+    pub(crate) phantom: PhantomData<P>,
 }
 
-/// The full key share with auxiliary parameters.
-// TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
-// or in a `SecretBox`-type wrapper.
 #[derive(Clone)]
-pub struct KeyShare<P: SchemeParams> {
+pub struct AuxInfo<P: SchemeParams> {
     pub(crate) index: PartyIdx,
-    pub(crate) secret_share: Scalar,
-    pub(crate) public_shares: Box<[Point]>,
     pub(crate) secret_aux: SecretAuxInfo<P>,
     pub(crate) public_aux: Box<[PublicAuxInfo<P>]>,
 }
@@ -72,10 +67,7 @@ pub(crate) struct PublicAuxInfo<P: SchemeParams> {
 }
 
 #[derive(Clone)]
-pub(crate) struct KeySharePrecomputed<P: SchemeParams> {
-    pub(crate) index: PartyIdx,
-    pub(crate) secret_share: Scalar,
-    pub(crate) public_shares: Box<[Point]>,
+pub(crate) struct AuxInfoPrecomputed<P: SchemeParams> {
     pub(crate) secret_aux: SecretAuxInfoPrecomputed<P>,
     pub(crate) public_aux: Box<[PublicAuxInfoPrecomputed<P>]>,
 }
@@ -84,7 +76,7 @@ pub(crate) struct KeySharePrecomputed<P: SchemeParams> {
 pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
     #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
-    pub(crate) el_gamal_sk: Scalar,
+    pub(crate) el_gamal_sk: Scalar, // `y_i`
 }
 
 #[derive(Clone)]
@@ -103,8 +95,8 @@ pub struct KeyShareChange<P: SchemeParams> {
     pub(crate) secret_share_change: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
     /// The values to be added to the public shares of remote nodes.
     pub(crate) public_share_changes: Box<[Point]>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
-    pub(crate) secret_aux: SecretAuxInfo<P>,
-    pub(crate) public_aux: Box<[PublicAuxInfo<P>]>,
+    // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
+    pub(crate) phantom: PhantomData<P>,
 }
 
 /// The result of the Presigning protocol.
@@ -133,12 +125,13 @@ pub struct PresigningData<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> KeyShare<P> {
-    /// Creates a key share out of the seed (obtained from the KeyGen protocol)
-    /// and the share change (obtained from the KeyRefresh+Auxiliary protocol).
-    pub(crate) fn new(seed: KeyShareSeed, change: KeyShareChange<P>) -> Self {
+    /// Updates a key share with a change obtained from KeyRefresh protocol.
+    pub(crate) fn update(self, change: KeyShareChange<P>) -> Self {
         // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
-        let secret_share = seed.secret_share + change.secret_share_change;
-        let public_shares = seed
+        assert_eq!(self.index, change.index);
+
+        let secret_share = self.secret_share + change.secret_share_change;
+        let public_shares = self
             .public_shares
             .iter()
             .zip(change.public_share_changes.into_vec())
@@ -149,14 +142,13 @@ impl<P: SchemeParams> KeyShare<P> {
             index: change.index,
             secret_share,
             public_shares,
-            secret_aux: change.secret_aux,
-            public_aux: change.public_aux,
+            phantom: PhantomData,
         }
     }
 
     /// Returns `num_parties` of random self-consistent key shares
     /// (which in a decentralized case would be the output of KeyGen + Auxiliary protocols).
-    pub fn new_centralized(
+    pub(crate) fn new_centralized(
         rng: &mut impl CryptoRngCore,
         num_parties: usize,
         signing_key: Option<&k256::ecdsa::SigningKey>,
@@ -172,27 +164,78 @@ impl<P: SchemeParams> KeyShare<P> {
             .map(|s| s.mul_by_generator())
             .collect::<Box<_>>();
 
-        let (secret_aux, public_aux) = make_aux_info(rng, num_parties);
-
-        secret_aux
-            .into_vec()
+        secret_shares
             .into_iter()
             .enumerate()
-            .map(|(idx, secret_aux)| KeyShare {
+            .map(|(idx, secret_share)| KeyShare {
                 index: PartyIdx::from_usize(idx),
-                secret_share: secret_shares[idx],
+                secret_share,
                 public_shares: public_shares.clone(),
+                phantom: PhantomData,
+            })
+            .collect()
+    }
+
+    /// Returns the number of parties in this set of shares.
+    pub fn num_parties(&self) -> usize {
+        // TODO (#31): technically it is `num_shares`, but for now we are equating the two,
+        // since we assume that one party has one share.
+        self.public_shares.len()
+    }
+
+    /// Returns the index of this share's party.
+    pub fn party_index(&self) -> PartyIdx {
+        // TODO (#31): technically it is the share index, but for now we are equating the two,
+        // since we assume that one party has one share.
+        self.index
+    }
+
+    pub(crate) fn verifying_key_as_point(&self) -> Point {
+        self.public_shares.iter().sum()
+    }
+
+    /// Return the verifying key to which this set of shares corresponds.
+    pub fn verifying_key(&self) -> VerifyingKey {
+        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
+        // (that is, the sum of public keys does not evaluate to the infinity point)
+        self.verifying_key_as_point().to_verifying_key().unwrap()
+    }
+}
+
+impl<P: SchemeParams> AuxInfo<P> {
+    pub(crate) fn new_centralized(rng: &mut impl CryptoRngCore, num_parties: usize) -> Box<[Self]> {
+        let secret_aux = (0..num_parties)
+            .map(|_| SecretAuxInfo {
+                paillier_sk: SecretKeyPaillier::<P::Paillier>::random(rng),
+                el_gamal_sk: Scalar::random(rng),
+            })
+            .collect::<Vec<_>>();
+
+        let public_aux = secret_aux
+            .iter()
+            .map(|secret| {
+                let sk = secret.paillier_sk.to_precomputed();
+                PublicAuxInfo {
+                    paillier_pk: sk.public_key().to_minimal(),
+                    el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
+                    rp_params: RPParamsMod::random(rng, &sk).retrieve(),
+                }
+            })
+            .collect::<Box<_>>();
+
+        secret_aux
+            .into_iter()
+            .enumerate()
+            .map(|(idx, secret_aux)| Self {
+                index: PartyIdx::from_usize(idx),
                 secret_aux,
                 public_aux: public_aux.clone(),
             })
             .collect()
     }
 
-    pub(crate) fn to_precomputed(&self) -> KeySharePrecomputed<P> {
-        KeySharePrecomputed {
-            index: self.index,
-            secret_share: self.secret_share,
-            public_shares: self.public_shares.clone(),
+    pub(crate) fn to_precomputed(&self) -> AuxInfoPrecomputed<P> {
+        AuxInfoPrecomputed {
             secret_aux: SecretAuxInfoPrecomputed {
                 paillier_sk: self.secret_aux.paillier_sk.to_precomputed(),
                 el_gamal_sk: self.secret_aux.el_gamal_sk,
@@ -211,45 +254,15 @@ impl<P: SchemeParams> KeyShare<P> {
                 .collect(),
         }
     }
-
-    pub(crate) fn verifying_key_as_point(&self) -> Point {
-        self.public_shares.iter().sum()
-    }
-
-    /// Return the verifying key to which this set of shares corresponds.
-    pub fn verifying_key(&self) -> VerifyingKey {
-        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
-        // (that is, the sum of public keys does not evaluate to the infinity point)
-        self.verifying_key_as_point().to_verifying_key().unwrap()
-    }
-}
-
-impl<P: SchemeParams> KeySharePrecomputed<P> {
-    /// Returns the number of parties in this set of shares.
-    pub fn num_parties(&self) -> usize {
-        // TODO (#31): technically it is `num_shares`, but for now we are equating the two,
-        // since we assume that one party has one share.
-        self.public_shares.len()
-    }
-
-    /// Returns the index of this share's party.
-    pub fn party_index(&self) -> PartyIdx {
-        // TODO (#31): technically it is the share index, but for now we are equating the two,
-        // since we assume that one party has one share.
-        self.index
-    }
-
-    pub(crate) fn verifying_key_as_point(&self) -> Point {
-        self.public_shares.iter().sum()
-    }
 }
 
 impl<P: SchemeParams> PresigningData<P> {
     /// Creates a consistent set of presigning data for testing purposes.
     #[cfg(any(test, feature = "bench-internals"))]
-    pub fn new_centralized(
+    pub(crate) fn new_centralized(
         rng: &mut impl CryptoRngCore,
         key_shares: &[KeyShare<P>],
+        aux_infos: &[AuxInfo<P>],
     ) -> Box<[Self]> {
         let ephemeral_scalar = Scalar::random(rng);
         let nonce = ephemeral_scalar
@@ -260,7 +273,7 @@ impl<P: SchemeParams> PresigningData<P> {
         let ephemeral_scalar_shares = ephemeral_scalar.split(rng, key_shares.len());
 
         let num_parties = key_shares.len();
-        let public_keys = key_shares[0]
+        let public_keys = aux_infos[0]
             .public_aux
             .iter()
             .map(|aux| aux.paillier_pk.to_precomputed())
@@ -355,33 +368,6 @@ impl<P: SchemeParams> PresigningData<P> {
 
         presigning.into()
     }
-}
-
-#[allow(clippy::type_complexity)]
-pub(crate) fn make_aux_info<P: SchemeParams>(
-    rng: &mut impl CryptoRngCore,
-    num_parties: usize,
-) -> (Box<[SecretAuxInfo<P>]>, Box<[PublicAuxInfo<P>]>) {
-    let secret_aux = (0..num_parties)
-        .map(|_| SecretAuxInfo {
-            paillier_sk: SecretKeyPaillier::<P::Paillier>::random(rng),
-            el_gamal_sk: Scalar::random(rng),
-        })
-        .collect::<Box<_>>();
-
-    let public_aux = secret_aux
-        .iter()
-        .map(|secret| {
-            let sk = secret.paillier_sk.to_precomputed();
-            PublicAuxInfo {
-                paillier_pk: sk.public_key().to_minimal(),
-                el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
-                rp_params: RPParamsMod::random(rng, &sk).retrieve(),
-            }
-        })
-        .collect();
-
-    (secret_aux, public_aux)
 }
 
 impl<P: SchemeParams> Hashable for PublicAuxInfo<P> {

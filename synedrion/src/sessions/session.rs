@@ -741,3 +741,38 @@ enum ProcessedMessageEnum<Sig> {
     },
     Bc,
 }
+
+#[cfg(test)]
+mod tests {
+    use impls::impls;
+    use k256::ecdsa::{Signature, SigningKey, VerifyingKey};
+
+    use super::{Artifact, CombinedMessage, PreprocessedMessage, ProcessedMessage, Session};
+    use crate::ProtocolResult;
+
+    #[test]
+    fn test_concurrency_bounds() {
+        // In order to support parallel message creation and processing we need that
+        // certain generic types could be Send and/or Sync.
+        //
+        // Since they are generic, this depends on the exact type parameters supplied by the user,
+        // so if the user does not want parallelism, they may not use Send/Sync generic parameters.
+        // But we want to make sure that if the generic parameters are Send/Sync,
+        // our types are too.
+
+        #[derive(Debug)]
+        struct DummyResult;
+
+        impl ProtocolResult for DummyResult {
+            type Success = ();
+            type ProvableError = ();
+            type CorrectnessProof = ();
+        }
+
+        assert!(impls!(Session<DummyResult, Signature, SigningKey, VerifyingKey>: Sync));
+        assert!(impls!(CombinedMessage<Signature>: Send));
+        assert!(impls!(Artifact<VerifyingKey>: Send));
+        assert!(impls!(PreprocessedMessage<Signature>: Send));
+        assert!(impls!(ProcessedMessage<Signature, VerifyingKey>: Send));
+    }
+}

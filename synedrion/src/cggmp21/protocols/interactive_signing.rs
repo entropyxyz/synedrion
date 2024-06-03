@@ -4,10 +4,10 @@ use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 
+use super::super::params::SchemeParams;
+use super::super::{AuxInfo, KeyShare};
 use super::presigning::{self, PresigningResult};
 use super::signing::{self, SigningResult};
-use crate::cggmp21::params::SchemeParams;
-use crate::common::KeyShare;
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::rounds::{
     wrap_finalize_error, CorrectnessProofWrapper, FinalizableToNextRound, FinalizableToResult,
@@ -75,21 +75,23 @@ impl<P: SchemeParams> CorrectnessProofWrapper<SigningResult<P>> for InteractiveS
     }
 }
 
-struct RoundContext<P: SchemeParams> {
+struct Context<P: SchemeParams> {
     shared_randomness: Box<[u8]>,
     key_share: KeyShare<P>,
+    aux_info: AuxInfo<P>,
     message: Scalar,
 }
 
 #[derive(Clone)]
 pub(crate) struct Inputs<P: SchemeParams> {
     pub(crate) key_share: KeyShare<P>,
+    pub(crate) aux_info: AuxInfo<P>,
     pub(crate) message: Scalar,
 }
 
 pub(crate) struct Round1<P: SchemeParams> {
     round: presigning::Round1<P>,
-    context: RoundContext<P>,
+    context: Context<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
@@ -106,11 +108,12 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             shared_randomness,
             num_parties,
             party_idx,
-            inputs.key_share.clone(),
+            (inputs.key_share.clone(), inputs.aux_info.clone()),
         )?;
-        let context = RoundContext {
+        let context = Context {
             shared_randomness: shared_randomness.into(),
             key_share: inputs.key_share,
+            aux_info: inputs.aux_info,
             message: inputs.message,
         };
         Ok(Self { context, round })
@@ -149,7 +152,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
 
 pub(crate) struct Round2<P: SchemeParams> {
     round: presigning::Round2<P>,
-    context: RoundContext<P>,
+    context: Context<P>,
 }
 
 impl<P: SchemeParams> RoundWrapper for Round2<P> {
@@ -184,7 +187,7 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
 
 pub(crate) struct Round3<P: SchemeParams> {
     round: presigning::Round3<P>,
-    context: RoundContext<P>,
+    context: Context<P>,
 }
 
 impl<P: SchemeParams> RoundWrapper for Round3<P> {
@@ -215,7 +218,8 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
         let signing_context = signing::Inputs {
             message: self.context.message,
             presigning: presigning_data,
-            key_share: self.context.key_share.to_precomputed(),
+            key_share: self.context.key_share,
+            aux_info: self.context.aux_info,
         };
         let signing_round = signing::Round1::new(
             rng,
@@ -268,8 +272,7 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::{Inputs, Round1};
-    use crate::cggmp21::TestParams;
-    use crate::common::KeyShare;
+    use crate::cggmp21::{AuxInfo, KeyShare, TestParams};
     use crate::curve::Scalar;
     use crate::rounds::{
         test_utils::{step_next_round, step_result, step_round},
@@ -285,6 +288,7 @@ mod tests {
 
         let num_parties = 3;
         let key_shares = KeyShare::new_centralized(&mut OsRng, num_parties, None);
+        let aux_infos = AuxInfo::new_centralized(&mut OsRng, num_parties);
         let r1 = (0..num_parties)
             .map(|idx| {
                 Round1::<TestParams>::new(
@@ -295,6 +299,7 @@ mod tests {
                     Inputs {
                         message,
                         key_share: key_shares[idx].clone(),
+                        aux_info: aux_infos[idx].clone(),
                     },
                 )
                 .unwrap()

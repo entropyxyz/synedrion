@@ -7,11 +7,11 @@ use core::marker::PhantomData;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::{
+use super::super::{
+    entities::AuxInfoPrecomputed,
     sigma::{AffGProof, DecProof, MulStarProof},
-    SchemeParams,
+    AuxInfo, KeyShare, PresigningData, SchemeParams,
 };
-use crate::common::{KeySharePrecomputed, PresigningData};
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
 use crate::rounds::{
@@ -47,6 +47,7 @@ pub struct Round1<P: SchemeParams> {
     r: Scalar,
     sigma: Scalar,
     inputs: Inputs<P>,
+    aux_info: AuxInfoPrecomputed<P>,
     num_parties: usize,
     party_idx: PartyIdx,
 }
@@ -55,7 +56,8 @@ pub struct Round1<P: SchemeParams> {
 pub struct Inputs<P: SchemeParams> {
     pub message: Scalar,
     pub presigning: PresigningData<P>,
-    pub key_share: KeySharePrecomputed<P>,
+    pub key_share: KeyShare<P>,
+    pub aux_info: AuxInfo<P>,
 }
 
 impl<P: SchemeParams> FirstRound for Round1<P> {
@@ -74,7 +76,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             .chain_type::<P>()
             .chain(&shared_randomness)
             .chain_slice(&inputs.key_share.public_shares)
-            .chain_slice(&inputs.key_share.public_aux)
+            .chain_slice(&inputs.aux_info.public_aux)
             .finalize();
 
         let r = inputs.presigning.nonce;
@@ -84,6 +86,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             ssid_hash,
             r,
             sigma,
+            aux_info: inputs.aux_info.clone().to_precomputed(),
             inputs,
             num_parties,
             party_idx,
@@ -171,7 +174,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let aux = (&self.ssid_hash, &self.party_idx);
 
-        let sk = &self.inputs.key_share.secret_aux.paillier_sk;
+        let sk = &self.aux_info.secret_aux.paillier_sk;
         let pk = sk.public_key();
 
         // Aff-g proofs
@@ -183,8 +186,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 if l == j {
                     continue;
                 }
-                let target_pk = &self.inputs.key_share.public_aux[j].paillier_pk;
-                let rp = &self.inputs.key_share.public_aux[l].rp_params;
+                let target_pk = &self.aux_info.public_aux[j].paillier_pk;
+                let rp = &self.aux_info.public_aux[l].rp_params;
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
@@ -245,7 +248,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 &self.inputs.presigning.cap_k[my_idx],
                 &hat_cap_h,
                 &cap_x,
-                &self.inputs.key_share.public_aux[l].rp_params,
+                &self.aux_info.public_aux[l].rp_params,
                 &aux,
             );
 
@@ -254,7 +257,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 &self.inputs.presigning.cap_k[my_idx],
                 &hat_cap_h,
                 &cap_x,
-                &self.inputs.key_share.public_aux[l].rp_params,
+                &self.aux_info.public_aux[l].rp_params,
                 &aux,
             ));
 
@@ -292,14 +295,14 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 pk,
                 &self.sigma,
                 &ciphertext,
-                &self.inputs.key_share.public_aux[l].rp_params,
+                &self.aux_info.public_aux[l].rp_params,
                 &aux,
             );
             assert!(p_dec.verify(
                 pk,
                 &self.sigma,
                 &ciphertext,
-                &self.inputs.key_share.public_aux[l].rp_params,
+                &self.aux_info.public_aux[l].rp_params,
                 &aux,
             ));
             dec_proofs.push((PartyIdx::from_usize(l), p_dec));
@@ -321,8 +324,7 @@ mod tests {
     use rand_core::{OsRng, RngCore};
 
     use super::{Inputs, Round1};
-    use crate::cggmp21::TestParams;
-    use crate::common::{KeyShare, PresigningData};
+    use crate::cggmp21::{AuxInfo, KeyShare, PresigningData, TestParams};
     use crate::curve::Scalar;
     use crate::rounds::{
         test_utils::{step_result, step_round},
@@ -336,8 +338,9 @@ mod tests {
 
         let num_parties = 3;
         let key_shares = KeyShare::<TestParams>::new_centralized(&mut OsRng, num_parties, None);
+        let aux_infos = AuxInfo::<TestParams>::new_centralized(&mut OsRng, num_parties);
 
-        let presigning_datas = PresigningData::new_centralized(&mut OsRng, &key_shares);
+        let presigning_datas = PresigningData::new_centralized(&mut OsRng, &key_shares, &aux_infos);
 
         let message = Scalar::random(&mut OsRng);
 
@@ -351,7 +354,8 @@ mod tests {
                     Inputs {
                         presigning: presigning_datas[idx].clone(),
                         message,
-                        key_share: key_shares[idx].to_precomputed(),
+                        key_share: key_shares[idx].clone(),
+                        aux_info: aux_infos[idx].clone(),
                     },
                 )
                 .unwrap()

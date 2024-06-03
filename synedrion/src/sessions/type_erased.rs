@@ -97,7 +97,7 @@ impl DynArtifact {
 }
 
 /// An object-safe trait wrapping `Round`.
-pub(crate) trait DynRound<Res: ProtocolResult>: Send {
+pub(crate) trait DynRound<Res: ProtocolResult>: Send + Sync {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
 
@@ -129,7 +129,7 @@ fn is_null_type<T: 'static>() -> bool {
 
 impl<R> DynRound<R::Result> for R
 where
-    R: Round + Send,
+    R: Round + Send + Sync,
     <R as Round>::BroadcastMessage: 'static,
     <R as Round>::DirectMessage: 'static,
     <R as Round>::Payload: 'static + Send,
@@ -356,7 +356,7 @@ const _: () = {
 
     impl<R> DynFinalizable<R::Result> for R
     where
-        R: Round + Send + 'static,
+        R: Round + Send + Sync + 'static,
         <R as Round>::Payload: Send,
         <R as Round>::Artifact: Send,
         Self: _DynFinalizable<R::Result, R::Type>,

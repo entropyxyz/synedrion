@@ -8,19 +8,19 @@ use serde::{Deserialize, Serialize};
 use crate::curve::{Point, Scalar};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ShareIdx(Scalar);
+pub struct ShareId(Scalar);
 
-impl ShareIdx {
+impl ShareId {
     pub fn new(idx: usize) -> Self {
         Self(Scalar::from(idx))
     }
 }
 
-pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareIdx> {
+pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareId> {
     // For now we are hardcoding the points to be 1, 2, ..., n.
     // Potentially we can derive them from Session ID.
     (1..=u32::try_from(num_shares).expect("The number of shares cannot be over 2^32-1"))
-        .map(|idx| ShareIdx(Scalar::from(idx)))
+        .map(|idx| ShareId(Scalar::from(idx)))
         .collect()
 }
 
@@ -49,7 +49,7 @@ impl Polynomial {
         Self(coeffs)
     }
 
-    pub fn evaluate(&self, x: &ShareIdx) -> Scalar {
+    pub fn evaluate(&self, x: &ShareId) -> Scalar {
         evaluate_polynomial(&self.0, &x.0)
     }
 
@@ -67,7 +67,7 @@ impl Polynomial {
 pub(crate) struct PublicPolynomial(Vec<Point>);
 
 impl PublicPolynomial {
-    pub fn evaluate(&self, x: &ShareIdx) -> Point {
+    pub fn evaluate(&self, x: &ShareId) -> Point {
         evaluate_polynomial(&self.0, &x.0)
     }
 
@@ -80,8 +80,8 @@ pub(crate) fn shamir_split(
     rng: &mut impl CryptoRngCore,
     secret: &Scalar,
     threshold: usize,
-    indices: &[ShareIdx],
-) -> BTreeMap<ShareIdx, Scalar> {
+    indices: &[ShareId],
+) -> BTreeMap<ShareId, Scalar> {
     let polynomial = Polynomial::random(rng, secret, threshold);
     indices
         .iter()
@@ -89,7 +89,7 @@ pub(crate) fn shamir_split(
         .collect()
 }
 
-pub(crate) fn interpolation_coeff(idxs: &[ShareIdx], exclude_idx: &ShareIdx) -> Scalar {
+pub(crate) fn interpolation_coeff(idxs: &[ShareId], exclude_idx: &ShareId) -> Scalar {
     idxs.iter()
         .filter(|idx| idx != &exclude_idx)
         .map(|idx| idx.0 * (idx.0 - exclude_idx.0).invert().unwrap())
@@ -97,24 +97,24 @@ pub(crate) fn interpolation_coeff(idxs: &[ShareIdx], exclude_idx: &ShareIdx) -> 
 }
 
 pub(crate) fn shamir_join_scalars<'a>(
-    pairs: impl Iterator<Item = (&'a ShareIdx, &'a Scalar)>,
+    pairs: impl Iterator<Item = (&'a ShareId, &'a Scalar)>,
 ) -> Scalar {
-    let (share_idxs, values): (Vec<_>, Vec<_>) = pairs.map(|(k, v)| (*k, *v)).unzip();
+    let (share_ids, values): (Vec<_>, Vec<_>) = pairs.map(|(k, v)| (*k, *v)).unzip();
     values
         .iter()
         .enumerate()
-        .map(|(i, val)| val * &interpolation_coeff(&share_idxs, &share_idxs[i]))
+        .map(|(i, val)| val * &interpolation_coeff(&share_ids, &share_ids[i]))
         .sum()
 }
 
 pub(crate) fn shamir_join_points<'a>(
-    pairs: impl Iterator<Item = (&'a ShareIdx, &'a Point)>,
+    pairs: impl Iterator<Item = (&'a ShareId, &'a Point)>,
 ) -> Point {
-    let (share_idxs, values): (Vec<_>, Vec<_>) = pairs.map(|(k, v)| (*k, *v)).unzip();
+    let (share_ids, values): (Vec<_>, Vec<_>) = pairs.map(|(k, v)| (*k, *v)).unzip();
     values
         .iter()
         .enumerate()
-        .map(|(i, val)| val * &interpolation_coeff(&share_idxs, &share_idxs[i]))
+        .map(|(i, val)| val * &interpolation_coeff(&share_ids, &share_ids[i]))
         .sum()
 }
 
