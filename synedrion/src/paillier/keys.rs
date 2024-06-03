@@ -57,7 +57,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let inv_totient = {
             let totient_mod = P::UintMod::new(
                 AsRef::<<P as PaillierParams>::Uint>::as_ref(&totient).clone(),
-                *public_key.precomputed_modulus(),
+                Clone::clone(public_key.precomputed_modulus()),
             );
             totient_mod.invert()
         }
@@ -70,12 +70,12 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         )
         .unwrap();
         let inv_p_mod_q = {
-            let p_mod_q = P::HalfUintMod::new(self.p, precomputed_mod_q);
+            let p_mod_q = P::HalfUintMod::new(self.p.clone(), precomputed_mod_q.clone());
             p_mod_q.invert()
         }
         .expect("TODO: Proper justification for this");
         let inv_q_mod_p = {
-            let q_mod_p = P::HalfUintMod::new(self.p, precomputed_mod_p);
+            let q_mod_p = P::HalfUintMod::new(self.p.clone(), precomputed_mod_p.clone());
             q_mod_p.invert()
         }
         .expect("TODO: Proper justification for this");
@@ -83,14 +83,19 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         // Calculate $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
         // Using step of Garner's algorithm:
         // $u = q - 1 + q (2 q^{-1} - 1 \mod p)$
-        let t = (inv_q_mod_p + inv_q_mod_p - P::HalfUintMod::one(precomputed_mod_p)).retrieve();
+        let t = (inv_q_mod_p.clone() + inv_q_mod_p.clone()
+            - <P::HalfUintMod as Monty>::one(precomputed_mod_p.clone()))
+        .retrieve();
         // Note that the wrapping add/sub won't overflow by construction.
         let nonsquare_sampling_constant = t
             .mul_wide(&self.q)
-            .wrapping_add(&self.q.into_wide())
+            .wrapping_add(&self.q.clone().into_wide())
             .wrapping_sub(&<P::Uint as Integer>::one());
-        let nonsquare_sampling_constant =
-            P::UintMod::new(nonsquare_sampling_constant, public_key.precomputed_modulus);
+
+        let nonsquare_sampling_constant = P::UintMod::new(
+            nonsquare_sampling_constant,
+            Clone::clone(public_key.precomputed_modulus()),
+        );
 
         SecretKeyPaillierPrecomputed {
             sk: self.clone(),
@@ -99,8 +104,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             inv_modulus,
             inv_p_mod_q,
             nonsquare_sampling_constant,
-            precomputed_mod_p,
-            precomputed_mod_q,
+            precomputed_mod_p: precomputed_mod_p.clone(),
+            precomputed_mod_q: precomputed_mod_q.clone(),
             public_key,
         }
     }
@@ -308,8 +313,6 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     }
 }
 
-// TODO: The old UintModLike trait is `Copy`, but the new `Monty`/`Integer` are not. Critical?
-// #[derive(Debug, Clone, Copy)]
 #[derive(Debug, Clone)]
 pub(crate) struct PublicKeyPaillierPrecomputed<P: PaillierParams> {
     pk: PublicKeyPaillier<P>,
