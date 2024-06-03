@@ -10,12 +10,12 @@ readme = "README.md"
 categories = ["cryptography", "no-std"]
 
 [dependencies]
-signature = { version = "2", default-features = false, features = ["alloc"] }
-k256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "arithmetic"] }
+signature = { version = "2.3.0-pre.3", default-features = false, features = ["alloc"] }
+k256 = {git = "https://github.com/RustCrypto/elliptic-curves", default-features = false, features = ["ecdsa", "arithmetic"]}
 rand_core = { version = "0.6.4", default-features = false, features = ["getrandom"] }
-sha2 = { version = "0.10", default-features = false }
-sha3 = { version = "0.10", default-features = false }
-digest = { version = "0.10", default-features = false, features = ["alloc"]}
+sha2 = { version = "0.11.0-pre.3", default-features = false }
+sha3 = { version = "0.11.0-pre.3", default-features = false }
+digest = { version = "0.11.0-pre.8", default-features = false, features = ["alloc"]}
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 base64 = { version = "0.21", default-features = false, features = ["alloc"] }
 
@@ -39,7 +39,7 @@ rand = "0.8"
 criterion = "0.5"
 itertools = "0.11"
 hex = "0.4"
-k256 = { version = "0.13.2", default-features = false, features = ["serde"] }
+k256 = {git = "https://github.com/RustCrypto/elliptic-curves", default-features = false, features = ["serde"]}
 
 [features]
 bench-internals = ["itertools"] # makes some internal functions public to allow external benchmarks
