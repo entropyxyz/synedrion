@@ -111,8 +111,8 @@ pub trait SchemeParams:
 
     /// Converts a curve scalar to the associated integer type, wrapped in `Bounded`.
     fn bounded_from_scalar(value: &Scalar) -> Bounded<<Self::Paillier as PaillierParams>::Uint> {
-        const ORDER_BITS: usize = ORDER.bits_vartime();
-        Bounded::new(Self::uint_from_scalar(value), ORDER_BITS as u32).unwrap()
+        const ORDER_BITS: u32 = ORDER.bits_vartime();
+        Bounded::new(Self::uint_from_scalar(value), ORDER_BITS).unwrap()
     }
 
     /// Converts a curve scalar to the associated integer type, wrapped in `Signed`.
@@ -185,9 +185,9 @@ impl SchemeParams for TestParams {
     const EPS_BOUND: usize = 320;
     type Paillier = PaillierTest;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        NonZero::<<Self::Paillier as PaillierParams>::Uint>::new(upcast_uint(ORDER)).0;
+        upcast_uint(ORDER).to_nz().expect("Correct by construction");
     const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        NonZero::<<Self::Paillier as PaillierParams>::WideUint>::new(upcast_uint(ORDER)).0;
+        upcast_uint(ORDER).to_nz().expect("Correct by construction");
 }
 
 /// Production strength parameters.
@@ -201,7 +201,7 @@ impl SchemeParams for ProductionParams {
     const EPS_BOUND: usize = Self::L_BOUND * 2;
     type Paillier = PaillierProduction;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        NonZero::<<Self::Paillier as PaillierParams>::Uint>::const_new(upcast_uint(ORDER)).0;
+        upcast_uint(ORDER).to_nz().expect("Correct by construction");
     const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        NonZero::<<Self::Paillier as PaillierParams>::WideUint>::const_new(upcast_uint(ORDER)).0;
+        upcast_uint(ORDER).to_nz().expect("Correct by construction");
 }
