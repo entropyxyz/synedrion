@@ -38,8 +38,6 @@ where
 {
     Session::new::<key_init::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
 }
-use crate::paillier::{PaillierParams, PublicKeyPaillier};
-use crypto_bigint::Odd;
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
 pub fn make_key_gen_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
@@ -49,11 +47,7 @@ pub fn make_key_gen_session<P, Sig, Signer, Verifier>(
 ) -> Result<Session<KeyGenResult<P>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
-    P: SchemeParams + 'static + for<'x> Deserialize<'x>,
-    <P as SchemeParams>::Paillier: for<'x> Deserialize<'x>,
-    Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>:
-        Serialize + for<'x> Deserialize<'x>,
-    PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>,
+    P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
     Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {
@@ -85,11 +79,7 @@ pub fn make_key_refresh_session<P, Sig, Signer, Verifier>(
 ) -> Result<Session<KeyRefreshResult<P>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
-    P: SchemeParams + 'static + for<'x> Deserialize<'x>,
-    <P as SchemeParams>::Paillier: for<'x> Deserialize<'x>,
-    Odd<<<P as SchemeParams>::Paillier as PaillierParams>::Uint>:
-        Serialize + for<'x> Deserialize<'x>,
-    PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>,
+    P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
     Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
 {

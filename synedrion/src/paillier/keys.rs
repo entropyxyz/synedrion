@@ -50,8 +50,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             P::HalfUintMod::new_params_vartime(Odd::new(self.q.clone()).unwrap());
 
         let public_key = PublicKeyPaillier {
-            modulus: Odd::new(self.p.mul_wide(&self.q))
-                .expect("TODO: give proper motivation for why p*q is guaranateed to be odd"),
+            // TODO: manually check that p*q is odd?
+            modulus: self.p.mul_wide(&self.q),
         };
         let public_key = public_key.to_precomputed();
         let inv_totient = {
@@ -281,16 +281,9 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     }
 }
 
-// TODO: making the modulus `Odd` here is part of what makes the bounds
-// so awkward and spread all over the place. Can we do better?
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(bound(serialize = "Odd<<P as PaillierParams>::Uint>: Serialize"))]
-#[serde(bound(deserialize = "
-        Odd<<P as PaillierParams>::Uint>: Deserialize,
-        Odd<<P as PaillierParams>::Uint>: for <'x> Deserialize<'x>
-    "))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
-    modulus: Odd<P::Uint>, // TODO (#104): wrap it in `crypto_bigint::Odd`
+    modulus: P::Uint, // TODO (#104): wrap it in `crypto_bigint::Odd`
 }
 
 impl<P: PaillierParams> PublicKeyPaillier<P> {
@@ -301,10 +294,11 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     pub fn to_precomputed(&self) -> PublicKeyPaillierPrecomputed<P> {
         // Note that this ensures that `self.modulus` is odd,
         // otherwise creating the Montgomery parameters fails.
-        let precomputed_modulus = P::UintMod::new_params_vartime(self.modulus);
+        let odd = Odd::new(self.modulus).expect("TODO: justify properly");
+        let precomputed_modulus = P::UintMod::new_params_vartime(odd);
         let precomputed_modulus_squared = P::WideUintMod::new_params_vartime(
             Odd::new(self.modulus.square_wide())
-                .expect("TODO: This can't be correct. Yet it is sort of what the old code did?"),
+                .expect("TODO: This can't be correct, how can a square be odd? Yet it is sort of what the old code did?"),
         );
 
         PublicKeyPaillierPrecomputed {
@@ -371,7 +365,7 @@ impl<P: PaillierParams> Eq for PublicKeyPaillierPrecomputed<P> {}
 
 impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {
     fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(self.modulus.as_ref())
+        digest.chain(&self.modulus)
     }
 }
 
