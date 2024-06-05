@@ -409,7 +409,7 @@ where
 impl<T> Signed<T>
 where
     T: Integer + HasWide + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
-    T::Wide: HasWide + crypto_bigint::Bounded + ConditionallySelectable, //+ ShlVartime,
+    T::Wide: HasWide + crypto_bigint::Bounded + ConditionallySelectable,
     <T::Wide as HasWide>::Wide: RandomMod + WrappingSub,
 {
     pub fn into_wide(self) -> Signed<T::Wide> {
