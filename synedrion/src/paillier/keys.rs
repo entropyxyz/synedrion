@@ -6,7 +6,7 @@ use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
-    RandomPrimeWithRng, Retrieve, Signed,
+    RandomPrimeWithRng, Retrieve, Signed, ToMod,
 };
 use crypto_bigint::{
     Bounded as TraitBounded, InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd, WrappingSub,
@@ -39,46 +39,48 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         // that are relatively prime to it.
         // Since $p$ and $q$ are primes, $\phi(p q) = (p - 1) (q - 1)$.
         let one = <P::HalfUint as Integer>::one();
-        let p_minus_one = self.p.checked_sub(&one).unwrap();
-        let q_minus_one = self.q.checked_sub(&one).unwrap();
-        let totient =
-            Bounded::new(p_minus_one.mul_wide(&q_minus_one), P::MODULUS_BITS as u32).unwrap();
+        let p_minus_one = self.p.checked_sub(&one).expect("TODO: Justify");
+        let q_minus_one = self.q.checked_sub(&one).expect("TODO: Justify");
+        let totient = Bounded::new(p_minus_one.mul_wide(&q_minus_one), P::MODULUS_BITS as u32)
+            .expect("TODO: Justify");
 
         let precomputed_mod_p =
-            P::HalfUintMod::new_params_vartime(Odd::new(self.p.clone()).unwrap());
+            P::HalfUintMod::new_params_vartime(Odd::new(self.p.clone()).expect("TODO: Justify"));
         let precomputed_mod_q =
-            P::HalfUintMod::new_params_vartime(Odd::new(self.q.clone()).unwrap());
+            P::HalfUintMod::new_params_vartime(Odd::new(self.q.clone()).expect("TODO: Justify"));
 
         let public_key = PublicKeyPaillier {
             // TODO: manually check that p*q is odd?
             modulus: self.p.mul_wide(&self.q),
         };
         let public_key = public_key.to_precomputed();
-        let inv_totient = {
-            let totient_mod = P::UintMod::new(
-                AsRef::<<P as PaillierParams>::Uint>::as_ref(&totient).clone(),
-                Clone::clone(public_key.precomputed_modulus()),
-            );
-            totient_mod.invert()
-        }
-        .expect("TODO: Proper justification for this");
+
+        let inv_totient = totient
+            .as_ref()
+            .to_mod(public_key.precomputed_modulus())
+            .invert()
+            .expect("TODO: Proper justification for this - inv totient");
 
         let modulus: &P::Uint = public_key.modulus();
         let inv_modulus = Bounded::new(
             modulus.inv_mod(totient.as_ref()).unwrap(),
             P::MODULUS_BITS as u32,
         )
-        .unwrap();
-        let inv_p_mod_q = {
-            let p_mod_q = P::HalfUintMod::new(self.p.clone(), precomputed_mod_q.clone());
-            p_mod_q.invert()
-        }
-        .expect("TODO: Proper justification for this");
-        let inv_q_mod_p = {
-            let q_mod_p = P::HalfUintMod::new(self.p.clone(), precomputed_mod_p.clone());
-            q_mod_p.invert()
-        }
-        .expect("TODO: Proper justification for this");
+        .expect("TODO: Proper justification for this - inv_modulust");
+
+        let inv_p_mod_q = self
+            .p
+            .clone()
+            .to_mod(&precomputed_mod_q)
+            .invert()
+            .expect("TODO: Proper justification for this - inv_p_mod_q");
+
+        let inv_q_mod_p = self
+            .q
+            .clone()
+            .to_mod(&precomputed_mod_p)
+            .invert()
+            .expect("TODO: Proper justification for this - inv_q_mod_p");
 
         // Calculate $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
         // Using step of Garner's algorithm:
