@@ -21,7 +21,8 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send + Syn
         + Bounded
         + RandomMod
         + RandomPrimeWithRng
-        + HasWide<Wide = Self::Uint>;
+        + HasWide<Wide = Self::Uint>
+        + ToMod;
 
     /// A modulo-residue counterpart of `HalfUint`.
     type HalfUintMod: Monty<Integer = Self::HalfUint>
