@@ -28,7 +28,7 @@ use crate::rounds::{
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
 use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
-use crate::uint::UintLike;
+use crypto_bigint::BitOps;
 
 /// Possible results of the KeyRefresh protocol.
 #[derive(Debug, Clone, Copy)]
@@ -59,10 +59,14 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
         mu: Randomizer<P::Paillier>,
     },
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PrmProof<P>: Serialize"))]
-#[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "
+        PrmProof<P>: Serialize,
+    "))]
+#[serde(bound(deserialize = "
+        PrmProof<P>: for<'x> Deserialize<'x>,
+        PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>
+    "))]
 pub struct PublicData1<P: SchemeParams> {
     cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
     cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
@@ -270,7 +274,10 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
+impl<P> FinalizableToNextRound for Round1<P>
+where
+    P: SchemeParams,
+{
     type NextRound = Round2<P>;
     fn finalize_to_next_round(
         self,
@@ -304,7 +311,10 @@ pub struct Round2Payload<P: SchemeParams> {
     data: PublicData1Precomp<P>,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P> Round for Round2<P>
+where
+    P: SchemeParams,
+{
     type Type = ToNextRound;
     type Result = KeyRefreshResult<P>;
     const ROUND_NUM: u8 = 2;
@@ -354,7 +364,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         let paillier_pk = broadcast_msg.data.paillier_pk.to_precomputed();
 
-        if paillier_pk.modulus().bits_vartime() < 8 * P::SECURITY_PARAMETER {
+        if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
             return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
                 "Paillier modulus is too small".into(),
             )));
@@ -385,7 +395,10 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
+impl<P> FinalizableToNextRound for Round2<P>
+where
+    P: SchemeParams,
+{
     type NextRound = Round3<P>;
     fn finalize_to_next_round(
         self,

@@ -6,9 +6,12 @@ use rand_core::{CryptoRngCore, OsRng};
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
+use crate::misc::uint_from_xof;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{RandomPrimeWithRng, Retrieve, UintLike, UintModLike};
+use crate::uint::{Retrieve, ToMod};
+use crypto_bigint::{PowBoundedExp, Square};
+use crypto_primes::RandomPrimeWithRng;
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -47,7 +50,7 @@ impl<P: SchemeParams> ModChallenge<P> {
 
         let modulus = pk.modulus_nonzero();
         let ys = (0..P::SECURITY_PARAMETER)
-            .map(|_| <P::Paillier as PaillierParams>::Uint::from_xof(&mut reader, &modulus))
+            .map(|_| uint_from_xof(&mut reader, &modulus))
             .collect();
         Self(ys)
     }
@@ -106,8 +109,8 @@ impl<P: SchemeParams> ModProof<P> {
                         y_mod_q = -y_mod_q;
                     }
                     if *b {
-                        y_mod_p = y_mod_p * omega_mod_p;
-                        y_mod_q = y_mod_q * omega_mod_q;
+                        y_mod_p = y_mod_p * omega_mod_p.clone();
+                        y_mod_q = y_mod_q * omega_mod_q.clone();
                     }
 
                     if let Some((p, q)) = sk.sqrt(&(y_mod_p, y_mod_q)) {
@@ -123,7 +126,8 @@ impl<P: SchemeParams> ModProof<P> {
                 let y_4th = sk.rns_join(&y_4th_parts);
 
                 let y = challenge.0[i].to_mod(pk.precomputed_modulus());
-                let z = y.pow_bounded(sk.inv_modulus());
+                let sk_inv_modulus = sk.inv_modulus();
+                let z = y.pow_bounded_exp(sk_inv_modulus.as_ref(), sk_inv_modulus.bound());
 
                 ModProofElem {
                     x: y_4th,
@@ -169,7 +173,8 @@ impl<P: SchemeParams> ModProof<P> {
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
             let z_m = elem.z.to_mod(precomputed);
             let mut y_m = y.to_mod(precomputed);
-            if z_m.pow_bounded(&pk.modulus_bounded()) != y_m {
+            let pk_modulus_bounded = pk.modulus_bounded();
+            if z_m.pow_bounded_exp(pk_modulus_bounded.as_ref(), pk_modulus_bounded.bound()) != y_m {
                 return false;
             }
 

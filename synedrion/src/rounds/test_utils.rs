@@ -1,3 +1,6 @@
+// TODO: Remove as soon as https://github.com/yaahc/displaydoc/pull/47
+//lands and displaydoc releases a new version
+#![allow(non_local_definitions)]
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;

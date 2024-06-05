@@ -151,7 +151,10 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
+impl<P> FinalizableToNextRound for Round1<P>
+where
+    P: SchemeParams,
+{
     type NextRound = Round2<P>;
     fn finalize_to_next_round(
         self,
@@ -185,8 +188,10 @@ pub(crate) struct Round2<P: SchemeParams> {
     key_init_round: key_init::Round2<P>,
     key_refresh_round: key_refresh::Round2<P>,
 }
-
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P> Round for Round2<P>
+where
+    P: SchemeParams,
+{
     type Type = ToNextRound;
     type Result = KeyGenResult<P>;
     const ROUND_NUM: u8 = 2;
@@ -252,7 +257,10 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
+impl<P> FinalizableToNextRound for Round2<P>
+where
+    P: SchemeParams,
+{
     type NextRound = Round3<P>;
     fn finalize_to_next_round(
         self,

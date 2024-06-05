@@ -44,6 +44,8 @@ pub enum AccumAddError {
 
 #[derive(Debug, Clone)]
 pub enum AccumFinalizeError {
+    // Rustc thinks the String field is never accessed, which is incorrect.
+    #[allow(dead_code)]
     Downcast(String),
 }
 
