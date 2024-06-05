@@ -25,14 +25,29 @@ pub trait ToMod: Integer {
     }
 }
 
-pub trait HasWide: Sized + Zero {
+pub trait HasWide: Sized + Zero /*TODO: remove this ––> */ + core::fmt::Debug {
     type Wide: Integer + Encoding + RandomMod;
     fn mul_wide(&self, other: &Self) -> Self::Wide;
     fn square_wide(&self) -> Self::Wide;
+
+    /// Converts `self` to a new `Wide` uint, setting the higher half to `0`s.
+    /// Consumes `self`.
+    // TODO: provide default impl here? Why not?
     fn into_wide(self) -> Self::Wide;
+
+    /// Splits a `Wide` in two halves and returns the halves (`Self` sized) in a
+    /// tuple (lower half first).
+    ///
+    /// *Note*: The behaviour of this method has changed in v0.2. Previously,
+    /// the order of the halves was `(hi, lo)` but after v0.2 the order is `(lo,
+    /// hi)`.
     fn from_wide(value: Self::Wide) -> (Self, Self);
+
+    /// Tries to convert a `Wide` into a `Self` sized uint. Splits a `Wide`
+    /// value in two halves and returns the lower half if the high half is zero.
+    /// Otherwise returns `None`.
     fn try_from_wide(value: Self::Wide) -> Option<Self> {
-        let (hi, lo) = Self::from_wide(value);
+        let (lo, hi) = Self::from_wide(value);
         if hi.is_zero().into() {
             return Some(lo);
         }

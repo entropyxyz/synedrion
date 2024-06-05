@@ -136,7 +136,7 @@ pub(crate) mod misc {
         let bound = exponent.bound();
 
         let abs_exponent = exponent.abs();
-        let (whi, wlo) = <T as HasWide>::Wide::from_wide(abs_exponent);
+        let (wlo, whi) = <T as HasWide>::Wide::from_wide(abs_exponent);
 
         let lo_res = pow_wide::<T>(uint, &wlo, core::cmp::min(bits, bound));
 
@@ -183,7 +183,7 @@ pub(crate) mod misc {
         let bits = <T as crypto_bigint::Bounded>::BITS;
         let bound = bound % (2 * bits + 1);
 
-        let (hi, lo) = <T as HasWide>::from_wide(exponent.clone());
+        let (lo, hi) = <T as HasWide>::from_wide(exponent.clone());
         let lo_res = uint.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
 
         // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
