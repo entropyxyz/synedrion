@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
 use super::error::LocalError;
-use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
+use crate::tools::hashing::{Chain, FofHasher, HashOutput, Hashable};
 use crate::tools::serde_bytes;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
@@ -15,7 +15,11 @@ pub struct SessionId(HashOutput);
 
 impl SessionId {
     pub(crate) fn from_seed(seed: &[u8]) -> Self {
-        Self(Hash::new_with_dst(b"SessionId").chain(&seed).finalize())
+        Self(
+            FofHasher::new_with_dst(b"SessionId")
+                .chain(&seed)
+                .finalize(),
+        )
     }
 }
 
@@ -31,7 +35,7 @@ fn message_hash(
     message_type: MessageType,
     payload: &[u8],
 ) -> HashOutput {
-    Hash::new_with_dst(b"SignedMessage")
+    FofHasher::new_with_dst(b"SignedMessage")
         .chain(session_id)
         .chain(&round)
         .chain(&message_type)

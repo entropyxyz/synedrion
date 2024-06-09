@@ -53,9 +53,9 @@ pub trait Chain: Sized {
 pub(crate) type BackendDigest = Sha256;
 
 /// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub(crate) struct Hash(BackendDigest);
+pub(crate) struct FofHasher(BackendDigest);
 
-impl Chain for Hash {
+impl Chain for FofHasher {
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
         Self(self.0.chain_update(bytes))
     }
@@ -72,7 +72,7 @@ impl AsRef<[u8]> for HashOutput {
     }
 }
 
-impl Hash {
+impl FofHasher {
     fn new() -> Self {
         Self(BackendDigest::new())
     }
@@ -91,9 +91,9 @@ impl Hash {
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
-pub struct XofHash(Shake256);
+pub struct XofHasher(Shake256);
 
-impl Chain for XofHash {
+impl Chain for XofHasher {
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
         let mut digest = self.0;
         digest.update(bytes);
@@ -101,7 +101,7 @@ impl Chain for XofHash {
     }
 }
 
-impl XofHash {
+impl XofHasher {
     fn new() -> Self {
         Self(Shake256::default())
     }

@@ -22,7 +22,7 @@ use crate::rounds::{
 };
 use crate::tools::{
     collections::{HoleRange, HoleVec},
-    hashing::{Chain, Hash, HashOutput},
+    hashing::{Chain, FofHasher, HashOutput},
 };
 use crate::uint::Signed;
 
@@ -78,7 +78,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         // This includes the info of $ssid$ in the paper
         // (scheme parameters + public data from all shares - hashed in `share_set_id`),
         // with the session randomness added.
-        let ssid_hash = Hash::new_with_dst(b"ShareSetID")
+        let ssid_hash = FofHasher::new_with_dst(b"ShareSetID")
             .chain_type::<P>()
             .chain(&shared_randomness)
             .chain_slice(&key_share.public_shares)
