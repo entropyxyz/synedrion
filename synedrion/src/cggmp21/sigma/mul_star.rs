@@ -83,11 +83,11 @@ impl<P: SchemeParams> MulStarProof<P> {
             .chain(&cap_e)
             .chain(&cap_s)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(&cap_d.retrieve())
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -131,11 +131,11 @@ impl<P: SchemeParams> MulStarProof<P> {
             .chain(&self.cap_e)
             .chain(&self.cap_s)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(&cap_d.retrieve())
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

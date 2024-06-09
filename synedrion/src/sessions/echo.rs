@@ -1,23 +1,23 @@
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
+use super::error::LocalError;
 use super::signed_message::{SignedMessage, VerifiedMessage};
 use super::type_erased::{deserialize_message, serialize_message};
-use crate::rounds::PartyIdx;
-use crate::tools::collections::HoleVecAccum;
 
 #[derive(Clone)]
-pub(crate) struct EchoRound<Sig> {
-    broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>,
+pub(crate) struct EchoRound<I, Sig> {
+    destinations: BTreeSet<I>,
+    broadcasts: BTreeMap<I, VerifiedMessage<Sig>>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct Message<Sig> {
-    broadcasts: Vec<(PartyIdx, SignedMessage<Sig>)>,
+struct Message<I, Sig> {
+    broadcasts: Vec<(I, SignedMessage<Sig>)>,
 }
 
 /// Errors that can occur during an echo round.
@@ -34,29 +34,42 @@ pub enum EchoError {
     ConflictingBroadcasts,
 }
 
-impl<Sig> EchoRound<Sig>
+impl<I, Sig> EchoRound<I, Sig>
 where
+    I: Clone + Ord + PartialEq + Serialize + for<'de> Deserialize<'de>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
-    pub fn new(broadcasts: Vec<(PartyIdx, VerifiedMessage<Sig>)>) -> Self {
-        Self { broadcasts }
+    pub fn new(broadcasts: BTreeMap<I, VerifiedMessage<Sig>>) -> Self {
+        let destinations = broadcasts.keys().cloned().collect();
+        Self {
+            broadcasts,
+            destinations,
+        }
+    }
+
+    pub fn message_destinations(&self) -> &BTreeSet<I> {
+        &self.destinations
+    }
+
+    pub fn expecting_messages_from(&self) -> &BTreeSet<I> {
+        &self.destinations
     }
 
     pub fn make_broadcast(&self) -> Box<[u8]> {
         let message = Message {
             broadcasts: self
                 .broadcasts
-                .iter()
-                .cloned()
+                .clone()
+                .into_iter()
                 .map(|(idx, msg)| (idx, msg.into_unverified()))
                 .collect(),
         };
         serialize_message(&message).unwrap()
     }
 
-    pub fn verify_broadcast(&self, from: PartyIdx, payload: &[u8]) -> Result<(), EchoError> {
+    pub fn verify_broadcast(&self, from: &I, payload: &[u8]) -> Result<(), EchoError> {
         // TODO (#68): check that the direct payload is empty?
-        let message: Message<Sig> = deserialize_message(payload)
+        let message: Message<I, Sig> = deserialize_message(payload)
             .map_err(|err| EchoError::CannotDeserialize(err.to_string()))?;
 
         // TODO (#68): check that there are no repeating indices, and the indices are in range.
@@ -66,14 +79,14 @@ where
             return Err(EchoError::UnexpectedNumberOfBroadcasts);
         }
 
-        for (idx, broadcast) in self.broadcasts.iter() {
+        for (id, broadcast) in self.broadcasts.iter() {
             // The party `from` won't send us its own broadcast the second time.
             // It gives no additional assurance.
-            if idx == &from {
+            if id == from {
                 continue;
             }
 
-            let echoed_bc = bc_map.get(idx).ok_or(EchoError::MissingBroadcast)?;
+            let echoed_bc = bc_map.get(id).ok_or(EchoError::MissingBroadcast)?;
 
             if !broadcast.as_unverified().is_same_as(echoed_bc) {
                 return Err(EchoError::ConflictingBroadcasts);
@@ -82,43 +95,46 @@ where
 
         Ok(())
     }
-}
 
-pub(crate) struct EchoAccum {
-    received_echo_from: HoleVecAccum<()>,
-}
-
-impl EchoAccum {
-    pub fn new(num_parties: usize, party_idx: PartyIdx) -> Self {
-        Self {
-            received_echo_from: HoleVecAccum::new(num_parties, party_idx.as_usize()),
-        }
-    }
-
-    pub fn missing_messages(&self) -> Vec<PartyIdx> {
-        self.received_echo_from
-            .missing()
-            .into_iter()
-            .map(PartyIdx::from_usize)
+    pub fn missing_messages(&self, accum: &EchoAccum<I>) -> BTreeSet<I> {
+        self.expecting_messages_from()
+            .difference(&accum.received_messages)
+            .cloned()
             .collect()
     }
 
-    pub fn contains(&self, party_idx: PartyIdx) -> bool {
-        self.received_echo_from
-            .contains(party_idx.as_usize())
-            .unwrap()
+    pub fn can_finalize(&self, accum: &EchoAccum<I>) -> bool {
+        &accum.received_messages == self.expecting_messages_from()
     }
 
-    pub fn add_echo_received(&mut self, from: PartyIdx) -> Option<()> {
-        self.received_echo_from.insert(from.as_usize(), ())
+    pub fn finalize(self, accum: EchoAccum<I>) -> Result<(), LocalError> {
+        if &accum.received_messages == self.expecting_messages_from() {
+            Ok(())
+        } else {
+            Err(LocalError(
+                "Not enough messages to finalize the echo round".into(),
+            ))
+        }
+    }
+}
+
+pub(crate) struct EchoAccum<I> {
+    received_messages: BTreeSet<I>,
+}
+
+impl<I: Ord + Clone> EchoAccum<I> {
+    pub fn new() -> Self {
+        Self {
+            received_messages: BTreeSet::new(),
+        }
     }
 
-    pub fn can_finalize(&self) -> bool {
-        self.received_echo_from.can_finalize()
+    pub fn contains(&self, from: &I) -> bool {
+        self.received_messages.contains(from)
     }
 
-    pub fn finalize(self) -> Option<()> {
-        if self.can_finalize() {
+    pub fn add_echo_received(&mut self, from: &I) -> Option<()> {
+        if self.received_messages.insert(from.clone()) {
             Some(())
         } else {
             None

@@ -77,10 +77,10 @@ impl<P: SchemeParams> DecProof<P> {
             .chain(&cap_a)
             .chain(&gamma)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(x)
             .chain(&cap_c.retrieve())
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -121,10 +121,10 @@ impl<P: SchemeParams> DecProof<P> {
             .chain(&self.cap_a)
             .chain(&self.gamma)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(x)
             .chain(&cap_c.retrieve())
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

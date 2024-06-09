@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, SigningKey, VerifyingKey};
 use rand::Rng;
@@ -8,8 +8,8 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     make_aux_gen_session, make_interactive_signing_session, make_key_init_session,
-    make_key_resharing_session, CombinedMessage, FinalizeOutcome, KeyResharingInputs, MappedResult,
-    NewHolder, OldHolder, Session, TestParams,
+    make_key_resharing_session, CombinedMessage, FinalizeOutcome, KeyResharingInputs, NewHolder,
+    OldHolder, ProtocolResult, Session, TestParams, ThresholdKeyShare,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
@@ -19,11 +19,11 @@ fn key_to_str(key: &VerifyingKey) -> String {
     hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])
 }
 
-async fn run_session<Res: MappedResult<VerifyingKey>>(
+async fn run_session<Res: ProtocolResult>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
     session: Session<Res, Signature, SigningKey, VerifyingKey>,
-) -> Res::MappedSuccess {
+) -> Res::Success {
     let mut rx = rx;
 
     let mut session = session;
@@ -158,10 +158,10 @@ fn make_signers(num_parties: usize) -> (Vec<SigningKey>, Vec<VerifyingKey>) {
 
 async fn run_nodes<Res>(
     sessions: Vec<Session<Res, Signature, SigningKey, VerifyingKey>>,
-) -> Vec<Res::MappedSuccess>
+) -> Vec<Res::Success>
 where
-    Res: MappedResult<VerifyingKey> + Send + 'static,
-    Res::MappedSuccess: Send + 'static,
+    Res: ProtocolResult + Send + 'static,
+    Res::Success: Send,
 {
     let num_parties = sessions.len();
 
@@ -179,7 +179,7 @@ where
     let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
     let dispatcher = tokio::spawn(dispatcher_task);
 
-    let handles: Vec<tokio::task::JoinHandle<Res::MappedSuccess>> = rxs
+    let handles: Vec<tokio::task::JoinHandle<Res::Success>> = rxs
         .into_iter()
         .zip(sessions.into_iter())
         .map(|(rx, session)| {
@@ -207,6 +207,9 @@ async fn full_sequence() {
     let n = 5;
     let (signers, verifiers) = make_signers(n);
 
+    let all_verifiers = BTreeSet::from_iter(verifiers.iter().cloned());
+    let old_holders = BTreeSet::from_iter(verifiers.iter().cloned().take(t));
+
     let shared_randomness = b"1234567890";
 
     // Use first `t` nodes for the initial t-of-t key generation
@@ -217,7 +220,7 @@ async fn full_sequence() {
                 &mut OsRng,
                 shared_randomness,
                 signer.clone(),
-                &verifiers[..t],
+                &old_holders,
             )
             .unwrap()
         })
@@ -229,7 +232,7 @@ async fn full_sequence() {
     // Convert to t-of-t threshold keyshares
     let t_key_shares = key_shares
         .iter()
-        .map(|key_share| key_share.to_threshold_key_share())
+        .map(ThresholdKeyShare::from_key_share)
         .collect::<Vec<_>>();
 
     // Reshare to `n` nodes
@@ -238,7 +241,7 @@ async fn full_sequence() {
     let new_holder = NewHolder {
         verifying_key: t_key_shares[0].verifying_key(),
         old_threshold: t_key_shares[0].threshold(),
-        old_holders: verifiers[..t].to_vec(),
+        old_holders,
     };
 
     // Old holders' sessions (which will also hold the newly reshared parts)
@@ -249,15 +252,15 @@ async fn full_sequence() {
                     key_share: t_key_shares[idx].clone(),
                 }),
                 new_holder: Some(new_holder.clone()),
-                new_holders: verifiers.clone(),
+                new_holders: all_verifiers.clone(),
                 new_threshold: t,
             };
             make_key_resharing_session::<TestParams, Signature, SigningKey, VerifyingKey>(
                 &mut OsRng,
                 shared_randomness,
                 signers[idx].clone(),
-                &verifiers,
-                &inputs,
+                &all_verifiers,
+                inputs,
             )
             .unwrap()
         })
@@ -269,15 +272,15 @@ async fn full_sequence() {
             let inputs = KeyResharingInputs {
                 old_holder: None,
                 new_holder: Some(new_holder.clone()),
-                new_holders: verifiers.clone(),
+                new_holders: all_verifiers.clone(),
                 new_threshold: t,
             };
             make_key_resharing_session::<TestParams, Signature, SigningKey, VerifyingKey>(
                 &mut OsRng,
                 shared_randomness,
                 signers[idx].clone(),
-                &verifiers,
-                &inputs,
+                &all_verifiers,
+                inputs,
             )
             .unwrap()
         })
@@ -306,7 +309,7 @@ async fn full_sequence() {
                 &mut OsRng,
                 shared_randomness,
                 signers[idx].clone(),
-                &verifiers,
+                &all_verifiers,
             )
             .unwrap()
         })
@@ -319,7 +322,7 @@ async fn full_sequence() {
     // into regular key shares.
 
     let selected_signers = vec![signers[0].clone(), signers[2].clone(), signers[4].clone()];
-    let selected_parties = vec![verifiers[0], verifiers[2], verifiers[4]];
+    let selected_parties = BTreeSet::from([verifiers[0], verifiers[2], verifiers[4]]);
     let selected_key_shares = vec![
         new_t_key_shares[0].to_key_share(&selected_parties),
         new_t_key_shares[2].to_key_share(&selected_parties),

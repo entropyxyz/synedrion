@@ -18,6 +18,7 @@ sha3 = { version = "0.10", default-features = false }
 digest = { version = "0.10", default-features = false, features = ["alloc"]}
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 base64 = { version = "0.21", default-features = false, features = ["alloc"] }
+hashing-serializer = { version = "0.1", default-features = false }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
@@ -39,7 +40,7 @@ rand = "0.8"
 criterion = "0.5"
 itertools = "0.11"
 hex = "0.4"
-k256 = { version = "0.13.2", default-features = false, features = ["serde"] }
+k256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "serde", "pem"] }
 impls = "1"
 
 [features]

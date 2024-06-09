@@ -23,7 +23,7 @@ use k256::{ecdsa::VerifyingKey, Secp256k1};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::tools::hashing::{Chain, Hashable, HashableType};
+use crate::tools::hashing::{Chain, HashableType};
 use crate::tools::serde_bytes;
 
 pub(crate) type Curve = Secp256k1;
@@ -148,12 +148,6 @@ impl<'de> Deserialize<'de> for Scalar {
     }
 }
 
-impl Hashable for Scalar {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.to_bytes().as_slice())
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point(BackendPoint);
 
@@ -212,14 +206,6 @@ impl Serialize for Point {
 impl<'de> Deserialize<'de> for Point {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         serde_bytes::as_hex::deserialize(deserializer)
-    }
-}
-
-impl Hashable for Point {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        let arr = self.to_compressed_array();
-        let arr_ref: &[u8] = arr.as_ref();
-        digest.chain_constant_sized_bytes(&arr_ref)
     }
 }
 

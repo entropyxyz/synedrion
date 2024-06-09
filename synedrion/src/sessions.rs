@@ -11,6 +11,5 @@ pub use combined_message::CombinedMessage;
 pub use echo::EchoError;
 pub use error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
 pub use session::{
-    Artifact, FinalizeOutcome, MappedResult, PreprocessedMessage, ProcessedMessage,
-    RoundAccumulator, Session,
+    Artifact, FinalizeOutcome, PreprocessedMessage, ProcessedMessage, RoundAccumulator, Session,
 };

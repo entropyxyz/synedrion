@@ -2,7 +2,6 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::params::PaillierParams;
-use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
@@ -284,6 +283,10 @@ pub(crate) struct PublicKeyPaillierPrecomputed<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
+    pub fn as_minimal(&self) -> &PublicKeyPaillier<P> {
+        &self.pk
+    }
+
     pub fn to_minimal(&self) -> PublicKeyPaillier<P> {
         self.pk.clone()
     }
@@ -329,18 +332,6 @@ impl<P: PaillierParams> PartialEq for PublicKeyPaillierPrecomputed<P> {
 }
 
 impl<P: PaillierParams> Eq for PublicKeyPaillierPrecomputed<P> {}
-
-impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.modulus)
-    }
-}
-
-impl<P: PaillierParams> Hashable for PublicKeyPaillierPrecomputed<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.pk)
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -14,7 +14,7 @@ use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 
 use super::{bounded::Bounded, signed::Signed};
-use crate::tools::hashing::{Chain, Hashable};
+use crate::tools::hashing::Hashable;
 
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
     debug_assert!(N2 >= N1);
@@ -166,15 +166,6 @@ where
 
     fn shr_vartime(&self, shift: usize) -> Self {
         self.shr_vartime(shift)
-    }
-}
-
-impl<const L: usize> Hashable for Uint<L>
-where
-    Uint<L>: Encoding,
-{
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.to_be_bytes())
     }
 }
 

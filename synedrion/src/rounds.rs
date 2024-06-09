@@ -6,10 +6,9 @@ pub(crate) mod test_utils;
 
 pub use generic::ProtocolResult;
 pub(crate) use generic::{
-    all_parties_except, no_broadcast_messages, no_direct_messages, try_to_holevec,
-    FinalizableToNextRound, FinalizableToResult, FinalizationRequirement, FinalizeError,
-    FirstRound, InitError, PartyIdx, Round, ToNextRound, ToResult,
+    no_broadcast_messages, no_direct_messages, FinalizableToNextRound, FinalizableToResult,
+    FinalizationRequirement, FinalizeError, FirstRound, InitError, Round, ToNextRound, ToResult,
 };
 pub(crate) use wrappers::{
-    wrap_finalize_error, CorrectnessProofWrapper, ProvableErrorWrapper, RoundWrapper,
+    wrap_finalize_error, CorrectnessProofWrapper, ProvableErrorWrapper, RoundWrapper, WrappedRound,
 };

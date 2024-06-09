@@ -6,7 +6,7 @@ use super::echo::EchoError;
 use crate::rounds::ProtocolResult;
 
 /// Possible errors returned by session methods.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Error<Res: ProtocolResult, Verifier> {
     /// Indicates an error on this party's side.
     Local(LocalError),
@@ -66,7 +66,7 @@ pub enum RemoteErrorEnum {
 }
 
 /// A provable fault of another party.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum ProvableError<Res: ProtocolResult> {
     /// A protocol error.
     Protocol(Res::ProvableError),

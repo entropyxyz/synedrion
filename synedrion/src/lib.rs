@@ -23,7 +23,6 @@ pub mod bench_internals;
 mod cggmp21;
 mod constructors;
 mod curve;
-mod entities;
 mod paillier;
 mod rounds;
 pub mod sessions;
@@ -37,18 +36,16 @@ pub use k256::ecdsa;
 pub use signature;
 
 pub use cggmp21::{
-    AuxGenError, AuxGenResult, InteractiveSigningError, InteractiveSigningProof,
+    AuxGenError, AuxGenResult, AuxInfo, InteractiveSigningError, InteractiveSigningProof,
     InteractiveSigningResult, KeyGenError, KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult,
-    KeyRefreshResult, PresigningError, PresigningProof, PresigningResult, ProductionParams,
-    SchemeParams, SigningProof, SigningResult, TestParams,
+    KeyRefreshResult, KeyShare, KeyShareChange, PresigningError, PresigningProof, PresigningResult,
+    ProductionParams, SchemeParams, SigningProof, SigningResult, TestParams,
 };
 pub use constructors::{
     make_aux_gen_session, make_interactive_signing_session, make_key_gen_session,
-    make_key_init_session, make_key_refresh_session, make_key_resharing_session,
-    KeyResharingInputs, NewHolder, OldHolder, PrehashedMessage,
+    make_key_init_session, make_key_refresh_session, make_key_resharing_session, PrehashedMessage,
 };
 pub use curve::RecoverableSignature;
-pub use entities::{AuxInfo, KeyShare, KeyShareChange, ThresholdKeyShare};
 pub use rounds::ProtocolResult;
-pub use sessions::{CombinedMessage, FinalizeOutcome, MappedResult, Session};
-pub use www02::KeyResharingResult;
+pub use sessions::{CombinedMessage, FinalizeOutcome, Session};
+pub use www02::{KeyResharingInputs, KeyResharingResult, NewHolder, OldHolder, ThresholdKeyShare};

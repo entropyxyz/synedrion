@@ -103,8 +103,8 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&cap_t)
             .chain(&sigma)
             // public parameters
-            .chain(pk0)
-            .chain(setup)
+            .chain(pk0.as_minimal())
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -150,8 +150,8 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&self.cap_t)
             .chain(&self.sigma)
             // public parameters
-            .chain(pk0)
-            .chain(setup)
+            .chain(pk0.as_minimal())
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

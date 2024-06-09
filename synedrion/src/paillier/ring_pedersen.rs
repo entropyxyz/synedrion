@@ -4,7 +4,6 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{Bounded, Retrieve, Signed, UintLike, UintModLike};
 
 pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
@@ -127,18 +126,6 @@ impl<P: PaillierParams> RPParams<P> {
     }
 }
 
-impl<P: PaillierParams> Hashable for RPParams<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.base).chain(&self.power)
-    }
-}
-
-impl<P: PaillierParams> Hashable for RPParamsMod<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.retrieve())
-    }
-}
-
 #[derive(PartialEq, Eq)]
 pub(crate) struct RPCommitmentMod<P: PaillierParams>(P::UintMod);
 
@@ -173,11 +160,5 @@ pub(crate) struct RPCommitment<P: PaillierParams>(P::Uint);
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
         RPCommitmentMod(self.0.to_mod(pk.precomputed_modulus()))
-    }
-}
-
-impl<P: PaillierParams> Hashable for RPCommitment<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
     }
 }

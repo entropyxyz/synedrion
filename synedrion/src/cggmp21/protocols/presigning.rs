@@ -1,39 +1,36 @@
 //! Presigning protocol, in the paper ECDSA Pre-Signing (Fig. 7).
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
-    entities::AuxInfoPrecomputed,
+    entities::{AuxInfoPrecomputed, PresigningValues},
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof},
     AuxInfo, KeyShare, PresigningData, SchemeParams,
 };
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, CiphertextMod, PaillierParams, Randomizer, RandomizerMod};
 use crate::rounds::{
-    all_parties_except, no_broadcast_messages, try_to_holevec, FinalizableToNextRound,
-    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, Round,
-    ToNextRound, ToResult,
+    no_broadcast_messages, FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound,
+    InitError, ProtocolResult, Round, ToNextRound, ToResult,
 };
-use crate::tools::{
-    collections::{HoleRange, HoleVec},
-    hashing::{Chain, FofHasher, HashOutput},
-};
+use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 use crate::uint::Signed;
 
 /// Possible results of the Presigning protocol.
-#[derive(Debug, Clone, Copy)]
-pub struct PresigningResult<P: SchemeParams>(PhantomData<P>);
+#[derive(Debug)]
+pub struct PresigningResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams> ProtocolResult for PresigningResult<P> {
-    type Success = PresigningData<P>;
+impl<P: SchemeParams, I: Debug> ProtocolResult for PresigningResult<P, I> {
+    type Success = PresigningData<P, I>;
     type ProvableError = PresigningError;
-    type CorrectnessProof = PresigningProof<P>;
+    type CorrectnessProof = PresigningProof<P, I>;
 }
 
 /// Possible verifiable errors of the Presigning protocol.
@@ -47,33 +44,34 @@ pub enum PresigningError {
     Round3(String),
 }
 
-struct Context<P: SchemeParams> {
+struct Context<P: SchemeParams, I> {
     ssid_hash: HashOutput,
-    key_share: KeyShare<P>,
-    aux_info: AuxInfoPrecomputed<P>,
+    my_id: I,
+    other_ids: BTreeSet<I>,
+    key_share: KeyShare<P, I>,
+    aux_info: AuxInfoPrecomputed<P, I>,
     k: Scalar,
     gamma: Scalar,
     rho: RandomizerMod<P::Paillier>,
     nu: RandomizerMod<P::Paillier>,
 }
 
-pub struct Round1<P: SchemeParams> {
-    context: Context<P>,
+pub struct Round1<P: SchemeParams, I> {
+    context: Context<P, I>,
     cap_k: CiphertextMod<P::Paillier>,
     cap_g: CiphertextMod<P::Paillier>,
 }
 
-impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Inputs = (KeyShare<P>, AuxInfo<P>);
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Round1<P, I> {
+    type Inputs = (KeyShare<P, I>, AuxInfo<P, I>);
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        _num_parties: usize,
-        _party_idx: PartyIdx,
+        other_ids: BTreeSet<I>,
+        my_id: I,
         inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         let (key_share, aux_info) = inputs;
-        let aux_info = aux_info.to_precomputed();
 
         // This includes the info of $ssid$ in the paper
         // (scheme parameters + public data from all shares - hashed in `share_set_id`),
@@ -81,9 +79,11 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let ssid_hash = FofHasher::new_with_dst(b"ShareSetID")
             .chain_type::<P>()
             .chain(&shared_randomness)
-            .chain_slice(&key_share.public_shares)
-            .chain_slice(&aux_info.public_aux)
+            .chain(&key_share.public_shares)
+            .chain(&aux_info.public_aux)
             .finalize();
+
+        let aux_info = aux_info.to_precomputed();
 
         // TODO (#68): check that KeyShare is consistent with num_parties/party_idx
 
@@ -105,6 +105,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         Ok(Self {
             context: Context {
                 ssid_hash,
+                my_id,
+                other_ids,
                 key_share,
                 aux_info,
                 k,
@@ -138,18 +140,18 @@ pub struct Round1Payload<P: SchemeParams> {
     cap_g: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P, I> {
     type Type = ToNextRound;
-    type Result = PresigningResult<P>;
+    type Result = PresigningResult<P, I>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 
-    fn num_parties(&self) -> usize {
-        self.context.key_share.num_parties()
+    fn other_ids(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
 
-    fn party_idx(&self) -> PartyIdx {
-        self.context.key_share.party_index()
+    fn my_id(&self) -> &I {
+        &self.context.my_id
     }
 
     const REQUIRES_ECHO: bool = true;
@@ -157,13 +159,6 @@ impl<P: SchemeParams> Round for Round1<P> {
     type DirectMessage = Round1DirectMessage<P>;
     type Payload = Round1Payload<P>;
     type Artifact = ();
-
-    fn message_destinations(&self) -> Vec<PartyIdx> {
-        all_parties_except(
-            self.context.key_share.num_parties(),
-            self.context.key_share.party_index(),
-        )
-    }
 
     fn make_broadcast_message(
         &self,
@@ -178,7 +173,7 @@ impl<P: SchemeParams> Round for Round1<P> {
     fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
-        destination: PartyIdx,
+        destination: &I,
     ) -> (Self::DirectMessage, Self::Artifact) {
         let aux = (&self.context.ssid_hash, &destination);
         let psi0 = EncProof::new(
@@ -187,7 +182,7 @@ impl<P: SchemeParams> Round for Round1<P> {
             &self.context.rho,
             self.context.aux_info.secret_aux.paillier_sk.public_key(),
             &self.cap_k,
-            &self.context.aux_info.public_aux[destination.as_usize()].rp_params,
+            &self.context.aux_info.public_aux[destination].rp_params,
             &aux,
         );
 
@@ -196,15 +191,15 @@ impl<P: SchemeParams> Round for Round1<P> {
 
     fn verify_message(
         &self,
-        from: PartyIdx,
+        from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
-        let aux = (&self.context.ssid_hash, &self.party_idx());
+        let aux = (&self.context.ssid_hash, self.my_id());
 
-        let public_aux = &self.context.aux_info.public_aux[self.party_idx().as_usize()];
+        let public_aux = &self.context.aux_info.public_aux[self.my_id()];
 
-        let from_pk = &self.context.aux_info.public_aux[from.as_usize()].paillier_pk;
+        let from_pk = &self.context.aux_info.public_aux[from].paillier_pk;
 
         if !direct_msg.psi0.verify(
             from_pk,
@@ -222,29 +217,43 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
-    type NextRound = Round2<P>;
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
+    for Round1<P, I>
+{
+    type NextRound = Round2<P, I>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let payloads = try_to_holevec(payloads, self.num_parties(), self.party_idx()).unwrap();
-
-        let (others_cap_k, others_cap_g) = payloads
-            .map(|payload| (payload.cap_k, payload.cap_g))
+        let (others_cap_k, others_cap_g): (BTreeMap<_, _>, BTreeMap<_, _>) = payloads
+            .into_iter()
+            .map(|(id, payload)| ((id.clone(), payload.cap_k), (id, payload.cap_g)))
             .unzip();
 
-        let others_cap_k = others_cap_k.map_enumerate(|(i, ciphertext)| {
-            ciphertext.to_mod(&self.context.aux_info.public_aux[i].paillier_pk)
-        });
-        let others_cap_g = others_cap_g.map_enumerate(|(i, ciphertext)| {
-            ciphertext.to_mod(&self.context.aux_info.public_aux[i].paillier_pk)
-        });
+        let my_id = self.my_id().clone();
 
-        let all_cap_k = others_cap_k.into_vec(self.cap_k);
-        let all_cap_g = others_cap_g.into_vec(self.cap_g);
+        let mut all_cap_k = others_cap_k
+            .into_iter()
+            .map(|(id, ciphertext)| {
+                let ciphertext_mod =
+                    ciphertext.to_mod(&self.context.aux_info.public_aux[&id].paillier_pk);
+                (id, ciphertext_mod)
+            })
+            .collect::<BTreeMap<_, _>>();
+        all_cap_k.insert(my_id.clone(), self.cap_k);
+
+        let mut all_cap_g = others_cap_g
+            .into_iter()
+            .map(|(id, ciphertext)| {
+                let ciphertext_mod =
+                    ciphertext.to_mod(&self.context.aux_info.public_aux[&id].paillier_pk);
+                (id, ciphertext_mod)
+            })
+            .collect::<BTreeMap<_, _>>();
+        all_cap_g.insert(my_id, self.cap_g);
+
         Ok(Round2 {
             context: self.context,
             all_cap_k,
@@ -253,10 +262,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     }
 }
 
-pub struct Round2<P: SchemeParams> {
-    context: Context<P>,
-    all_cap_k: Vec<CiphertextMod<P::Paillier>>,
-    all_cap_g: Vec<CiphertextMod<P::Paillier>>,
+pub struct Round2<P: SchemeParams, I> {
+    context: Context<P, I>,
+    all_cap_k: BTreeMap<I, CiphertextMod<P::Paillier>>,
+    all_cap_g: BTreeMap<I, CiphertextMod<P::Paillier>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -303,18 +312,18 @@ pub struct Round2Payload<P: SchemeParams> {
     hat_cap_d: CiphertextMod<P::Paillier>,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P, I> {
     type Type = ToNextRound;
-    type Result = PresigningResult<P>;
+    type Result = PresigningResult<P, I>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
 
-    fn num_parties(&self) -> usize {
-        self.context.key_share.num_parties()
+    fn other_ids(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
 
-    fn party_idx(&self) -> PartyIdx {
-        self.context.key_share.party_index()
+    fn my_id(&self) -> &I {
+        &self.context.my_id
     }
 
     type BroadcastMessage = ();
@@ -322,30 +331,19 @@ impl<P: SchemeParams> Round for Round2<P> {
     type Payload = Round2Payload<P>;
     type Artifact = Round2Artifact<P>;
 
-    fn message_destinations(&self) -> Vec<PartyIdx> {
-        all_parties_except(
-            self.context.key_share.num_parties(),
-            self.context.key_share.party_index(),
-        )
-    }
-
     no_broadcast_messages!();
 
     fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
-        destination: PartyIdx,
+        destination: &I,
     ) -> (Self::DirectMessage, Self::Artifact) {
-        let aux = (
-            &self.context.ssid_hash,
-            &self.context.key_share.party_index(),
-        );
+        let aux = (&self.context.ssid_hash, &self.my_id());
 
         let cap_gamma = self.context.gamma.mul_by_generator();
         let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
-        let idx = destination.as_usize();
 
-        let target_pk = &self.context.aux_info.public_aux[idx].paillier_pk;
+        let target_pk = &self.context.aux_info.public_aux[destination].paillier_pk;
 
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
         let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
@@ -355,15 +353,15 @@ impl<P: SchemeParams> Round for Round2<P> {
         let hat_s = RandomizerMod::random(rng, target_pk);
 
         let cap_f = CiphertextMod::new_with_randomizer_signed(pk, &beta, &r.retrieve());
-        let cap_d = &self.all_cap_k[idx] * P::signed_from_scalar(&self.context.gamma)
+        let cap_d = &self.all_cap_k[destination] * P::signed_from_scalar(&self.context.gamma)
             + CiphertextMod::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve());
 
         let hat_cap_f = CiphertextMod::new_with_randomizer_signed(pk, &hat_beta, &hat_r.retrieve());
-        let hat_cap_d = &self.all_cap_k[idx]
+        let hat_cap_d = &self.all_cap_k[destination]
             * P::signed_from_scalar(&self.context.key_share.secret_share)
             + CiphertextMod::new_with_randomizer_signed(target_pk, &-hat_beta, &hat_s.retrieve());
 
-        let public_aux = &self.context.aux_info.public_aux[idx];
+        let public_aux = &self.context.aux_info.public_aux[destination];
         let rp = &public_aux.rp_params;
 
         let psi = AffGProof::new(
@@ -374,7 +372,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             &r,
             target_pk,
             pk,
-            &self.all_cap_k[idx],
+            &self.all_cap_k[destination],
             &cap_d,
             &cap_f,
             &cap_gamma,
@@ -390,10 +388,10 @@ impl<P: SchemeParams> Round for Round2<P> {
             &hat_r,
             target_pk,
             pk,
-            &self.all_cap_k[idx],
+            &self.all_cap_k[destination],
             &hat_cap_d,
             &hat_cap_f,
-            &self.context.key_share.public_shares[self.party_idx().as_usize()],
+            &self.context.key_share.public_shares[self.my_id()],
             rp,
             &aux,
         );
@@ -403,7 +401,7 @@ impl<P: SchemeParams> Round for Round2<P> {
             &P::signed_from_scalar(&self.context.gamma),
             &self.context.nu,
             pk,
-            &self.all_cap_g[self.party_idx().as_usize()],
+            &self.all_cap_g[self.my_id()],
             &Point::GENERATOR,
             &cap_gamma,
             rp,
@@ -439,18 +437,17 @@ impl<P: SchemeParams> Round for Round2<P> {
 
     fn verify_message(
         &self,
-        from: PartyIdx,
+        from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let aux = (&self.context.ssid_hash, &from);
         let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
-        let from_pk = &self.context.aux_info.public_aux[from.as_usize()].paillier_pk;
+        let from_pk = &self.context.aux_info.public_aux[from].paillier_pk;
 
-        let cap_x = self.context.key_share.public_shares[from.as_usize()];
+        let cap_x = self.context.key_share.public_shares[from];
 
-        let public_aux =
-            &self.context.aux_info.public_aux[self.context.key_share.party_index().as_usize()];
+        let public_aux = &self.context.aux_info.public_aux[self.my_id()];
         let rp = &public_aux.rp_params;
 
         let cap_d = direct_msg.cap_d.to_mod(pk);
@@ -459,7 +456,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         if !direct_msg.psi.verify(
             pk,
             from_pk,
-            &self.all_cap_k[self.context.key_share.party_index().as_usize()],
+            &self.all_cap_k[self.my_id()],
             &cap_d,
             &direct_msg.cap_f.to_mod(from_pk),
             &direct_msg.cap_gamma,
@@ -474,7 +471,7 @@ impl<P: SchemeParams> Round for Round2<P> {
         if !direct_msg.hat_psi.verify(
             pk,
             from_pk,
-            &self.all_cap_k[self.context.key_share.party_index().as_usize()],
+            &self.all_cap_k[self.my_id()],
             &hat_cap_d,
             &direct_msg.hat_cap_f.to_mod(from_pk),
             &cap_x,
@@ -488,7 +485,7 @@ impl<P: SchemeParams> Round for Round2<P> {
 
         if !direct_msg.hat_psi_prime.verify(
             from_pk,
-            &self.all_cap_g[from.as_usize()],
+            &self.all_cap_g[from],
             &Point::GENERATOR,
             &direct_msg.cap_gamma,
             rp,
@@ -522,41 +519,42 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
-    type NextRound = Round3<P>;
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
+    for Round2<P, I>
+{
+    type NextRound = Round3<P, I>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let payloads = try_to_holevec(payloads, self.num_parties(), self.party_idx()).unwrap();
-        let artifacts = try_to_holevec(artifacts, self.num_parties(), self.party_idx()).unwrap();
-
         let cap_gamma = payloads
-            .iter()
+            .values()
             .map(|payload| payload.cap_gamma)
             .sum::<Point>()
             + self.context.gamma.mul_by_generator();
 
         let cap_delta = cap_gamma * self.context.k;
 
-        let alpha_sum: Signed<_> = payloads.iter().map(|p| p.alpha).sum();
-        let beta_sum: Signed<_> = artifacts.iter().map(|p| p.beta).sum();
+        let alpha_sum: Signed<_> = payloads.values().map(|p| p.alpha).sum();
+        let beta_sum: Signed<_> = artifacts.values().map(|p| p.beta).sum();
         let delta = P::signed_from_scalar(&self.context.gamma)
             * P::signed_from_scalar(&self.context.k)
             + alpha_sum
             + beta_sum;
 
-        let hat_alpha_sum: Signed<_> = payloads.iter().map(|payload| payload.hat_alpha).sum();
-        let hat_beta_sum: Signed<_> = artifacts.iter().map(|artifact| artifact.hat_beta).sum();
+        let hat_alpha_sum: Signed<_> = payloads.values().map(|payload| payload.hat_alpha).sum();
+        let hat_beta_sum: Signed<_> = artifacts.values().map(|artifact| artifact.hat_beta).sum();
         let chi = P::signed_from_scalar(&self.context.key_share.secret_share)
             * P::signed_from_scalar(&self.context.k)
             + hat_alpha_sum
             + hat_beta_sum;
 
-        let cap_ds = payloads.map_ref(|payload| payload.cap_d.clone());
-        let hat_cap_d = payloads.map_ref(|payload| payload.hat_cap_d.clone());
+        let (cap_ds, hat_cap_ds) = payloads
+            .into_iter()
+            .map(|(id, payload)| ((id.clone(), payload.cap_d), (id, payload.hat_cap_d)))
+            .unzip();
 
         Ok(Round3 {
             context: self.context,
@@ -567,23 +565,23 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
             all_cap_k: self.all_cap_k,
             all_cap_g: self.all_cap_g,
             cap_ds,
-            hat_cap_d,
+            hat_cap_ds,
             round2_artifacts: artifacts,
         })
     }
 }
 
-pub struct Round3<P: SchemeParams> {
-    context: Context<P>,
+pub struct Round3<P: SchemeParams, I> {
+    context: Context<P, I>,
     delta: Signed<<P::Paillier as PaillierParams>::Uint>,
     chi: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_delta: Point,
     cap_gamma: Point,
-    all_cap_k: Vec<CiphertextMod<P::Paillier>>,
-    all_cap_g: Vec<CiphertextMod<P::Paillier>>,
-    cap_ds: HoleVec<CiphertextMod<P::Paillier>>,
-    hat_cap_d: HoleVec<CiphertextMod<P::Paillier>>,
-    round2_artifacts: HoleVec<Round2Artifact<P>>,
+    all_cap_k: BTreeMap<I, CiphertextMod<P::Paillier>>,
+    all_cap_g: BTreeMap<I, CiphertextMod<P::Paillier>>,
+    cap_ds: BTreeMap<I, CiphertextMod<P::Paillier>>,
+    hat_cap_ds: BTreeMap<I, CiphertextMod<P::Paillier>>,
+    round2_artifacts: BTreeMap<I, Round2Artifact<P>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -600,18 +598,18 @@ pub struct Round3Payload {
     cap_delta: Point,
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P, I> {
     type Type = ToResult;
-    type Result = PresigningResult<P>;
+    type Result = PresigningResult<P, I>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
 
-    fn num_parties(&self) -> usize {
-        self.context.key_share.num_parties()
+    fn other_ids(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
 
-    fn party_idx(&self) -> PartyIdx {
-        self.context.key_share.party_index()
+    fn my_id(&self) -> &I {
+        &self.context.my_id
     }
 
     type BroadcastMessage = ();
@@ -619,28 +617,17 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Payload = Round3Payload;
     type Artifact = ();
 
-    fn message_destinations(&self) -> Vec<PartyIdx> {
-        all_parties_except(
-            self.context.key_share.num_parties(),
-            self.context.key_share.party_index(),
-        )
-    }
-
     no_broadcast_messages!();
 
     fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
-        destination: PartyIdx,
+        destination: &I,
     ) -> (Self::DirectMessage, Self::Artifact) {
-        let aux = (
-            &self.context.ssid_hash,
-            &self.context.key_share.party_index(),
-        );
+        let aux = (&self.context.ssid_hash, &self.my_id());
         let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
-        let idx = destination.as_usize();
 
-        let public_aux = &self.context.aux_info.public_aux[idx];
+        let public_aux = &self.context.aux_info.public_aux[destination];
         let rp = &public_aux.rp_params;
 
         let psi_pprime = LogStarProof::new(
@@ -648,7 +635,7 @@ impl<P: SchemeParams> Round for Round3<P> {
             &P::signed_from_scalar(&self.context.k),
             &self.context.rho,
             pk,
-            &self.all_cap_k[self.party_idx().as_usize()],
+            &self.all_cap_k[self.my_id()],
             &self.cap_gamma,
             &self.cap_delta,
             rp,
@@ -665,20 +652,19 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn verify_message(
         &self,
-        from: PartyIdx,
+        from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         let aux = (&self.context.ssid_hash, &from);
-        let from_pk = &self.context.aux_info.public_aux[from.as_usize()].paillier_pk;
+        let from_pk = &self.context.aux_info.public_aux[from].paillier_pk;
 
-        let public_aux =
-            &self.context.aux_info.public_aux[self.context.key_share.party_index().as_usize()];
+        let public_aux = &self.context.aux_info.public_aux[self.my_id()];
         let rp = &public_aux.rp_params;
 
         if !direct_msg.psi_pprime.verify(
             from_pk,
-            &self.all_cap_k[from.as_usize()],
+            &self.all_cap_k[from],
             &self.cap_gamma,
             &direct_msg.cap_delta,
             rp,
@@ -698,108 +684,92 @@ impl<P: SchemeParams> Round for Round3<P> {
 /// A proof of a node's correct behavior for the Presigning protocol.
 #[allow(dead_code)] // TODO (#43): this can be removed when error verification is added
 #[derive(Debug, Clone)]
-pub struct PresigningProof<P: SchemeParams> {
-    aff_g_proofs: Vec<(PartyIdx, PartyIdx, AffGProof<P>)>,
+pub struct PresigningProof<P: SchemeParams, I> {
+    aff_g_proofs: Vec<(I, I, AffGProof<P>)>,
     mul_proof: MulProof<P>,
-    dec_proofs: Vec<(PartyIdx, DecProof<P>)>,
+    dec_proofs: Vec<(I, DecProof<P>)>,
 }
 
-impl<P: SchemeParams> FinalizableToResult for Round3<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round3<P, I> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let payloads = try_to_holevec(
-            payloads,
-            self.context.key_share.num_parties(),
-            self.context.key_share.party_index(),
-        )
-        .unwrap();
-        let (deltas, cap_deltas) = payloads
-            .map(|payload| (payload.delta, payload.cap_delta))
+        let (deltas, cap_deltas): (BTreeMap<_, _>, BTreeMap<_, _>) = payloads
+            .into_iter()
+            .map(|(id, payload)| ((id.clone(), payload.delta), (id, payload.cap_delta)))
             .unzip();
 
         let scalar_delta = P::scalar_from_signed(&self.delta);
-        let assembled_delta: Scalar = scalar_delta + deltas.iter().sum::<Scalar>();
-        let assembled_cap_delta: Point = self.cap_delta + cap_deltas.iter().sum::<Point>();
+        let assembled_delta: Scalar = scalar_delta + deltas.values().sum::<Scalar>();
+        let assembled_cap_delta: Point = self.cap_delta + cap_deltas.values().sum::<Point>();
 
         if assembled_delta.mul_by_generator() == assembled_cap_delta {
             let nonce = (self.cap_gamma * assembled_delta.invert().unwrap()).x_coordinate();
+            let my_id = self.my_id().clone();
 
-            let hat_beta = self.round2_artifacts.map_ref(|artifact| artifact.hat_beta);
-            let hat_r = self
+            let values = self
                 .round2_artifacts
-                .map_ref(|artifact| artifact.hat_r.clone());
-            let hat_s = self
-                .round2_artifacts
-                .map_ref(|artifact| artifact.hat_s.clone());
-            let hat_cap_d = self
-                .round2_artifacts
-                .map_ref(|artifact| artifact.hat_cap_d.clone());
-            let hat_cap_f = self
-                .round2_artifacts
-                .map_ref(|artifact| artifact.hat_cap_f.clone());
+                .into_iter()
+                .map(|(id, artifact)| {
+                    let values = PresigningValues {
+                        hat_beta: artifact.hat_beta,
+                        hat_r: artifact.hat_r,
+                        hat_s: artifact.hat_s,
+                        cap_k: self.all_cap_k[&id].clone(),
+                        hat_cap_d_received: self.hat_cap_ds[&id].clone(),
+                        hat_cap_d: artifact.hat_cap_d,
+                        hat_cap_f: artifact.hat_cap_f,
+                    };
+                    (id, values)
+                })
+                .collect();
 
             return Ok(PresigningData {
                 nonce,
                 ephemeral_scalar_share: self.context.k,
                 product_share: P::scalar_from_signed(&self.chi),
-
                 product_share_nonreduced: self.chi,
-                hat_beta,
-                hat_r,
-                hat_s,
-                cap_k: self.all_cap_k.into_boxed_slice(),
-                hat_cap_d_received: self.hat_cap_d,
-                hat_cap_d,
-                hat_cap_f,
+                cap_k: self.all_cap_k[&my_id].clone(),
+                values,
             });
         }
-
-        let my_idx = self.context.key_share.party_index().as_usize();
 
         // Construct the correctness proofs
 
         let sk = &self.context.aux_info.secret_aux.paillier_sk;
         let pk = sk.public_key();
-        let num_parties = self.context.key_share.num_parties();
 
-        let aux = (
-            &self.context.ssid_hash,
-            &self.context.key_share.party_index(),
-        );
+        let aux = (&self.context.ssid_hash, &self.my_id());
 
         // Aff-g proofs
 
         let mut aff_g_proofs = Vec::new();
 
-        let beta = self.round2_artifacts.map_ref(|artifact| artifact.beta);
-        let r = self.round2_artifacts.map_ref(|artifact| artifact.r.clone());
-        let s = self.round2_artifacts.map_ref(|artifact| artifact.s.clone());
-
         let cap_gamma = self.context.gamma.mul_by_generator();
 
-        for j in HoleRange::new(num_parties, my_idx) {
-            let r2_artefacts = self.round2_artifacts.get(j).unwrap();
+        for id_j in self.other_ids() {
+            let r2_artefacts = &self.round2_artifacts[id_j];
 
-            for l in HoleRange::new(num_parties, my_idx) {
-                if l == j {
-                    continue;
-                }
-                let target_pk = &self.context.aux_info.public_aux[j].paillier_pk;
-                let rp = &self.context.aux_info.public_aux[l].rp_params;
+            for id_l in self.other_ids().iter().filter(|id| id != &id_j) {
+                let target_pk = &self.context.aux_info.public_aux[id_j].paillier_pk;
+                let rp = &self.context.aux_info.public_aux[id_l].rp_params;
+
+                let beta = &self.round2_artifacts[id_j].beta;
+                let r = &self.round2_artifacts[id_j].r;
+                let s = &self.round2_artifacts[id_j].s;
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
                     &P::signed_from_scalar(&self.context.gamma),
-                    beta.get(j).unwrap(),
-                    &s.get(j).unwrap().to_mod(target_pk),
-                    &r.get(j).unwrap().to_mod(pk),
+                    beta,
+                    &s.to_mod(target_pk),
+                    &r.to_mod(pk),
                     target_pk,
                     pk,
-                    &self.all_cap_k[j],
+                    &self.all_cap_k[id_j],
                     &r2_artefacts.cap_d,
                     &r2_artefacts.cap_f,
                     &cap_gamma,
@@ -810,7 +780,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 assert!(p_aff_g.verify(
                     target_pk,
                     pk,
-                    &self.all_cap_k[j],
+                    &self.all_cap_k[id_j],
                     &r2_artefacts.cap_d,
                     &r2_artefacts.cap_f,
                     &cap_gamma,
@@ -818,14 +788,14 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                     &aux,
                 ));
 
-                aff_g_proofs.push((PartyIdx::from_usize(j), PartyIdx::from_usize(l), p_aff_g));
+                aff_g_proofs.push((id_j.clone(), id_l.clone(), p_aff_g));
             }
         }
 
         // Mul proof
 
         let rho = RandomizerMod::random(rng, pk);
-        let cap_h = (&self.all_cap_g[my_idx] * P::bounded_from_scalar(&self.context.k))
+        let cap_h = (&self.all_cap_g[self.my_id()] * P::bounded_from_scalar(&self.context.k))
             .mul_randomizer(&rho.retrieve());
 
         let p_mul = MulProof::<P>::new(
@@ -834,35 +804,33 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
             &self.context.rho,
             &rho,
             pk,
-            &self.all_cap_k[my_idx],
-            &self.all_cap_g[my_idx],
+            &self.all_cap_k[self.my_id()],
+            &self.all_cap_g[self.my_id()],
             &cap_h,
             &aux,
         );
         assert!(p_mul.verify(
             pk,
-            &self.all_cap_k[my_idx],
-            &self.all_cap_g[my_idx],
+            &self.all_cap_k[self.my_id()],
+            &self.all_cap_g[self.my_id()],
             &cap_h,
             &aux
         ));
 
         // Dec proof
 
-        let range = HoleRange::new(self.context.key_share.num_parties(), my_idx);
-
         let mut ciphertext = cap_h.clone();
 
-        for j in range {
+        for id_j in self.other_ids() {
             ciphertext = ciphertext
-                + self.cap_ds.get(j).unwrap()
-                + &self.round2_artifacts.get(j).unwrap().cap_f;
+                + self.cap_ds.get(id_j).unwrap()
+                + &self.round2_artifacts.get(id_j).unwrap().cap_f;
         }
 
         let rho = ciphertext.derive_randomizer(sk);
 
         let mut dec_proofs = Vec::new();
-        for j in range {
+        for id_j in self.other_ids() {
             let p_dec = DecProof::<P>::new(
                 rng,
                 &self.delta,
@@ -870,17 +838,17 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
                 pk,
                 &scalar_delta,
                 &ciphertext,
-                &self.context.aux_info.public_aux[j].rp_params,
+                &self.context.aux_info.public_aux[id_j].rp_params,
                 &aux,
             );
             assert!(p_dec.verify(
                 pk,
                 &scalar_delta,
                 &ciphertext,
-                &self.context.aux_info.public_aux[j].rp_params,
+                &self.context.aux_info.public_aux[id_j].rp_params,
                 &aux
             ));
-            dec_proofs.push((PartyIdx::from_usize(j), p_dec));
+            dec_proofs.push((id_j.clone(), p_dec));
         }
 
         Err(FinalizeError::Proof(PresigningProof {
@@ -893,14 +861,16 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::collections::BTreeSet;
+
     use rand_core::{OsRng, RngCore};
 
     use super::Round1;
     use crate::cggmp21::{AuxInfo, KeyShare, TestParams};
     use crate::curve::Scalar;
     use crate::rounds::{
-        test_utils::{step_next_round, step_result, step_round},
-        FirstRound, PartyIdx,
+        test_utils::{step_next_round, step_result, step_round, Id, Without},
+        FirstRound,
     };
 
     #[test]
@@ -908,19 +878,23 @@ mod tests {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
-        let num_parties = 3;
-        let key_shares = KeyShare::new_centralized(&mut OsRng, num_parties, None);
-        let aux_infos = AuxInfo::new_centralized(&mut OsRng, num_parties);
-        let r1 = (0..num_parties)
-            .map(|idx| {
-                Round1::<TestParams>::new(
+        let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
+
+        let key_shares = KeyShare::new_centralized(&mut OsRng, &ids, None);
+        let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids);
+
+        let r1 = ids
+            .iter()
+            .map(|id| {
+                let round = Round1::<TestParams, Id>::new(
                     &mut OsRng,
                     &shared_randomness,
-                    num_parties,
-                    PartyIdx::from_usize(idx),
-                    (key_shares[idx].clone(), aux_infos[idx].clone()),
+                    ids.clone().without(id),
+                    *id,
+                    (key_shares[id].clone(), aux_infos[id].clone()),
                 )
-                .unwrap()
+                .unwrap();
+                (*id, round)
             })
             .collect();
 
@@ -932,20 +906,29 @@ mod tests {
         let presigning_datas = step_result(&mut OsRng, r3a).unwrap();
 
         // Check that each node ends up with the same nonce.
-        assert_eq!(presigning_datas[0].nonce, presigning_datas[1].nonce);
-        assert_eq!(presigning_datas[0].nonce, presigning_datas[2].nonce);
+        assert_eq!(
+            presigning_datas[&Id(0)].nonce,
+            presigning_datas[&Id(1)].nonce
+        );
+        assert_eq!(
+            presigning_datas[&Id(0)].nonce,
+            presigning_datas[&Id(2)].nonce
+        );
 
         // Check that the additive shares were constructed in a consistent way.
         let k: Scalar = presigning_datas
-            .iter()
+            .values()
             .map(|data| data.ephemeral_scalar_share)
             .sum();
-        let k_times_x: Scalar = presigning_datas.iter().map(|data| data.product_share).sum();
-        let x: Scalar = key_shares.iter().map(|share| share.secret_share).sum();
+        let k_times_x: Scalar = presigning_datas
+            .values()
+            .map(|data| data.product_share)
+            .sum();
+        let x: Scalar = key_shares.values().map(|share| share.secret_share).sum();
         assert_eq!(x * k, k_times_x);
         assert_eq!(
             k.invert().unwrap().mul_by_generator().x_coordinate(),
-            presigning_datas[0].nonce
+            presigning_datas[&Id(0)].nonce
         );
     }
 }

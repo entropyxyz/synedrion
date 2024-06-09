@@ -34,12 +34,6 @@ impl SchCommitment {
     }
 }
 
-impl Hashable for SchCommitment {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SchChallenge(Scalar);
 

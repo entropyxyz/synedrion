@@ -1,7 +1,8 @@
 //! Signing using previously calculated presigning data, in the paper ECDSA Signing (Fig. 8).
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
+use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
@@ -15,58 +16,55 @@ use super::super::{
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
 use crate::rounds::{
-    all_parties_except, no_direct_messages, try_to_holevec, FinalizableToResult, FinalizeError,
-    FirstRound, InitError, PartyIdx, ProtocolResult, Round, ToResult,
+    no_direct_messages, FinalizableToResult, FinalizeError, FirstRound, InitError, ProtocolResult,
+    Round, ToResult,
 };
-use crate::tools::{
-    collections::HoleRange,
-    hashing::{Chain, FofHasher, HashOutput},
-};
+use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 
 /// Possible results of the Signing protocol.
-#[derive(Debug, Clone, Copy)]
-pub struct SigningResult<P: SchemeParams>(PhantomData<P>);
+#[derive(Debug)]
+pub struct SigningResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams> ProtocolResult for SigningResult<P> {
+impl<P: SchemeParams, I: Debug> ProtocolResult for SigningResult<P, I> {
     type Success = RecoverableSignature;
     type ProvableError = ();
-    type CorrectnessProof = SigningProof<P>;
+    type CorrectnessProof = SigningProof<P, I>;
 }
 
 /// A proof of a node's correct behavior for the Signing protocol.
 #[allow(dead_code)] // TODO (#43): this can be removed when error verification is added
 #[derive(Debug, Clone)]
-pub struct SigningProof<P: SchemeParams> {
-    aff_g_proofs: Vec<(PartyIdx, PartyIdx, AffGProof<P>)>,
-    mul_star_proofs: Vec<(PartyIdx, MulStarProof<P>)>,
-    dec_proofs: Vec<(PartyIdx, DecProof<P>)>,
+pub struct SigningProof<P: SchemeParams, I> {
+    aff_g_proofs: Vec<(I, I, AffGProof<P>)>,
+    mul_star_proofs: Vec<(I, MulStarProof<P>)>,
+    dec_proofs: Vec<(I, DecProof<P>)>,
 }
 
-pub struct Round1<P: SchemeParams> {
+pub struct Round1<P: SchemeParams, I> {
     ssid_hash: HashOutput,
     r: Scalar,
     sigma: Scalar,
-    inputs: Inputs<P>,
-    aux_info: AuxInfoPrecomputed<P>,
-    num_parties: usize,
-    party_idx: PartyIdx,
+    inputs: Inputs<P, I>,
+    aux_info: AuxInfoPrecomputed<P, I>,
+    other_ids: BTreeSet<I>,
+    my_id: I,
 }
 
 #[derive(Clone)]
-pub struct Inputs<P: SchemeParams> {
+pub struct Inputs<P: SchemeParams, I> {
     pub message: Scalar,
-    pub presigning: PresigningData<P>,
-    pub key_share: KeyShare<P>,
-    pub aux_info: AuxInfo<P>,
+    pub presigning: PresigningData<P, I>,
+    pub key_share: KeyShare<P, I>,
+    pub aux_info: AuxInfo<P, I>,
 }
 
-impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Inputs = Inputs<P>;
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Round1<P, I> {
+    type Inputs = Inputs<P, I>;
     fn new(
         _rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        num_parties: usize,
-        party_idx: PartyIdx,
+        other_ids: BTreeSet<I>,
+        my_id: I,
         inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         // This includes the info of $ssid$ in the paper
@@ -75,8 +73,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         let ssid_hash = FofHasher::new_with_dst(b"ShareSetID")
             .chain_type::<P>()
             .chain(&shared_randomness)
-            .chain_slice(&inputs.key_share.public_shares)
-            .chain_slice(&inputs.aux_info.public_aux)
+            .chain(&inputs.key_share.public_shares)
+            .chain(&inputs.aux_info.public_aux)
             .finalize();
 
         let r = inputs.presigning.nonce;
@@ -88,8 +86,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             sigma,
             aux_info: inputs.aux_info.clone().to_precomputed(),
             inputs,
-            num_parties,
-            party_idx,
+            other_ids,
+            my_id,
         })
     }
 }
@@ -103,28 +101,24 @@ pub struct Round1Payload {
     sigma: Scalar,
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P, I> {
     type Type = ToResult;
-    type Result = SigningResult<P>;
+    type Result = SigningResult<P, I>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = None;
 
-    fn num_parties(&self) -> usize {
-        self.num_parties
+    fn other_ids(&self) -> &BTreeSet<I> {
+        &self.other_ids
     }
 
-    fn party_idx(&self) -> PartyIdx {
-        self.party_idx
+    fn my_id(&self) -> &I {
+        &self.my_id
     }
 
     type BroadcastMessage = Round1Message;
     type DirectMessage = ();
     type Payload = Round1Payload;
     type Artifact = ();
-
-    fn message_destinations(&self) -> Vec<PartyIdx> {
-        all_parties_except(self.num_parties(), self.party_idx())
-    }
 
     fn make_broadcast_message(
         &self,
@@ -133,11 +127,11 @@ impl<P: SchemeParams> Round for Round1<P> {
         Some(Round1Message { sigma: self.sigma })
     }
 
-    no_direct_messages!();
+    no_direct_messages!(I);
 
     fn verify_message(
         &self,
-        _from: PartyIdx,
+        _from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
@@ -147,16 +141,18 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToResult for Round1<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round1<P, I> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let payloads = try_to_holevec(payloads, self.num_parties, self.party_idx).unwrap();
-        let others_sigma = payloads.map(|payload| payload.sigma);
-        let assembled_sigma = others_sigma.iter().sum::<Scalar>() + self.sigma;
+        let assembled_sigma = payloads
+            .values()
+            .map(|payload| payload.sigma)
+            .sum::<Scalar>()
+            + self.sigma;
 
         let signature = RecoverableSignature::from_scalars(
             &self.r,
@@ -169,10 +165,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
             return Ok(signature);
         }
 
-        let my_idx = self.party_idx.as_usize();
-        let num_parties = self.num_parties;
-
-        let aux = (&self.ssid_hash, &self.party_idx);
+        let aux = (&self.ssid_hash, self.my_id());
 
         let sk = &self.aux_info.secret_aux.paillier_sk;
         let pk = sk.public_key();
@@ -181,32 +174,25 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
         let mut aff_g_proofs = Vec::new();
 
-        for j in HoleRange::new(num_parties, my_idx) {
-            for l in HoleRange::new(num_parties, my_idx) {
-                if l == j {
-                    continue;
-                }
-                let target_pk = &self.aux_info.public_aux[j].paillier_pk;
-                let rp = &self.aux_info.public_aux[l].rp_params;
+        for id_j in self.other_ids() {
+            for id_l in self.other_ids().iter().filter(|id| id != &id_j) {
+                let target_pk = &self.aux_info.public_aux[id_j].paillier_pk;
+                let rp = &self.aux_info.public_aux[id_l].rp_params;
+
+                let values = &self.inputs.presigning.values.get(id_j).unwrap();
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
                     &P::signed_from_scalar(&self.inputs.key_share.secret_share),
-                    self.inputs.presigning.hat_beta.get(j).unwrap(),
-                    &self
-                        .inputs
-                        .presigning
-                        .hat_s
-                        .get(j)
-                        .unwrap()
-                        .to_mod(target_pk),
-                    &self.inputs.presigning.hat_r.get(j).unwrap().to_mod(pk),
+                    &values.hat_beta,
+                    &values.hat_s.to_mod(target_pk),
+                    &values.hat_r.to_mod(pk),
                     target_pk,
                     pk,
-                    &self.inputs.presigning.cap_k[j],
-                    self.inputs.presigning.hat_cap_d.get(j).unwrap(),
-                    self.inputs.presigning.hat_cap_f.get(j).unwrap(),
-                    &self.inputs.key_share.public_shares[my_idx],
+                    &values.cap_k,
+                    &values.hat_cap_d,
+                    &values.hat_cap_f,
+                    &self.inputs.key_share.public_shares[self.my_id()],
                     rp,
                     &aux,
                 );
@@ -214,69 +200,68 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 assert!(p_aff_g.verify(
                     target_pk,
                     pk,
-                    &self.inputs.presigning.cap_k[j],
-                    self.inputs.presigning.hat_cap_d.get(j).unwrap(),
-                    self.inputs.presigning.hat_cap_f.get(j).unwrap(),
-                    &self.inputs.key_share.public_shares[my_idx],
+                    &values.cap_k,
+                    &values.hat_cap_d,
+                    &values.hat_cap_f,
+                    &self.inputs.key_share.public_shares[self.my_id()],
                     rp,
                     &aux,
                 ));
 
-                aff_g_proofs.push((PartyIdx::from_usize(j), PartyIdx::from_usize(l), p_aff_g));
+                aff_g_proofs.push((id_j.clone(), id_l.clone(), p_aff_g));
             }
         }
 
         // mul* proofs
 
         let x = self.inputs.key_share.secret_share;
-        let cap_x = self.inputs.key_share.public_shares[self.party_idx().as_usize()];
+        let cap_x = self.inputs.key_share.public_shares[self.my_id()];
 
         let rho = RandomizerMod::random(rng, pk);
-        let hat_cap_h = (&self.inputs.presigning.cap_k[my_idx] * P::bounded_from_scalar(&x))
+        let hat_cap_h = (&self.inputs.presigning.cap_k * P::bounded_from_scalar(&x))
             .mul_randomizer(&rho.retrieve());
 
-        let aux = (&self.ssid_hash, &self.inputs.key_share.party_index());
+        let aux = (&self.ssid_hash, self.my_id());
 
         let mut mul_star_proofs = Vec::new();
 
-        for l in HoleRange::new(num_parties, my_idx) {
+        for id_l in self.other_ids() {
             let p_mul = MulStarProof::<P>::new(
                 rng,
                 &P::signed_from_scalar(&x),
                 &rho,
                 pk,
-                &self.inputs.presigning.cap_k[my_idx],
+                &self.inputs.presigning.cap_k,
                 &hat_cap_h,
                 &cap_x,
-                &self.aux_info.public_aux[l].rp_params,
+                &self.aux_info.public_aux[id_l].rp_params,
                 &aux,
             );
 
             assert!(p_mul.verify(
                 pk,
-                &self.inputs.presigning.cap_k[my_idx],
+                &self.inputs.presigning.cap_k,
                 &hat_cap_h,
                 &cap_x,
-                &self.aux_info.public_aux[l].rp_params,
+                &self.aux_info.public_aux[id_l].rp_params,
                 &aux,
             ));
 
-            mul_star_proofs.push((PartyIdx::from_usize(l), p_mul));
+            mul_star_proofs.push((id_l.clone(), p_mul));
         }
 
         // dec proofs
 
         let mut ciphertext = hat_cap_h.clone();
-        for j in HoleRange::new(num_parties, my_idx) {
-            ciphertext = ciphertext
-                + self.inputs.presigning.hat_cap_d_received.get(j).unwrap()
-                + self.inputs.presigning.hat_cap_f.get(j).unwrap();
+        for id_j in self.other_ids() {
+            let values = &self.inputs.presigning.values.get(id_j).unwrap();
+            ciphertext = ciphertext + &values.hat_cap_d_received + &values.hat_cap_f;
         }
 
         let r = self.inputs.presigning.nonce;
 
         let ciphertext = ciphertext * P::bounded_from_scalar(&r)
-            + &self.inputs.presigning.cap_k[my_idx] * P::bounded_from_scalar(&self.inputs.message);
+            + &self.inputs.presigning.cap_k * P::bounded_from_scalar(&self.inputs.message);
 
         let rho = ciphertext.derive_randomizer(sk);
         // This is the same as `s_part` but if all the calculations were performed
@@ -287,7 +272,7 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 + self.inputs.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
 
         let mut dec_proofs = Vec::new();
-        for l in HoleRange::new(num_parties, my_idx) {
+        for id_l in self.other_ids() {
             let p_dec = DecProof::<P>::new(
                 rng,
                 &s_part_nonreduced,
@@ -295,17 +280,17 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
                 pk,
                 &self.sigma,
                 &ciphertext,
-                &self.aux_info.public_aux[l].rp_params,
+                &self.aux_info.public_aux[id_l].rp_params,
                 &aux,
             );
             assert!(p_dec.verify(
                 pk,
                 &self.sigma,
                 &ciphertext,
-                &self.aux_info.public_aux[l].rp_params,
+                &self.aux_info.public_aux[id_l].rp_params,
                 &aux,
             ));
-            dec_proofs.push((PartyIdx::from_usize(l), p_dec));
+            dec_proofs.push((id_l.clone(), p_dec));
         }
 
         let proof = SigningProof {
@@ -320,6 +305,8 @@ impl<P: SchemeParams> FinalizableToResult for Round1<P> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::collections::BTreeSet;
+
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::{OsRng, RngCore};
 
@@ -327,8 +314,8 @@ mod tests {
     use crate::cggmp21::{AuxInfo, KeyShare, PresigningData, TestParams};
     use crate::curve::Scalar;
     use crate::rounds::{
-        test_utils::{step_result, step_round},
-        FirstRound, PartyIdx,
+        test_utils::{step_result, step_round, Id, Without},
+        FirstRound,
     };
 
     #[test]
@@ -336,39 +323,42 @@ mod tests {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
-        let num_parties = 3;
-        let key_shares = KeyShare::<TestParams>::new_centralized(&mut OsRng, num_parties, None);
-        let aux_infos = AuxInfo::<TestParams>::new_centralized(&mut OsRng, num_parties);
+        let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
+
+        let key_shares = KeyShare::new_centralized(&mut OsRng, &ids, None);
+        let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids);
 
         let presigning_datas = PresigningData::new_centralized(&mut OsRng, &key_shares, &aux_infos);
 
         let message = Scalar::random(&mut OsRng);
 
-        let r1 = (0..num_parties)
-            .map(|idx| {
-                Round1::new(
+        let r1 = ids
+            .iter()
+            .map(|id| {
+                let round = Round1::<TestParams, Id>::new(
                     &mut OsRng,
                     &shared_randomness,
-                    num_parties,
-                    PartyIdx::from_usize(idx),
+                    ids.clone().without(id),
+                    *id,
                     Inputs {
-                        presigning: presigning_datas[idx].clone(),
+                        presigning: presigning_datas[id].clone(),
                         message,
-                        key_share: key_shares[idx].clone(),
-                        aux_info: aux_infos[idx].clone(),
+                        key_share: key_shares[id].clone(),
+                        aux_info: aux_infos[id].clone(),
                     },
                 )
-                .unwrap()
+                .unwrap();
+                (*id, round)
             })
             .collect();
 
         let r1a = step_round(&mut OsRng, r1).unwrap();
         let signatures = step_result(&mut OsRng, r1a).unwrap();
 
-        for signature in signatures {
+        for signature in signatures.values() {
             let (sig, rec_id) = signature.to_backend();
 
-            let vkey = key_shares[0].verifying_key();
+            let vkey = key_shares[&Id(0)].verifying_key();
 
             // Check that the signature can be verified
             vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();

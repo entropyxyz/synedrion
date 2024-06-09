@@ -89,10 +89,13 @@ pub(crate) fn shamir_split(
         .collect()
 }
 
-pub(crate) fn interpolation_coeff(idxs: &[ShareId], exclude_idx: &ShareId) -> Scalar {
-    idxs.iter()
-        .filter(|idx| idx != &exclude_idx)
-        .map(|idx| idx.0 * (idx.0 - exclude_idx.0).invert().unwrap())
+pub(crate) fn interpolation_coeff<'a>(
+    share_ids: impl Iterator<Item = &'a ShareId>,
+    share_id: &ShareId,
+) -> Scalar {
+    share_ids
+        .filter(|id| id != &share_id)
+        .map(|id| id.0 * (id.0 - share_id.0).invert().unwrap())
         .product()
 }
 
@@ -103,7 +106,7 @@ pub(crate) fn shamir_join_scalars<'a>(
     values
         .iter()
         .enumerate()
-        .map(|(i, val)| val * &interpolation_coeff(&share_ids, &share_ids[i]))
+        .map(|(i, val)| val * &interpolation_coeff(share_ids.iter(), &share_ids[i]))
         .sum()
 }
 
@@ -114,7 +117,7 @@ pub(crate) fn shamir_join_points<'a>(
     values
         .iter()
         .enumerate()
-        .map(|(i, val)| val * &interpolation_coeff(&share_ids, &share_ids[i]))
+        .map(|(i, val)| val * &interpolation_coeff(share_ids.iter(), &share_ids[i]))
         .sum()
 }
 

@@ -76,11 +76,11 @@ impl<P: SchemeParams> LogStarProof<P> {
             .chain(&cap_y)
             .chain(&cap_d)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(g)
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -122,11 +122,11 @@ impl<P: SchemeParams> LogStarProof<P> {
             .chain(&self.cap_y)
             .chain(&self.cap_d)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(g)
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

@@ -69,9 +69,9 @@ impl<P: SchemeParams> EncProof<P> {
             .chain(&cap_a)
             .chain(&cap_c)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_k.retrieve())
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -108,9 +108,9 @@ impl<P: SchemeParams> EncProof<P> {
             .chain(&self.cap_a)
             .chain(&self.cap_c)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_k.retrieve())
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
