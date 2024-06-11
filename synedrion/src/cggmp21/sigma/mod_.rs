@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::{RandomPrimeWithRng, Retrieve, UintLike, UintModLike};
 
 const HASH_TAG: &[u8] = b"P_mod";
@@ -39,7 +39,7 @@ impl<P: SchemeParams> ModChallenge<P> {
         commitment: &ModCommitment<P>,
         aux: &impl Hashable,
     ) -> Self {
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             .chain(pk)
             .chain(commitment)
             .chain(aux)

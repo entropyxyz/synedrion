@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPrecomputed};
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, Retrieve, UintLike, UintModLike,
@@ -65,7 +65,7 @@ impl PrmChallenge {
         aux: &impl Hashable,
     ) -> Self {
         // TODO (#61): generate m/8 random bytes instead and fill the vector bit by bit.
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             .chain(commitment)
             .chain(setup)
             .chain(aux)

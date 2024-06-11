@@ -25,7 +25,7 @@ use crate::rounds::{
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
-use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
+use crate::tools::hashing::{Chain, FofHasher, HashOutput, Hashable};
 use crate::uint::UintLike;
 
 /// Possible results of the AuxGen protocol.
@@ -97,7 +97,7 @@ impl<P: SchemeParams> Hashable for PublicData1<P> {
 
 impl<P: SchemeParams> PublicData1<P> {
     fn hash(&self, sid_hash: &HashOutput, party_idx: PartyIdx) -> HashOutput {
-        Hash::new_with_dst(b"Auxiliary")
+        FofHasher::new_with_dst(b"Auxiliary")
             .chain(sid_hash)
             .chain(&party_idx)
             .chain(self)
@@ -118,7 +118,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         party_idx: PartyIdx,
         _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
-        let sid_hash = Hash::new_with_dst(b"SID")
+        let sid_hash = FofHasher::new_with_dst(b"SID")
             .chain_type::<P>()
             .chain(&shared_randomness)
             .chain(&(u32::try_from(num_parties).unwrap()))

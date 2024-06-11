@@ -8,7 +8,7 @@ use crate::paillier::{
     Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer,
     RandomizerMod,
 };
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::{Bounded, Retrieve, Signed};
 
 const HASH_TAG: &[u8] = b"P_mul";
@@ -71,7 +71,7 @@ impl<P: SchemeParams> MulProof<P> {
         let cap_a = (cap_y * alpha).mul_randomizer(&r).retrieve();
         let cap_b = CiphertextMod::new_with_randomizer(pk, alpha.as_ref(), &s).retrieve();
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_a)
             .chain(&cap_b)
@@ -112,7 +112,7 @@ impl<P: SchemeParams> MulProof<P> {
         assert_eq!(cap_y.public_key(), pk);
         assert_eq!(cap_c.public_key(), pk);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_a)
             .chain(&self.cap_b)

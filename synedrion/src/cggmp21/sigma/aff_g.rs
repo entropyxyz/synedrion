@@ -9,7 +9,7 @@ use crate::paillier::{
     Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
     RPParamsMod, Randomizer, RandomizerMod,
 };
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_aff_g";
@@ -105,7 +105,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // Original: $s^y$. Modified: $s^{-y}$
         let cap_t = setup.commit(&-y, &mu).retrieve();
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_a)
             .chain(&cap_b_x)
@@ -181,7 +181,7 @@ impl<P: SchemeParams> AffGProof<P> {
         assert!(cap_d.public_key() == pk0);
         assert!(cap_y.public_key() == pk1);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_a)
             .chain(&self.cap_b_x)

@@ -8,7 +8,7 @@ use crate::paillier::{
     Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
     RPParamsMod, Randomizer, RandomizerMod,
 };
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_enc";
@@ -63,7 +63,7 @@ impl<P: SchemeParams> EncProof<P> {
             CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
         let cap_c = setup.commit(&alpha, &gamma).retrieve();
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_s)
             .chain(&cap_a)
@@ -102,7 +102,7 @@ impl<P: SchemeParams> EncProof<P> {
     ) -> bool {
         assert_eq!(cap_k.public_key(), pk0);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_s)
             .chain(&self.cap_a)

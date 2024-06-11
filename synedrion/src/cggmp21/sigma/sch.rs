@@ -7,7 +7,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::curve::{Point, Scalar};
-use crate::tools::hashing::{Chain, Hash, Hashable};
+use crate::tools::hashing::{Chain, FofHasher, Hashable};
 
 const HASH_TAG: &[u8] = b"P_sch";
 
@@ -46,7 +46,7 @@ struct SchChallenge(Scalar);
 impl SchChallenge {
     fn new(public: &Point, commitment: &SchCommitment, aux: &impl Hashable) -> Self {
         Self(
-            Hash::new_with_dst(HASH_TAG)
+            FofHasher::new_with_dst(HASH_TAG)
                 .chain(aux)
                 .chain(public)
                 .chain(commitment)

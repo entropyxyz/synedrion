@@ -21,7 +21,7 @@ use crate::rounds::{
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::collections::HoleVec;
-use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
+use crate::tools::hashing::{Chain, FofHasher, HashOutput, Hashable};
 
 /// Possible results of the KeyGen protocol.
 #[derive(Debug, Clone, Copy)]
@@ -63,7 +63,7 @@ impl<P: SchemeParams> Hashable for PublicData<P> {
 
 impl<P: SchemeParams> PublicData<P> {
     fn hash(&self, sid_hash: &HashOutput, party_idx: PartyIdx) -> HashOutput {
-        Hash::new_with_dst(b"KeyInit")
+        FofHasher::new_with_dst(b"KeyInit")
             .chain(sid_hash)
             .chain(&party_idx)
             .chain(self)
@@ -94,7 +94,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         party_idx: PartyIdx,
         _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
-        let sid_hash = Hash::new_with_dst(b"SID")
+        let sid_hash = FofHasher::new_with_dst(b"SID")
             .chain_type::<P>()
             .chain(&shared_randomness)
             .chain(&(u32::try_from(num_parties).unwrap()))
