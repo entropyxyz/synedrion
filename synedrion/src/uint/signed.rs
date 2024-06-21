@@ -209,7 +209,7 @@ where
         // Can unwrap here since the maximum bound on the positive Bounded
         // is always greater than the maximum bound on Signed
         Bounded::new(self.abs(), self.bound).expect(
-            "Bound for a positive Bounded is always greater than max bound for a Signed; qed",
+            "Max bound for a positive Bounded is always greater than max bound for a Signed; qed",
         )
     }
 
