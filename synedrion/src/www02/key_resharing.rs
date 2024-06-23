@@ -57,7 +57,7 @@ pub struct NewHolder<I> {
     pub verifying_key: VerifyingKey,
     /// The old threshold.
     pub old_threshold: usize,
-    /// The list of holders of the old shares (order not important).
+    /// Some of the holders of the old shares (at least `old_threshold` of them).
     pub old_holders: BTreeSet<I>,
 }
 
@@ -68,7 +68,7 @@ pub struct KeyResharingInputs<P: SchemeParams, I> {
     pub old_holder: Option<OldHolder<P, I>>,
     /// New share data if the node is one of the new holders, or `None`.
     pub new_holder: Option<NewHolder<I>>,
-    /// A list of new holders of the shares (order not important).
+    /// The new holders of the shares.
     pub new_holders: BTreeSet<I>,
     /// The new threshold.
     pub new_threshold: usize,
