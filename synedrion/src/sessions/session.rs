@@ -11,7 +11,7 @@ use signature::{
     Keypair,
 };
 
-use super::combined_message::{CheckedCombinedMessage, CombinedMessage, VerifiedCombinedMessage};
+use super::message_bundle::{CheckedMessageBundle, MessageBundle, VerifiedMessageBundle};
 use super::echo::{EchoAccum, EchoRound};
 use super::error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
 use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
@@ -50,7 +50,7 @@ enum MessageFor {
 
 fn route_message_normal<Res: ProtocolResult, Sig, Verifier>(
     round: &dyn DynFinalizable<Verifier, Res>,
-    message: &CheckedCombinedMessage<Sig>,
+    message: &CheckedMessageBundle<Sig>,
 ) -> Result<MessageFor, RemoteErrorEnum> {
     let this_round = round.round_num();
     let next_round = round.next_round_num();
@@ -78,7 +78,7 @@ fn route_message_normal<Res: ProtocolResult, Sig, Verifier>(
 
 fn route_message_echo<Res: ProtocolResult, Sig, Verifier>(
     next_round: &dyn DynFinalizable<Verifier, Res>,
-    message: &CheckedCombinedMessage<Sig>,
+    message: &CheckedMessageBundle<Sig>,
 ) -> Result<MessageFor, RemoteErrorEnum> {
     let next_round = next_round.round_num();
     let message_round = message.round();
@@ -279,7 +279,7 @@ where
         &self,
         rng: &mut impl CryptoRngCore,
         destination: &Verifier,
-    ) -> Result<(CombinedMessage<Sig>, Artifact<Verifier>), LocalError> {
+    ) -> Result<(MessageBundle<Sig>, Artifact<Verifier>), LocalError> {
         match &self.tp {
             SessionType::Normal {
                 this_round,
@@ -305,12 +305,12 @@ where
                 };
 
                 let message = match (broadcast, direct_message) {
-                    (Some(broadcast), Some(direct)) => CombinedMessage::Both {
+                    (Some(broadcast), Some(direct)) => MessageBundle::Both {
                         broadcast: broadcast.clone(),
                         direct,
                     },
-                    (None, Some(direct)) => CombinedMessage::One(direct),
-                    (Some(broadcast), None) => CombinedMessage::One(broadcast.clone()),
+                    (None, Some(direct)) => MessageBundle::One(direct),
+                    (Some(broadcast), None) => MessageBundle::One(broadcast.clone()),
                     (None, None) => return Err(LocalError("The round must send messages".into())),
                 };
 
@@ -339,7 +339,7 @@ where
                 )?
                 .into_unverified();
                 Ok((
-                    CombinedMessage::One(message),
+                    MessageBundle::One(message),
                     Artifact {
                         destination: destination.clone(),
                         artifact,
@@ -352,7 +352,7 @@ where
     fn route_message(
         &self,
         from: &Verifier,
-        message: &CheckedCombinedMessage<Sig>,
+        message: &CheckedMessageBundle<Sig>,
     ) -> Result<MessageFor, Error<Res, Verifier>> {
         let message_for = match &self.tp {
             SessionType::Normal { this_round, .. } => {
@@ -376,7 +376,7 @@ where
         &self,
         accum: &mut RoundAccumulator<Sig, Verifier>,
         from: &Verifier,
-        message: CombinedMessage<Sig>,
+        message: MessageBundle<Sig>,
     ) -> Result<Option<PreprocessedMessage<Sig, Verifier>>, Error<Res, Verifier>> {
         let checked = message.check().map_err(|msg| {
             Error::Remote(RemoteError {
@@ -576,7 +576,7 @@ where
 
 /// A mutable accumulator created for each round to assemble processed messages from other parties.
 pub struct RoundAccumulator<Sig, Verifier> {
-    received_messages: BTreeMap<Verifier, VerifiedCombinedMessage<Sig>>,
+    received_messages: BTreeMap<Verifier, VerifiedMessageBundle<Sig>>,
     processed: DynRoundAccum<Verifier>,
     cached_messages: BTreeMap<Verifier, PreprocessedMessage<Sig, Verifier>>,
     echo_accum: Option<EchoAccum<Verifier>>,
@@ -670,7 +670,7 @@ pub struct Artifact<Verifier> {
 /// A message that passed initial validity checks.
 pub struct PreprocessedMessage<Sig, Verifier> {
     from: Verifier,
-    message: VerifiedCombinedMessage<Sig>,
+    message: VerifiedMessageBundle<Sig>,
 }
 
 /// A processed message from another party.
@@ -682,7 +682,7 @@ pub struct ProcessedMessage<Sig, Verifier> {
 enum ProcessedMessageEnum<Sig> {
     Payload {
         payload: DynPayload,
-        message: VerifiedCombinedMessage<Sig>,
+        message: VerifiedMessageBundle<Sig>,
     },
     Echo,
 }
@@ -692,7 +692,7 @@ mod tests {
     use impls::impls;
     use k256::ecdsa::{Signature, SigningKey, VerifyingKey};
 
-    use super::{Artifact, CombinedMessage, PreprocessedMessage, ProcessedMessage, Session};
+    use super::{Artifact, MessageBundle, PreprocessedMessage, ProcessedMessage, Session};
     use crate::ProtocolResult;
 
     #[test]
@@ -715,7 +715,7 @@ mod tests {
         }
 
         assert!(impls!(Session<DummyResult, Signature, SigningKey, VerifyingKey>: Sync));
-        assert!(impls!(CombinedMessage<Signature>: Send));
+        assert!(impls!(MessageBundle<Signature>: Send));
         assert!(impls!(Artifact<VerifyingKey>: Send));
         assert!(impls!(PreprocessedMessage<Signature, VerifyingKey>: Send));
         assert!(impls!(ProcessedMessage<Signature, VerifyingKey>: Send));
