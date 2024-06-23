@@ -44,6 +44,7 @@ pub enum AccumAddError {
 
 #[derive(Debug, Clone)]
 pub enum AccumFinalizeError {
+    #[allow(dead_code)]
     Downcast(String),
 }
 
