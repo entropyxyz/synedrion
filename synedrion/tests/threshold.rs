@@ -8,12 +8,12 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     make_aux_gen_session, make_interactive_signing_session, make_key_init_session,
-    make_key_resharing_session, CombinedMessage, FinalizeOutcome, KeyResharingInputs, NewHolder,
+    make_key_resharing_session, FinalizeOutcome, KeyResharingInputs, MessageBundle, NewHolder,
     OldHolder, ProtocolResult, Session, TestParams, ThresholdKeyShare,
 };
 
-type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
-type MessageIn = (VerifyingKey, CombinedMessage<Signature>);
+type MessageOut = (VerifyingKey, VerifyingKey, MessageBundle<Signature>);
+type MessageIn = (VerifyingKey, MessageBundle<Signature>);
 
 fn key_to_str(key: &VerifyingKey) -> String {
     hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])
