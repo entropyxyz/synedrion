@@ -32,7 +32,7 @@ use crate::uint::UintLike;
 #[derive(Debug)]
 pub struct KeyRefreshResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug> ProtocolResult for KeyRefreshResult<P, I> {
+impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for KeyRefreshResult<P, I> {
     type Success = (KeyShareChange<P, I>, AuxInfo<P, I>);
     type ProvableError = KeyRefreshError<P>;
     type CorrectnessProof = ();

@@ -21,8 +21,8 @@ use crate::paillier::RandomizerMod;
 /// The result of the KeyInit protocol.
 // TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
-#[derive(Debug, Clone)]
-pub struct KeyShare<P, I> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyShare<P, I: Ord> {
     pub(crate) owner: I,
     /// Secret key share of this node.
     pub(crate) secret_share: Scalar, // `x_i`
@@ -32,8 +32,8 @@ pub struct KeyShare<P, I> {
 }
 
 /// The result of the AuxGen protocol.
-#[derive(Debug, Clone)]
-pub struct AuxInfo<P: SchemeParams, I> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuxInfo<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     pub(crate) secret_aux: SecretAuxInfo<P>,
     pub(crate) public_aux: BTreeMap<I, PublicAuxInfo<P>>,
@@ -82,8 +82,8 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
-#[derive(Debug, Clone)]
-pub struct KeyShareChange<P: SchemeParams, I> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyShareChange<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.
     pub(crate) secret_share_change: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`

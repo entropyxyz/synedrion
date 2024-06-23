@@ -44,7 +44,7 @@ pub enum PresigningError {
     Round3(String),
 }
 
-struct Context<P: SchemeParams, I> {
+struct Context<P: SchemeParams, I: Ord> {
     ssid_hash: HashOutput,
     my_id: I,
     other_ids: BTreeSet<I>,
@@ -56,7 +56,7 @@ struct Context<P: SchemeParams, I> {
     nu: RandomizerMod<P::Paillier>,
 }
 
-pub struct Round1<P: SchemeParams, I> {
+pub struct Round1<P: SchemeParams, I: Ord> {
     context: Context<P, I>,
     cap_k: CiphertextMod<P::Paillier>,
     cap_g: CiphertextMod<P::Paillier>,
@@ -262,7 +262,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
     }
 }
 
-pub struct Round2<P: SchemeParams, I> {
+pub struct Round2<P: SchemeParams, I: Ord> {
     context: Context<P, I>,
     all_cap_k: BTreeMap<I, CiphertextMod<P::Paillier>>,
     all_cap_g: BTreeMap<I, CiphertextMod<P::Paillier>>,
@@ -571,7 +571,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
     }
 }
 
-pub struct Round3<P: SchemeParams, I> {
+pub struct Round3<P: SchemeParams, I: Ord> {
     context: Context<P, I>,
     delta: Signed<<P::Paillier as PaillierParams>::Uint>,
     chi: Signed<<P::Paillier as PaillierParams>::Uint>,

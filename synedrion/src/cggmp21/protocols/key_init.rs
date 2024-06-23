@@ -25,7 +25,7 @@ use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 #[derive(Debug, Clone, Copy)]
 pub struct KeyInitResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug> ProtocolResult for KeyInitResult<P, I> {
+impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for KeyInitResult<P, I> {
     type Success = KeyShare<P, I>;
     type ProvableError = KeyInitError;
     type CorrectnessProof = ();

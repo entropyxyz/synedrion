@@ -40,7 +40,7 @@ pub struct SigningProof<P: SchemeParams, I> {
     dec_proofs: Vec<(I, DecProof<P>)>,
 }
 
-pub struct Round1<P: SchemeParams, I> {
+pub struct Round1<P: SchemeParams, I: Ord> {
     ssid_hash: HashOutput,
     r: Scalar,
     sigma: Scalar,
@@ -51,7 +51,7 @@ pub struct Round1<P: SchemeParams, I> {
 }
 
 #[derive(Clone)]
-pub struct Inputs<P: SchemeParams, I> {
+pub struct Inputs<P: SchemeParams, I: Ord> {
     pub message: Scalar,
     pub presigning: PresigningData<P, I>,
     pub key_share: KeyShare<P, I>,

@@ -30,7 +30,7 @@ use crate::uint::UintLike;
 #[derive(Debug, Clone, Copy)]
 pub struct AuxGenResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug> ProtocolResult for AuxGenResult<P, I> {
+impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for AuxGenResult<P, I> {
     type Success = AuxInfo<P, I>;
     type ProvableError = AuxGenError;
     type CorrectnessProof = ();
