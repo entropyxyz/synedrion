@@ -85,7 +85,7 @@ impl<P: SchemeParams, I: Debug> CorrectnessProofWrapper<SigningResult<P, I>>
     }
 }
 
-struct Context<P: SchemeParams, I> {
+struct Context<P: SchemeParams, I: Ord> {
     shared_randomness: Box<[u8]>,
     key_share: KeyShare<P, I>,
     aux_info: AuxInfo<P, I>,
@@ -93,13 +93,13 @@ struct Context<P: SchemeParams, I> {
 }
 
 #[derive(Clone)]
-pub(crate) struct Inputs<P: SchemeParams, I> {
+pub(crate) struct Inputs<P: SchemeParams, I: Ord> {
     pub(crate) key_share: KeyShare<P, I>,
     pub(crate) aux_info: AuxInfo<P, I>,
     pub(crate) message: Scalar,
 }
 
-pub(crate) struct Round1<P: SchemeParams, I> {
+pub(crate) struct Round1<P: SchemeParams, I: Ord> {
     round: presigning::Round1<P, I>,
     context: Context<P, I>,
 }
@@ -141,7 +141,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> RoundWrapper<I> for Ro
     }
 }
 
-impl<P: SchemeParams, I> WrappedRound for Round1<P, I> {}
+impl<P: SchemeParams, I: Ord> WrappedRound for Round1<P, I> {}
 
 impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
     for Round1<P, I>
@@ -164,7 +164,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
     }
 }
 
-pub(crate) struct Round2<P: SchemeParams, I> {
+pub(crate) struct Round2<P: SchemeParams, I: Ord> {
     round: presigning::Round2<P, I>,
     context: Context<P, I>,
 }
@@ -180,7 +180,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> RoundWrapper<I> for Ro
     }
 }
 
-impl<P: SchemeParams, I> WrappedRound for Round2<P, I> {}
+impl<P: SchemeParams, I: Ord> WrappedRound for Round2<P, I> {}
 
 impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
     for Round2<P, I>
@@ -203,7 +203,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
     }
 }
 
-pub(crate) struct Round3<P: SchemeParams, I> {
+pub(crate) struct Round3<P: SchemeParams, I: Ord> {
     round: presigning::Round3<P, I>,
     context: Context<P, I>,
 }
@@ -219,7 +219,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> RoundWrapper<I> for Ro
     }
 }
 
-impl<P: SchemeParams, I> WrappedRound for Round3<P, I> {}
+impl<P: SchemeParams, I: Ord> WrappedRound for Round3<P, I> {}
 
 impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
     for Round3<P, I>
@@ -258,7 +258,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
     }
 }
 
-pub(crate) struct Round4<P: SchemeParams, I> {
+pub(crate) struct Round4<P: SchemeParams, I: Ord> {
     round: signing::Round1<P, I>,
 }
 
@@ -273,7 +273,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> RoundWrapper<I> for Ro
     }
 }
 
-impl<P: SchemeParams, I> WrappedRound for Round4<P, I> {}
+impl<P: SchemeParams, I: Ord> WrappedRound for Round4<P, I> {}
 
 impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round4<P, I> {
     fn finalize_to_result(

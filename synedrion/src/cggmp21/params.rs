@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use crate::curve::{Curve, Scalar, ORDER};
 use crate::paillier::PaillierParams;
 use crate::tools::hashing::{Chain, HashableType};
@@ -78,9 +80,7 @@ impl PaillierParams for PaillierProduction {
 /// Signing scheme parameters.
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
-pub trait SchemeParams:
-    Clone + Send + PartialEq + Eq + core::fmt::Debug + Send + Sync + 'static
-{
+pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static {
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.

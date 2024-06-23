@@ -21,7 +21,7 @@ use crate::rounds::{
 #[derive(Debug)]
 pub struct KeyGenResult<P: SchemeParams, I>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug> ProtocolResult for KeyGenResult<P, I> {
+impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for KeyGenResult<P, I> {
     type Success = (KeyShare<P, I>, AuxInfo<P, I>);
     type ProvableError = KeyGenError<P, I>;
     type CorrectnessProof = KeyGenProof<P, I>;
@@ -29,7 +29,7 @@ impl<P: SchemeParams, I: Debug> ProtocolResult for KeyGenResult<P, I> {
 
 /// Possible verifiable errors of the merged KeyGen and KeyRefresh protocols.
 #[derive(Debug)]
-pub enum KeyGenError<P: SchemeParams, I: Debug> {
+pub enum KeyGenError<P: SchemeParams, I: Debug + Ord> {
     /// An error in the KeyGen part of the protocol.
     KeyInit(<KeyInitResult<P, I> as ProtocolResult>::ProvableError),
     /// An error in the KeyRefresh part of the protocol.
@@ -38,14 +38,14 @@ pub enum KeyGenError<P: SchemeParams, I: Debug> {
 
 /// A proof of a node's correct behavior for the merged KeyGen and KeyRefresh protocols.
 #[derive(Debug)]
-pub enum KeyGenProof<P: SchemeParams, I: Debug> {
+pub enum KeyGenProof<P: SchemeParams, I: Debug + Ord> {
     /// A proof for the KeyGen part of the protocol.
     KeyInit(<KeyInitResult<P, I> as ProtocolResult>::CorrectnessProof),
     /// A proof for the KeyRefresh part of the protocol.
     KeyRefresh(<KeyRefreshResult<P, I> as ProtocolResult>::CorrectnessProof),
 }
 
-impl<P: SchemeParams, I: Debug> CorrectnessProofWrapper<KeyInitResult<P, I>>
+impl<P: SchemeParams, I: Debug + Ord> CorrectnessProofWrapper<KeyInitResult<P, I>>
     for KeyGenResult<P, I>
 {
     fn wrap_proof(
@@ -55,7 +55,7 @@ impl<P: SchemeParams, I: Debug> CorrectnessProofWrapper<KeyInitResult<P, I>>
     }
 }
 
-impl<P: SchemeParams, I: Debug> CorrectnessProofWrapper<KeyRefreshResult<P, I>>
+impl<P: SchemeParams, I: Debug + Ord> CorrectnessProofWrapper<KeyRefreshResult<P, I>>
     for KeyGenResult<P, I>
 {
     fn wrap_proof(

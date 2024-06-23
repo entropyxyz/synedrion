@@ -7,6 +7,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
+use secrecy::Secret;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
@@ -25,7 +26,7 @@ use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 #[derive(Debug, Clone, Copy)]
 pub struct KeyInitResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug> ProtocolResult for KeyInitResult<P, I> {
+impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for KeyInitResult<P, I> {
     type Success = KeyShare<P, I>;
     type ProvableError = KeyInitError;
     type CorrectnessProof = ();
@@ -363,7 +364,7 @@ impl<P: SchemeParams, I: Serialize + Clone + Ord + Debug> FinalizableToResult<I>
         public_shares.insert(my_id.clone(), self.context.public_data.cap_x);
         Ok(KeyShare {
             owner: my_id,
-            secret_share: self.context.x,
+            secret_share: Secret::new(self.context.x),
             public_shares,
             phantom: PhantomData,
         })
@@ -375,6 +376,7 @@ mod tests {
     use alloc::collections::{BTreeMap, BTreeSet};
 
     use rand_core::{OsRng, RngCore};
+    use secrecy::ExposeSecret;
 
     use super::Round1;
     use crate::cggmp21::TestParams;
@@ -426,7 +428,7 @@ mod tests {
 
         let public_from_secret = shares
             .into_iter()
-            .map(|(id, share)| (id, share.secret_share.mul_by_generator()))
+            .map(|(id, share)| (id, share.secret_share.expose_secret().mul_by_generator()))
             .collect();
 
         assert!(public_set == &public_from_secret);

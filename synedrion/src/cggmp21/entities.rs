@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 
 use crate::cggmp21::SchemeParams;
@@ -19,34 +20,30 @@ use crate::uint::Signed;
 use crate::paillier::RandomizerMod;
 
 /// The result of the KeyInit protocol.
-// TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
-// or in a `SecretBox`-type wrapper.
-#[derive(Clone)]
-pub struct KeyShare<P, I> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyShare<P, I: Ord> {
     pub(crate) owner: I,
     /// Secret key share of this node.
-    pub(crate) secret_share: Scalar, // `x_i`
+    pub(crate) secret_share: Secret<Scalar>, // `x_i`
     pub(crate) public_shares: BTreeMap<I, Point>, // `X_j`
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
     pub(crate) phantom: PhantomData<P>,
 }
 
 /// The result of the AuxGen protocol.
-#[derive(Clone)]
-pub struct AuxInfo<P: SchemeParams, I> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuxInfo<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     pub(crate) secret_aux: SecretAuxInfo<P>,
     pub(crate) public_aux: BTreeMap<I, PublicAuxInfo<P>>,
 }
 
-// TODO (#77): Debug can be derived automatically here if `el_gamal_sk` is wrapped in its own struct,
-// or in a `SecretBox`-type wrapper.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct SecretAuxInfo<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
-    pub(crate) el_gamal_sk: Scalar, // `y_i`
+    pub(crate) el_gamal_sk: Secret<Scalar>, // `y_i`
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,7 +67,7 @@ pub(crate) struct AuxInfoPrecomputed<P: SchemeParams, I> {
 pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
     #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
-    pub(crate) el_gamal_sk: Scalar, // `y_i`
+    pub(crate) el_gamal_sk: Secret<Scalar>, // `y_i`
 }
 
 #[derive(Clone)]
@@ -82,11 +79,11 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
-#[derive(Clone)]
-pub struct KeyShareChange<P: SchemeParams, I> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyShareChange<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.
-    pub(crate) secret_share_change: Scalar, // `x_i^* - x_i == \sum_{j} x_j^i`
+    pub(crate) secret_share_change: Secret<Scalar>, // `x_i^* - x_i == \sum_{j} x_j^i`
     /// The values to be added to the public shares of remote nodes.
     pub(crate) public_share_changes: BTreeMap<I, Point>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
@@ -98,9 +95,9 @@ pub struct KeyShareChange<P: SchemeParams, I> {
 pub struct PresigningData<P: SchemeParams, I> {
     pub(crate) nonce: Scalar, // x-coordinate of $R$
     /// An additive share of the ephemeral scalar.
-    pub(crate) ephemeral_scalar_share: Scalar, // $k_i$
+    pub(crate) ephemeral_scalar_share: Secret<Scalar>, // $k_i$
     /// An additive share of `k * x` where `x` is the secret key.
-    pub(crate) product_share: Scalar,
+    pub(crate) product_share: Secret<Scalar>,
 
     // Values generated during presigning,
     // kept in case we need to generate a proof of correctness.
@@ -132,7 +129,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
         // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
         assert_eq!(self.owner, change.owner);
 
-        let secret_share = self.secret_share + change.secret_share_change;
+        let secret_share = Secret::new(
+            self.secret_share.expose_secret() + change.secret_share_change.expose_secret(),
+        );
         let public_shares = self
             .public_shares
             .iter()
@@ -173,7 +172,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
                     id.clone(),
                     KeyShare {
                         owner: id.clone(),
-                        secret_share,
+                        secret_share: Secret::new(secret_share),
                         public_shares: public_shares.clone(),
                         phantom: PhantomData,
                     },
@@ -216,7 +215,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
         let secret_aux = (0..ids.len())
             .map(|_| SecretAuxInfo {
                 paillier_sk: SecretKeyPaillier::<P::Paillier>::random(rng),
-                el_gamal_sk: Scalar::random(rng),
+                el_gamal_sk: Secret::new(Scalar::random(rng)),
             })
             .collect::<Vec<_>>();
 
@@ -229,7 +228,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
                     id.clone(),
                     PublicAuxInfo {
                         paillier_pk: sk.public_key().to_minimal(),
-                        el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
+                        el_gamal_pk: secret.el_gamal_sk.expose_secret().mul_by_generator(),
                         rp_params: RPParamsMod::random(rng, &sk).retrieve(),
                     },
                 )
@@ -255,7 +254,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
         AuxInfoPrecomputed {
             secret_aux: SecretAuxInfoPrecomputed {
                 paillier_sk: self.secret_aux.paillier_sk.to_precomputed(),
-                el_gamal_sk: self.secret_aux.el_gamal_sk,
+                el_gamal_sk: self.secret_aux.el_gamal_sk.clone(),
             },
             public_aux: self
                 .public_aux
@@ -326,7 +325,7 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
         let mut hat_cap_fs = BTreeMap::new();
 
         for id_i in ids.iter() {
-            let x_i = key_shares[id_i].secret_share;
+            let x_i = key_shares[id_i].secret_share.clone();
             let pk_i = &public_keys[id_i];
 
             for id_j in ids.iter().filter(|id| id != &id_i) {
@@ -334,7 +333,7 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 let hat_s = RandomizerMod::random(rng, &public_keys[&id_j]).retrieve();
                 let hat_r = RandomizerMod::random(rng, pk_i).retrieve();
 
-                let hat_cap_d = &all_cap_k[id_j] * P::signed_from_scalar(&x_i)
+                let hat_cap_d = &all_cap_k[id_j] * P::signed_from_scalar(x_i.expose_secret())
                     + CiphertextMod::new_with_randomizer_signed(
                         &public_keys[&id_j],
                         &-hat_beta,
@@ -379,14 +378,14 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 );
             }
 
-            let x_i = key_shares[&id_i].secret_share;
+            let x_i = key_shares[&id_i].secret_share.clone();
             let k_i = ephemeral_scalar_shares[&id_i];
 
             let alpha_sum: Signed<_> = ids
                 .iter()
                 .filter(|id| id != &&id_i)
                 .map(|id_j| {
-                    P::signed_from_scalar(&key_shares[id_j].secret_share)
+                    P::signed_from_scalar(key_shares[id_j].secret_share.expose_secret())
                         * P::signed_from_scalar(&k_i)
                         - hat_betas[&(id_j.clone(), id_i.clone())]
                 })
@@ -397,15 +396,17 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 .filter(|id| id != &&id_i)
                 .map(|id_j| hat_betas[&(id_i.clone(), id_j.clone())])
                 .sum();
-            let product_share_nonreduced =
-                P::signed_from_scalar(&x_i) * P::signed_from_scalar(&k_i) + alpha_sum + beta_sum;
+            let product_share_nonreduced = P::signed_from_scalar(x_i.expose_secret())
+                * P::signed_from_scalar(&k_i)
+                + alpha_sum
+                + beta_sum;
 
             presigning.insert(
                 id_i.clone(),
                 PresigningData {
                     nonce,
-                    ephemeral_scalar_share: k_i,
-                    product_share: P::scalar_from_signed(&product_share_nonreduced),
+                    ephemeral_scalar_share: Secret::new(k_i),
+                    product_share: Secret::new(P::scalar_from_signed(&product_share_nonreduced)),
                     product_share_nonreduced,
                     cap_k: all_cap_k[&id_i].clone(),
                     values,

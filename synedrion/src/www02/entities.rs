@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, Secret};
 
 use crate::cggmp21::{KeyShare, SchemeParams};
 use crate::curve::{Point, Scalar};
@@ -13,11 +14,11 @@ use crate::tools::sss::{
 
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ThresholdKeyShare<P: SchemeParams, I> {
     pub(crate) owner: I,
     pub(crate) threshold: u32,
-    pub(crate) secret_share: Scalar,
+    pub(crate) secret_share: Secret<Scalar>,
     pub(crate) share_ids: BTreeMap<I, ShareId>,
     pub(crate) public_shares: BTreeMap<I, Point>,
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
@@ -69,7 +70,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                     Self {
                         owner: id.clone(),
                         threshold: threshold as u32,
-                        secret_share: secret_shares[&share_ids[id]],
+                        secret_share: Secret::new(secret_shares[&share_ids[id]]),
                         share_ids: share_ids.clone(),
                         public_shares: public_shares.clone(),
                         phantom: PhantomData,
@@ -108,7 +109,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .map(|id| (id.clone(), self.share_ids[id]))
             .collect::<BTreeMap<_, _>>();
 
-        let secret_share = self.secret_share * interpolation_coeff(share_ids.values(), &share_id);
+        let secret_share = Secret::new(
+            self.secret_share.expose_secret() * &interpolation_coeff(share_ids.values(), &share_id),
+        );
         let public_shares = ids
             .iter()
             .map(|id| {
@@ -137,10 +140,12 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .zip((1..=ids.len()).map(ShareId::new))
             .collect::<BTreeMap<_, _>>();
 
-        let secret_share = key_share.secret_share
-            * interpolation_coeff(share_ids.values(), &share_ids[key_share.owner()])
-                .invert()
-                .unwrap();
+        let secret_share = Secret::new(
+            key_share.secret_share.expose_secret()
+                * &interpolation_coeff(share_ids.values(), &share_ids[key_share.owner()])
+                    .invert()
+                    .unwrap(),
+        );
         let public_shares = ids
             .iter()
             .map(|id| {
@@ -170,6 +175,7 @@ mod tests {
 
     use k256::ecdsa::SigningKey;
     use rand_core::OsRng;
+    use secrecy::ExposeSecret;
 
     use super::ThresholdKeyShare;
     use crate::cggmp21::TestParams;
@@ -196,7 +202,7 @@ mod tests {
         let nt_share1 = shares[&Id(2)].to_key_share(&ids_subset);
 
         assert_eq!(
-            nt_share0.secret_share + nt_share1.secret_share,
+            nt_share0.secret_share.expose_secret() + nt_share1.secret_share.expose_secret(),
             Scalar::from(sk.as_nonzero_scalar())
         );
         assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
