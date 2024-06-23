@@ -9,6 +9,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
+use secrecy::Secret;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
@@ -658,12 +659,12 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
         let secret_aux = SecretAuxInfo {
             paillier_sk: self.context.paillier_sk.to_minimal(),
-            el_gamal_sk: self.context.y,
+            el_gamal_sk: Secret::new(self.context.y),
         };
 
         let key_share_change = KeyShareChange {
             owner: my_id.clone(),
-            secret_share_change: x_star,
+            secret_share_change: Secret::new(x_star),
             public_share_changes: cap_x_star,
             phantom: PhantomData,
         };
@@ -684,6 +685,7 @@ mod tests {
     use alloc::collections::{BTreeMap, BTreeSet};
 
     use rand_core::{OsRng, RngCore};
+    use secrecy::ExposeSecret;
 
     use super::Round1;
     use crate::cggmp21::TestParams;
@@ -731,7 +733,10 @@ mod tests {
         for (id, change) in changes.iter() {
             for other_change in changes.values() {
                 assert_eq!(
-                    change.secret_share_change.mul_by_generator(),
+                    change
+                        .secret_share_change
+                        .expose_secret()
+                        .mul_by_generator(),
                     other_change.public_share_changes[id]
                 );
             }
@@ -740,7 +745,11 @@ mod tests {
         for (id, aux_info) in aux_infos.iter() {
             for other_aux_info in aux_infos.values() {
                 assert_eq!(
-                    aux_info.secret_aux.el_gamal_sk.mul_by_generator(),
+                    aux_info
+                        .secret_aux
+                        .el_gamal_sk
+                        .expose_secret()
+                        .mul_by_generator(),
                     other_aux_info.public_aux[id].el_gamal_pk
                 );
             }
@@ -750,7 +759,7 @@ mod tests {
         // should not change after applying the masks at each node.
         let mask_sum: Scalar = changes
             .values()
-            .map(|change| change.secret_share_change)
+            .map(|change| change.secret_share_change.expose_secret())
             .sum();
         assert_eq!(mask_sum, Scalar::ZERO);
     }

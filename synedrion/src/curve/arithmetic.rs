@@ -21,7 +21,9 @@ use k256::elliptic_curve::{
 };
 use k256::{ecdsa::VerifyingKey, Secp256k1};
 use rand_core::CryptoRngCore;
+use secrecy::{CloneableSecret, DebugSecret, SerializableSecret};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zeroize::DefaultIsZeroes;
 
 use crate::tools::hashing::{Chain, HashableType};
 use crate::tools::serde_bytes;
@@ -148,6 +150,14 @@ impl<'de> Deserialize<'de> for Scalar {
     }
 }
 
+impl DefaultIsZeroes for Scalar {}
+
+impl DebugSecret for Scalar {}
+
+impl CloneableSecret for Scalar {}
+
+impl SerializableSecret for Scalar {}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point(BackendPoint);
 
@@ -232,6 +242,14 @@ impl Add<Scalar> for Scalar {
     type Output = Scalar;
 
     fn add(self, other: Scalar) -> Scalar {
+        Scalar(self.0.add(&other.0))
+    }
+}
+
+impl Add<&Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn add(self, other: &Scalar) -> Scalar {
         Scalar(self.0.add(&other.0))
     }
 }

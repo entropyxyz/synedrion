@@ -7,6 +7,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 
 use super::super::{
@@ -358,7 +359,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let hat_cap_f = CiphertextMod::new_with_randomizer_signed(pk, &hat_beta, &hat_r.retrieve());
         let hat_cap_d = &self.all_cap_k[destination]
-            * P::signed_from_scalar(&self.context.key_share.secret_share)
+            * P::signed_from_scalar(self.context.key_share.secret_share.expose_secret())
             + CiphertextMod::new_with_randomizer_signed(target_pk, &-hat_beta, &hat_s.retrieve());
 
         let public_aux = &self.context.aux_info.public_aux[destination];
@@ -382,7 +383,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let hat_psi = AffGProof::new(
             rng,
-            &P::signed_from_scalar(&self.context.key_share.secret_share),
+            &P::signed_from_scalar(self.context.key_share.secret_share.expose_secret()),
             &hat_beta,
             &hat_s,
             &hat_r,
@@ -546,7 +547,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
 
         let hat_alpha_sum: Signed<_> = payloads.values().map(|payload| payload.hat_alpha).sum();
         let hat_beta_sum: Signed<_> = artifacts.values().map(|artifact| artifact.hat_beta).sum();
-        let chi = P::signed_from_scalar(&self.context.key_share.secret_share)
+        let chi = P::signed_from_scalar(self.context.key_share.secret_share.expose_secret())
             * P::signed_from_scalar(&self.context.k)
             + hat_alpha_sum
             + hat_beta_sum;
@@ -729,8 +730,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
             return Ok(PresigningData {
                 nonce,
-                ephemeral_scalar_share: self.context.k,
-                product_share: P::scalar_from_signed(&self.chi),
+                ephemeral_scalar_share: Secret::new(self.context.k),
+                product_share: Secret::new(P::scalar_from_signed(&self.chi)),
                 product_share_nonreduced: self.chi,
                 cap_k: self.all_cap_k[&my_id].clone(),
                 values,
@@ -864,6 +865,7 @@ mod tests {
     use alloc::collections::BTreeSet;
 
     use rand_core::{OsRng, RngCore};
+    use secrecy::ExposeSecret;
 
     use super::Round1;
     use crate::cggmp21::{AuxInfo, KeyShare, TestParams};
@@ -918,13 +920,16 @@ mod tests {
         // Check that the additive shares were constructed in a consistent way.
         let k: Scalar = presigning_datas
             .values()
-            .map(|data| data.ephemeral_scalar_share)
+            .map(|data| data.ephemeral_scalar_share.expose_secret())
             .sum();
         let k_times_x: Scalar = presigning_datas
             .values()
-            .map(|data| data.product_share)
+            .map(|data| data.product_share.expose_secret())
             .sum();
-        let x: Scalar = key_shares.values().map(|share| share.secret_share).sum();
+        let x: Scalar = key_shares
+            .values()
+            .map(|share| share.secret_share.expose_secret())
+            .sum();
         assert_eq!(x * k, k_times_x);
         assert_eq!(
             k.invert().unwrap().mul_by_generator().x_coordinate(),

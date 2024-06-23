@@ -3,6 +3,7 @@ use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
 
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
@@ -12,7 +13,7 @@ use crate::uint::{
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZeroizeOnDrop)]
 pub(crate) struct Randomizer<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> Randomizer<P> {
@@ -25,7 +26,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub(crate) struct RandomizerMod<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> RandomizerMod<P> {

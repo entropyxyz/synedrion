@@ -6,6 +6,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
@@ -78,8 +79,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Roun
             .finalize();
 
         let r = inputs.presigning.nonce;
-        let sigma = inputs.presigning.ephemeral_scalar_share * inputs.message
-            + r * inputs.presigning.product_share;
+        let sigma = inputs.presigning.ephemeral_scalar_share.expose_secret() * &inputs.message
+            + r * inputs.presigning.product_share.expose_secret();
         Ok(Self {
             ssid_hash,
             r,
@@ -165,7 +166,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
             return Ok(signature);
         }
 
-        let aux = (&self.ssid_hash, self.my_id());
+        let my_id = self.my_id().clone();
+        let aux = (&self.ssid_hash, &my_id);
 
         let sk = &self.aux_info.secret_aux.paillier_sk;
         let pk = sk.public_key();
@@ -183,7 +185,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
-                    &P::signed_from_scalar(&self.inputs.key_share.secret_share),
+                    &P::signed_from_scalar(self.inputs.key_share.secret_share.expose_secret()),
                     &values.hat_beta,
                     &values.hat_s.to_mod(target_pk),
                     &values.hat_r.to_mod(pk),
@@ -192,7 +194,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
                     &values.cap_k,
                     &values.hat_cap_d,
                     &values.hat_cap_f,
-                    &self.inputs.key_share.public_shares[self.my_id()],
+                    &self.inputs.key_share.public_shares[&my_id],
                     rp,
                     &aux,
                 );
@@ -203,7 +205,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
                     &values.cap_k,
                     &values.hat_cap_d,
                     &values.hat_cap_f,
-                    &self.inputs.key_share.public_shares[self.my_id()],
+                    &self.inputs.key_share.public_shares[&my_id],
                     rp,
                     &aux,
                 ));
@@ -214,21 +216,21 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
         // mul* proofs
 
-        let x = self.inputs.key_share.secret_share;
-        let cap_x = self.inputs.key_share.public_shares[self.my_id()];
+        let x = &self.inputs.key_share.secret_share;
+        let cap_x = self.inputs.key_share.public_shares[&my_id];
 
         let rho = RandomizerMod::random(rng, pk);
-        let hat_cap_h = (&self.inputs.presigning.cap_k * P::bounded_from_scalar(&x))
+        let hat_cap_h = (&self.inputs.presigning.cap_k * P::bounded_from_scalar(x.expose_secret()))
             .mul_randomizer(&rho.retrieve());
 
-        let aux = (&self.ssid_hash, self.my_id());
+        let aux = (&self.ssid_hash, &my_id);
 
         let mut mul_star_proofs = Vec::new();
 
         for id_l in self.other_ids() {
             let p_mul = MulStarProof::<P>::new(
                 rng,
-                &P::signed_from_scalar(&x),
+                &P::signed_from_scalar(x.expose_secret()),
                 &rho,
                 pk,
                 &self.inputs.presigning.cap_k,
@@ -266,10 +268,13 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
         let rho = ciphertext.derive_randomizer(sk);
         // This is the same as `s_part` but if all the calculations were performed
         // without reducing modulo curve order.
-        let s_part_nonreduced =
-            P::signed_from_scalar(&self.inputs.presigning.ephemeral_scalar_share)
-                * P::signed_from_scalar(&self.inputs.message)
-                + self.inputs.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
+        let s_part_nonreduced = P::signed_from_scalar(
+            self.inputs
+                .presigning
+                .ephemeral_scalar_share
+                .expose_secret(),
+        ) * P::signed_from_scalar(&self.inputs.message)
+            + self.inputs.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
 
         let mut dec_proofs = Vec::new();
         for id_l in self.other_ids() {

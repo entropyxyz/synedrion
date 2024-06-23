@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::uint::{HasWide, UintLike, UintModLike};
 
@@ -15,6 +16,7 @@ pub trait PaillierParams: Debug + PartialEq + Eq + Clone + Send + Sync {
     /// An integer that fits a single RSA prime.
     type HalfUint: UintLike<ModUint = Self::HalfUintMod>
         + HasWide<Wide = Self::Uint>
+        + Zeroize
         + Serialize
         + for<'de> Deserialize<'de>;
     /// A modulo-residue counterpart of `HalfUint`.
@@ -22,14 +24,16 @@ pub trait PaillierParams: Debug + PartialEq + Eq + Clone + Send + Sync {
     /// An integer that fits the RSA modulus.
     type Uint: UintLike<ModUint = Self::UintMod>
         + HasWide<Wide = Self::WideUint>
+        + Zeroize
         + Serialize
         + for<'de> Deserialize<'de>;
     /// A modulo-residue counterpart of `Uint`.
-    type UintMod: UintModLike<RawUint = Self::Uint>;
+    type UintMod: UintModLike<RawUint = Self::Uint> + Zeroize;
     /// An integer that fits the squared RSA modulus.
     /// Used for Paillier ciphertexts.
     type WideUint: UintLike<ModUint = Self::WideUintMod>
         + HasWide<Wide = Self::ExtraWideUint>
+        + Zeroize
         + Serialize
         + for<'de> Deserialize<'de>;
     /// A modulo-residue counterpart of `WideUint`.

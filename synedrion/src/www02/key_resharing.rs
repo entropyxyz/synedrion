@@ -12,6 +12,7 @@ use core::marker::PhantomData;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 
 use super::ThresholdKeyShare;
@@ -130,7 +131,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> FirstRound<I> for Round1<P, I> {
         let old_holder = inputs.old_holder.map(|old_holder| {
             let polynomial = Polynomial::random(
                 rng,
-                &old_holder.key_share.secret_share,
+                old_holder.key_share.secret_share.expose_secret(),
                 inputs.new_threshold,
             );
             let public_polynomial = polynomial.public();
@@ -347,7 +348,7 @@ impl<P: SchemeParams, I: Ord + Clone + Debug> FinalizableToResult<I> for Round1<
             .iter()
             .map(|id| (payloads[id].old_share_id, payloads[id].subshare))
             .collect::<BTreeMap<_, _>>();
-        let secret_share = shamir_join_scalars(subshares.iter());
+        let secret_share = Secret::new(shamir_join_scalars(subshares.iter()));
 
         // Generate the public shares of all the new holders.
         let public_shares = self
@@ -380,6 +381,7 @@ mod tests {
     use alloc::collections::{BTreeMap, BTreeSet};
 
     use rand_core::{OsRng, RngCore};
+    use secrecy::ExposeSecret;
 
     use super::ThresholdKeyShare;
     use super::{KeyResharingInputs, NewHolder, OldHolder, Round1};
@@ -506,7 +508,7 @@ mod tests {
 
         // Check that the public keys correspond to the secret key shares
         for share in shares.values() {
-            let public = share.secret_share.mul_by_generator();
+            let public = share.secret_share.expose_secret().mul_by_generator();
             assert_eq!(public, share.public_shares[&share.owner]);
         }
     }
