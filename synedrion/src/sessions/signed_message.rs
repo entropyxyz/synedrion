@@ -10,7 +10,7 @@ use super::error::LocalError;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 use crate::tools::serde_bytes;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct SessionId(HashOutput);
 
 impl SessionId {
