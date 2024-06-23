@@ -1,8 +1,10 @@
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
+use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
+use serde::Serialize;
 
 use super::super::params::SchemeParams;
 use super::super::{AuxInfo, KeyShare};
@@ -11,103 +13,111 @@ use super::signing::{self, SigningResult};
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::rounds::{
     wrap_finalize_error, CorrectnessProofWrapper, FinalizableToNextRound, FinalizableToResult,
-    FinalizeError, FirstRound, InitError, PartyIdx, ProtocolResult, ProvableErrorWrapper, Round,
-    RoundWrapper, ToNextRound, ToResult,
+    FinalizeError, FirstRound, InitError, ProtocolResult, ProvableErrorWrapper, Round,
+    RoundWrapper, ToNextRound, ToResult, WrappedRound,
 };
 
 /// Possible results of the merged Presigning and Signing protocols.
-#[derive(Debug, Clone, Copy)]
-pub struct InteractiveSigningResult<P: SchemeParams>(PhantomData<P>);
+#[derive(Debug)]
+pub struct InteractiveSigningResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams> ProtocolResult for InteractiveSigningResult<P> {
+impl<P: SchemeParams, I: Debug> ProtocolResult for InteractiveSigningResult<P, I> {
     type Success = RecoverableSignature;
-    type ProvableError = InteractiveSigningError<P>;
-    type CorrectnessProof = InteractiveSigningProof<P>;
+    type ProvableError = InteractiveSigningError<P, I>;
+    type CorrectnessProof = InteractiveSigningProof<P, I>;
 }
 
 /// Possible verifiable errors of the merged Presigning and Signing protocols.
-#[derive(Debug, Clone)]
-pub enum InteractiveSigningError<P: SchemeParams> {
+#[derive(Debug)]
+pub enum InteractiveSigningError<P: SchemeParams, I: Debug> {
     /// An error in the Presigning part of the protocol.
-    Presigning(<PresigningResult<P> as ProtocolResult>::ProvableError),
+    Presigning(<PresigningResult<P, I> as ProtocolResult>::ProvableError),
     /// An error in the Signing part of the protocol.
-    Signing(<SigningResult<P> as ProtocolResult>::ProvableError),
+    Signing(<SigningResult<P, I> as ProtocolResult>::ProvableError),
 }
 
 /// A proof of a node's correct behavior for the merged Presigning and Signing protocols.
-#[derive(Debug, Clone)]
-pub enum InteractiveSigningProof<P: SchemeParams> {
+#[derive(Debug)]
+pub enum InteractiveSigningProof<P: SchemeParams, I: Debug> {
     /// A proof for the Presigning part of the protocol.
-    Presigning(<PresigningResult<P> as ProtocolResult>::CorrectnessProof),
+    Presigning(<PresigningResult<P, I> as ProtocolResult>::CorrectnessProof),
     /// A proof for the Signing part of the protocol.
-    Signing(<SigningResult<P> as ProtocolResult>::CorrectnessProof),
+    Signing(<SigningResult<P, I> as ProtocolResult>::CorrectnessProof),
 }
 
-impl<P: SchemeParams> ProvableErrorWrapper<PresigningResult<P>> for InteractiveSigningResult<P> {
+impl<P: SchemeParams, I: Debug> ProvableErrorWrapper<PresigningResult<P, I>>
+    for InteractiveSigningResult<P, I>
+{
     fn wrap_error(
-        error: <PresigningResult<P> as ProtocolResult>::ProvableError,
+        error: <PresigningResult<P, I> as ProtocolResult>::ProvableError,
     ) -> Self::ProvableError {
         InteractiveSigningError::Presigning(error)
     }
 }
 
-impl<P: SchemeParams> CorrectnessProofWrapper<PresigningResult<P>> for InteractiveSigningResult<P> {
+impl<P: SchemeParams, I: Debug> CorrectnessProofWrapper<PresigningResult<P, I>>
+    for InteractiveSigningResult<P, I>
+{
     fn wrap_proof(
-        proof: <PresigningResult<P> as ProtocolResult>::CorrectnessProof,
+        proof: <PresigningResult<P, I> as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
         InteractiveSigningProof::Presigning(proof)
     }
 }
 
-impl<P: SchemeParams> ProvableErrorWrapper<SigningResult<P>> for InteractiveSigningResult<P> {
+impl<P: SchemeParams, I: Debug> ProvableErrorWrapper<SigningResult<P, I>>
+    for InteractiveSigningResult<P, I>
+{
     fn wrap_error(
-        error: <SigningResult<P> as ProtocolResult>::ProvableError,
+        error: <SigningResult<P, I> as ProtocolResult>::ProvableError,
     ) -> Self::ProvableError {
         InteractiveSigningError::Signing(error)
     }
 }
 
-impl<P: SchemeParams> CorrectnessProofWrapper<SigningResult<P>> for InteractiveSigningResult<P> {
+impl<P: SchemeParams, I: Debug> CorrectnessProofWrapper<SigningResult<P, I>>
+    for InteractiveSigningResult<P, I>
+{
     fn wrap_proof(
-        proof: <SigningResult<P> as ProtocolResult>::CorrectnessProof,
+        proof: <SigningResult<P, I> as ProtocolResult>::CorrectnessProof,
     ) -> Self::CorrectnessProof {
         InteractiveSigningProof::Signing(proof)
     }
 }
 
-struct Context<P: SchemeParams> {
+struct Context<P: SchemeParams, I> {
     shared_randomness: Box<[u8]>,
-    key_share: KeyShare<P>,
-    aux_info: AuxInfo<P>,
+    key_share: KeyShare<P, I>,
+    aux_info: AuxInfo<P, I>,
     message: Scalar,
 }
 
 #[derive(Clone)]
-pub(crate) struct Inputs<P: SchemeParams> {
-    pub(crate) key_share: KeyShare<P>,
-    pub(crate) aux_info: AuxInfo<P>,
+pub(crate) struct Inputs<P: SchemeParams, I> {
+    pub(crate) key_share: KeyShare<P, I>,
+    pub(crate) aux_info: AuxInfo<P, I>,
     pub(crate) message: Scalar,
 }
 
-pub(crate) struct Round1<P: SchemeParams> {
-    round: presigning::Round1<P>,
-    context: Context<P>,
+pub(crate) struct Round1<P: SchemeParams, I> {
+    round: presigning::Round1<P, I>,
+    context: Context<P, I>,
 }
 
-impl<P: SchemeParams> FirstRound for Round1<P> {
-    type Inputs = Inputs<P>;
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Round1<P, I> {
+    type Inputs = Inputs<P, I>;
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        num_parties: usize,
-        party_idx: PartyIdx,
+        other_ids: BTreeSet<I>,
+        my_id: I,
         inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
         let round = presigning::Round1::new(
             rng,
             shared_randomness,
-            num_parties,
-            party_idx,
+            other_ids,
+            my_id,
             (inputs.key_share.clone(), inputs.aux_info.clone()),
         )?;
         let context = Context {
@@ -120,10 +130,10 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> RoundWrapper for Round1<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> RoundWrapper<I> for Round1<P, I> {
     type Type = ToNextRound;
-    type Result = InteractiveSigningResult<P>;
-    type InnerRound = presigning::Round1<P>;
+    type Result = InteractiveSigningResult<P, I>;
+    type InnerRound = presigning::Round1<P, I>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
     fn inner_round(&self) -> &Self::InnerRound {
@@ -131,13 +141,17 @@ impl<P: SchemeParams> RoundWrapper for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
-    type NextRound = Round2<P>;
+impl<P: SchemeParams, I> WrappedRound for Round1<P, I> {}
+
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
+    for Round1<P, I>
+{
+    type NextRound = Round2<P, I>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let round = self
             .round
@@ -150,15 +164,15 @@ impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
     }
 }
 
-pub(crate) struct Round2<P: SchemeParams> {
-    round: presigning::Round2<P>,
-    context: Context<P>,
+pub(crate) struct Round2<P: SchemeParams, I> {
+    round: presigning::Round2<P, I>,
+    context: Context<P, I>,
 }
 
-impl<P: SchemeParams> RoundWrapper for Round2<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> RoundWrapper<I> for Round2<P, I> {
     type Type = ToNextRound;
-    type Result = InteractiveSigningResult<P>;
-    type InnerRound = presigning::Round2<P>;
+    type Result = InteractiveSigningResult<P, I>;
+    type InnerRound = presigning::Round2<P, I>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
     fn inner_round(&self) -> &Self::InnerRound {
@@ -166,13 +180,17 @@ impl<P: SchemeParams> RoundWrapper for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
-    type NextRound = Round3<P>;
+impl<P: SchemeParams, I> WrappedRound for Round2<P, I> {}
+
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
+    for Round2<P, I>
+{
+    type NextRound = Round3<P, I>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
         let round = self
             .round
@@ -185,15 +203,15 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     }
 }
 
-pub(crate) struct Round3<P: SchemeParams> {
-    round: presigning::Round3<P>,
-    context: Context<P>,
+pub(crate) struct Round3<P: SchemeParams, I> {
+    round: presigning::Round3<P, I>,
+    context: Context<P, I>,
 }
 
-impl<P: SchemeParams> RoundWrapper for Round3<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> RoundWrapper<I> for Round3<P, I> {
     type Type = ToNextRound;
-    type Result = InteractiveSigningResult<P>;
-    type InnerRound = presigning::Round3<P>;
+    type Result = InteractiveSigningResult<P, I>;
+    type InnerRound = presigning::Round3<P, I>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = Some(4);
     fn inner_round(&self) -> &Self::InnerRound {
@@ -201,16 +219,20 @@ impl<P: SchemeParams> RoundWrapper for Round3<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
-    type NextRound = Round4<P>;
+impl<P: SchemeParams, I> WrappedRound for Round3<P, I> {}
+
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
+    for Round3<P, I>
+{
+    type NextRound = Round4<P, I>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let num_parties = self.num_parties();
-        let party_idx = self.party_idx();
+        let other_ids = self.other_ids().clone();
+        let my_id = self.my_id().clone();
         let presigning_data = self
             .round
             .finalize_to_result(rng, payloads, artifacts)
@@ -224,28 +246,26 @@ impl<P: SchemeParams> FinalizableToNextRound for Round3<P> {
         let signing_round = signing::Round1::new(
             rng,
             &self.context.shared_randomness,
-            num_parties,
-            party_idx,
+            other_ids,
+            my_id,
             signing_context,
         )
         .map_err(FinalizeError::Init)?;
 
         Ok(Round4 {
             round: signing_round,
-            phantom: PhantomData,
         })
     }
 }
 
-pub(crate) struct Round4<P: SchemeParams> {
-    round: signing::Round1<P>,
-    phantom: PhantomData<P>,
+pub(crate) struct Round4<P: SchemeParams, I> {
+    round: signing::Round1<P, I>,
 }
 
-impl<P: SchemeParams> RoundWrapper for Round4<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> RoundWrapper<I> for Round4<P, I> {
     type Type = ToResult;
-    type Result = InteractiveSigningResult<P>;
-    type InnerRound = signing::Round1<P>;
+    type Result = InteractiveSigningResult<P, I>;
+    type InnerRound = signing::Round1<P, I>;
     const ROUND_NUM: u8 = 4;
     const NEXT_ROUND_NUM: Option<u8> = None;
     fn inner_round(&self) -> &Self::InnerRound {
@@ -253,12 +273,14 @@ impl<P: SchemeParams> RoundWrapper for Round4<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToResult for Round4<P> {
+impl<P: SchemeParams, I> WrappedRound for Round4<P, I> {}
+
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round4<P, I> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
         self.round
             .finalize_to_result(rng, payloads, artifacts)
@@ -268,6 +290,8 @@ impl<P: SchemeParams> FinalizableToResult for Round4<P> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::collections::BTreeSet;
+
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::{OsRng, RngCore};
 
@@ -275,8 +299,8 @@ mod tests {
     use crate::cggmp21::{AuxInfo, KeyShare, TestParams};
     use crate::curve::Scalar;
     use crate::rounds::{
-        test_utils::{step_next_round, step_result, step_round},
-        FirstRound, PartyIdx,
+        test_utils::{step_next_round, step_result, step_round, Id, Without},
+        FirstRound,
     };
 
     #[test]
@@ -286,23 +310,27 @@ mod tests {
 
         let message = Scalar::random(&mut OsRng);
 
-        let num_parties = 3;
-        let key_shares = KeyShare::new_centralized(&mut OsRng, num_parties, None);
-        let aux_infos = AuxInfo::new_centralized(&mut OsRng, num_parties);
-        let r1 = (0..num_parties)
-            .map(|idx| {
-                Round1::<TestParams>::new(
+        let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
+
+        let key_shares = KeyShare::new_centralized(&mut OsRng, &ids, None);
+        let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids);
+
+        let r1 = ids
+            .iter()
+            .map(|id| {
+                let round = Round1::<TestParams, Id>::new(
                     &mut OsRng,
                     &shared_randomness,
-                    num_parties,
-                    PartyIdx::from_usize(idx),
+                    ids.clone().without(id),
+                    *id,
                     Inputs {
                         message,
-                        key_share: key_shares[idx].clone(),
-                        aux_info: aux_infos[idx].clone(),
+                        key_share: key_shares[id].clone(),
+                        aux_info: aux_infos[id].clone(),
                     },
                 )
-                .unwrap()
+                .unwrap();
+                (*id, round)
             })
             .collect();
 
@@ -315,10 +343,10 @@ mod tests {
         let r4a = step_round(&mut OsRng, r4).unwrap();
         let signatures = step_result(&mut OsRng, r4a).unwrap();
 
-        for signature in signatures {
+        for signature in signatures.values() {
             let (sig, rec_id) = signature.to_backend();
 
-            let vkey = key_shares[0].verifying_key();
+            let vkey = key_shares[&Id(0)].verifying_key();
 
             // Check that the signature can be verified
             vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();

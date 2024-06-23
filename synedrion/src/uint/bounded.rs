@@ -8,7 +8,6 @@ use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
     CheckedAdd, CheckedMul, HasWide, Integer, NonZero, Signed, UintLike,
 };
-use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::serde_bytes;
 
 /// A packed representation for serializing Bounded objects.
@@ -61,12 +60,6 @@ pub struct Bounded<T: UintLike> {
     /// bound on the bit size of the value
     bound: u32,
     value: T,
-}
-
-impl<T: UintLike> Hashable for Bounded<T> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.bound).chain(&self.value)
-    }
 }
 
 impl<T: UintLike> Bounded<T> {

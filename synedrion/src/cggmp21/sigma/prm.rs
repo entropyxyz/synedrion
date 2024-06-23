@@ -49,12 +49,6 @@ impl<P: SchemeParams> PrmCommitment<P> {
     }
 }
 
-impl<P: SchemeParams> Hashable for PrmCommitment<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PrmChallenge(Vec<bool>);
 
@@ -64,21 +58,15 @@ impl PrmChallenge {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        // TODO (#61): generate m/8 random bytes instead and fill the vector bit by bit.
+        // TODO: use BitVec here?
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             .chain(commitment)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
         let mut bytes = vec![0u8; P::SECURITY_PARAMETER];
         reader.read(&mut bytes);
         Self(bytes.iter().map(|b| b & 1 == 1).collect())
-    }
-}
-
-impl Hashable for PrmChallenge {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
     }
 }
 
@@ -153,12 +141,6 @@ impl<P: SchemeParams> PrmProof<P> {
             }
         }
         true
-    }
-}
-
-impl<P: SchemeParams> Hashable for PrmProof<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.challenge).chain(&self.proof)
     }
 }
 

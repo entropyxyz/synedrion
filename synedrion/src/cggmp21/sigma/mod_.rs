@@ -24,12 +24,6 @@ impl<P: SchemeParams> ModCommitment<P> {
     }
 }
 
-impl<P: SchemeParams> Hashable for ModCommitment<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
@@ -40,7 +34,7 @@ impl<P: SchemeParams> ModChallenge<P> {
         aux: &impl Hashable,
     ) -> Self {
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
-            .chain(pk)
+            .chain(pk.as_minimal())
             .chain(commitment)
             .chain(aux)
             .finalize_to_reader();

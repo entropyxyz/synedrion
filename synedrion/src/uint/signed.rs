@@ -14,8 +14,6 @@ use super::{
     Bounded, CheckedAdd, HasWide, Integer, NonZero, RandomMod, UintLike, UintModLike,
 };
 
-use crate::tools::hashing::{Chain, Hashable};
-
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound much lower than the full size of the integer,
 /// so this way we avoid serializing a bunch of zeros.
@@ -56,12 +54,6 @@ pub struct Signed<T: UintLike> {
     /// bound on the bit size of the absolute value
     bound: u32,
     value: T,
-}
-
-impl<T: UintLike> Hashable for Signed<T> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.bound).chain(&self.value)
-    }
 }
 
 impl<T: UintLike> Signed<T> {

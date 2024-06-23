@@ -5,7 +5,6 @@ use core::ops::BitXorAssign;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::tools::hashing::{Chain, Hashable};
 use crate::tools::serde_bytes;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,12 +16,6 @@ impl BitVec {
         let mut bytes = vec![0; len];
         rng.fill_bytes(&mut bytes);
         Self(bytes.into())
-    }
-}
-
-impl Hashable for BitVec {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
     }
 }
 

@@ -115,13 +115,13 @@ impl<P: SchemeParams> AffGProof<P> {
             .chain(&cap_s)
             .chain(&cap_t)
             // public parameters
-            .chain(pk0)
-            .chain(pk1)
+            .chain(pk0.as_minimal())
+            .chain(pk1.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(&cap_d.retrieve())
             .chain(&cap_y.retrieve())
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -191,13 +191,13 @@ impl<P: SchemeParams> AffGProof<P> {
             .chain(&self.cap_s)
             .chain(&self.cap_t)
             // public parameters
-            .chain(pk0)
-            .chain(pk1)
+            .chain(pk0.as_minimal())
+            .chain(pk1.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(&cap_d.retrieve())
             .chain(&cap_y.retrieve())
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

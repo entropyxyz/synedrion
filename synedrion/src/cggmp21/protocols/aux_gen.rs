@@ -1,9 +1,9 @@
 //! AuxGen protocol, a part of the paper's Auxiliary Info. & Key Refresh in Three Rounds (Fig. 6)
 //! that only generates the auxiliary data.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
-use alloc::vec::Vec;
+use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
@@ -19,21 +19,19 @@ use crate::paillier::{
     SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::{
-    all_parties_except, no_broadcast_messages, no_direct_messages, try_to_holevec,
-    FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound, InitError, PartyIdx,
-    ProtocolResult, Round, ToNextRound, ToResult,
+    no_broadcast_messages, no_direct_messages, FinalizableToNextRound, FinalizableToResult,
+    FinalizeError, FirstRound, InitError, ProtocolResult, Round, ToNextRound, ToResult,
 };
 use crate::tools::bitvec::BitVec;
-use crate::tools::collections::HoleVec;
-use crate::tools::hashing::{Chain, FofHasher, HashOutput, Hashable};
+use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 use crate::uint::UintLike;
 
 /// Possible results of the AuxGen protocol.
 #[derive(Debug, Clone, Copy)]
-pub struct AuxGenResult<P: SchemeParams>(PhantomData<P>);
+pub struct AuxGenResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams> ProtocolResult for AuxGenResult<P> {
-    type Success = AuxInfo<P>;
+impl<P: SchemeParams, I: Debug> ProtocolResult for AuxGenResult<P, I> {
+    type Success = AuxInfo<P, I>;
     type ProvableError = AuxGenError;
     type CorrectnessProof = ();
 }
@@ -72,56 +70,46 @@ pub struct PublicData1Precomp<P: SchemeParams> {
     rp_params: RPParamsMod<P::Paillier>,
 }
 
-struct Context<P: SchemeParams> {
+struct Context<P: SchemeParams, I> {
     paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
     y: Scalar,
     tau_y: SchSecret,
     data_precomp: PublicData1Precomp<P>,
-    party_idx: PartyIdx,
-    num_parties: usize,
+    my_id: I,
+    other_ids: BTreeSet<I>,
     sid_hash: HashOutput,
 }
 
-impl<P: SchemeParams> Hashable for PublicData1<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest
-            .chain(&self.cap_y)
-            .chain(&self.cap_b)
-            .chain(&self.paillier_pk)
-            .chain(&self.rp_params)
-            .chain(&self.hat_psi)
-            .chain(&self.rho)
-            .chain(&self.u)
-    }
-}
-
 impl<P: SchemeParams> PublicData1<P> {
-    fn hash(&self, sid_hash: &HashOutput, party_idx: PartyIdx) -> HashOutput {
+    fn hash<I: Serialize>(&self, sid_hash: &HashOutput, my_id: &I) -> HashOutput {
         FofHasher::new_with_dst(b"Auxiliary")
             .chain(sid_hash)
-            .chain(&party_idx)
+            .chain(my_id)
             .chain(self)
             .finalize()
     }
 }
 
-pub struct Round1<P: SchemeParams> {
-    context: Context<P>,
+pub struct Round1<P: SchemeParams, I> {
+    context: Context<P, I>,
 }
 
-impl<P: SchemeParams> FirstRound for Round1<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Round1<P, I> {
     type Inputs = ();
     fn new(
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        num_parties: usize,
-        party_idx: PartyIdx,
+        other_ids: BTreeSet<I>,
+        my_id: I,
         _inputs: Self::Inputs,
     ) -> Result<Self, InitError> {
+        let mut all_ids = other_ids.clone();
+        all_ids.insert(my_id.clone());
+
         let sid_hash = FofHasher::new_with_dst(b"SID")
             .chain_type::<P>()
             .chain(&shared_randomness)
-            .chain(&(u32::try_from(num_parties).unwrap()))
+            .chain(&all_ids)
             .finalize();
 
         // $p_i$, $q_i$
@@ -141,7 +129,7 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
         // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
         let rp_params = RPParamsMod::random_with_secret(rng, &lambda, paillier_pk);
 
-        let aux = (&sid_hash, &party_idx);
+        let aux = (&sid_hash, &my_id);
         let hat_psi = PrmProof::<P>::new(rng, &paillier_sk, &lambda, &rp_params, &aux);
 
         let rho = BitVec::random(rng, P::SECURITY_PARAMETER);
@@ -168,8 +156,8 @@ impl<P: SchemeParams> FirstRound for Round1<P> {
             y,
             tau_y,
             data_precomp,
-            party_idx,
-            num_parties,
+            my_id,
+            other_ids,
             sid_hash,
         };
 
@@ -186,18 +174,18 @@ pub struct Round1Payload {
     cap_v: HashOutput,
 }
 
-impl<P: SchemeParams> Round for Round1<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P, I> {
     type Type = ToNextRound;
-    type Result = AuxGenResult<P>;
+    type Result = AuxGenResult<P, I>;
     const ROUND_NUM: u8 = 1;
     const NEXT_ROUND_NUM: Option<u8> = Some(2);
 
-    fn num_parties(&self) -> usize {
-        self.context.num_parties
+    fn other_ids(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
 
-    fn party_idx(&self) -> PartyIdx {
-        self.context.party_idx
+    fn my_id(&self) -> &I {
+        &self.context.my_id
     }
 
     const REQUIRES_ECHO: bool = true;
@@ -205,10 +193,6 @@ impl<P: SchemeParams> Round for Round1<P> {
     type DirectMessage = ();
     type Payload = Round1Payload;
     type Artifact = ();
-
-    fn message_destinations(&self) -> Vec<PartyIdx> {
-        all_parties_except(self.context.num_parties, self.context.party_idx)
-    }
 
     fn make_broadcast_message(
         &self,
@@ -219,15 +203,15 @@ impl<P: SchemeParams> Round for Round1<P> {
                 .context
                 .data_precomp
                 .data
-                .hash(&self.context.sid_hash, self.party_idx()),
+                .hash(&self.context.sid_hash, self.my_id()),
         })
     }
 
-    no_direct_messages!();
+    no_direct_messages!(I);
 
     fn verify_message(
         &self,
-        _from: PartyIdx,
+        _from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
@@ -237,27 +221,29 @@ impl<P: SchemeParams> Round for Round1<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round1<P> {
-    type NextRound = Round2<P>;
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
+    for Round1<P, I>
+{
+    type NextRound = Round2<P, I>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let others_cap_v = try_to_holevec(payloads, self.num_parties(), self.party_idx())
-            .unwrap()
-            .map(|payload| payload.cap_v);
         Ok(Round2 {
             context: self.context,
-            others_cap_v,
+            others_cap_v: payloads
+                .into_iter()
+                .map(|(id, payload)| (id, payload.cap_v))
+                .collect(),
         })
     }
 }
 
-pub struct Round2<P: SchemeParams> {
-    context: Context<P>,
-    others_cap_v: HoleVec<HashOutput>,
+pub struct Round2<P: SchemeParams, I> {
+    context: Context<P, I>,
+    others_cap_v: BTreeMap<I, HashOutput>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -271,28 +257,24 @@ pub struct Round2Payload<P: SchemeParams> {
     data: PublicData1Precomp<P>,
 }
 
-impl<P: SchemeParams> Round for Round2<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P, I> {
     type Type = ToNextRound;
-    type Result = AuxGenResult<P>;
+    type Result = AuxGenResult<P, I>;
     const ROUND_NUM: u8 = 2;
     const NEXT_ROUND_NUM: Option<u8> = Some(3);
 
-    fn num_parties(&self) -> usize {
-        self.context.num_parties
+    fn other_ids(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
 
-    fn party_idx(&self) -> PartyIdx {
-        self.context.party_idx
+    fn my_id(&self) -> &I {
+        &self.context.my_id
     }
 
     type BroadcastMessage = Round2Message<P>;
     type DirectMessage = ();
     type Payload = Round2Payload<P>;
     type Artifact = ();
-
-    fn message_destinations(&self) -> Vec<PartyIdx> {
-        all_parties_except(self.context.num_parties, self.context.party_idx)
-    }
 
     fn make_broadcast_message(
         &self,
@@ -303,16 +285,16 @@ impl<P: SchemeParams> Round for Round2<P> {
         })
     }
 
-    no_direct_messages!();
+    no_direct_messages!(I);
 
     fn verify_message(
         &self,
-        from: PartyIdx,
+        from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         if &broadcast_msg.data.hash(&self.context.sid_hash, from)
-            != self.others_cap_v.get(from.as_usize()).unwrap()
+            != self.others_cap_v.get(from).unwrap()
         {
             return Err(AuxGenError(AuxGenErrorEnum::Round2("Hash mismatch".into())));
         }
@@ -344,19 +326,22 @@ impl<P: SchemeParams> Round for Round2<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
-    type NextRound = Round3<P>;
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
+    for Round2<P, I>
+{
+    type NextRound = Round3<P, I>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
-        let others_data = try_to_holevec(payloads, self.num_parties(), self.party_idx())
-            .unwrap()
-            .map(|payload| payload.data);
+        let others_data = payloads
+            .into_iter()
+            .map(|(id, payload)| (id, payload.data))
+            .collect::<BTreeMap<_, _>>();
         let mut rho = self.context.data_precomp.data.rho.clone();
-        for data in others_data.iter() {
+        for data in others_data.values() {
             rho ^= &data.data.rho;
         }
 
@@ -364,10 +349,10 @@ impl<P: SchemeParams> FinalizableToNextRound for Round2<P> {
     }
 }
 
-pub struct Round3<P: SchemeParams> {
-    context: Context<P>,
+pub struct Round3<P: SchemeParams, I> {
+    context: Context<P, I>,
     rho: BitVec,
-    others_data: HoleVec<PublicData1Precomp<P>>,
+    others_data: BTreeMap<I, PublicData1Precomp<P>>,
     psi_mod: ModProof<P>,
     pi: SchProof,
 }
@@ -387,14 +372,14 @@ pub struct PublicData2<P: SchemeParams> {
     pi: SchProof,
 }
 
-impl<P: SchemeParams> Round3<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round3<P, I> {
     fn new(
         rng: &mut impl CryptoRngCore,
-        context: Context<P>,
-        others_data: HoleVec<PublicData1Precomp<P>>,
+        context: Context<P, I>,
+        others_data: BTreeMap<I, PublicData1Precomp<P>>,
         rho: BitVec,
     ) -> Self {
-        let aux = (&context.sid_hash, &context.party_idx, &rho);
+        let aux = (&context.sid_hash, &context.my_id, &rho);
         let psi_mod = ModProof::new(rng, &context.paillier_sk, &aux);
 
         let pi = SchProof::new(
@@ -422,18 +407,18 @@ pub struct Round3Message<P: SchemeParams> {
     data2: PublicData2<P>,
 }
 
-impl<P: SchemeParams> Round for Round3<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P, I> {
     type Type = ToResult;
-    type Result = AuxGenResult<P>;
+    type Result = AuxGenResult<P, I>;
     const ROUND_NUM: u8 = 3;
     const NEXT_ROUND_NUM: Option<u8> = None;
 
-    fn num_parties(&self) -> usize {
-        self.context.num_parties
+    fn other_ids(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
 
-    fn party_idx(&self) -> PartyIdx {
-        self.context.party_idx
+    fn my_id(&self) -> &I {
+        &self.context.my_id
     }
 
     type BroadcastMessage = ();
@@ -441,25 +426,19 @@ impl<P: SchemeParams> Round for Round3<P> {
     type Payload = ();
     type Artifact = ();
 
-    fn message_destinations(&self) -> Vec<PartyIdx> {
-        all_parties_except(self.context.num_parties, self.context.party_idx)
-    }
-
     no_broadcast_messages!();
 
     fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
-        destination: PartyIdx,
+        destination: &I,
     ) -> (Self::DirectMessage, Self::Artifact) {
-        let aux = (&self.context.sid_hash, &self.context.party_idx, &self.rho);
-
-        let idx = destination.as_usize();
+        let aux = (&self.context.sid_hash, &self.context.my_id, &self.rho);
 
         let phi = FacProof::new(
             rng,
             &self.context.paillier_sk,
-            &self.others_data.get(idx).unwrap().rp_params,
+            &self.others_data.get(destination).unwrap().rp_params,
             &aux,
         );
 
@@ -474,11 +453,11 @@ impl<P: SchemeParams> Round for Round3<P> {
 
     fn verify_message(
         &self,
-        from: PartyIdx,
+        from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
-        let sender_data = &self.others_data.get(from.as_usize()).unwrap();
+        let sender_data = &self.others_data.get(from).unwrap();
 
         let aux = (&self.context.sid_hash, &from, &self.rho);
 
@@ -516,21 +495,28 @@ impl<P: SchemeParams> Round for Round3<P> {
     }
 }
 
-impl<P: SchemeParams> FinalizableToResult for Round3<P> {
+impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round3<P, I> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
-        _payloads: BTreeMap<PartyIdx, <Self as Round>::Payload>,
-        _artifacts: BTreeMap<PartyIdx, <Self as Round>::Artifact>,
+        _payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
+        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
     ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
-        let all_data = self.others_data.into_vec(self.context.data_precomp);
+        let my_id = self.my_id().clone();
+        let mut all_data = self.others_data;
+        all_data.insert(my_id.clone(), self.context.data_precomp);
 
         let public_aux = all_data
             .into_iter()
-            .map(|data| PublicAuxInfo {
-                el_gamal_pk: data.data.cap_y,
-                paillier_pk: data.paillier_pk.to_minimal(),
-                rp_params: data.rp_params.retrieve(),
+            .map(|(id, data)| {
+                (
+                    id,
+                    PublicAuxInfo {
+                        el_gamal_pk: data.data.cap_y,
+                        paillier_pk: data.paillier_pk.to_minimal(),
+                        rp_params: data.rp_params.retrieve(),
+                    },
+                )
             })
             .collect();
 
@@ -540,7 +526,7 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
         };
 
         let aux_info = AuxInfo {
-            index: self.context.party_idx,
+            owner: my_id.clone(),
             secret_aux,
             public_aux,
         };
@@ -551,14 +537,15 @@ impl<P: SchemeParams> FinalizableToResult for Round3<P> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::collections::BTreeSet;
 
     use rand_core::{OsRng, RngCore};
 
     use super::Round1;
     use crate::cggmp21::TestParams;
     use crate::rounds::{
-        test_utils::{step_next_round, step_result, step_round},
-        FirstRound, PartyIdx,
+        test_utils::{step_next_round, step_result, step_round, Id, Without},
+        FirstRound,
     };
 
     #[test]
@@ -566,17 +553,20 @@ mod tests {
         let mut shared_randomness = [0u8; 32];
         OsRng.fill_bytes(&mut shared_randomness);
 
-        let num_parties = 3;
-        let r1 = (0..num_parties)
-            .map(|idx| {
-                Round1::<TestParams>::new(
+        let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
+
+        let r1 = ids
+            .iter()
+            .map(|id| {
+                let round = Round1::<TestParams, Id>::new(
                     &mut OsRng,
                     &shared_randomness,
-                    num_parties,
-                    PartyIdx::from_usize(idx),
+                    ids.clone().without(id),
+                    *id,
                     (),
                 )
-                .unwrap()
+                .unwrap();
+                (*id, round)
             })
             .collect();
 
@@ -587,11 +577,11 @@ mod tests {
         let r3a = step_round(&mut OsRng, r3).unwrap();
         let aux_infos = step_result(&mut OsRng, r3a).unwrap();
 
-        for (idx, aux_info) in aux_infos.iter().enumerate() {
-            for other_aux_info in aux_infos.iter() {
+        for (id, aux_info) in aux_infos.iter() {
+            for other_aux_info in aux_infos.values() {
                 assert_eq!(
                     aux_info.secret_aux.el_gamal_sk.mul_by_generator(),
-                    other_aux_info.public_aux[idx].el_gamal_pk
+                    other_aux_info.public_aux[id].el_gamal_pk
                 );
             }
         }

@@ -76,7 +76,7 @@ impl<P: SchemeParams> MulProof<P> {
             .chain(&cap_a)
             .chain(&cap_b)
             // public parameters
-            .chain(pk)
+            .chain(pk.as_minimal())
             .chain(&cap_x.retrieve())
             .chain(&cap_y.retrieve())
             .chain(&cap_c.retrieve())
@@ -117,7 +117,7 @@ impl<P: SchemeParams> MulProof<P> {
             .chain(&self.cap_a)
             .chain(&self.cap_b)
             // public parameters
-            .chain(pk)
+            .chain(pk.as_minimal())
             .chain(&cap_x.retrieve())
             .chain(&cap_y.retrieve())
             .chain(&cap_c.retrieve())

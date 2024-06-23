@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
-use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
     Bounded, HasWide, NonZero, Retrieve, Signed, UintLike, UintModLike,
@@ -381,12 +380,6 @@ impl<P: PaillierParams> Mul<Bounded<P::Uint>> for &CiphertextMod<P> {
     type Output = CiphertextMod<P>;
     fn mul(self, other: Bounded<P::Uint>) -> CiphertextMod<P> {
         self.homomorphic_mul_unsigned_ref(&other)
-    }
-}
-
-impl<P: PaillierParams> Hashable for Ciphertext<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.ciphertext)
     }
 }
 

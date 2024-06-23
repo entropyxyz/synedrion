@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
 use super::error::LocalError;
-use crate::tools::hashing::{Chain, FofHasher, HashOutput, Hashable};
+use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 use crate::tools::serde_bytes;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
@@ -20,12 +20,6 @@ impl SessionId {
                 .chain(&seed)
                 .finalize(),
         )
-    }
-}
-
-impl Hashable for SessionId {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.0)
     }
 }
 
@@ -51,17 +45,6 @@ pub enum MessageType {
     Direct,
     /// A service message for echo-broadcast.
     Echo,
-}
-
-impl Hashable for MessageType {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        let value: u8 = match self {
-            Self::Broadcast => 0,
-            Self::Direct => 1,
-            Self::Echo => 2,
-        };
-        digest.chain(&value)
-    }
 }
 
 /// A (yet) unverified message from a round that includes the payload signature.
