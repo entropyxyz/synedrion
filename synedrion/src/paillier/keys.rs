@@ -8,7 +8,7 @@ use crate::uint::{
     RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
 };
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     p: P::HalfUint,
     q: P::HalfUint,

@@ -21,7 +21,7 @@ use crate::paillier::RandomizerMod;
 /// The result of the KeyInit protocol.
 // TODO (#77): Debug can be derived automatically here if `secret_share` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct KeyShare<P, I> {
     pub(crate) owner: I,
     /// Secret key share of this node.
@@ -32,7 +32,7 @@ pub struct KeyShare<P, I> {
 }
 
 /// The result of the AuxGen protocol.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AuxInfo<P: SchemeParams, I> {
     pub(crate) owner: I,
     pub(crate) secret_aux: SecretAuxInfo<P>,
@@ -41,7 +41,7 @@ pub struct AuxInfo<P: SchemeParams, I> {
 
 // TODO (#77): Debug can be derived automatically here if `el_gamal_sk` is wrapped in its own struct,
 // or in a `SecretBox`-type wrapper.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct SecretAuxInfo<P: SchemeParams> {
@@ -82,7 +82,7 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct KeyShareChange<P: SchemeParams, I> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.

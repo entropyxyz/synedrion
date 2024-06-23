@@ -13,7 +13,7 @@ use crate::tools::sss::{
 
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ThresholdKeyShare<P: SchemeParams, I> {
     pub(crate) owner: I,
     pub(crate) threshold: u32,
