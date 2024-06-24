@@ -13,3 +13,4 @@ pub use message_bundle::MessageBundle;
 pub use session::{
     Artifact, FinalizeOutcome, PreprocessedMessage, ProcessedMessage, RoundAccumulator, Session,
 };
+pub use signed_message::SessionId;

@@ -47,5 +47,5 @@ pub use constructors::{
 };
 pub use curve::RecoverableSignature;
 pub use rounds::ProtocolResult;
-pub use sessions::{FinalizeOutcome, MessageBundle, Session};
+pub use sessions::{FinalizeOutcome, MessageBundle, Session, SessionId};
 pub use www02::{KeyResharingInputs, KeyResharingResult, NewHolder, OldHolder, ThresholdKeyShare};

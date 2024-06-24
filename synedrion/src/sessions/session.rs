@@ -145,19 +145,22 @@ where
             + 'static,
     >(
         rng: &mut impl CryptoRngCore,
-        shared_randomness: &[u8],
+        session_id: SessionId,
         signer: Signer,
         verifiers: &BTreeSet<Verifier>,
         inputs: R::Inputs,
     ) -> Result<Self, LocalError> {
-        // TODO (#3): Is this enough? Do we need to hash in e.g. the verifier public keys?
-        //            Need to specify the requirements for the shared randomness in the docstring.
-        let session_id = SessionId::from_seed(shared_randomness);
         let my_id = signer.verifying_key();
         let mut other_parties = verifiers.clone();
         other_parties.remove(&my_id);
-        let typed_round = R::new(rng, shared_randomness, other_parties, my_id.clone(), inputs)
-            .map_err(|err| LocalError(format!("Failed to initialize the protocol: {err:?}")))?;
+        let typed_round = R::new(
+            rng,
+            session_id.as_ref(),
+            other_parties,
+            my_id.clone(),
+            inputs,
+        )
+        .map_err(|err| LocalError(format!("Failed to initialize the protocol: {err:?}")))?;
         let round: Box<dyn DynFinalizable<Verifier, Res>> = Box::new(typed_round);
         let context = Context {
             my_id,

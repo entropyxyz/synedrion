@@ -9,7 +9,7 @@ use tokio::time::{sleep, Duration};
 use synedrion::{
     make_aux_gen_session, make_interactive_signing_session, make_key_init_session,
     make_key_resharing_session, FinalizeOutcome, KeyResharingInputs, MessageBundle, NewHolder,
-    OldHolder, ProtocolResult, Session, TestParams, ThresholdKeyShare,
+    OldHolder, ProtocolResult, Session, SessionId, TestParams, ThresholdKeyShare,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, MessageBundle<Signature>);
@@ -210,7 +210,7 @@ async fn full_sequence() {
     let all_verifiers = BTreeSet::from_iter(verifiers.iter().cloned());
     let old_holders = BTreeSet::from_iter(verifiers.iter().cloned().take(t));
 
-    let shared_randomness = b"1234567890";
+    let session_id = SessionId::from_seed(b"1234567890");
 
     // Use first `t` nodes for the initial t-of-t key generation
     let sessions = signers[..t]
@@ -218,7 +218,7 @@ async fn full_sequence() {
         .map(|signer| {
             make_key_init_session::<TestParams, Signature, SigningKey, VerifyingKey>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 signer.clone(),
                 &old_holders,
             )
@@ -257,7 +257,7 @@ async fn full_sequence() {
             };
             make_key_resharing_session::<TestParams, Signature, SigningKey, VerifyingKey>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 signers[idx].clone(),
                 &all_verifiers,
                 inputs,
@@ -277,7 +277,7 @@ async fn full_sequence() {
             };
             make_key_resharing_session::<TestParams, Signature, SigningKey, VerifyingKey>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 signers[idx].clone(),
                 &all_verifiers,
                 inputs,
@@ -307,7 +307,7 @@ async fn full_sequence() {
         .map(|idx| {
             make_aux_gen_session::<TestParams, Signature, SigningKey, VerifyingKey>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 signers[idx].clone(),
                 &all_verifiers,
             )
@@ -342,7 +342,7 @@ async fn full_sequence() {
         .map(|idx| {
             make_interactive_signing_session::<_, Signature, _, _>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 selected_signers[idx].clone(),
                 &selected_parties,
                 &selected_key_shares[idx],
