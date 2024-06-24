@@ -207,6 +207,11 @@ where
         self.context.signer.verifying_key()
     }
 
+    /// This session's ID.
+    pub fn session_id(&self) -> SessionId {
+        self.context.session_id
+    }
+
     /// Returns a pair of the current round index and whether it is an echo round.
     pub fn current_round(&self) -> (u8, bool) {
         match &self.tp {
