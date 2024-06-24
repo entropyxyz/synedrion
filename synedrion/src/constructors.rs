@@ -14,7 +14,7 @@ use crate::cggmp21::{
     SchemeParams,
 };
 use crate::curve::Scalar;
-use crate::sessions::{LocalError, Session};
+use crate::sessions::{LocalError, Session, SessionId};
 use crate::www02::{key_resharing, KeyResharingInputs, KeyResharingResult};
 
 /// Prehashed message to sign.
@@ -23,7 +23,7 @@ pub type PrehashedMessage = [u8; 32];
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
 pub fn make_key_init_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
     verifiers: &BTreeSet<Verifier>,
 ) -> Result<Session<KeyInitResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
@@ -41,13 +41,13 @@ where
         + Sync
         + 'static,
 {
-    Session::new::<key_init::Round1<P, Verifier>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<key_init::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
 
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
 pub fn make_key_gen_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
     verifiers: &BTreeSet<Verifier>,
 ) -> Result<Session<KeyGenResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
@@ -65,13 +65,13 @@ where
         + Sync
         + 'static,
 {
-    Session::new::<key_gen::Round1<P, Verifier>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<key_gen::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
 
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
 pub fn make_aux_gen_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
     verifiers: &BTreeSet<Verifier>,
 ) -> Result<Session<AuxGenResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
@@ -89,13 +89,13 @@ where
         + Sync
         + 'static,
 {
-    Session::new::<aux_gen::Round1<P, Verifier>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<aux_gen::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
 
 /// Creates the initial state for the KeyRefresh+Auxiliary protocol.
 pub fn make_key_refresh_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
     verifiers: &BTreeSet<Verifier>,
 ) -> Result<Session<KeyRefreshResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
@@ -113,13 +113,13 @@ where
         + Sync
         + 'static,
 {
-    Session::new::<key_refresh::Round1<P, Verifier>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<key_refresh::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
 
 /// Creates the initial state for the joined Presigning and Signing protocols.
 pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
     verifiers: &BTreeSet<Verifier>,
     key_share: &KeyShare<P, Verifier>,
@@ -156,18 +156,14 @@ where
     };
 
     Session::new::<interactive_signing::Round1<P, Verifier>>(
-        rng,
-        shared_randomness,
-        signer,
-        verifiers,
-        inputs,
+        rng, session_id, signer, verifiers, inputs,
     )
 }
 
 /// Creates the initial state for the Key Resharing protocol.
 pub fn make_key_resharing_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
     verifiers: &BTreeSet<Verifier>,
     inputs: KeyResharingInputs<P, Verifier>,
@@ -202,11 +198,5 @@ where
         }
     }
 
-    Session::new::<key_resharing::Round1<P, Verifier>>(
-        rng,
-        shared_randomness,
-        signer,
-        verifiers,
-        inputs,
-    )
+    Session::new::<key_resharing::Round1<P, Verifier>>(rng, session_id, signer, verifiers, inputs)
 }

@@ -10,16 +10,24 @@ use super::error::LocalError;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 use crate::tools::serde_bytes;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+/// A session identifier shared between the parties.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct SessionId(HashOutput);
 
 impl SessionId {
-    pub(crate) fn from_seed(seed: &[u8]) -> Self {
+    /// Deterministically creates a session ID from the given bytestring.
+    pub fn from_seed(seed: &[u8]) -> Self {
         Self(
             FofHasher::new_with_dst(b"SessionId")
                 .chain(&seed)
                 .finalize(),
         )
+    }
+}
+
+impl AsRef<[u8]> for SessionId {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
     }
 }
 

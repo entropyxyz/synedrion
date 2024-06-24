@@ -7,12 +7,12 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_interactive_signing_session, make_key_gen_session, AuxInfo, CombinedMessage,
-    FinalizeOutcome, KeyShare, ProtocolResult, Session, TestParams,
+    make_interactive_signing_session, make_key_gen_session, AuxInfo, FinalizeOutcome, KeyShare,
+    MessageBundle, ProtocolResult, Session, SessionId, TestParams,
 };
 
-type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
-type MessageIn = (VerifyingKey, CombinedMessage<Signature>);
+type MessageOut = (VerifyingKey, VerifyingKey, MessageBundle<Signature>);
+type MessageIn = (VerifyingKey, MessageBundle<Signature>);
 
 fn key_to_str(key: &VerifyingKey) -> String {
     hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])
@@ -206,14 +206,14 @@ async fn keygen_and_aux() {
     let (signers, verifiers) = make_signers(num_parties);
     let verifiers_set = BTreeSet::from_iter(verifiers.iter().cloned());
 
-    let shared_randomness = b"1234567890";
+    let session_id = SessionId::from_seed(b"1234567890");
 
     let sessions = signers
         .into_iter()
         .map(|signer| {
             make_key_gen_session::<TestParams, Signature, _, _>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 signer,
                 &verifiers_set,
             )
@@ -241,14 +241,14 @@ async fn interactive_signing() {
     let aux_infos =
         AuxInfo::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &verifiers_set);
 
-    let shared_randomness = b"1234567890";
+    let session_id = SessionId::from_seed(b"1234567890");
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
     let sessions = (0..num_parties)
         .map(|idx| {
             make_interactive_signing_session::<_, Signature, _, _>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 signers[idx].clone(),
                 &verifiers_set,
                 &key_shares[&verifiers[idx]],

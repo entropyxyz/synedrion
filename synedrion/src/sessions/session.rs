@@ -11,9 +11,9 @@ use signature::{
     Keypair,
 };
 
-use super::combined_message::{CheckedCombinedMessage, CombinedMessage, VerifiedCombinedMessage};
 use super::echo::{EchoAccum, EchoRound};
 use super::error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
+use super::message_bundle::{MessageBundle, MessageBundleEnum, VerifiedMessageBundle};
 use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
 use super::type_erased::{
     self, AccumAddError, DynArtifact, DynFinalizable, DynPayload, DynRoundAccum, ReceiveError,
@@ -50,7 +50,7 @@ enum MessageFor {
 
 fn route_message_normal<Res: ProtocolResult, Sig, Verifier>(
     round: &dyn DynFinalizable<Verifier, Res>,
-    message: &CheckedCombinedMessage<Sig>,
+    message: &MessageBundle<Sig>,
 ) -> Result<MessageFor, RemoteErrorEnum> {
     let this_round = round.round_num();
     let next_round = round.next_round_num();
@@ -78,7 +78,7 @@ fn route_message_normal<Res: ProtocolResult, Sig, Verifier>(
 
 fn route_message_echo<Res: ProtocolResult, Sig, Verifier>(
     next_round: &dyn DynFinalizable<Verifier, Res>,
-    message: &CheckedCombinedMessage<Sig>,
+    message: &MessageBundle<Sig>,
 ) -> Result<MessageFor, RemoteErrorEnum> {
     let next_round = next_round.round_num();
     let message_round = message.round();
@@ -145,19 +145,22 @@ where
             + 'static,
     >(
         rng: &mut impl CryptoRngCore,
-        shared_randomness: &[u8],
+        session_id: SessionId,
         signer: Signer,
         verifiers: &BTreeSet<Verifier>,
         inputs: R::Inputs,
     ) -> Result<Self, LocalError> {
-        // TODO (#3): Is this enough? Do we need to hash in e.g. the verifier public keys?
-        //            Need to specify the requirements for the shared randomness in the docstring.
-        let session_id = SessionId::from_seed(shared_randomness);
         let my_id = signer.verifying_key();
         let mut other_parties = verifiers.clone();
         other_parties.remove(&my_id);
-        let typed_round = R::new(rng, shared_randomness, other_parties, my_id.clone(), inputs)
-            .map_err(|err| LocalError(format!("Failed to initialize the protocol: {err:?}")))?;
+        let typed_round = R::new(
+            rng,
+            session_id.as_ref(),
+            other_parties,
+            my_id.clone(),
+            inputs,
+        )
+        .map_err(|err| LocalError(format!("Failed to initialize the protocol: {err:?}")))?;
         let round: Box<dyn DynFinalizable<Verifier, Res>> = Box::new(typed_round);
         let context = Context {
             my_id,
@@ -202,6 +205,11 @@ where
     /// This session's verifier object.
     pub fn verifier(&self) -> Verifier {
         self.context.signer.verifying_key()
+    }
+
+    /// This session's ID.
+    pub fn session_id(&self) -> SessionId {
+        self.context.session_id
     }
 
     /// Returns a pair of the current round index and whether it is an echo round.
@@ -279,7 +287,7 @@ where
         &self,
         rng: &mut impl CryptoRngCore,
         destination: &Verifier,
-    ) -> Result<(CombinedMessage<Sig>, Artifact<Verifier>), LocalError> {
+    ) -> Result<(MessageBundle<Sig>, Artifact<Verifier>), LocalError> {
         match &self.tp {
             SessionType::Normal {
                 this_round,
@@ -304,15 +312,15 @@ where
                     None
                 };
 
-                let message = match (broadcast, direct_message) {
-                    (Some(broadcast), Some(direct)) => CombinedMessage::Both {
+                let message = MessageBundle::try_from(match (broadcast, direct_message) {
+                    (Some(broadcast), Some(direct)) => MessageBundleEnum::Both {
                         broadcast: broadcast.clone(),
                         direct,
                     },
-                    (None, Some(direct)) => CombinedMessage::One(direct),
-                    (Some(broadcast), None) => CombinedMessage::One(broadcast.clone()),
+                    (None, Some(direct)) => MessageBundleEnum::Direct(direct),
+                    (Some(broadcast), None) => MessageBundleEnum::Broadcast(broadcast.clone()),
                     (None, None) => return Err(LocalError("The round must send messages".into())),
-                };
+                })?;
 
                 Ok((
                     message,
@@ -339,7 +347,7 @@ where
                 )?
                 .into_unverified();
                 Ok((
-                    CombinedMessage::One(message),
+                    MessageBundle::try_from(MessageBundleEnum::Echo(message))?,
                     Artifact {
                         destination: destination.clone(),
                         artifact,
@@ -352,7 +360,7 @@ where
     fn route_message(
         &self,
         from: &Verifier,
-        message: &CheckedCombinedMessage<Sig>,
+        message: &MessageBundle<Sig>,
     ) -> Result<MessageFor, Error<Res, Verifier>> {
         let message_for = match &self.tp {
             SessionType::Normal { this_round, .. } => {
@@ -376,26 +384,19 @@ where
         &self,
         accum: &mut RoundAccumulator<Sig, Verifier>,
         from: &Verifier,
-        message: CombinedMessage<Sig>,
+        message: MessageBundle<Sig>,
     ) -> Result<Option<PreprocessedMessage<Sig, Verifier>>, Error<Res, Verifier>> {
-        let checked = message.check().map_err(|msg| {
-            Error::Remote(RemoteError {
-                party: from.clone(),
-                error: RemoteErrorEnum::InvalidContents(msg),
-            })
-        })?;
-
         // This is an unprovable fault (may be a replay attack)
-        if checked.session_id() != &self.context.session_id {
+        if message.session_id() != &self.context.session_id {
             return Err(Error::Remote(RemoteError {
                 party: from.clone(),
                 error: RemoteErrorEnum::UnexpectedSessionId,
             }));
         }
 
-        let message_for = self.route_message(from, &checked)?;
+        let message_for = self.route_message(from, &message)?;
 
-        let verified_message = checked.verify(from).map_err(|err| {
+        let verified_message = message.verify(from).map_err(|err| {
             Error::Remote(RemoteError {
                 party: from.clone(),
                 error: RemoteErrorEnum::InvalidSignature(err),
@@ -576,7 +577,7 @@ where
 
 /// A mutable accumulator created for each round to assemble processed messages from other parties.
 pub struct RoundAccumulator<Sig, Verifier> {
-    received_messages: BTreeMap<Verifier, VerifiedCombinedMessage<Sig>>,
+    received_messages: BTreeMap<Verifier, VerifiedMessageBundle<Sig>>,
     processed: DynRoundAccum<Verifier>,
     cached_messages: BTreeMap<Verifier, PreprocessedMessage<Sig, Verifier>>,
     echo_accum: Option<EchoAccum<Verifier>>,
@@ -670,7 +671,7 @@ pub struct Artifact<Verifier> {
 /// A message that passed initial validity checks.
 pub struct PreprocessedMessage<Sig, Verifier> {
     from: Verifier,
-    message: VerifiedCombinedMessage<Sig>,
+    message: VerifiedMessageBundle<Sig>,
 }
 
 /// A processed message from another party.
@@ -682,7 +683,7 @@ pub struct ProcessedMessage<Sig, Verifier> {
 enum ProcessedMessageEnum<Sig> {
     Payload {
         payload: DynPayload,
-        message: VerifiedCombinedMessage<Sig>,
+        message: VerifiedMessageBundle<Sig>,
     },
     Echo,
 }
@@ -692,7 +693,7 @@ mod tests {
     use impls::impls;
     use k256::ecdsa::{Signature, SigningKey, VerifyingKey};
 
-    use super::{Artifact, CombinedMessage, PreprocessedMessage, ProcessedMessage, Session};
+    use super::{Artifact, MessageBundle, PreprocessedMessage, ProcessedMessage, Session};
     use crate::ProtocolResult;
 
     #[test]
@@ -715,7 +716,7 @@ mod tests {
         }
 
         assert!(impls!(Session<DummyResult, Signature, SigningKey, VerifyingKey>: Sync));
-        assert!(impls!(CombinedMessage<Signature>: Send));
+        assert!(impls!(MessageBundle<Signature>: Send));
         assert!(impls!(Artifact<VerifyingKey>: Send));
         assert!(impls!(PreprocessedMessage<Signature, VerifyingKey>: Send));
         assert!(impls!(ProcessedMessage<Signature, VerifyingKey>: Send));
