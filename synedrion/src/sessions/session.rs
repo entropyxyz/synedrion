@@ -14,7 +14,7 @@ use signature::{
 use super::echo::{EchoAccum, EchoRound};
 use super::error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
 use super::message_bundle::{MessageBundle, MessageBundleEnum, VerifiedMessageBundle};
-use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
+use super::signed_message::{MessageType, SessionId, SignedMessage};
 use super::type_erased::{
     self, AccumAddError, DynArtifact, DynFinalizable, DynPayload, DynRoundAccum, ReceiveError,
 };
@@ -178,17 +178,14 @@ where
         let broadcast = round.make_broadcast_message(rng)?;
 
         let signed_broadcast = if let Some(payload) = broadcast {
-            Some(
-                VerifiedMessage::new(
-                    rng,
-                    &context.signer,
-                    &context.session_id,
-                    round.round_num(),
-                    MessageType::Broadcast,
-                    &payload,
-                )?
-                .into_unverified(),
-            )
+            Some(SignedMessage::new(
+                rng,
+                &context.signer,
+                &context.session_id,
+                round.round_num(),
+                MessageType::Broadcast,
+                &payload,
+            )?)
         } else {
             None
         };
@@ -297,17 +294,14 @@ where
                 let (payload, artifact) = this_round.make_direct_message(rng, destination)?;
 
                 let direct_message = if let Some(payload) = payload {
-                    Some(
-                        VerifiedMessage::new(
-                            rng,
-                            &self.context.signer,
-                            &self.context.session_id,
-                            round_num,
-                            MessageType::Direct,
-                            &payload,
-                        )?
-                        .into_unverified(),
-                    )
+                    Some(SignedMessage::new(
+                        rng,
+                        &self.context.signer,
+                        &self.context.session_id,
+                        round_num,
+                        MessageType::Direct,
+                        &payload,
+                    )?)
                 } else {
                     None
                 };
@@ -337,15 +331,14 @@ where
                 let round_num = next_round.round_num() - 1;
                 let payload = echo_round.make_broadcast();
                 let artifact = DynArtifact::null();
-                let message = VerifiedMessage::new(
+                let message = SignedMessage::new(
                     rng,
                     &self.context.signer,
                     &self.context.session_id,
                     round_num,
                     MessageType::Echo,
                     &payload,
-                )?
-                .into_unverified();
+                )?;
                 Ok((
                     MessageBundle::try_from(MessageBundleEnum::Echo(message))?,
                     Artifact {
@@ -527,7 +520,14 @@ where
                         .received_messages
                         .iter()
                         .map(|(id, combined)| {
-                            (id.clone(), combined.broadcast_message().unwrap().clone())
+                            (
+                                id.clone(),
+                                combined
+                                    .broadcast_message()
+                                    .unwrap()
+                                    .clone()
+                                    .into_unverified(),
+                            )
                         })
                         .collect();
 
