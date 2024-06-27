@@ -6,13 +6,13 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
-use super::signed_message::{SignedMessage, VerifiedMessage};
+use super::signed_message::SignedMessage;
 use super::type_erased::{deserialize_message, serialize_message};
 
 #[derive(Clone)]
 pub(crate) struct EchoRound<I, Sig> {
     destinations: BTreeSet<I>,
-    broadcasts: BTreeMap<I, VerifiedMessage<Sig>>,
+    broadcasts: BTreeMap<I, SignedMessage<Sig>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -39,7 +39,7 @@ where
     I: Clone + Ord + PartialEq + Serialize + for<'de> Deserialize<'de>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
-    pub fn new(broadcasts: BTreeMap<I, VerifiedMessage<Sig>>) -> Self {
+    pub fn new(broadcasts: BTreeMap<I, SignedMessage<Sig>>) -> Self {
         let destinations = broadcasts.keys().cloned().collect();
         Self {
             broadcasts,
@@ -57,12 +57,7 @@ where
 
     pub fn make_broadcast(&self) -> Box<[u8]> {
         let message = Message {
-            broadcasts: self
-                .broadcasts
-                .clone()
-                .into_iter()
-                .map(|(idx, msg)| (idx, msg.into_unverified()))
-                .collect(),
+            broadcasts: self.broadcasts.clone().into_iter().collect(),
         };
         serialize_message(&message).unwrap()
     }
@@ -88,7 +83,7 @@ where
 
             let echoed_bc = bc_map.get(id).ok_or(EchoError::MissingBroadcast)?;
 
-            if !broadcast.as_unverified().is_same_as(echoed_bc) {
+            if !broadcast.is_same_as(echoed_bc) {
                 return Err(EchoError::ConflictingBroadcasts);
             }
         }
