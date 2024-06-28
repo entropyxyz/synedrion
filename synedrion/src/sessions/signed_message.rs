@@ -43,13 +43,14 @@ pub enum MessageType {
 
 /// A (yet) unverified message from a round that includes the payload signature.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub struct SignedMessage<Sig> {
-    signature: Sig,
+pub struct SignedMessage {
+    #[serde(with = "serde_bytes::as_hex")]
+    signature: Box<[u8]>,
     message: Message,
 }
 
-impl<Sig> SignedMessage<Sig> {
-    pub(crate) fn new(
+impl SignedMessage {
+    pub(crate) fn new<Sig: Serialize>(
         rng: &mut impl CryptoRngCore,
         signer: &impl RandomizedPrehashSigner<Sig>,
         session_id: &SessionId,
@@ -72,16 +73,27 @@ impl<Sig> SignedMessage<Sig> {
         let signature = signer
             .sign_prehash_with_rng(rng, message.hash().as_ref())
             .map_err(|err| LocalError(err.to_string()))?;
+        let signature_bytes =
+            bincode::serde::encode_to_vec(&signature, bincode::config::standard())
+                .map_err(|err| LocalError(format!("Failed to serialize: {err:?}")))?;
 
-        Ok(Self { signature, message })
+        Ok(Self {
+            signature: signature_bytes.into(),
+            message,
+        })
     }
 
-    pub(crate) fn verify(
+    pub(crate) fn verify<Sig: for<'de> Deserialize<'de>>(
         self,
         verifier: &impl PrehashVerifier<Sig>,
-    ) -> Result<VerifiedMessage<Sig>, String> {
+    ) -> Result<VerifiedMessage, String> {
+        let signature = bincode::serde::decode_borrowed_from_slice(
+            &self.signature,
+            bincode::config::standard(),
+        )
+        .map_err(|err| format!("{}", err))?;
         verifier
-            .verify_prehash(self.message.hash().as_ref(), &self.signature)
+            .verify_prehash(self.message.hash().as_ref(), &signature)
             .map_err(|err| format!("{:?}", err))?;
         Ok(VerifiedMessage {
             signature: self.signature,
@@ -114,13 +126,13 @@ impl<Sig> SignedMessage<Sig> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct VerifiedMessage<Sig> {
-    signature: Sig,
+pub(crate) struct VerifiedMessage {
+    signature: Box<[u8]>,
     message: Message,
 }
 
-impl<Sig> VerifiedMessage<Sig> {
-    pub fn into_unverified(self) -> SignedMessage<Sig> {
+impl VerifiedMessage {
+    pub fn into_unverified(self) -> SignedMessage {
         SignedMessage {
             signature: self.signature,
             message: self.message,
