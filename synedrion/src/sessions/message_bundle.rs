@@ -16,14 +16,14 @@ pub(crate) enum MessageBundleEnum<M> {
 
 /// Combined message from a single round
 #[derive(Clone, Debug)]
-pub struct MessageBundle<Sig> {
+pub struct MessageBundle {
     session_id: SessionId,
     round: u8,
     is_echo: bool,
-    bundle: MessageBundleEnum<SignedMessage<Sig>>,
+    bundle: MessageBundleEnum<SignedMessage>,
 }
 
-impl<Sig: Serialize> Serialize for MessageBundle<Sig> {
+impl Serialize for MessageBundle {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -32,7 +32,7 @@ impl<Sig: Serialize> Serialize for MessageBundle<Sig> {
     }
 }
 
-impl<'de, Sig: Deserialize<'de>> Deserialize<'de> for MessageBundle<Sig> {
+impl<'de> Deserialize<'de> for MessageBundle {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -42,9 +42,9 @@ impl<'de, Sig: Deserialize<'de>> Deserialize<'de> for MessageBundle<Sig> {
     }
 }
 
-impl<Sig> TryFrom<MessageBundleEnum<SignedMessage<Sig>>> for MessageBundle<Sig> {
+impl TryFrom<MessageBundleEnum<SignedMessage>> for MessageBundle {
     type Error = LocalError;
-    fn try_from(unchecked: MessageBundleEnum<SignedMessage<Sig>>) -> Result<Self, Self::Error> {
+    fn try_from(unchecked: MessageBundleEnum<SignedMessage>) -> Result<Self, Self::Error> {
         let (session_id, round, is_echo) = match &unchecked {
             MessageBundleEnum::Broadcast(msg) => {
                 if msg.message_type() != MessageType::Broadcast {
@@ -97,7 +97,7 @@ impl<Sig> TryFrom<MessageBundleEnum<SignedMessage<Sig>>> for MessageBundle<Sig> 
     }
 }
 
-impl<Sig> MessageBundle<Sig> {
+impl MessageBundle {
     /// The session ID of the messages.
     pub fn session_id(&self) -> &SessionId {
         &self.session_id
@@ -113,10 +113,10 @@ impl<Sig> MessageBundle<Sig> {
         self.is_echo
     }
 
-    pub(crate) fn verify(
+    pub(crate) fn verify<Sig: for<'de> Deserialize<'de>>(
         self,
         verifier: &impl PrehashVerifier<Sig>,
-    ) -> Result<VerifiedMessageBundle<Sig>, String> {
+    ) -> Result<VerifiedMessageBundle, String> {
         let verified_messages = match self.bundle {
             MessageBundleEnum::Broadcast(msg) => {
                 MessageBundleEnum::Broadcast(msg.verify(verifier)?)
@@ -133,9 +133,9 @@ impl<Sig> MessageBundle<Sig> {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct VerifiedMessageBundle<Sig>(MessageBundleEnum<VerifiedMessage<Sig>>);
+pub(crate) struct VerifiedMessageBundle(MessageBundleEnum<VerifiedMessage>);
 
-impl<Sig> VerifiedMessageBundle<Sig> {
+impl VerifiedMessageBundle {
     pub fn broadcast_payload(&self) -> Option<&[u8]> {
         match &self.0 {
             MessageBundleEnum::Broadcast(msg) => Some(msg.payload()),
@@ -144,7 +144,7 @@ impl<Sig> VerifiedMessageBundle<Sig> {
         }
     }
 
-    pub fn broadcast_message(&self) -> Option<&VerifiedMessage<Sig>> {
+    pub fn broadcast_message(&self) -> Option<&VerifiedMessage> {
         match &self.0 {
             MessageBundleEnum::Broadcast(msg) => Some(msg),
             MessageBundleEnum::Both { broadcast, .. } => Some(broadcast),

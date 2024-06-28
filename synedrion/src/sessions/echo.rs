@@ -10,14 +10,14 @@ use super::signed_message::SignedMessage;
 use super::type_erased::{deserialize_message, serialize_message};
 
 #[derive(Clone)]
-pub(crate) struct EchoRound<I, Sig> {
+pub(crate) struct EchoRound<I> {
     destinations: BTreeSet<I>,
-    broadcasts: BTreeMap<I, SignedMessage<Sig>>,
+    broadcasts: BTreeMap<I, SignedMessage>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct Message<I, Sig> {
-    broadcasts: Vec<(I, SignedMessage<Sig>)>,
+struct Message<I> {
+    broadcasts: Vec<(I, SignedMessage)>,
 }
 
 /// Errors that can occur during an echo round.
@@ -34,12 +34,11 @@ pub enum EchoError {
     ConflictingBroadcasts,
 }
 
-impl<I, Sig> EchoRound<I, Sig>
+impl<I> EchoRound<I>
 where
     I: Clone + Ord + PartialEq + Serialize + for<'de> Deserialize<'de>,
-    Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
-    pub fn new(broadcasts: BTreeMap<I, SignedMessage<Sig>>) -> Self {
+    pub fn new(broadcasts: BTreeMap<I, SignedMessage>) -> Self {
         let destinations = broadcasts.keys().cloned().collect();
         Self {
             broadcasts,
@@ -64,7 +63,7 @@ where
 
     pub fn verify_broadcast(&self, from: &I, payload: &[u8]) -> Result<(), EchoError> {
         // TODO (#68): check that the direct payload is empty?
-        let message: Message<I, Sig> = deserialize_message(payload)
+        let message: Message<I> = deserialize_message(payload)
             .map_err(|err| EchoError::CannotDeserialize(err.to_string()))?;
 
         // TODO (#68): check that there are no repeating indices, and the indices are in range.
