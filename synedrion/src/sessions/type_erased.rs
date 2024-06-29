@@ -6,28 +6,16 @@ This way they can be used in a state machine loop without code repetition.
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use core::any::{Any, TypeId};
 
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
+use super::signed_message::Message;
 use crate::rounds::{
     self, FinalizableToNextRound, FinalizableToResult, ProtocolResult, Round, ToNextRound, ToResult,
 };
-
-pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, LocalError> {
-    bincode::serialize(message)
-        .map(|serialized| serialized.into_boxed_slice())
-        .map_err(|err| LocalError(format!("Failed to serialize: {err:?}")))
-}
-
-pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
-    message_bytes: &[u8],
-) -> Result<M, String> {
-    bincode::deserialize(message_bytes).map_err(|err| err.to_string())
-}
 
 pub(crate) enum FinalizeOutcome<I, Res: ProtocolResult> {
     Success(Res::Success),
@@ -100,18 +88,18 @@ pub(crate) trait DynRound<I, Res: ProtocolResult>: Send + Sync {
     fn make_broadcast_message(
         &self,
         rng: &mut dyn CryptoRngCore,
-    ) -> Result<Option<Box<[u8]>>, LocalError>;
+    ) -> Result<Option<Message>, LocalError>;
     #[allow(clippy::type_complexity)]
     fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: &I,
-    ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError>;
+    ) -> Result<(Option<Message>, DynArtifact), LocalError>;
     fn verify_message(
         &self,
         from: &I,
-        broadcast_data: Option<&[u8]>,
-        direct_data: Option<&[u8]>,
+        broadcast_data: Option<&Message>,
+        direct_data: Option<&Message>,
     ) -> Result<DynPayload, ReceiveError<Res>>;
     fn can_finalize(&self, accum: &DynRoundAccum<I>) -> bool;
     fn missing_messages(&self, accum: &DynRoundAccum<I>) -> BTreeSet<I>;
@@ -149,7 +137,7 @@ where
     fn make_broadcast_message(
         &self,
         rng: &mut dyn CryptoRngCore,
-    ) -> Result<Option<Box<[u8]>>, LocalError> {
+    ) -> Result<Option<Message>, LocalError> {
         if is_null_type::<R::BroadcastMessage>() {
             return Ok(None);
         }
@@ -157,7 +145,7 @@ where
         let mut boxed_rng = BoxedRng(rng);
         let typed_message = self.make_broadcast_message(&mut boxed_rng);
         let serialized = typed_message
-            .map(|message| serialize_message(&message))
+            .map(|message| Message::new(&message))
             .transpose()?;
         Ok(serialized)
     }
@@ -166,7 +154,7 @@ where
         &self,
         rng: &mut dyn CryptoRngCore,
         destination: &I,
-    ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError> {
+    ) -> Result<(Option<Message>, DynArtifact), LocalError> {
         let null_message = is_null_type::<R::DirectMessage>();
         let null_artifact = is_null_type::<R::Artifact>();
 
@@ -180,7 +168,7 @@ where
         let message = if null_message {
             None
         } else {
-            Some(serialize_message(&typed_message)?)
+            Some(Message::new(&typed_message)?)
         };
 
         Ok((message, DynArtifact(Box::new(typed_artifact))))
@@ -189,8 +177,8 @@ where
     fn verify_message(
         &self,
         from: &I,
-        broadcast_data: Option<&[u8]>,
-        direct_data: Option<&[u8]>,
+        broadcast_data: Option<&Message>,
+        direct_data: Option<&Message>,
     ) -> Result<DynPayload, ReceiveError<R::Result>> {
         let null_broadcast = is_null_type::<R::BroadcastMessage>();
         let null_direct = is_null_type::<R::DirectMessage>();
@@ -203,14 +191,13 @@ where
                     "Expected a non-null broadcast message".into(),
                 ));
             }
-            b""
+            &Message::unit_type()
         };
 
-        let broadcast_message: <R as Round<I>>::BroadcastMessage =
-            match deserialize_message(broadcast_data) {
-                Ok(message) => message,
-                Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
-            };
+        let broadcast_message: <R as Round<I>>::BroadcastMessage = match broadcast_data.to_typed() {
+            Ok(message) => message,
+            Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
+        };
 
         let direct_data = if let Some(data) = direct_data {
             data
@@ -220,11 +207,10 @@ where
                     "Expected a non-null direct message".into(),
                 ));
             }
-            b""
+            &Message::unit_type()
         };
 
-        let direct_message: <R as Round<I>>::DirectMessage = match deserialize_message(direct_data)
-        {
+        let direct_message: <R as Round<I>>::DirectMessage = match direct_data.to_typed() {
             Ok(message) => message,
             Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
         };
