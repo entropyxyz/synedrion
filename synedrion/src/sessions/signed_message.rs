@@ -41,12 +41,11 @@ pub enum MessageType {
     Echo,
 }
 
-/// A (yet) unverified message from a round that includes the payload signature.
+/// A (yet) unverified message from a round that includes the signature of the payload.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct SignedMessage {
-    #[serde(with = "serde_bytes::as_hex")]
-    signature: Box<[u8]>,
-    message: Message,
+    signature: Signature,
+    message_with_metadata: MessageWithMetadata,
 }
 
 impl SignedMessage {
@@ -56,7 +55,7 @@ impl SignedMessage {
         session_id: &SessionId,
         round: u8,
         message_type: MessageType,
-        message_bytes: &[u8],
+        message: Message,
     ) -> Result<Self, LocalError> {
         // In order for the messages be impossible to reuse by a malicious third party,
         // we need to sign, besides the message itself, the session and the round in this session
@@ -64,22 +63,20 @@ impl SignedMessage {
         // We also need the exact way we sign this to be a part of the public ABI,
         // so that these signatures could be verified by a third party.
 
-        let message = Message {
+        let metadata = Metadata {
             session_id: *session_id,
             round,
             message_type,
-            payload: message_bytes.into(),
         };
+        let message_with_metadata = MessageWithMetadata { message, metadata };
         let signature = signer
-            .sign_prehash_with_rng(rng, message.hash().as_ref())
+            .sign_prehash_with_rng(rng, message_with_metadata.hash().as_ref())
             .map_err(|err| LocalError(err.to_string()))?;
-        let signature_bytes =
-            bincode::serde::encode_to_vec(&signature, bincode::config::standard())
-                .map_err(|err| LocalError(format!("Failed to serialize: {err:?}")))?;
+        let signature = Signature::new(&signature)?;
 
         Ok(Self {
-            signature: signature_bytes.into(),
-            message,
+            signature,
+            message_with_metadata,
         })
     }
 
@@ -87,79 +84,129 @@ impl SignedMessage {
         self,
         verifier: &impl PrehashVerifier<Sig>,
     ) -> Result<VerifiedMessage, String> {
-        let signature = bincode::serde::decode_borrowed_from_slice(
-            &self.signature,
-            bincode::config::standard(),
-        )
-        .map_err(|err| format!("{}", err))?;
+        let signature = self.signature.to_typed()?;
         verifier
-            .verify_prehash(self.message.hash().as_ref(), &signature)
+            .verify_prehash(self.message_with_metadata.hash().as_ref(), &signature)
             .map_err(|err| format!("{:?}", err))?;
         Ok(VerifiedMessage {
             signature: self.signature,
-            message: self.message,
+            message_with_metadata: self.message_with_metadata,
         })
     }
 
     /// The session ID of this message.
     pub fn session_id(&self) -> &SessionId {
-        &self.message.session_id
+        &self.message_with_metadata.metadata.session_id
     }
 
     /// The round of this message.
     pub fn round(&self) -> u8 {
-        self.message.round
+        self.message_with_metadata.metadata.round
     }
 
     /// The message type.
     pub fn message_type(&self) -> MessageType {
-        self.message.message_type
-    }
-
-    /// Compares the "significant" part of the messages (that is, everything but signatures)
-    pub fn is_same_as(&self, other: &Self) -> bool {
-        self.session_id() == other.session_id()
-            && self.round() == other.round()
-            && self.message_type() == other.message_type()
-            && self.message.payload == other.message.payload
+        self.message_with_metadata.metadata.message_type
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct VerifiedMessage {
-    signature: Box<[u8]>,
-    message: Message,
+    signature: Signature,
+    message_with_metadata: MessageWithMetadata,
 }
 
 impl VerifiedMessage {
     pub fn into_unverified(self) -> SignedMessage {
         SignedMessage {
             signature: self.signature,
-            message: self.message,
+            message_with_metadata: self.message_with_metadata,
         }
     }
 
-    pub fn payload(&self) -> &[u8] {
-        &self.message.payload
+    pub fn serialized_message(&self) -> &Message {
+        &self.message_with_metadata.message
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Message {
+struct MessageWithMetadata {
+    message: Message,
+    metadata: Metadata,
+}
+
+impl MessageWithMetadata {
+    fn hash(&self) -> HashOutput {
+        FofHasher::new_with_dst(b"Message")
+            .chain(&self.metadata)
+            .chain(&self.message)
+            .finalize()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+struct Metadata {
     session_id: SessionId,
     round: u8,
     message_type: MessageType,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Message {
     #[serde(with = "serde_bytes::as_base64")]
-    payload: Box<[u8]>,
+    serialized_message: Box<[u8]>,
 }
 
 impl Message {
-    fn hash(&self) -> HashOutput {
-        FofHasher::new_with_dst(b"Message")
-            .chain(&self.session_id)
-            .chain(&self.round)
-            .chain(&self.message_type)
-            .chain(&self.payload)
-            .finalize()
+    pub fn new<T: Serialize>(message: &T) -> Result<Self, LocalError> {
+        bincode::serde::encode_to_vec(message, bincode::config::standard())
+            .map(|serialized| Self {
+                serialized_message: serialized.into(),
+            })
+            .map_err(|err| LocalError(format!("Failed to serialize: {err:?}")))
+    }
+
+    /// Returns a `Message` that would deserialize into `()`.
+    pub fn unit_type() -> Self {
+        // This is really a consequence of `Round::verify_message()` taking message types directly
+        // and not wrapped in `Option`.
+        // We denote a non-existent message by a unit type `()`,
+        // and Rust does not allow type-dependent branches in the code,
+        // so we need to create something that would deserialize into `()` in runtime.
+        Self {
+            serialized_message: Box::new([]),
+        }
+    }
+
+    pub fn to_typed<T: for<'de> Deserialize<'de>>(&self) -> Result<T, String> {
+        bincode::serde::decode_borrowed_from_slice(
+            &self.serialized_message,
+            bincode::config::standard(),
+        )
+        .map_err(|err| err.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+struct Signature {
+    #[serde(with = "serde_bytes::as_hex")]
+    serialized_signature: Box<[u8]>,
+}
+
+impl Signature {
+    pub fn new<T: Serialize>(signature: &T) -> Result<Self, LocalError> {
+        bincode::serde::encode_to_vec(signature, bincode::config::standard())
+            .map(|serialized| Self {
+                serialized_signature: serialized.into(),
+            })
+            .map_err(|err| LocalError(format!("Failed to serialize: {err:?}")))
+    }
+
+    pub fn to_typed<T: for<'de> Deserialize<'de>>(&self) -> Result<T, String> {
+        bincode::serde::decode_borrowed_from_slice(
+            &self.serialized_signature,
+            bincode::config::standard(),
+        )
+        .map_err(|err| err.to_string())
     }
 }

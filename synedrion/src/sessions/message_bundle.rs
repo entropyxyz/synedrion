@@ -4,7 +4,7 @@ use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use signature::hazmat::PrehashVerifier;
 
 use super::error::LocalError;
-use super::signed_message::{MessageType, SessionId, SignedMessage, VerifiedMessage};
+use super::signed_message::{Message, MessageType, SessionId, SignedMessage, VerifiedMessage};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) enum MessageBundleEnum<M> {
@@ -136,15 +136,15 @@ impl MessageBundle {
 pub(crate) struct VerifiedMessageBundle(MessageBundleEnum<VerifiedMessage>);
 
 impl VerifiedMessageBundle {
-    pub fn broadcast_payload(&self) -> Option<&[u8]> {
+    pub fn broadcast_message(&self) -> Option<&Message> {
         match &self.0 {
-            MessageBundleEnum::Broadcast(msg) => Some(msg.payload()),
-            MessageBundleEnum::Both { broadcast, .. } => Some(broadcast.payload()),
+            MessageBundleEnum::Broadcast(msg) => Some(msg.serialized_message()),
+            MessageBundleEnum::Both { broadcast, .. } => Some(broadcast.serialized_message()),
             _ => None,
         }
     }
 
-    pub fn broadcast_message(&self) -> Option<&VerifiedMessage> {
+    pub fn broadcast_full(&self) -> Option<&VerifiedMessage> {
         match &self.0 {
             MessageBundleEnum::Broadcast(msg) => Some(msg),
             MessageBundleEnum::Both { broadcast, .. } => Some(broadcast),
@@ -152,17 +152,17 @@ impl VerifiedMessageBundle {
         }
     }
 
-    pub fn direct_payload(&self) -> Option<&[u8]> {
+    pub fn direct_message(&self) -> Option<&Message> {
         match &self.0 {
-            MessageBundleEnum::Direct(msg) => Some(msg.payload()),
-            MessageBundleEnum::Both { direct, .. } => Some(direct.payload()),
+            MessageBundleEnum::Direct(msg) => Some(msg.serialized_message()),
+            MessageBundleEnum::Both { direct, .. } => Some(direct.serialized_message()),
             _ => None,
         }
     }
 
-    pub fn echo_payload(&self) -> Option<&[u8]> {
+    pub fn echo_message(&self) -> Option<&Message> {
         match &self.0 {
-            MessageBundleEnum::Echo(msg) => Some(msg.payload()),
+            MessageBundleEnum::Echo(msg) => Some(msg.serialized_message()),
             _ => None,
         }
     }

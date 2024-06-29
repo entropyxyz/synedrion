@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -6,8 +5,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
-use super::signed_message::SignedMessage;
-use super::type_erased::{deserialize_message, serialize_message};
+use super::signed_message::{Message, SignedMessage};
 
 #[derive(Clone)]
 pub(crate) struct EchoRound<I> {
@@ -16,7 +14,7 @@ pub(crate) struct EchoRound<I> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Message<I> {
+struct EchoMessage<I> {
     broadcasts: Vec<(I, SignedMessage)>,
 }
 
@@ -54,16 +52,17 @@ where
         &self.destinations
     }
 
-    pub fn make_broadcast(&self) -> Box<[u8]> {
-        let message = Message {
+    pub fn make_broadcast(&self) -> Message {
+        let message = EchoMessage {
             broadcasts: self.broadcasts.clone().into_iter().collect(),
         };
-        serialize_message(&message).unwrap()
+        Message::new(&message).unwrap()
     }
 
-    pub fn verify_broadcast(&self, from: &I, payload: &[u8]) -> Result<(), EchoError> {
-        // TODO (#68): check that the direct payload is empty?
-        let message: Message<I> = deserialize_message(payload)
+    pub fn verify_broadcast(&self, from: &I, message: &Message) -> Result<(), EchoError> {
+        // TODO (#68): check that the direct message is empty?
+        let message = message
+            .to_typed::<EchoMessage<I>>()
             .map_err(|err| EchoError::CannotDeserialize(err.to_string()))?;
 
         // TODO (#68): check that there are no repeating indices, and the indices are in range.
@@ -82,7 +81,7 @@ where
 
             let echoed_bc = bc_map.get(id).ok_or(EchoError::MissingBroadcast)?;
 
-            if !broadcast.is_same_as(echoed_bc) {
+            if broadcast != echoed_bc {
                 return Err(EchoError::ConflictingBroadcasts);
             }
         }

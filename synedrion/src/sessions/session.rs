@@ -179,14 +179,14 @@ where
     ) -> Result<Self, LocalError> {
         let broadcast = round.make_broadcast_message(rng)?;
 
-        let signed_broadcast = if let Some(payload) = broadcast {
+        let signed_broadcast = if let Some(message) = broadcast {
             Some(SignedMessage::new(
                 rng,
                 &context.signer,
                 &context.session_id,
                 round.round_num(),
                 MessageType::Broadcast,
-                &payload,
+                message,
             )?)
         } else {
             None
@@ -291,16 +291,16 @@ where
                 broadcast,
             } => {
                 let round_num = this_round.round_num();
-                let (payload, artifact) = this_round.make_direct_message(rng, destination)?;
+                let (message, artifact) = this_round.make_direct_message(rng, destination)?;
 
-                let direct_message = if let Some(payload) = payload {
+                let direct_message = if let Some(message) = message {
                     Some(SignedMessage::new(
                         rng,
                         &self.context.signer,
                         &self.context.session_id,
                         round_num,
                         MessageType::Direct,
-                        &payload,
+                        message,
                     )?)
                 } else {
                     None
@@ -329,7 +329,7 @@ where
                 echo_round,
             } => {
                 let round_num = next_round.round_num() - 1;
-                let payload = echo_round.make_broadcast();
+                let message = echo_round.make_broadcast();
                 let artifact = DynArtifact::null();
                 let message = SignedMessage::new(
                     rng,
@@ -337,7 +337,7 @@ where
                     &self.context.session_id,
                     round_num,
                     MessageType::Echo,
-                    &payload,
+                    message,
                 )?;
                 Ok((
                     MessageBundle::try_from(MessageBundleEnum::Echo(message))?,
@@ -449,8 +449,8 @@ where
                 let result = this_round.verify_message(
                     rng,
                     &from,
-                    message.broadcast_payload(),
-                    message.direct_payload(),
+                    message.broadcast_message(),
+                    message.direct_message(),
                 );
                 let payload = wrap_receive_result(&from, result)?;
                 Ok(ProcessedMessage {
@@ -460,7 +460,7 @@ where
             }
             SessionType::Echo { echo_round, .. } => {
                 echo_round
-                    .verify_broadcast(&from, message.echo_payload().unwrap())
+                    .verify_broadcast(&from, message.echo_message().unwrap())
                     .map_err(|err| Error::Provable {
                         party: from.clone(),
                         error: ProvableError::Echo(err),
@@ -522,11 +522,7 @@ where
                         .map(|(id, combined)| {
                             (
                                 id.clone(),
-                                combined
-                                    .broadcast_message()
-                                    .unwrap()
-                                    .clone()
-                                    .into_unverified(),
+                                combined.broadcast_full().unwrap().clone().into_unverified(),
                             )
                         })
                         .collect();
