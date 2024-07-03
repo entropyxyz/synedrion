@@ -14,8 +14,8 @@ pub(crate) struct EchoRound<I> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct EchoMessage<I> {
-    broadcasts: Vec<(I, SignedMessage)>,
+pub(crate) struct EchoMessage<I> {
+    pub(crate) broadcasts: Vec<(I, SignedMessage)>,
 }
 
 /// Errors that can occur during an echo round.
