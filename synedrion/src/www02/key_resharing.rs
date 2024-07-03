@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 use super::ThresholdKeyShare;
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
-    FinalizableToResult, FinalizationRequirement, FinalizeError, FirstRound, InitError,
-    ProtocolResult, Round, ToResult,
+    EvidenceRequiresMessages, FinalizableToResult, FinalizationRequirement, FinalizeError,
+    FirstRound, InitError, PartyId, ProtocolResult, Round, ToResult,
 };
 use crate::tools::sss::{
     interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial,
@@ -32,7 +32,7 @@ use crate::SchemeParams;
 #[derive(Debug)]
 pub struct KeyResharingResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Ord + Debug> ProtocolResult for KeyResharingResult<P, I> {
+impl<P: SchemeParams, I: Ord + Debug> ProtocolResult<I> for KeyResharingResult<P, I> {
     type Success = Option<ThresholdKeyShare<P, I>>;
     type ProvableError = KeyResharingError;
     type CorrectnessProof = ();
@@ -43,6 +43,8 @@ pub enum KeyResharingError {
     UnexpectedSender,
     SubshareMismatch,
 }
+
+impl<I> EvidenceRequiresMessages<I> for KeyResharingError {}
 
 /// Old share data.
 #[derive(Clone)]
@@ -96,7 +98,7 @@ pub struct Round1<P: SchemeParams, I: Ord> {
     phantom: PhantomData<P>,
 }
 
-impl<P: SchemeParams, I: Clone + Ord + Debug> FirstRound<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> FirstRound<I> for Round1<P, I> {
     type Inputs = KeyResharingInputs<P, I>;
     fn new(
         rng: &mut impl CryptoRngCore,
@@ -178,7 +180,7 @@ pub struct Round1Payload {
     old_share_id: ShareId,
 }
 
-impl<P: SchemeParams, I: Clone + Ord + Debug> Round<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Type = ToResult;
     type Result = KeyResharingResult<P, I>;
     const ROUND_NUM: u8 = 1;
@@ -236,7 +238,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> Round<I> for Round1<P, I> {
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder.inputs.old_holders.iter().any(|id| id == from) {
                 let public_subshare_from_poly = broadcast_msg
@@ -292,13 +294,13 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> Round<I> for Round1<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: Ord + Clone + Debug> FinalizableToResult<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> FinalizableToResult<I> for Round1<P, I> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
+    ) -> Result<<Self::Result as ProtocolResult<I>>::Success, FinalizeError<I, Self::Result>> {
         // If this party is not a new holder, exit.
         let new_holder = match self.new_holder.as_ref() {
             Some(new_holder) => new_holder,

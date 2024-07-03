@@ -2,7 +2,6 @@ use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::vec::Vec;
-use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
@@ -19,7 +18,7 @@ use super::signed_message::{MessageType, SessionId, SignedMessage};
 use super::type_erased::{
     self, AccumAddError, DynArtifact, DynFinalizable, DynPayload, DynRoundAccum, ReceiveError,
 };
-use crate::rounds::{self, FirstRound, ProtocolResult, Round};
+use crate::rounds::{self, FirstRound, PartyId, ProtocolResult, Round};
 
 struct Context<Signer, Verifier> {
     signer: Signer,
@@ -50,7 +49,7 @@ enum MessageFor {
     NextRound,
 }
 
-fn route_message_normal<Res: ProtocolResult, Verifier>(
+fn route_message_normal<Res: ProtocolResult<Verifier>, Verifier>(
     round: &dyn DynFinalizable<Verifier, Res>,
     message: &MessageBundle,
 ) -> Result<MessageFor, RemoteErrorEnum> {
@@ -78,7 +77,7 @@ fn route_message_normal<Res: ProtocolResult, Verifier>(
     Err(RemoteErrorEnum::OutOfOrderMessage)
 }
 
-fn route_message_echo<Res: ProtocolResult, Verifier>(
+fn route_message_echo<Res: ProtocolResult<Verifier>, Verifier>(
     next_round: &dyn DynFinalizable<Verifier, Res>,
     message: &MessageBundle,
 ) -> Result<MessageFor, RemoteErrorEnum> {
@@ -97,10 +96,10 @@ fn route_message_echo<Res: ProtocolResult, Verifier>(
     Err(RemoteErrorEnum::OutOfOrderMessage)
 }
 
-fn wrap_receive_result<Res: ProtocolResult, Verifier: Clone, T>(
+fn wrap_receive_result<Res: ProtocolResult<Verifier>, Verifier: Clone, T, Sig>(
     from: &Verifier,
-    result: Result<T, ReceiveError<Res>>,
-) -> Result<T, Error<Res, Verifier>> {
+    result: Result<T, ReceiveError<Verifier, Res>>,
+) -> Result<T, Error<Res, Sig, Verifier>> {
     // TODO (#43): we need to attach all the necessary messages here,
     // to make sure that every provable error can be independently verified
     // given the party's verifying key.
@@ -121,7 +120,7 @@ fn wrap_receive_result<Res: ProtocolResult, Verifier: Clone, T>(
 }
 
 /// Possible outcomes of successfully finalizing a round.
-pub enum FinalizeOutcome<Res: ProtocolResult, Sig, Signer, Verifier> {
+pub enum FinalizeOutcome<Res: ProtocolResult<Verifier>, Sig, Signer, Verifier> {
     /// The protocol result is available.
     Success(Res::Success),
     /// Starting the next round.
@@ -135,9 +134,9 @@ pub enum FinalizeOutcome<Res: ProtocolResult, Sig, Signer, Verifier> {
 
 impl<Res, Sig, Signer, Verifier> Session<Res, Sig, Signer, Verifier>
 where
-    Res: ProtocolResult,
+    Res: ProtocolResult<Verifier>,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
-    Verifier: Debug + Clone + PrehashVerifier<Sig> + Ord + Serialize + for<'de> Deserialize<'de>,
+    Verifier: PartyId + PrehashVerifier<Sig>,
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
     pub(crate) fn new<
@@ -354,7 +353,7 @@ where
         &self,
         from: &Verifier,
         message: &MessageBundle,
-    ) -> Result<MessageFor, Error<Res, Verifier>> {
+    ) -> Result<MessageFor, Error<Res, Sig, Verifier>> {
         let message_for = match &self.tp {
             SessionType::Normal { this_round, .. } => {
                 route_message_normal(this_round.as_ref(), message)
@@ -378,7 +377,7 @@ where
         accum: &mut RoundAccumulator<Verifier>,
         from: &Verifier,
         message: MessageBundle,
-    ) -> Result<Option<PreprocessedMessage<Verifier>>, Error<Res, Verifier>> {
+    ) -> Result<Option<PreprocessedMessage<Verifier>>, Error<Res, Sig, Verifier>> {
         // This is an unprovable fault (may be a replay attack)
         if message.session_id() != &self.context.session_id {
             return Err(Error::Remote(RemoteError {
@@ -441,7 +440,7 @@ where
         &self,
         rng: &mut impl CryptoRngCore,
         preprocessed: PreprocessedMessage<Verifier>,
-    ) -> Result<ProcessedMessage<Verifier>, Error<Res, Verifier>> {
+    ) -> Result<ProcessedMessage<Verifier>, Error<Res, Sig, Verifier>> {
         let from = preprocessed.from;
         let message = preprocessed.message;
         match &self.tp {
@@ -478,7 +477,7 @@ where
         self,
         rng: &mut impl CryptoRngCore,
         accum: RoundAccumulator<Verifier>,
-    ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Verifier>> {
+    ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Sig, Verifier>> {
         match self.tp {
             SessionType::Normal { this_round, .. } => {
                 Self::finalize_regular_round(self.context, this_round, rng, accum)
@@ -495,7 +494,7 @@ where
         round: Box<dyn DynFinalizable<Verifier, Res>>,
         rng: &mut impl CryptoRngCore,
         accum: RoundAccumulator<Verifier>,
-    ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Verifier>> {
+    ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Sig, Verifier>> {
         let requires_echo = round.requires_echo();
 
         let outcome = round
@@ -558,7 +557,7 @@ where
         next_round: Box<dyn DynFinalizable<Verifier, Res>>,
         rng: &mut impl CryptoRngCore,
         accum: RoundAccumulator<Verifier>,
-    ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Verifier>> {
+    ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Sig, Verifier>> {
         let echo_accum = accum.echo_accum.ok_or(Error::Local(LocalError(
             "The accumulator is in the invalid state for the echo round".into(),
         )))?;
@@ -582,7 +581,7 @@ pub struct RoundAccumulator<Verifier> {
     echo_accum: Option<EchoAccum<Verifier>>,
 }
 
-impl<Verifier: Ord + Clone + Debug> RoundAccumulator<Verifier> {
+impl<Verifier: PartyId> RoundAccumulator<Verifier> {
     fn new(is_echo_round: bool) -> Self {
         Self {
             received_messages: BTreeMap::new(),
@@ -708,7 +707,7 @@ mod tests {
         #[derive(Debug)]
         struct DummyResult;
 
-        impl ProtocolResult for DummyResult {
+        impl<I> ProtocolResult<I> for DummyResult {
             type Success = ();
             type ProvableError = ();
             type CorrectnessProof = ();

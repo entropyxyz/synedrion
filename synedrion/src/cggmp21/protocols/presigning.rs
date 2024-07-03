@@ -19,8 +19,8 @@ use super::super::{
 use crate::curve::{Point, Scalar};
 use crate::paillier::{Ciphertext, CiphertextMod, PaillierParams, Randomizer, RandomizerMod};
 use crate::rounds::{
-    no_broadcast_messages, FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound,
-    InitError, ProtocolResult, Round, ToNextRound, ToResult,
+    no_broadcast_messages, EvidenceRequiresMessages, FinalizableToNextRound, FinalizableToResult,
+    FinalizeError, FirstRound, InitError, PartyId, ProtocolResult, Round, ToNextRound, ToResult,
 };
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 use crate::uint::Signed;
@@ -29,7 +29,7 @@ use crate::uint::Signed;
 #[derive(Debug)]
 pub struct PresigningResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug> ProtocolResult for PresigningResult<P, I> {
+impl<P: SchemeParams, I: PartyId> ProtocolResult<I> for PresigningResult<P, I> {
     type Success = PresigningData<P, I>;
     type ProvableError = PresigningError;
     type CorrectnessProof = PresigningProof<P, I>;
@@ -45,6 +45,8 @@ pub enum PresigningError {
     /// An error in Round 3.
     Round3(String),
 }
+
+impl<I> EvidenceRequiresMessages<I> for PresigningError {}
 
 struct Context<P: SchemeParams, I: Ord> {
     ssid_hash: HashOutput,
@@ -64,7 +66,7 @@ pub struct Round1<P: SchemeParams, I: Ord> {
     cap_g: CiphertextMod<P::Paillier>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> FirstRound<I> for Round1<P, I> {
     type Inputs = (KeyShare<P, I>, AuxInfo<P, I>);
     fn new(
         rng: &mut impl CryptoRngCore,
@@ -142,7 +144,7 @@ pub struct Round1Payload<P: SchemeParams> {
     cap_g: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Type = ToNextRound;
     type Result = PresigningResult<P, I>;
     const ROUND_NUM: u8 = 1;
@@ -197,7 +199,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         let aux = (&self.context.ssid_hash, self.my_id());
 
         let public_aux = &self.context.aux_info.public_aux[self.my_id()];
@@ -220,16 +222,14 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
     }
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
-    for Round1<P, I>
-{
+impl<P: SchemeParams, I: PartyId> FinalizableToNextRound<I> for Round1<P, I> {
     type NextRound = Round2<P, I>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+    ) -> Result<Self::NextRound, FinalizeError<I, Self::Result>> {
         let (others_cap_k, others_cap_g): (BTreeMap<_, _>, BTreeMap<_, _>) = payloads
             .into_iter()
             .map(|(id, payload)| ((id.clone(), payload.cap_k), (id, payload.cap_g)))
@@ -315,7 +315,7 @@ pub struct Round2Payload<P: SchemeParams> {
     hat_cap_d: CiphertextMod<P::Paillier>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     type Type = ToNextRound;
     type Result = PresigningResult<P, I>;
     const ROUND_NUM: u8 = 2;
@@ -444,7 +444,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
         from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         let aux = (&self.context.ssid_hash, &from);
         let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
         let from_pk = &self.context.aux_info.public_aux[from].paillier_pk;
@@ -523,16 +523,14 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
     }
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
-    for Round2<P, I>
-{
+impl<P: SchemeParams, I: PartyId> FinalizableToNextRound<I> for Round2<P, I> {
     type NextRound = Round3<P, I>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+    ) -> Result<Self::NextRound, FinalizeError<I, Self::Result>> {
         let cap_gamma = payloads
             .values()
             .map(|payload| payload.cap_gamma)
@@ -602,7 +600,7 @@ pub struct Round3Payload {
     cap_delta: Point,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     type Type = ToResult;
     type Result = PresigningResult<P, I>;
     const ROUND_NUM: u8 = 3;
@@ -660,7 +658,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
         from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         let aux = (&self.context.ssid_hash, &from);
         let from_pk = &self.context.aux_info.public_aux[from].paillier_pk;
 
@@ -695,13 +693,13 @@ pub struct PresigningProof<P: SchemeParams, I> {
     dec_proofs: Vec<(I, DecProof<P>)>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round3<P, I> {
+impl<P: SchemeParams, I: PartyId> FinalizableToResult<I> for Round3<P, I> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
+    ) -> Result<<Self::Result as ProtocolResult<I>>::Success, FinalizeError<I, Self::Result>> {
         let (deltas, cap_deltas): (BTreeMap<_, _>, BTreeMap<_, _>) = payloads
             .into_iter()
             .map(|(id, payload)| ((id.clone(), payload.delta), (id, payload.cap_delta)))

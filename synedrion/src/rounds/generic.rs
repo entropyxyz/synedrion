@@ -6,10 +6,14 @@ use displaydoc::Display;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+pub trait PartyId: Debug + Ord + Clone + Serialize + for<'de> Deserialize<'de> {}
+
+impl<T: Debug + Ord + Clone + Serialize + for<'de> Deserialize<'de>> PartyId for T {}
+
 /// A round that sends out direct messages.
-pub(crate) trait Round<I: Ord + Clone> {
+pub(crate) trait Round<I: PartyId> {
     type Type: FinalizableType;
-    type Result: ProtocolResult;
+    type Result: ProtocolResult<I>;
     const ROUND_NUM: u8;
     // TODO (#78): find a way to derive it from `ROUND_NUM`
     const NEXT_ROUND_NUM: Option<u8>;
@@ -70,7 +74,7 @@ pub(crate) trait Round<I: Ord + Clone> {
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError>;
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError>;
 
     fn finalization_requirement() -> FinalizationRequirement {
         FinalizationRequirement::All
@@ -95,12 +99,12 @@ pub(crate) trait Round<I: Ord + Clone> {
 
 /// Typed outcomes of a protocol, specific for each protocol
 /// (in addition to non-specific errors common for all protocols).
-pub trait ProtocolResult: Debug {
+pub trait ProtocolResult<I>: Debug {
     /// The result obtained on successful termination of the protocol.
     type Success;
     /// A collection of data which, in combination with the messages received,
     /// can be used to prove malicious behavior of a remote node.
-    type ProvableError: Debug;
+    type ProvableError: Debug + Clone + EvidenceRequiresMessages<I>;
     /// A collection of data which, in combination with the messages received,
     /// can be used to prove correct behavior of this node.
     ///
@@ -128,29 +132,27 @@ pub(crate) enum FinalizationRequirement {
     Custom,
 }
 
-pub(crate) trait FinalizableToResult<I: Ord + Clone>: Round<I, Type = ToResult> {
+pub(crate) trait FinalizableToResult<I: PartyId>: Round<I, Type = ToResult> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>>;
+    ) -> Result<<Self::Result as ProtocolResult<I>>::Success, FinalizeError<I, Self::Result>>;
 }
 
-pub(crate) trait FinalizableToNextRound<I: Ord + Clone>:
-    Round<I, Type = ToNextRound>
-{
+pub(crate) trait FinalizableToNextRound<I: PartyId>: Round<I, Type = ToNextRound> {
     type NextRound: Round<I, Result = Self::Result>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>>;
+    ) -> Result<Self::NextRound, FinalizeError<I, Self::Result>>;
 }
 
 #[derive(Debug)]
-pub enum FinalizeError<Res: ProtocolResult> {
+pub enum FinalizeError<I, Res: ProtocolResult<I>> {
     Proof(Res::CorrectnessProof),
     /// Returned when there is an error chaining the start of another protocol
     /// on the finalization of the previous one.
@@ -162,7 +164,7 @@ pub enum FinalizeError<Res: ProtocolResult> {
 #[displaydoc("Error when initializing a protocol ({0})")]
 pub struct InitError(pub(crate) String);
 
-pub(crate) trait FirstRound<I: Ord + Clone>: Round<I> + Sized {
+pub(crate) trait FirstRound<I: PartyId>: Round<I> + Sized {
     type Inputs;
     fn new(
         rng: &mut impl CryptoRngCore,
@@ -201,3 +203,24 @@ macro_rules! no_direct_messages {
 }
 
 pub(crate) use no_direct_messages;
+
+use crate::sessions::Message;
+
+// TODO: rename this
+pub(crate) trait EvidenceRequiresMessages<I> {
+    fn requires_messages(&self) -> &[(u8, bool)] {
+        unimplemented!()
+    }
+
+    fn verify_malicious(
+        &self,
+        _shared_randomness: &[u8],
+        _other_ids: &BTreeSet<I>,
+        _my_id: &I,
+        _messages: &BTreeMap<(u8, bool), Message>,
+    ) -> bool {
+        unimplemented!()
+    }
+}
+
+impl<I> EvidenceRequiresMessages<I> for () {}

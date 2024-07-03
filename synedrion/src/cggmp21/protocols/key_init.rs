@@ -15,44 +15,36 @@ use super::super::{
     sigma::{SchCommitment, SchProof, SchSecret},
     KeyShare, SchemeParams,
 };
+use super::key_init_errors::{KeyInitError, KeyInitErrorType};
 use crate::curve::{Point, Scalar};
 use crate::rounds::{
     no_direct_messages, FinalizableToNextRound, FinalizableToResult, FinalizeError, FirstRound,
-    InitError, ProtocolResult, Round, ToNextRound, ToResult,
+    InitError, PartyId, ProtocolResult, Round, ToNextRound, ToResult,
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 
 /// Possible results of the KeyGen protocol.
 #[derive(Debug, Clone, Copy)]
-pub struct KeyInitResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
+pub struct KeyInitResult<P: SchemeParams, I>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for KeyInitResult<P, I> {
+impl<P: SchemeParams, I: PartyId> ProtocolResult<I> for KeyInitResult<P, I> {
     type Success = KeyShare<P, I>;
-    type ProvableError = KeyInitError;
+    type ProvableError = KeyInitError<P, I>;
     type CorrectnessProof = ();
 }
 
-/// Possible verifiable errors of the KeyGen protocol.
-#[derive(Debug, Clone, Copy)]
-pub enum KeyInitError {
-    /// A hash mismatch in Round 2.
-    R2HashMismatch,
-    /// Failed to verify `П^{sch}` in Round 3.
-    R3InvalidSchProof,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PublicData<P: SchemeParams> {
-    cap_x: Point,
-    cap_a: SchCommitment,
-    rid: BitVec,
+pub(super) struct PublicData<P: SchemeParams> {
+    pub(super) cap_x: Point,
+    pub(super) cap_a: SchCommitment,
+    pub(super) rid: BitVec,
     u: BitVec,
     phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> PublicData<P> {
-    fn hash<I: Serialize>(&self, sid_hash: &HashOutput, id: I) -> HashOutput {
+    pub(crate) fn hash<I: Serialize>(&self, sid_hash: &HashOutput, id: I) -> HashOutput {
         FofHasher::new_with_dst(b"KeyInit")
             .chain(sid_hash)
             .chain(&id)
@@ -74,7 +66,7 @@ pub struct Round1<P: SchemeParams, I> {
     context: Context<P, I>,
 }
 
-impl<P: SchemeParams, I: Clone + Ord + Serialize + Debug> FirstRound<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> FirstRound<I> for Round1<P, I> {
     type Inputs = ();
 
     fn new(
@@ -126,14 +118,14 @@ impl<P: SchemeParams, I: Clone + Ord + Serialize + Debug> FirstRound<I> for Roun
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Round1Message {
-    cap_v: HashOutput,
+    pub(super) cap_v: HashOutput,
 }
 
 pub struct Round1Payload {
     cap_v: HashOutput,
 }
 
-impl<P: SchemeParams, I: Clone + Ord + Serialize + Debug> Round<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Type = ToNextRound;
     type Result = KeyInitResult<P, I>;
     const ROUND_NUM: u8 = 1;
@@ -172,23 +164,21 @@ impl<P: SchemeParams, I: Clone + Ord + Serialize + Debug> Round<I> for Round1<P,
         _from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         Ok(Round1Payload {
             cap_v: broadcast_msg.cap_v,
         })
     }
 }
 
-impl<P: SchemeParams, I: Serialize + Ord + Clone + Debug> FinalizableToNextRound<I>
-    for Round1<P, I>
-{
+impl<P: SchemeParams, I: PartyId> FinalizableToNextRound<I> for Round1<P, I> {
     type NextRound = Round2<P, I>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+    ) -> Result<Self::NextRound, FinalizeError<I, Self::Result>> {
         Ok(Round2 {
             others_cap_v: payloads.into_iter().map(|(k, v)| (k, v.cap_v)).collect(),
             context: self.context,
@@ -207,14 +197,14 @@ pub struct Round2<P: SchemeParams, I> {
 #[serde(bound(serialize = "PublicData<P>: Serialize"))]
 #[serde(bound(deserialize = "PublicData<P>: for<'x> Deserialize<'x>"))]
 pub struct Round2Message<P: SchemeParams> {
-    data: PublicData<P>,
+    pub(super) data: PublicData<P>,
 }
 
 pub struct Round2Payload<P: SchemeParams> {
     data: PublicData<P>,
 }
 
-impl<P: SchemeParams, I: Serialize + Ord + Clone + Debug> Round<I> for Round2<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     type Type = ToNextRound;
     type Result = KeyInitResult<P, I>;
     const ROUND_NUM: u8 = 2;
@@ -250,11 +240,14 @@ impl<P: SchemeParams, I: Serialize + Ord + Clone + Debug> Round<I> for Round2<P,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         if &broadcast_msg.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from).unwrap()
         {
-            return Err(KeyInitError::R2HashMismatch);
+            return Err(KeyInitError {
+                error: KeyInitErrorType::R2HashMismatch,
+                phantom: (PhantomData, PhantomData),
+            });
         }
 
         Ok(Round2Payload {
@@ -263,16 +256,14 @@ impl<P: SchemeParams, I: Serialize + Ord + Clone + Debug> Round<I> for Round2<P,
     }
 }
 
-impl<P: SchemeParams, I: Serialize + Ord + Clone + Debug> FinalizableToNextRound<I>
-    for Round2<P, I>
-{
+impl<P: SchemeParams, I: PartyId> FinalizableToNextRound<I> for Round2<P, I> {
     type NextRound = Round3<P, I>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+    ) -> Result<Self::NextRound, FinalizeError<I, Self::Result>> {
         let mut rid = self.context.public_data.rid.clone();
         for payload in payloads.values() {
             rid ^= &payload.data.rid;
@@ -296,10 +287,10 @@ pub struct Round3<P: SchemeParams, I> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Round3Message {
-    psi: SchProof,
+    pub(super) psi: SchProof,
 }
 
-impl<P: SchemeParams, I: Serialize + Ord + Clone + Debug> Round<I> for Round3<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     type Type = ToResult;
     type Result = KeyInitResult<P, I>;
     const ROUND_NUM: u8 = 3;
@@ -341,24 +332,27 @@ impl<P: SchemeParams, I: Serialize + Ord + Clone + Debug> Round<I> for Round3<P,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         let data = self.others_data.get(from).unwrap();
 
         let aux = (&self.context.sid_hash, from, &self.rid);
         if !broadcast_msg.psi.verify(&data.cap_a, &data.cap_x, &aux) {
-            return Err(KeyInitError::R3InvalidSchProof);
+            return Err(KeyInitError {
+                error: KeyInitErrorType::R3InvalidSchProof,
+                phantom: (PhantomData, PhantomData),
+            });
         }
         Ok(())
     }
 }
 
-impl<P: SchemeParams, I: Serialize + Clone + Ord + Debug> FinalizableToResult<I> for Round3<P, I> {
+impl<P: SchemeParams, I: PartyId> FinalizableToResult<I> for Round3<P, I> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
         _payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
+    ) -> Result<<Self::Result as ProtocolResult<I>>::Success, FinalizeError<I, Self::Result>> {
         let my_id = self.my_id().clone();
         let mut public_shares = self
             .others_data

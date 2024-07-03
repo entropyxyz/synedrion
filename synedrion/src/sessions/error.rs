@@ -3,13 +3,15 @@ use alloc::string::String;
 use displaydoc::Display;
 
 use super::echo::EchoError;
+use super::evidence::Evidence;
 use crate::rounds::ProtocolResult;
 
 /// Possible errors returned by session methods.
 #[derive(Debug)]
-pub enum Error<Res: ProtocolResult, Verifier> {
+pub enum Error<Res: ProtocolResult<Verifier>, Sig, Verifier> {
     /// Indicates an error on this party's side.
     Local(LocalError),
+    Evidence(Evidence<Res, Sig, Verifier>),
     /// A provable fault of another party.
     // TODO (#43): attach the party's messages up to this round
     // for this to be verifiable by a third party
@@ -17,7 +19,7 @@ pub enum Error<Res: ProtocolResult, Verifier> {
         /// The index of the failed party.
         party: Verifier,
         /// The error that occurred.
-        error: ProvableError<Res>,
+        error: ProvableError<Res, Verifier>,
     },
     /// An error occurred, but the fault of a specific party cannot be immediately proven.
     /// This structure instead proves that this party performed its calculations correctly.
@@ -67,7 +69,7 @@ pub enum RemoteErrorEnum {
 
 /// A provable fault of another party.
 #[derive(Debug)]
-pub enum ProvableError<Res: ProtocolResult> {
+pub enum ProvableError<Res: ProtocolResult<Verifier>, Verifier> {
     /// A protocol error.
     Protocol(Res::ProvableError),
     /// Failed to deserialize the message.

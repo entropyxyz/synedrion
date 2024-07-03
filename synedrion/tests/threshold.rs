@@ -19,7 +19,7 @@ fn key_to_str(key: &VerifyingKey) -> String {
     hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])
 }
 
-async fn run_session<Res: ProtocolResult>(
+async fn run_session<Res: ProtocolResult<VerifyingKey>>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
     session: Session<Res, Signature, SigningKey, VerifyingKey>,
@@ -160,7 +160,7 @@ async fn run_nodes<Res>(
     sessions: Vec<Session<Res, Signature, SigningKey, VerifyingKey>>,
 ) -> Vec<Res::Success>
 where
-    Res: ProtocolResult + Send + 'static,
+    Res: ProtocolResult<VerifyingKey> + Send + 'static,
     Res::Success: Send,
 {
     let num_parties = sessions.len();

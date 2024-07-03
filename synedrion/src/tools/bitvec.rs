@@ -17,6 +17,15 @@ impl BitVec {
         rng.fill_bytes(&mut bytes);
         Self(bytes.into())
     }
+
+    pub fn xor_all<'a>(bitvecs: impl Iterator<Item = &'a Self>) -> Self {
+        let mut bitvecs = bitvecs;
+        let mut result = bitvecs.next().unwrap().clone();
+        for bitvec in bitvecs {
+            result ^= bitvec;
+        }
+        result
+    }
 }
 
 impl BitXorAssign<&BitVec> for BitVec {

@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::{String, ToString};
 
@@ -6,6 +7,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
+use super::echo::EchoMessage;
 use super::error::LocalError;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 use crate::tools::serde_bytes;
@@ -184,6 +186,29 @@ impl Message {
             bincode::config::standard(),
         )
         .map_err(|err| err.to_string())
+    }
+
+    pub fn to_typed_echo<I, T>(&self) -> Result<BTreeMap<I, T>, String>
+    where
+        I: Clone + Ord + for<'de> Deserialize<'de>,
+        T: for<'de> Deserialize<'de>,
+    {
+        // TODO: should this logic be here, or somewhere in the echo module?
+        let echo_message = self.to_typed::<EchoMessage<I>>()?;
+        Ok(echo_message
+            .broadcasts
+            .iter()
+            .map(|(id, broadcast)| {
+                (
+                    id.clone(),
+                    broadcast
+                        .message_with_metadata
+                        .message
+                        .to_typed::<T>()
+                        .unwrap(),
+                )
+            })
+            .collect())
     }
 }
 

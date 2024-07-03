@@ -2,6 +2,7 @@
 
 mod echo;
 mod error;
+mod evidence;
 mod message_bundle;
 mod session;
 mod signed_message;
@@ -14,3 +15,5 @@ pub use session::{
     Artifact, FinalizeOutcome, PreprocessedMessage, ProcessedMessage, RoundAccumulator, Session,
 };
 pub use signed_message::SessionId;
+
+pub(crate) use signed_message::Message;

@@ -17,8 +17,8 @@ use super::super::{
 use crate::curve::{RecoverableSignature, Scalar};
 use crate::paillier::RandomizerMod;
 use crate::rounds::{
-    no_direct_messages, FinalizableToResult, FinalizeError, FirstRound, InitError, ProtocolResult,
-    Round, ToResult,
+    no_direct_messages, FinalizableToResult, FinalizeError, FirstRound, InitError, PartyId,
+    ProtocolResult, Round, ToResult,
 };
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 
@@ -26,7 +26,7 @@ use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 #[derive(Debug)]
 pub struct SigningResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug> ProtocolResult for SigningResult<P, I> {
+impl<P: SchemeParams, I: Debug> ProtocolResult<I> for SigningResult<P, I> {
     type Success = RecoverableSignature;
     type ProvableError = ();
     type CorrectnessProof = SigningProof<P, I>;
@@ -59,7 +59,7 @@ pub struct Inputs<P: SchemeParams, I: Ord> {
     pub aux_info: AuxInfo<P, I>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> FirstRound<I> for Round1<P, I> {
     type Inputs = Inputs<P, I>;
     fn new(
         _rng: &mut impl CryptoRngCore,
@@ -102,7 +102,7 @@ pub struct Round1Payload {
     sigma: Scalar,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Type = ToResult;
     type Result = SigningResult<P, I>;
     const ROUND_NUM: u8 = 1;
@@ -136,20 +136,20 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
         _from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         Ok(Round1Payload {
             sigma: broadcast_msg.sigma,
         })
     }
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> FinalizableToResult<I> for Round1<P, I> {
     fn finalize_to_result(
         self,
         rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
+    ) -> Result<<Self::Result as ProtocolResult<I>>::Success, FinalizeError<I, Self::Result>> {
         let assembled_sigma = payloads
             .values()
             .map(|payload| payload.sigma)
