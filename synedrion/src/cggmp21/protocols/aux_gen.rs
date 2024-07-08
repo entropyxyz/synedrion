@@ -20,8 +20,9 @@ use crate::paillier::{
     SecretKeyPaillier, SecretKeyPaillierPrecomputed,
 };
 use crate::rounds::{
-    no_broadcast_messages, no_direct_messages, FinalizableToNextRound, FinalizableToResult,
-    FinalizeError, FirstRound, InitError, ProtocolResult, Round, ToNextRound, ToResult,
+    no_broadcast_messages, no_direct_messages, EvidenceRequiresMessages, FinalizableToNextRound,
+    FinalizableToResult, FinalizeError, FirstRound, InitError, PartyId, ProtocolResult, Round,
+    ToNextRound, ToResult,
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
@@ -29,9 +30,9 @@ use crate::uint::UintLike;
 
 /// Possible results of the AuxGen protocol.
 #[derive(Debug, Clone, Copy)]
-pub struct AuxGenResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
+pub struct AuxGenResult<P: SchemeParams, I: PartyId>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for AuxGenResult<P, I> {
+impl<P: SchemeParams, I: PartyId> ProtocolResult<I> for AuxGenResult<P, I> {
     type Success = AuxInfo<P, I>;
     type ProvableError = AuxGenError;
     type CorrectnessProof = ();
@@ -40,6 +41,8 @@ impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for AuxGenResult<P, I> {
 /// Possible errors for AuxGen protocol.
 #[derive(Debug, Clone)]
 pub struct AuxGenError(#[allow(dead_code)] AuxGenErrorEnum);
+
+impl<I> EvidenceRequiresMessages<I> for AuxGenError {}
 
 #[derive(Debug, Clone)]
 enum AuxGenErrorEnum {
@@ -95,7 +98,7 @@ pub struct Round1<P: SchemeParams, I> {
     context: Context<P, I>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> FirstRound<I> for Round1<P, I> {
     type Inputs = ();
     fn new(
         rng: &mut impl CryptoRngCore,
@@ -175,7 +178,7 @@ pub struct Round1Payload {
     cap_v: HashOutput,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Type = ToNextRound;
     type Result = AuxGenResult<P, I>;
     const ROUND_NUM: u8 = 1;
@@ -215,23 +218,21 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
         _from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         Ok(Round1Payload {
             cap_v: broadcast_msg.cap_v,
         })
     }
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
-    for Round1<P, I>
-{
+impl<P: SchemeParams, I: PartyId> FinalizableToNextRound<I> for Round1<P, I> {
     type NextRound = Round2<P, I>;
     fn finalize_to_next_round(
         self,
         _rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+    ) -> Result<Self::NextRound, FinalizeError<I, Self::Result>> {
         Ok(Round2 {
             context: self.context,
             others_cap_v: payloads
@@ -258,7 +259,7 @@ pub struct Round2Payload<P: SchemeParams> {
     data: PublicData1Precomp<P>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     type Type = ToNextRound;
     type Result = AuxGenResult<P, I>;
     const ROUND_NUM: u8 = 2;
@@ -293,7 +294,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         if &broadcast_msg.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from).unwrap()
         {
@@ -327,16 +328,14 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
     }
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
-    for Round2<P, I>
-{
+impl<P: SchemeParams, I: PartyId> FinalizableToNextRound<I> for Round2<P, I> {
     type NextRound = Round3<P, I>;
     fn finalize_to_next_round(
         self,
         rng: &mut impl CryptoRngCore,
         payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+    ) -> Result<Self::NextRound, FinalizeError<I, Self::Result>> {
         let others_data = payloads
             .into_iter()
             .map(|(id, payload)| (id, payload.data))
@@ -408,7 +407,7 @@ pub struct Round3Message<P: SchemeParams> {
     data2: PublicData2<P>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P, I> {
+impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     type Type = ToResult;
     type Result = AuxGenResult<P, I>;
     const ROUND_NUM: u8 = 3;
@@ -457,7 +456,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
         from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+    ) -> Result<Self::Payload, <Self::Result as ProtocolResult<I>>::ProvableError> {
         let sender_data = &self.others_data.get(from).unwrap();
 
         let aux = (&self.context.sid_hash, &from, &self.rho);
@@ -496,13 +495,13 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
     }
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round3<P, I> {
+impl<P: SchemeParams, I: PartyId> FinalizableToResult<I> for Round3<P, I> {
     fn finalize_to_result(
         self,
         _rng: &mut impl CryptoRngCore,
         _payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
         _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
+    ) -> Result<<Self::Result as ProtocolResult<I>>::Success, FinalizeError<I, Self::Result>> {
         let my_id = self.my_id().clone();
         let mut all_data = self.others_data;
         all_data.insert(my_id.clone(), self.context.data_precomp);

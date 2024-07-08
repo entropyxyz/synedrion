@@ -46,6 +46,6 @@ pub use constructors::{
     make_key_init_session, make_key_refresh_session, make_key_resharing_session, PrehashedMessage,
 };
 pub use curve::RecoverableSignature;
-pub use rounds::ProtocolResult;
+pub use rounds::{PartyId, ProtocolResult};
 pub use sessions::{FinalizeOutcome, MessageBundle, Session, SessionId};
 pub use www02::{KeyResharingInputs, KeyResharingResult, NewHolder, OldHolder, ThresholdKeyShare};

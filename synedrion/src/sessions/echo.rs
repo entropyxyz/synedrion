@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -6,18 +5,17 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
-use super::signed_message::{SignedMessage, VerifiedMessage};
-use super::type_erased::{deserialize_message, serialize_message};
+use super::signed_message::{Message, SignedMessage};
 
 #[derive(Clone)]
-pub(crate) struct EchoRound<I, Sig> {
+pub(crate) struct EchoRound<I> {
     destinations: BTreeSet<I>,
-    broadcasts: BTreeMap<I, VerifiedMessage<Sig>>,
+    broadcasts: BTreeMap<I, SignedMessage>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct Message<I, Sig> {
-    broadcasts: Vec<(I, SignedMessage<Sig>)>,
+pub(crate) struct EchoMessage<I> {
+    pub(crate) broadcasts: Vec<(I, SignedMessage)>,
 }
 
 /// Errors that can occur during an echo round.
@@ -34,12 +32,11 @@ pub enum EchoError {
     ConflictingBroadcasts,
 }
 
-impl<I, Sig> EchoRound<I, Sig>
+impl<I> EchoRound<I>
 where
     I: Clone + Ord + PartialEq + Serialize + for<'de> Deserialize<'de>,
-    Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
 {
-    pub fn new(broadcasts: BTreeMap<I, VerifiedMessage<Sig>>) -> Self {
+    pub fn new(broadcasts: BTreeMap<I, SignedMessage>) -> Self {
         let destinations = broadcasts.keys().cloned().collect();
         Self {
             broadcasts,
@@ -55,21 +52,17 @@ where
         &self.destinations
     }
 
-    pub fn make_broadcast(&self) -> Box<[u8]> {
-        let message = Message {
-            broadcasts: self
-                .broadcasts
-                .clone()
-                .into_iter()
-                .map(|(idx, msg)| (idx, msg.into_unverified()))
-                .collect(),
+    pub fn make_broadcast(&self) -> Message {
+        let message = EchoMessage {
+            broadcasts: self.broadcasts.clone().into_iter().collect(),
         };
-        serialize_message(&message).unwrap()
+        Message::new(&message).unwrap()
     }
 
-    pub fn verify_broadcast(&self, from: &I, payload: &[u8]) -> Result<(), EchoError> {
-        // TODO (#68): check that the direct payload is empty?
-        let message: Message<I, Sig> = deserialize_message(payload)
+    pub fn verify_broadcast(&self, from: &I, message: &Message) -> Result<(), EchoError> {
+        // TODO (#68): check that the direct message is empty?
+        let message = message
+            .to_typed::<EchoMessage<I>>()
             .map_err(|err| EchoError::CannotDeserialize(err.to_string()))?;
 
         // TODO (#68): check that there are no repeating indices, and the indices are in range.
@@ -88,7 +81,7 @@ where
 
             let echoed_bc = bc_map.get(id).ok_or(EchoError::MissingBroadcast)?;
 
-            if !broadcast.as_unverified().is_same_as(echoed_bc) {
+            if broadcast != echoed_bc {
                 return Err(EchoError::ConflictingBroadcasts);
             }
         }
