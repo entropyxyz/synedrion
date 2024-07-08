@@ -68,7 +68,7 @@ impl<'a> rand_core::RngCore for BoxedRng<'a> {
     }
 }
 
-pub(crate) struct DynPayload(Box<dyn Any + Send>);
+pub(crate) struct DynPayload(pub(crate) Box<dyn Any + Send>);
 
 pub(crate) struct DynArtifact(Box<dyn Any + Send>);
 

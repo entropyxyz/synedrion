@@ -136,18 +136,14 @@ impl MessageBundle {
 pub(crate) struct VerifiedMessageBundle(MessageBundleEnum<VerifiedMessage>);
 
 impl VerifiedMessageBundle {
+    pub fn into_unverified(self) -> MessageBundle {
+        unimplemented!()
+    }
+
     pub fn broadcast_message(&self) -> Option<&Message> {
         match &self.0 {
             MessageBundleEnum::Broadcast(msg) => Some(msg.serialized_message()),
             MessageBundleEnum::Both { broadcast, .. } => Some(broadcast.serialized_message()),
-            _ => None,
-        }
-    }
-
-    pub fn broadcast_full(&self) -> Option<&VerifiedMessage> {
-        match &self.0 {
-            MessageBundleEnum::Broadcast(msg) => Some(msg),
-            MessageBundleEnum::Both { broadcast, .. } => Some(broadcast),
             _ => None,
         }
     }
@@ -163,6 +159,29 @@ impl VerifiedMessageBundle {
     pub fn echo_message(&self) -> Option<&Message> {
         match &self.0 {
             MessageBundleEnum::Echo(msg) => Some(msg.serialized_message()),
+            _ => None,
+        }
+    }
+
+    pub fn broadcast_full(&self) -> Option<&VerifiedMessage> {
+        match &self.0 {
+            MessageBundleEnum::Broadcast(msg) => Some(msg),
+            MessageBundleEnum::Both { broadcast, .. } => Some(broadcast),
+            _ => None,
+        }
+    }
+
+    pub fn direct_full(&self) -> Option<&VerifiedMessage> {
+        match &self.0 {
+            MessageBundleEnum::Direct(msg) => Some(msg),
+            MessageBundleEnum::Both { direct, .. } => Some(direct),
+            _ => None,
+        }
+    }
+
+    pub fn echo_full(&self) -> Option<&VerifiedMessage> {
+        match &self.0 {
+            MessageBundleEnum::Echo(msg) => Some(msg),
             _ => None,
         }
     }

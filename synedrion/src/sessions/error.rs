@@ -11,6 +11,8 @@ use crate::rounds::ProtocolResult;
 pub enum Error<Res: ProtocolResult<Verifier>, Sig, Verifier> {
     /// Indicates an error on this party's side.
     Local(LocalError),
+    /// An evidence of of another party behaving maliciously,
+    /// with the evidence attached.
     Evidence(Evidence<Res, Sig, Verifier>),
     /// A provable fault of another party.
     // TODO (#43): attach the party's messages up to this round
