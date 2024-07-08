@@ -11,8 +11,9 @@ use signature::{
     Keypair,
 };
 
-use super::echo::{EchoAccum, EchoRound};
-use super::error::{Error, LocalError, ProvableError, RemoteError, RemoteErrorEnum};
+use super::echo::{EchoAccum, EchoError, EchoRound};
+use super::error::{Error, LocalError, RemoteError, RemoteErrorEnum};
+use super::evidence::Evidence;
 use super::message_bundle::{MessageBundle, MessageBundleEnum, VerifiedMessageBundle};
 use super::signed_message::{MessageType, SessionId, SignedMessage};
 use super::type_erased::{
@@ -41,7 +42,14 @@ enum SessionType<Verifier, Res> {
 pub struct Session<Res, Sig, Signer, Verifier> {
     tp: SessionType<Verifier, Res>,
     context: Context<Signer, Verifier>,
+    messages: Messages<Verifier>,
     phantom: PhantomData<Sig>,
+}
+
+pub(crate) struct Messages<Verifier> {
+    pub(crate) dms: BTreeMap<u8, BTreeMap<Verifier, SignedMessage>>,
+    pub(crate) bcs: BTreeMap<u8, BTreeMap<Verifier, SignedMessage>>,
+    pub(crate) echos: BTreeMap<u8, BTreeMap<Verifier, SignedMessage>>,
 }
 
 enum MessageFor {
@@ -96,29 +104,6 @@ fn route_message_echo<Res: ProtocolResult<Verifier>, Verifier>(
     Err(RemoteErrorEnum::OutOfOrderMessage)
 }
 
-fn wrap_receive_result<Res: ProtocolResult<Verifier>, Verifier: Clone, T, Sig>(
-    from: &Verifier,
-    result: Result<T, ReceiveError<Verifier, Res>>,
-) -> Result<T, Error<Res, Sig, Verifier>> {
-    // TODO (#43): we need to attach all the necessary messages here,
-    // to make sure that every provable error can be independently verified
-    // given the party's verifying key.
-    result.map_err(|err| match err {
-        ReceiveError::InvalidContents(msg) => Error::Remote(RemoteError {
-            party: from.clone(),
-            error: RemoteErrorEnum::InvalidContents(msg),
-        }),
-        ReceiveError::CannotDeserialize(msg) => Error::Provable {
-            party: from.clone(),
-            error: ProvableError::CannotDeserialize(msg),
-        },
-        ReceiveError::Protocol(err) => Error::Provable {
-            party: from.clone(),
-            error: ProvableError::Protocol(err),
-        },
-    })
-}
-
 /// Possible outcomes of successfully finalizing a round.
 pub enum FinalizeOutcome<Res: ProtocolResult<Verifier>, Sig, Signer, Verifier> {
     /// The protocol result is available.
@@ -168,12 +153,18 @@ where
             signer,
             session_id,
         };
-        Self::new_internal(rng, context, round)
+        let messages = Messages {
+            bcs: BTreeMap::new(),
+            dms: BTreeMap::new(),
+            echos: BTreeMap::new(),
+        };
+        Self::new_internal(rng, context, messages, round)
     }
 
     fn new_internal(
         rng: &mut impl CryptoRngCore,
         context: Context<Signer, Verifier>,
+        messages: Messages<Verifier>,
         round: Box<dyn DynFinalizable<Verifier, Res>>,
     ) -> Result<Self, LocalError> {
         let broadcast = round.make_broadcast_message(rng)?;
@@ -197,6 +188,7 @@ where
                 broadcast: signed_broadcast,
             },
             context,
+            messages,
             phantom: PhantomData,
         })
     }
@@ -440,10 +432,10 @@ where
         &self,
         rng: &mut impl CryptoRngCore,
         preprocessed: PreprocessedMessage<Verifier>,
-    ) -> Result<ProcessedMessage<Verifier>, Error<Res, Sig, Verifier>> {
+    ) -> Result<ProcessedMessage<Res, Verifier>, LocalError> {
         let from = preprocessed.from;
         let message = preprocessed.message;
-        match &self.tp {
+        let processed = match &self.tp {
             SessionType::Normal { this_round, .. } => {
                 let result = this_round.verify_message(
                     rng,
@@ -451,25 +443,27 @@ where
                     message.broadcast_message(),
                     message.direct_message(),
                 );
-                let payload = wrap_receive_result(&from, result)?;
-                Ok(ProcessedMessage {
-                    from: from.clone(),
-                    message: ProcessedMessageEnum::Payload { payload, message },
-                })
+
+                match result {
+                    Ok(payload) => ProcessedMessageEnum::Payload(payload),
+                    Err(error) => ProcessedMessageEnum::Error(error),
+                }
             }
             SessionType::Echo { echo_round, .. } => {
-                echo_round
-                    .verify_broadcast(&from, message.echo_message().unwrap())
-                    .map_err(|err| Error::Provable {
-                        party: from.clone(),
-                        error: ProvableError::Echo(err),
-                    })?;
-                Ok(ProcessedMessage {
-                    from: from.clone(),
-                    message: ProcessedMessageEnum::Echo,
-                })
+                let result = echo_round.verify_broadcast(&from, message.echo_message().unwrap());
+
+                match result {
+                    Ok(()) => ProcessedMessageEnum::Payload(DynPayload(Box::new(()))),
+                    Err(error) => ProcessedMessageEnum::EchoError(error),
+                }
             }
-        }
+        };
+
+        Ok(ProcessedMessage {
+            from,
+            message,
+            processed,
+        })
     }
 
     /// Try to finalize the round.
@@ -480,22 +474,32 @@ where
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Sig, Verifier>> {
         match self.tp {
             SessionType::Normal { this_round, .. } => {
-                Self::finalize_regular_round(self.context, this_round, rng, accum)
+                Self::finalize_regular_round(self.context, self.messages, this_round, rng, accum)
             }
             SessionType::Echo {
                 echo_round,
                 next_round,
-            } => Self::finalize_echo_round(self.context, echo_round, next_round, rng, accum),
+            } => Self::finalize_echo_round(
+                self.context,
+                self.messages,
+                echo_round,
+                next_round,
+                rng,
+                accum,
+            ),
         }
     }
 
     fn finalize_regular_round(
         context: Context<Signer, Verifier>,
+        messages: Messages<Verifier>,
         round: Box<dyn DynFinalizable<Verifier, Res>>,
         rng: &mut impl CryptoRngCore,
         accum: RoundAccumulator<Verifier>,
     ) -> Result<FinalizeOutcome<Res, Sig, Signer, Verifier>, Error<Res, Sig, Verifier>> {
         let requires_echo = round.requires_echo();
+
+        let round_num = round.round_num();
 
         let outcome = round
             .finalize(rng, accum.processed)
@@ -514,25 +518,20 @@ where
         match outcome {
             type_erased::FinalizeOutcome::Success(res) => Ok(FinalizeOutcome::Success(res)),
             type_erased::FinalizeOutcome::AnotherRound(next_round) => {
-                if requires_echo {
-                    let broadcasts = accum
-                        .received_messages
-                        .iter()
-                        .map(|(id, combined)| {
-                            (
-                                id.clone(),
-                                combined.broadcast_full().unwrap().clone().into_unverified(),
-                            )
-                        })
-                        .collect();
+                let mut messages = messages;
 
-                    let echo_round = EchoRound::new(broadcasts);
+                messages.bcs.insert(round_num, accum.bcs.clone());
+                messages.dms.insert(round_num, accum.dms);
+
+                if requires_echo {
+                    let echo_round = EchoRound::new(accum.bcs);
                     let session = Session {
                         tp: SessionType::Echo {
                             next_round,
                             echo_round,
                         },
                         context,
+                        messages,
                         phantom: PhantomData,
                     };
                     Ok(FinalizeOutcome::AnotherRound {
@@ -540,8 +539,8 @@ where
                         cached_messages: accum.cached_messages.into_values().collect(),
                     })
                 } else {
-                    let session =
-                        Session::new_internal(rng, context, next_round).map_err(Error::Local)?;
+                    let session = Session::new_internal(rng, context, messages, next_round)
+                        .map_err(Error::Local)?;
                     Ok(FinalizeOutcome::AnotherRound {
                         session,
                         cached_messages: accum.cached_messages.into_values().collect(),
@@ -553,6 +552,7 @@ where
 
     fn finalize_echo_round(
         context: Context<Signer, Verifier>,
+        messages: Messages<Verifier>,
         echo_round: EchoRound<Verifier>,
         next_round: Box<dyn DynFinalizable<Verifier, Res>>,
         rng: &mut impl CryptoRngCore,
@@ -562,9 +562,14 @@ where
             "The accumulator is in the invalid state for the echo round".into(),
         )))?;
 
+        let round_num = next_round.round_num() - 1;
+        let mut messages = messages;
+        messages.echos.insert(round_num, accum.echos.clone());
+
         echo_round.finalize(echo_accum).map_err(Error::Local)?;
 
-        let session = Session::new_internal(rng, context, next_round).map_err(Error::Local)?;
+        let session =
+            Session::new_internal(rng, context, messages, next_round).map_err(Error::Local)?;
 
         Ok(FinalizeOutcome::AnotherRound {
             session,
@@ -575,7 +580,9 @@ where
 
 /// A mutable accumulator created for each round to assemble processed messages from other parties.
 pub struct RoundAccumulator<Verifier> {
-    received_messages: BTreeMap<Verifier, VerifiedMessageBundle>,
+    bcs: BTreeMap<Verifier, SignedMessage>,
+    dms: BTreeMap<Verifier, SignedMessage>,
+    echos: BTreeMap<Verifier, SignedMessage>,
     processed: DynRoundAccum<Verifier>,
     cached_messages: BTreeMap<Verifier, PreprocessedMessage<Verifier>>,
     echo_accum: Option<EchoAccum<Verifier>>,
@@ -584,7 +591,9 @@ pub struct RoundAccumulator<Verifier> {
 impl<Verifier: PartyId> RoundAccumulator<Verifier> {
     fn new(is_echo_round: bool) -> Self {
         Self {
-            received_messages: BTreeMap::new(),
+            bcs: BTreeMap::new(),
+            dms: BTreeMap::new(),
+            echos: BTreeMap::new(),
             processed: DynRoundAccum::new(),
             cached_messages: BTreeMap::new(),
             echo_accum: if is_echo_round {
@@ -607,35 +616,58 @@ impl<Verifier: PartyId> RoundAccumulator<Verifier> {
             })
     }
 
+    fn record_messages(&mut self, from: &Verifier, message: VerifiedMessageBundle) {
+        // TODO: can we unpack `message` without cloning?
+        if let Some(msg) = message.broadcast_full() {
+            self.bcs.insert(from.clone(), msg.clone().into_unverified());
+        }
+        if let Some(msg) = message.direct_full() {
+            self.dms.insert(from.clone(), msg.clone().into_unverified());
+        }
+        if let Some(msg) = message.echo_full() {
+            self.echos
+                .insert(from.clone(), msg.clone().into_unverified());
+        }
+    }
+
     /// Save a processed message produced by [`Session::process_message`].
-    pub fn add_processed_message(
+    pub fn add_processed_message<Res: ProtocolResult<Verifier>, Sig, Signer>(
         &mut self,
-        pm: ProcessedMessage<Verifier>,
-    ) -> Result<Result<(), RemoteError<Verifier>>, LocalError> {
-        match pm.message {
-            ProcessedMessageEnum::Payload { payload, message } => {
+        session: &Session<Res, Sig, Signer, Verifier>,
+        pm: ProcessedMessage<Res, Verifier>,
+    ) -> Result<(), Error<Res, Sig, Verifier>>
+    where
+        Sig: Clone + for<'de> Deserialize<'de>,
+        Verifier: Clone + Ord,
+    {
+        match pm.processed {
+            ProcessedMessageEnum::Payload(payload) => {
                 if let Err(AccumAddError::SlotTaken) = self.processed.add_payload(&pm.from, payload)
                 {
-                    return Ok(Err(RemoteError {
+                    return Err(Error::Remote(RemoteError {
                         party: pm.from,
                         error: RemoteErrorEnum::DuplicateMessage,
                     }));
                 }
-                self.received_messages.insert(pm.from, message);
+                self.record_messages(&pm.from, pm.message);
             }
-            ProcessedMessageEnum::Echo => match &mut self.echo_accum {
-                Some(accum) => {
-                    if accum.add_echo_received(&pm.from).is_none() {
-                        return Ok(Err(RemoteError {
-                            party: pm.from,
-                            error: RemoteErrorEnum::DuplicateMessage,
-                        }));
-                    }
+            ProcessedMessageEnum::Error(error) => match error {
+                ReceiveError::Protocol(error) => {
+                    let evidence = Evidence::<Res, Sig, Verifier>::new(
+                        &pm.from,
+                        error,
+                        pm.message,
+                        &session.messages,
+                    );
+                    return Err(Error::Evidence(evidence));
                 }
-                None => return Err(LocalError("This is not an echo round".into())),
+                _ => unimplemented!(),
             },
+            ProcessedMessageEnum::EchoError(_error) => {
+                unimplemented!()
+            }
         }
-        Ok(Ok(()))
+        Ok(())
     }
 
     fn is_already_processed(&self, preprocessed: &PreprocessedMessage<Verifier>) -> bool {
@@ -673,17 +705,16 @@ pub struct PreprocessedMessage<Verifier> {
 }
 
 /// A processed message from another party.
-pub struct ProcessedMessage<Verifier> {
+pub struct ProcessedMessage<Res: ProtocolResult<Verifier>, Verifier> {
     from: Verifier,
-    message: ProcessedMessageEnum,
+    message: VerifiedMessageBundle,
+    processed: ProcessedMessageEnum<Res, Verifier>,
 }
 
-enum ProcessedMessageEnum {
-    Payload {
-        payload: DynPayload,
-        message: VerifiedMessageBundle,
-    },
-    Echo,
+enum ProcessedMessageEnum<Res: ProtocolResult<Verifier>, Verifier> {
+    Payload(DynPayload),
+    Error(ReceiveError<Verifier, Res>),
+    EchoError(EchoError),
 }
 
 #[cfg(test)]
@@ -717,6 +748,6 @@ mod tests {
         assert!(impls!(MessageBundle: Send));
         assert!(impls!(Artifact<VerifyingKey>: Send));
         assert!(impls!(PreprocessedMessage<VerifyingKey>: Send));
-        assert!(impls!(ProcessedMessage<VerifyingKey>: Send));
+        assert!(impls!(ProcessedMessage<DummyResult, VerifyingKey>: Send));
     }
 }

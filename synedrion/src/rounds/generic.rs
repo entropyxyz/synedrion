@@ -6,6 +6,7 @@ use displaydoc::Display;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+/// A type suitable to serve as a party identifier.
 pub trait PartyId: Debug + Ord + Clone + Serialize + for<'de> Deserialize<'de> {}
 
 impl<T: Debug + Ord + Clone + Serialize + for<'de> Deserialize<'de>> PartyId for T {}
@@ -206,18 +207,35 @@ pub(crate) use no_direct_messages;
 
 use crate::sessions::Message;
 
+/// A trait specifying which messages the evidence needs to prove a party's fault,
+/// and how to do it.
 // TODO: rename this
-pub(crate) trait EvidenceRequiresMessages<I> {
-    fn requires_messages(&self) -> &[(u8, bool)] {
+// TODO (#74): this trait should not be visible to the user,
+// but I can't figure out at the moment how to do that.
+pub trait EvidenceRequiresMessages<I> {
+    /// Returns the list of rounds and the indicator of whether a regular message
+    /// or the echo of all messages is needed.
+    fn requires_bcs(&self) -> &[u8] {
         unimplemented!()
     }
 
+    fn requires_dms(&self) -> &[u8] {
+        unimplemented!()
+    }
+
+    fn requires_echos(&self) -> &[u8] {
+        unimplemented!()
+    }
+
+    /// Given the required messages, returns ``true`` if the party was proven to be malicious.
     fn verify_malicious(
         &self,
         _shared_randomness: &[u8],
         _other_ids: &BTreeSet<I>,
         _my_id: &I,
-        _messages: &BTreeMap<(u8, bool), Message>,
+        _bcs: &BTreeMap<u8, Message>,
+        _dms: &BTreeMap<u8, Message>,
+        _echos: &BTreeMap<u8, Message>,
     ) -> bool {
         unimplemented!()
     }

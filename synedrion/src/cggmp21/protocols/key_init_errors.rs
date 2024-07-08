@@ -30,10 +30,17 @@ pub(crate) enum KeyInitErrorType {
 impl<P: SchemeParams, I: Ord + Clone + Serialize + for<'de> Deserialize<'de>>
     EvidenceRequiresMessages<I> for KeyInitError<P, I>
 {
-    fn requires_messages(&self) -> &[(u8, bool)] {
+    fn requires_echos(&self) -> &[u8] {
         match self.error {
-            KeyInitErrorType::R2HashMismatch => &[(1, false), (2, false)],
-            KeyInitErrorType::R3InvalidSchProof => &[(2, true), (3, false)],
+            KeyInitErrorType::R2HashMismatch => &[],
+            KeyInitErrorType::R3InvalidSchProof => &[2],
+        }
+    }
+
+    fn requires_bcs(&self) -> &[u8] {
+        match self.error {
+            KeyInitErrorType::R2HashMismatch => &[1, 2],
+            KeyInitErrorType::R3InvalidSchProof => &[3],
         }
     }
 
@@ -42,17 +49,19 @@ impl<P: SchemeParams, I: Ord + Clone + Serialize + for<'de> Deserialize<'de>>
         shared_randomness: &[u8],
         other_ids: &BTreeSet<I>,
         my_id: &I,
-        messages: &BTreeMap<(u8, bool), Message>,
+        bcs: &BTreeMap<u8, Message>,
+        _dms: &BTreeMap<u8, Message>,
+        echos: &BTreeMap<u8, Message>,
     ) -> bool {
         match self.error {
             KeyInitErrorType::R2HashMismatch => {
-                let r1 = messages[&(1, false)].to_typed().unwrap();
-                let r2 = messages[&(2, false)].to_typed().unwrap();
+                let r1 = bcs[&1].to_typed().unwrap();
+                let r2 = bcs[&2].to_typed().unwrap();
                 self.verify_r2_hash_mismatch(shared_randomness, other_ids, my_id, &r1, &r2)
             }
             KeyInitErrorType::R3InvalidSchProof => {
-                let r2 = messages[&(2, true)].to_typed_echo().unwrap();
-                let r3 = messages[&(3, false)].to_typed().unwrap();
+                let r2 = echos[&2].to_typed_echo().unwrap();
+                let r3 = bcs[&3].to_typed().unwrap();
                 self.verify_r3_invalid_sch_proof(shared_randomness, other_ids, my_id, &r2, &r3)
             }
         }

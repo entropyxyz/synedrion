@@ -69,7 +69,7 @@ async fn run_session<Res: ProtocolResult<VerifyingKey>>(
             let result = session.process_message(&mut OsRng, preprocessed).unwrap();
 
             // This will happen in a host task.
-            accum.add_processed_message(result).unwrap().unwrap();
+            accum.add_processed_message(&session, result).unwrap();
         }
 
         while !session.can_finalize(&accum).unwrap() {
@@ -91,7 +91,7 @@ async fn run_session<Res: ProtocolResult<VerifyingKey>>(
                 let result = session.process_message(&mut OsRng, preprocessed).unwrap();
 
                 // This will happen in a host task.
-                accum.add_processed_message(result).unwrap().unwrap();
+                accum.add_processed_message(&session, result).unwrap();
             }
         }
 
