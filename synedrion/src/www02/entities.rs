@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, Secret};
+use serde::{Deserialize, Serialize};
 
 use crate::cggmp21::{KeyShare, SchemeParams};
 use crate::curve::{Point, Scalar};
@@ -14,8 +15,8 @@ use crate::tools::sss::{
 
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
-#[derive(Debug, Clone)]
-pub struct ThresholdKeyShare<P: SchemeParams, I> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Secret<Scalar>,
