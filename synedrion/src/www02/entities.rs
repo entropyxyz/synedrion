@@ -8,6 +8,7 @@ use secrecy::{ExposeSecret, Secret};
 
 use crate::cggmp21::{KeyShare, SchemeParams};
 use crate::curve::{Point, Scalar};
+use crate::tools::hashing::{Chain, FofHasher};
 use crate::tools::sss::{
     interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareId,
 };
@@ -162,6 +163,43 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             owner: key_share.owner.clone(),
             threshold: ids.len() as u32,
             share_ids,
+            secret_share,
+            public_shares,
+            phantom: PhantomData,
+        }
+    }
+
+    fn derive_tweak(seed: &[u8]) -> Scalar {
+        FofHasher::new_with_dst(b"key-derivation")
+            .chain_bytes(seed)
+            .finalize_to_scalar()
+    }
+
+    /// Return the verifying key to which the derive set of shares will correspond.
+    pub fn derived_verifying_key(&self, seed: &[u8]) -> VerifyingKey {
+        let parent = self.verifying_key_as_point();
+        let tweak = Self::derive_tweak(seed);
+        (parent + tweak.mul_by_generator())
+            .to_verifying_key()
+            .unwrap()
+    }
+
+    /// Deterministically derives a child share.
+    pub fn derive(&self, seed: &[u8]) -> Self {
+        let tweak = Self::derive_tweak(seed);
+        let tweak_point = tweak.mul_by_generator();
+        let secret_share = Secret::new(self.secret_share.expose_secret() + &tweak);
+        let public_shares = self
+            .public_shares
+            .clone()
+            .into_iter()
+            .map(|(id, point)| (id, point + tweak_point))
+            .collect();
+
+        Self {
+            owner: self.owner.clone(),
+            threshold: self.threshold,
+            share_ids: self.share_ids.clone(),
             secret_share,
             public_shares,
             phantom: PhantomData,
