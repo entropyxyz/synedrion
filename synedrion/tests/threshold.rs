@@ -235,6 +235,17 @@ async fn full_sequence() {
         .map(ThresholdKeyShare::from_key_share)
         .collect::<Vec<_>>();
 
+    // Derive child shares
+    let child_key_seed = b"some derivation path";
+    let child_key_shares = t_key_shares
+        .iter()
+        .map(|key_share| key_share.derive(child_key_seed))
+        .collect::<Vec<_>>();
+
+    // The full verifying key can be obtained both from the original key shares and child key shares
+    let child_vkey = t_key_shares[0].derived_verifying_key(child_key_seed);
+    assert_eq!(child_vkey, child_key_shares[0].verifying_key());
+
     // Reshare to `n` nodes
 
     // This will need to be published so that new holders could see it and verify the received data
@@ -301,6 +312,10 @@ async fn full_sequence() {
         t_key_shares[0].verifying_key()
     );
 
+    // Check that resharing did not change the derived child key
+    let child_vkey_after_resharing = new_t_key_shares[0].derived_verifying_key(child_key_seed);
+    assert_eq!(child_vkey, child_vkey_after_resharing);
+
     // Generate auxiliary data
 
     let sessions = (0..n)
@@ -318,15 +333,22 @@ async fn full_sequence() {
     println!("\nRunning AuxGen\n");
     let aux_infos = run_nodes(sessions).await;
 
-    // For signing, we select `t` parties and these parties convert their threshold key shares
-    // into regular key shares.
+    // For signing, we select `t` parties and these parties:
+    // - derive child key shares
+    // - convert their threshold key shares into regular key shares.
 
     let selected_signers = vec![signers[0].clone(), signers[2].clone(), signers[4].clone()];
     let selected_parties = BTreeSet::from([verifiers[0], verifiers[2], verifiers[4]]);
     let selected_key_shares = vec![
-        new_t_key_shares[0].to_key_share(&selected_parties),
-        new_t_key_shares[2].to_key_share(&selected_parties),
-        new_t_key_shares[4].to_key_share(&selected_parties),
+        new_t_key_shares[0]
+            .derive(child_key_seed)
+            .to_key_share(&selected_parties),
+        new_t_key_shares[2]
+            .derive(child_key_seed)
+            .to_key_share(&selected_parties),
+        new_t_key_shares[4]
+            .derive(child_key_seed)
+            .to_key_share(&selected_parties),
     ];
     let selected_aux_infos = vec![
         aux_infos[0].clone(),
@@ -358,13 +380,12 @@ async fn full_sequence() {
 
     for signature in signatures {
         let (sig, rec_id) = signature.to_backend();
-        let vkey = key_shares[0].verifying_key();
 
         // Check that the signature can be verified
-        vkey.verify_prehash(message, &sig).unwrap();
+        child_vkey.verify_prehash(message, &sig).unwrap();
 
         // Check that the key can be recovered
         let recovered_key = VerifyingKey::recover_from_prehash(message, &sig, rec_id).unwrap();
-        assert_eq!(recovered_key, vkey);
+        assert_eq!(recovered_key, child_vkey);
     }
 }
