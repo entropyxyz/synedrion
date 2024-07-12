@@ -71,7 +71,7 @@ impl Chain for FofHasher {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct HashOutput(
     // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
-    #[serde(with = "serde_bytes::as_hex")] [u8; 32],
+    #[serde(with = "serde_bytes::as_hex")] pub(crate) [u8; 32],
 );
 
 impl AsRef<[u8]> for HashOutput {
