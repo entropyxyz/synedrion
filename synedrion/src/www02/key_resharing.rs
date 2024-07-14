@@ -31,7 +31,7 @@ use crate::SchemeParams;
 #[derive(Debug)]
 pub struct KeyResharingResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
 
-impl<P: SchemeParams, I: Debug> ProtocolResult for KeyResharingResult<P, I> {
+impl<P: SchemeParams, I: Ord + Debug> ProtocolResult for KeyResharingResult<P, I> {
     type Success = Option<ThresholdKeyShare<P, I>>;
     type ProvableError = KeyResharingError;
     type CorrectnessProof = ();
@@ -45,14 +45,14 @@ pub enum KeyResharingError {
 
 /// Old share data.
 #[derive(Clone)]
-pub struct OldHolder<P: SchemeParams, I> {
+pub struct OldHolder<P: SchemeParams, I: Ord> {
     /// The threshold key share.
     pub key_share: ThresholdKeyShare<P, I>,
 }
 
 /// New share data.
 #[derive(Clone)]
-pub struct NewHolder<I> {
+pub struct NewHolder<I: Ord> {
     /// The verifying key the old shares add up to.
     pub verifying_key: VerifyingKey,
     /// The old threshold.
@@ -63,7 +63,7 @@ pub struct NewHolder<I> {
 
 /// Inputs for the Key Resharing protocol.
 #[derive(Clone)]
-pub struct KeyResharingInputs<P: SchemeParams, I> {
+pub struct KeyResharingInputs<P: SchemeParams, I: Ord> {
     /// Old share data if the node holds it, or `None`.
     pub old_holder: Option<OldHolder<P, I>>,
     /// New share data if the node is one of the new holders, or `None`.
@@ -80,11 +80,11 @@ struct OldHolderData {
     public_polynomial: PublicPolynomial,
 }
 
-struct NewHolderData<I> {
+struct NewHolderData<I: Ord> {
     inputs: NewHolder<I>,
 }
 
-pub struct Round1<P: SchemeParams, I> {
+pub struct Round1<P: SchemeParams, I: Ord> {
     old_holder: Option<OldHolderData>,
     new_holder: Option<NewHolderData<I>>,
     new_share_ids: BTreeMap<I, ShareId>,
