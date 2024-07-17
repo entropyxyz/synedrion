@@ -8,7 +8,7 @@ use crate::uint::{
     U2048Mod, U4096Mod, U512Mod, Zero, U1024, U2048, U4096, U512, U8192,
 };
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaillierTest;
