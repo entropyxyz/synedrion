@@ -8,7 +8,9 @@ use crate::uint::{
     U2048Mod, U4096Mod, U512Mod, Zero, U1024, U2048, U4096, U512, U8192,
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
@@ -63,7 +65,7 @@ impl PaillierParams for PaillierTest {
     type ExtraWideUint = U4096;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaillierProduction;
 
 impl PaillierParams for PaillierProduction {
@@ -167,7 +169,7 @@ impl<P: SchemeParams> HashableType for P {
 
 /// Scheme parameters **for testing purposes only**.
 /// Security is weakened to allow for faster execution.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TestParams;
 
 // Some requirements from range proofs etc:
@@ -191,7 +193,7 @@ impl SchemeParams for TestParams {
 }
 
 /// Production strength parameters.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {
