@@ -236,14 +236,18 @@ async fn full_sequence() {
         .collect::<Vec<_>>();
 
     // Derive child shares
-    let child_key_seed = b"some derivation path";
+    let path = "m/0/2/1/4/2".parse().unwrap();
     let child_key_shares = t_key_shares
         .iter()
-        .map(|key_share| key_share.derive(child_key_seed))
+        .map(|key_share| key_share.derive_bip32(&path).unwrap())
         .collect::<Vec<_>>();
 
     // The full verifying key can be obtained both from the original key shares and child key shares
-    let child_vkey = t_key_shares[0].derived_verifying_key(child_key_seed);
+    let child_vkey = ThresholdKeyShare::<TestParams, VerifyingKey>::derived_verifying_key_bip32(
+        &t_key_shares[0].verifying_key(),
+        &path,
+    )
+    .unwrap();
     assert_eq!(child_vkey, child_key_shares[0].verifying_key());
 
     // Reshare to `n` nodes
@@ -313,7 +317,12 @@ async fn full_sequence() {
     );
 
     // Check that resharing did not change the derived child key
-    let child_vkey_after_resharing = new_t_key_shares[0].derived_verifying_key(child_key_seed);
+    let child_vkey_after_resharing =
+        ThresholdKeyShare::<TestParams, VerifyingKey>::derived_verifying_key_bip32(
+            &new_t_key_shares[0].verifying_key(),
+            &path,
+        )
+        .unwrap();
     assert_eq!(child_vkey, child_vkey_after_resharing);
 
     // Generate auxiliary data
@@ -341,13 +350,16 @@ async fn full_sequence() {
     let selected_parties = BTreeSet::from([verifiers[0], verifiers[2], verifiers[4]]);
     let selected_key_shares = vec![
         new_t_key_shares[0]
-            .derive(child_key_seed)
+            .derive_bip32(&path)
+            .unwrap()
             .to_key_share(&selected_parties),
         new_t_key_shares[2]
-            .derive(child_key_seed)
+            .derive_bip32(&path)
+            .unwrap()
             .to_key_share(&selected_parties),
         new_t_key_shares[4]
-            .derive(child_key_seed)
+            .derive_bip32(&path)
+            .unwrap()
             .to_key_share(&selected_parties),
     ];
     let selected_aux_infos = vec![

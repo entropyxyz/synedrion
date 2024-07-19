@@ -1,8 +1,10 @@
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 
-use k256::ecdsa::VerifyingKey;
+use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
+use k256::ecdsa::{SigningKey, VerifyingKey};
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
@@ -43,7 +45,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         rng: &mut impl CryptoRngCore,
         ids: &BTreeSet<I>,
         threshold: usize,
-        signing_key: Option<&k256::ecdsa::SigningKey>,
+        signing_key: Option<&SigningKey>,
     ) -> BTreeMap<I, Self> {
         debug_assert!(threshold <= ids.len()); // TODO (#68): make the method fallible
 
@@ -170,41 +172,94 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         }
     }
 
-    fn derive_tweak(seed: &[u8]) -> Scalar {
-        FofHasher::new_with_dst(b"key-derivation")
-            .chain_bytes(seed)
-            .finalize_to_scalar()
+    fn derive_tweaks(
+        public_key: VerifyingKey,
+        derivation_path: &DerivationPath,
+    ) -> Result<Vec<PrivateKeyBytes>, bip32::Error> {
+        let mut public_key = public_key;
+
+        // Note: deriving the initial chain code from public information. Is this okay?
+        let mut chain_code = FofHasher::new_with_dst(b"chain-code-derivation")
+            .chain_bytes(&Point::from_verifying_key(&public_key).to_compressed_array())
+            .finalize()
+            .0;
+
+        let mut tweaks = Vec::new();
+        for child_number in derivation_path.iter() {
+            let (tweak, new_chain_code) = public_key.derive_tweak(&chain_code, child_number)?;
+            public_key = public_key.derive_child(tweak)?;
+            tweaks.push(tweak);
+            chain_code = new_chain_code;
+        }
+
+        Ok(tweaks)
+    }
+
+    fn apply_tweaks_public(
+        public_key: VerifyingKey,
+        tweaks: &[PrivateKeyBytes],
+    ) -> Result<VerifyingKey, bip32::Error> {
+        let mut public_key = public_key;
+        for tweak in tweaks {
+            public_key = public_key.derive_child(*tweak)?;
+        }
+        Ok(public_key)
+    }
+
+    fn apply_tweaks_private(
+        private_key: SigningKey,
+        tweaks: &[PrivateKeyBytes],
+    ) -> Result<SigningKey, bip32::Error> {
+        let mut private_key = private_key;
+        for tweak in tweaks {
+            private_key = private_key.derive_child(*tweak)?;
+        }
+        Ok(private_key)
     }
 
     /// Return the verifying key to which the derive set of shares will correspond.
-    pub fn derived_verifying_key(&self, seed: &[u8]) -> VerifyingKey {
-        let parent = self.verifying_key_as_point();
-        let tweak = Self::derive_tweak(seed);
-        (parent + tweak.mul_by_generator())
-            .to_verifying_key()
-            .unwrap()
+    pub fn derived_verifying_key_bip32(
+        public_key: &VerifyingKey,
+        derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey, bip32::Error> {
+        let tweaks = Self::derive_tweaks(*public_key, derivation_path)?;
+        Self::apply_tweaks_public(*public_key, &tweaks)
     }
 
-    /// Deterministically derives a child share.
-    pub fn derive(&self, seed: &[u8]) -> Self {
-        let tweak = Self::derive_tweak(seed);
-        let tweak_point = tweak.mul_by_generator();
-        let secret_share = Secret::new(self.secret_share.expose_secret() + &tweak);
+    /// Deterministically derives a child share using BIP-32 standard.
+    pub fn derive_bip32(&self, derivation_path: &DerivationPath) -> Result<Self, bip32::Error> {
+        let tweaks = Self::derive_tweaks(self.verifying_key(), derivation_path)?;
+
+        // Will fail here if secret share is zero
+        let secret_share = self
+            .secret_share
+            .expose_secret()
+            .to_signing_key()
+            .ok_or(bip32::Error::Crypto)?;
+        let secret_share = Secret::new(Scalar::from_signing_key(&Self::apply_tweaks_private(
+            secret_share,
+            &tweaks,
+        )?));
+
         let public_shares = self
             .public_shares
             .clone()
             .into_iter()
-            .map(|(id, point)| (id, point + tweak_point))
-            .collect();
+            .map(|(id, point)|
+                // Will fail here if the final or one of the intermediate points is an identity
+                point.to_verifying_key().ok_or(bip32::Error::Crypto)
+                    .and_then(|vkey| Self::apply_tweaks_public(vkey, &tweaks))
+                    .map(|vkey| (id, Point::from_verifying_key(&vkey))))
+            .collect::<Result<_, _>>()?;
 
-        Self {
+        Ok(Self {
             owner: self.owner.clone(),
             threshold: self.threshold,
             share_ids: self.share_ids.clone(),
             secret_share,
             public_shares,
             phantom: PhantomData,
-        }
+        })
     }
 }
 

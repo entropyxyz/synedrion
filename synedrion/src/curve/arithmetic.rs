@@ -19,7 +19,10 @@ use k256::elliptic_curve::{
     FieldBytesSize,
     NonZeroScalar,
 };
-use k256::{ecdsa::VerifyingKey, Secp256k1};
+use k256::{
+    ecdsa::{SigningKey, VerifyingKey},
+    Secp256k1,
+};
 use rand_core::CryptoRngCore;
 use secrecy::{CloneableSecret, DebugSecret, SerializableSecret};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -92,6 +95,15 @@ impl Scalar {
 
     pub(crate) fn to_backend(self) -> BackendScalar {
         self.0
+    }
+
+    pub fn to_signing_key(self) -> Option<SigningKey> {
+        let scalar: Option<NonZeroScalar<Secp256k1>> = NonZeroScalar::new(self.0).into();
+        Some(SigningKey::from(scalar?))
+    }
+
+    pub fn from_signing_key(sk: &SigningKey) -> Self {
+        Self(*sk.as_nonzero_scalar().as_ref())
     }
 
     pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {

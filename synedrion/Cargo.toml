@@ -21,6 +21,7 @@ base64 = { version = "0.21", default-features = false, features = ["alloc"] }
 hashing-serializer = { version = "0.1", default-features = false }
 secrecy = { version = "0.8", default-features = false, features = ["alloc", "serde"] }
 zeroize = { version = "1.8", default-features = false, features = ["alloc", "zeroize_derive"] }
+bip32 = { version = "0.5.2", default-features = false, features = ["alloc", "secp256k1"] }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
