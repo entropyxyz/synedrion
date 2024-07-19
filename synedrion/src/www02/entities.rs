@@ -263,6 +263,49 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
     }
 }
 
+/// Return a verifying key dervied from the given verifying key using the BIP-32 scheme.
+pub fn derived_verifying_key_bip32(
+    public_key: &VerifyingKey,
+    derivation_path: &DerivationPath,
+) -> Result<VerifyingKey, bip32::Error> {
+    let tweaks = derive_tweaks(*public_key, derivation_path)?;
+    apply_tweaks_public(*public_key, &tweaks)
+}
+
+fn derive_tweaks(
+    public_key: VerifyingKey,
+    derivation_path: &DerivationPath,
+) -> Result<Vec<PrivateKeyBytes>, bip32::Error> {
+    let mut public_key = public_key;
+
+    // Note: deriving the initial chain code from public information. Is this okay?
+    let mut chain_code = FofHasher::new_with_dst(b"chain-code-derivation")
+        .chain_bytes(&Point::from_verifying_key(&public_key).to_compressed_array())
+        .finalize()
+        .0;
+
+    let mut tweaks = Vec::new();
+    for child_number in derivation_path.iter() {
+        let (tweak, new_chain_code) = public_key.derive_tweak(&chain_code, child_number)?;
+        public_key = public_key.derive_child(tweak)?;
+        tweaks.push(tweak);
+        chain_code = new_chain_code;
+    }
+
+    Ok(tweaks)
+}
+
+fn apply_tweaks_public(
+    public_key: VerifyingKey,
+    tweaks: &[PrivateKeyBytes],
+) -> Result<VerifyingKey, bip32::Error> {
+    let mut public_key = public_key;
+    for tweak in tweaks {
+        public_key = public_key.derive_child(*tweak)?;
+    }
+    Ok(public_key)
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeSet;
