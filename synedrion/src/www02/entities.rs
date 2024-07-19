@@ -172,63 +172,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         }
     }
 
-    fn derive_tweaks(
-        public_key: VerifyingKey,
-        derivation_path: &DerivationPath,
-    ) -> Result<Vec<PrivateKeyBytes>, bip32::Error> {
-        let mut public_key = public_key;
-
-        // Note: deriving the initial chain code from public information. Is this okay?
-        let mut chain_code = FofHasher::new_with_dst(b"chain-code-derivation")
-            .chain_bytes(&Point::from_verifying_key(&public_key).to_compressed_array())
-            .finalize()
-            .0;
-
-        let mut tweaks = Vec::new();
-        for child_number in derivation_path.iter() {
-            let (tweak, new_chain_code) = public_key.derive_tweak(&chain_code, child_number)?;
-            public_key = public_key.derive_child(tweak)?;
-            tweaks.push(tweak);
-            chain_code = new_chain_code;
-        }
-
-        Ok(tweaks)
-    }
-
-    fn apply_tweaks_public(
-        public_key: VerifyingKey,
-        tweaks: &[PrivateKeyBytes],
-    ) -> Result<VerifyingKey, bip32::Error> {
-        let mut public_key = public_key;
-        for tweak in tweaks {
-            public_key = public_key.derive_child(*tweak)?;
-        }
-        Ok(public_key)
-    }
-
-    fn apply_tweaks_private(
-        private_key: SigningKey,
-        tweaks: &[PrivateKeyBytes],
-    ) -> Result<SigningKey, bip32::Error> {
-        let mut private_key = private_key;
-        for tweak in tweaks {
-            private_key = private_key.derive_child(*tweak)?;
-        }
-        Ok(private_key)
-    }
-
-    /// Return the verifying key to which the derive set of shares will correspond.
-    pub fn derived_verifying_key_bip32(
-        public_key: &VerifyingKey,
-        derivation_path: &DerivationPath,
-    ) -> Result<VerifyingKey, bip32::Error> {
-        let tweaks = Self::derive_tweaks(*public_key, derivation_path)?;
-        Self::apply_tweaks_public(*public_key, &tweaks)
-    }
-
     /// Deterministically derives a child share using BIP-32 standard.
     pub fn derive_bip32(&self, derivation_path: &DerivationPath) -> Result<Self, bip32::Error> {
-        let tweaks = Self::derive_tweaks(self.verifying_key(), derivation_path)?;
+        let tweaks = derive_tweaks(self.verifying_key(), derivation_path)?;
 
         // Will fail here if secret share is zero
         let secret_share = self
@@ -236,7 +182,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .expose_secret()
             .to_signing_key()
             .ok_or(bip32::Error::Crypto)?;
-        let secret_share = Secret::new(Scalar::from_signing_key(&Self::apply_tweaks_private(
+        let secret_share = Secret::new(Scalar::from_signing_key(&apply_tweaks_private(
             secret_share,
             &tweaks,
         )?));
@@ -248,7 +194,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .map(|(id, point)|
                 // Will fail here if the final or one of the intermediate points is an identity
                 point.to_verifying_key().ok_or(bip32::Error::Crypto)
-                    .and_then(|vkey| Self::apply_tweaks_public(vkey, &tweaks))
+                    .and_then(|vkey| apply_tweaks_public(vkey, &tweaks))
                     .map(|vkey| (id, Point::from_verifying_key(&vkey))))
             .collect::<Result<_, _>>()?;
 
@@ -263,13 +209,36 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
     }
 }
 
-/// Return a verifying key dervied from the given verifying key using the BIP-32 scheme.
-pub fn derived_verifying_key_bip32(
-    public_key: &VerifyingKey,
-    derivation_path: &DerivationPath,
-) -> Result<VerifyingKey, bip32::Error> {
-    let tweaks = derive_tweaks(*public_key, derivation_path)?;
-    apply_tweaks_public(*public_key, &tweaks)
+/// Used for deriving child keys from a parent type.
+pub trait DeriveChildKey {
+    /// Return a verifying key derived from the given type using the BIP-32 scheme.
+    fn derive_verifying_key_bip32(
+        &self,
+        derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey, bip32::Error>;
+}
+
+impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> DeriveChildKey
+    for ThresholdKeyShare<P, I>
+{
+    fn derive_verifying_key_bip32(
+        &self,
+        derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey, bip32::Error> {
+        let public_key = self.verifying_key();
+        let tweaks = derive_tweaks(public_key, derivation_path)?;
+        apply_tweaks_public(public_key, &tweaks)
+    }
+}
+
+impl DeriveChildKey for VerifyingKey {
+    fn derive_verifying_key_bip32(
+        &self,
+        derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey, bip32::Error> {
+        let tweaks = derive_tweaks(*self, derivation_path)?;
+        apply_tweaks_public(*self, &tweaks)
+    }
 }
 
 fn derive_tweaks(
@@ -304,6 +273,17 @@ fn apply_tweaks_public(
         public_key = public_key.derive_child(*tweak)?;
     }
     Ok(public_key)
+}
+
+fn apply_tweaks_private(
+    private_key: SigningKey,
+    tweaks: &[PrivateKeyBytes],
+) -> Result<SigningKey, bip32::Error> {
+    let mut private_key = private_key;
+    for tweak in tweaks {
+        private_key = private_key.derive_child(*tweak)?;
+    }
+    Ok(private_key)
 }
 
 #[cfg(test)]

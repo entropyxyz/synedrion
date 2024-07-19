@@ -49,4 +49,4 @@ pub use constructors::{
 pub use curve::RecoverableSignature;
 pub use rounds::ProtocolResult;
 pub use sessions::{FinalizeOutcome, MessageBundle, Session, SessionId};
-pub use www02::{KeyResharingInputs, KeyResharingResult, NewHolder, OldHolder, ThresholdKeyShare, derived_verifying_key_bip32};
+pub use www02::{KeyResharingInputs, KeyResharingResult, NewHolder, OldHolder, ThresholdKeyShare, DeriveChildKey};
