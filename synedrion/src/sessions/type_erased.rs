@@ -109,6 +109,7 @@ pub(crate) trait DynRound<I, Res: ProtocolResult>: Send + Sync {
     ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError>;
     fn verify_message(
         &self,
+        rng: &mut dyn CryptoRngCore,
         from: &I,
         broadcast_data: Option<&[u8]>,
         direct_data: Option<&[u8]>,
@@ -188,6 +189,7 @@ where
 
     fn verify_message(
         &self,
+        rng: &mut dyn CryptoRngCore,
         from: &I,
         broadcast_data: Option<&[u8]>,
         direct_data: Option<&[u8]>,
@@ -229,8 +231,10 @@ where
             Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
         };
 
+        let mut boxed_rng = BoxedRng(rng);
+
         let payload = self
-            .verify_message(from, broadcast_message, direct_message)
+            .verify_message(&mut boxed_rng, from, broadcast_message, direct_message)
             .map_err(ReceiveError::Protocol)?;
 
         Ok(DynPayload(Box::new(payload)))

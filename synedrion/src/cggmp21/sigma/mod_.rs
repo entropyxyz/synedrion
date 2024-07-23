@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use rand_core::{CryptoRngCore, OsRng};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
@@ -137,6 +137,7 @@ impl<P: SchemeParams> ModProof<P> {
 
     pub fn verify(
         &self,
+        rng: &mut impl CryptoRngCore,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
@@ -153,8 +154,7 @@ impl<P: SchemeParams> ModProof<P> {
         // It is possible to pass the external RNG similarly to how it's done for `new()`,
         // but it would require quite a bit of changes because an external RNG is not accessible
         // at the callsite.
-        // TODO (#105): consider if we should keep using the default RNG here.
-        if pk.modulus().is_prime_with_rng(&mut OsRng) {
+        if pk.modulus().is_prime_with_rng(rng) {
             return false;
         }
 
@@ -202,6 +202,6 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let proof = ModProof::<Params>::new(&mut OsRng, &sk, &aux);
-        assert!(proof.verify(pk, &aux));
+        assert!(proof.verify(&mut OsRng, pk, &aux));
     }
 }

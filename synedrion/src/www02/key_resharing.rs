@@ -231,6 +231,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> Round<I> for Round1<P, I> {
 
     fn verify_message(
         &self,
+        _rng: &mut impl CryptoRngCore,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
