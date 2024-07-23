@@ -13,6 +13,12 @@ jobs:
 
   test-and-codecov:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+        target:
+          - wasm32-unknown-unknown
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -21,7 +27,8 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
           override: true
 
       - name: Install cargo-llvm-cov
@@ -34,3 +41,26 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
           fail_ci_if_error: true
+
+  build-wasm:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+        target:
+          - wasm32-unknown-unknown
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Build
+        run: cargo build --target ${{ matrix.target }} --release --no-default-features
