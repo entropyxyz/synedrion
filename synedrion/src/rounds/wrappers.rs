@@ -75,12 +75,13 @@ impl<I: Ord + Clone, T: RoundWrapper<I> + WrappedRound> Round<I> for T {
 
     fn verify_message(
         &self,
+        rng: &mut impl CryptoRngCore,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         self.inner_round()
-            .verify_message(from, broadcast_msg, direct_msg)
+            .verify_message(rng, from, broadcast_msg, direct_msg)
             .map_err(Self::Result::wrap_error)
     }
     fn finalization_requirement() -> FinalizationRequirement {

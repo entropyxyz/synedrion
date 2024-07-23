@@ -446,6 +446,7 @@ where
     /// Process a received message from another party.
     pub fn process_message(
         &self,
+        rng: &mut impl CryptoRngCore,
         preprocessed: PreprocessedMessage<Sig, Verifier>,
     ) -> Result<ProcessedMessage<Sig, Verifier>, Error<Res, Verifier>> {
         let from = preprocessed.from;
@@ -453,6 +454,7 @@ where
         match &self.tp {
             SessionType::Normal { this_round, .. } => {
                 let result = this_round.verify_message(
+                    rng,
                     &from,
                     message.broadcast_payload(),
                     message.direct_payload(),

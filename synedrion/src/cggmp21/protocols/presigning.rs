@@ -192,6 +192,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
 
     fn verify_message(
         &self,
+        _rng: &mut impl CryptoRngCore,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
@@ -438,6 +439,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
     fn verify_message(
         &self,
+        _rng: &mut impl CryptoRngCore,
         from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
@@ -653,6 +655,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
 
     fn verify_message(
         &self,
+        _rng: &mut impl CryptoRngCore,
         from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
