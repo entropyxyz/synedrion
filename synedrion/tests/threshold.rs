@@ -8,8 +8,8 @@ use tokio::time::{sleep, Duration};
 
 use synedrion::{
     make_aux_gen_session, make_interactive_signing_session, make_key_init_session,
-    make_key_resharing_session, FinalizeOutcome, KeyResharingInputs, MessageBundle, NewHolder,
-    OldHolder, ProtocolResult, Session, SessionId, TestParams, ThresholdKeyShare,
+    make_key_resharing_session, DeriveChildKey, FinalizeOutcome, KeyResharingInputs, MessageBundle,
+    NewHolder, OldHolder, ProtocolResult, Session, SessionId, TestParams, ThresholdKeyShare,
 };
 
 type MessageOut = (VerifyingKey, VerifyingKey, MessageBundle<Signature>);
@@ -243,11 +243,7 @@ async fn full_sequence() {
         .collect::<Vec<_>>();
 
     // The full verifying key can be obtained both from the original key shares and child key shares
-    let child_vkey = ThresholdKeyShare::<TestParams, VerifyingKey>::derived_verifying_key_bip32(
-        &t_key_shares[0].verifying_key(),
-        &path,
-    )
-    .unwrap();
+    let child_vkey = t_key_shares[0].derive_verifying_key_bip32(&path).unwrap();
     assert_eq!(child_vkey, child_key_shares[0].verifying_key());
 
     // Reshare to `n` nodes
@@ -317,11 +313,8 @@ async fn full_sequence() {
     );
 
     // Check that resharing did not change the derived child key
-    let child_vkey_after_resharing =
-        ThresholdKeyShare::<TestParams, VerifyingKey>::derived_verifying_key_bip32(
-            &new_t_key_shares[0].verifying_key(),
-            &path,
-        )
+    let child_vkey_after_resharing = new_t_key_shares[0]
+        .derive_verifying_key_bip32(&path)
         .unwrap();
     assert_eq!(child_vkey, child_vkey_after_resharing);
 
