@@ -132,6 +132,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
 
     fn verify_message(
         &self,
+        rng: &mut impl CryptoRngCore,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
@@ -139,11 +140,11 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
         let (key_init_message, key_refresh_message) = broadcast_msg;
         let key_init_payload = self
             .key_init_round
-            .verify_message(from, key_init_message, ())
+            .verify_message(rng, from, key_init_message, ())
             .map_err(KeyGenError::KeyInit)?;
         let key_refresh_payload = self
             .key_refresh_round
-            .verify_message(from, key_refresh_message, ())
+            .verify_message(rng, from, key_refresh_message, ())
             .map_err(KeyGenError::KeyRefresh)?;
         Ok((key_init_payload, key_refresh_payload))
     }
@@ -228,6 +229,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
     fn verify_message(
         &self,
+        rng: &mut impl CryptoRngCore,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
@@ -235,11 +237,11 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
         let (key_init_message, key_refresh_message) = broadcast_msg;
         let key_init_payload = self
             .key_init_round
-            .verify_message(from, key_init_message, ())
+            .verify_message(rng, from, key_init_message, ())
             .map_err(KeyGenError::KeyInit)?;
         let key_refresh_payload = self
             .key_refresh_round
-            .verify_message(from, key_refresh_message, ())
+            .verify_message(rng, from, key_refresh_message, ())
             .map_err(KeyGenError::KeyRefresh)?;
         Ok((key_init_payload, key_refresh_payload))
     }
@@ -323,6 +325,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
 
     fn verify_message(
         &self,
+        rng: &mut impl CryptoRngCore,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
@@ -330,11 +333,11 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
         #[allow(clippy::let_unit_value)]
         let key_init_payload = self
             .key_init_round
-            .verify_message(from, broadcast_msg, ())
+            .verify_message(rng, from, broadcast_msg, ())
             .map_err(KeyGenError::KeyInit)?;
         let key_refresh_payload = self
             .key_refresh_round
-            .verify_message(from, (), direct_msg)
+            .verify_message(rng, from, (), direct_msg)
             .map_err(KeyGenError::KeyRefresh)?;
         Ok((key_init_payload, key_refresh_payload))
     }

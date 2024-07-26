@@ -212,6 +212,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
 
     fn verify_message(
         &self,
+        _rng: &mut impl CryptoRngCore,
         _from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
@@ -290,6 +291,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
     fn verify_message(
         &self,
+        _rng: &mut impl CryptoRngCore,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         _direct_msg: Self::DirectMessage,
@@ -454,6 +456,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
 
     fn verify_message(
         &self,
+        rng: &mut impl CryptoRngCore,
         from: &I,
         _broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,
@@ -465,7 +468,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
         if !direct_msg
             .data2
             .psi_mod
-            .verify(&sender_data.paillier_pk, &aux)
+            .verify(rng, &sender_data.paillier_pk, &aux)
         {
             return Err(AuxGenError(AuxGenErrorEnum::Round3(
                 "Mod proof verification failed".into(),

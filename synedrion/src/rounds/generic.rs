@@ -66,6 +66,7 @@ pub(crate) trait Round<I: Ord + Clone> {
     // in the received message, from which we can construct `broadcast_msg`.
     fn verify_message(
         &self,
+        rng: &mut impl CryptoRngCore,
         from: &I,
         broadcast_msg: Self::BroadcastMessage,
         direct_msg: Self::DirectMessage,

@@ -93,7 +93,7 @@ where
     for (to, from, (broadcast, direct)) in messages.into_iter() {
         let round = &rounds[&to];
         let payload = round
-            .verify_message(&from, broadcast, direct)
+            .verify_message(rng, &from, broadcast, direct)
             .map_err(|err| StepError::Receive(format!("{:?}", err)))?;
         payload_accums.get_mut(&to).unwrap().insert(from, payload);
     }
