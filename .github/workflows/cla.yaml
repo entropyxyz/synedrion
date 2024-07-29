@@ -46,6 +46,6 @@ jobs:
           path-to-signatures: 'legal/cla/v1/signatures.json'
           path-to-document: 'https://github.com/entropyxyz/.github/blob/main/legal/cla/v1/cla.md'
           branch: 'main'
-          allowlist: dependabot[bot]
+          allowlist: dependabot[bot],entropyxyz
           remote-organization-name: entropyxyz
           remote-repository-name: .github
