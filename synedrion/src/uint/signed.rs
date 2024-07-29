@@ -2,8 +2,6 @@ use alloc::string::String;
 use core::ops::{Add, Mul, Neg, Sub};
 #[cfg(test)]
 use crypto_bigint::Random;
-// TODO: re-export these too and put them in the `super::` section
-use crypto_bigint::{ShlVartime, WrappingSub};
 use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -14,7 +12,7 @@ use super::{
         Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess,
         CtOption,
     },
-    Bounded, CheckedAdd, Encoding, HasWide, Integer, NonZero, RandomMod,
+    Bounded, CheckedAdd, Encoding, HasWide, Integer, NonZero, RandomMod, ShlVartime, WrappingSub,
 };
 
 use crate::tools::hashing::{Chain, Hashable};
@@ -131,29 +129,6 @@ where
             return None;
         }
         Some(result)
-    }
-}
-
-impl<T> Signed<T>
-where
-    T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
-    T::Monty: ConditionallySelectable,
-{
-    // TODO: Remove these notes DynResidue is now MontyForm DynResidueParams is now MontyParams
-    // UintLike for Uint<L> impl had an assoc type ModUint = DynResidue<L>; In the new code, the
-    // Integer for Uint<L> impl has an assoc type Monty that impls trait  Monty
-    // TODO: is this better than using the `ToMod` trait? Worse? Atm I have three different ways of
-    // tackling the problem of missing methods in the `Integer`/`Monty` traits vs
-    // `UintLike`/`UintModLike`: adding a trait like `ToMod`, freestanding functions like
-    // `pow_signed` and this ad-hoc impl directly on the type. Pick one and normalize all the code.
-    // TODO: ask reviewers to check this very carefully – not at all sure this is doing the same as
-    // before.
-    pub fn to_mod(
-        self,
-        precomputed: <<T as Integer>::Monty as crypto_bigint::Monty>::Params,
-    ) -> T::Monty {
-        let abs_mod = <<T as Integer>::Monty as crypto_bigint::Monty>::new(self.abs(), precomputed);
-        T::Monty::conditional_select(&abs_mod, &-abs_mod, self.is_negative())
     }
 }
 
