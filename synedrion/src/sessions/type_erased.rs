@@ -18,7 +18,7 @@ use crate::rounds::{
 };
 
 pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, LocalError> {
-    bincode::serialize(message)
+    bincode::serde::encode_to_vec(message, bincode::config::legacy())
         .map(|serialized| serialized.into_boxed_slice())
         .map_err(|err| LocalError(format!("Failed to serialize: {err:?}")))
 }
@@ -26,7 +26,8 @@ pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, L
 pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
     message_bytes: &[u8],
 ) -> Result<M, String> {
-    bincode::deserialize(message_bytes).map_err(|err| err.to_string())
+    bincode::serde::decode_borrowed_from_slice(message_bytes, bincode::config::legacy())
+        .map_err(|err| err.to_string())
 }
 
 pub(crate) enum FinalizeOutcome<I, Res: ProtocolResult> {

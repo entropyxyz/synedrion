@@ -29,7 +29,7 @@ crypto-bigint = { version = "0.5.3", default-features = false, features = ["serd
 crypto-primes = { version = "0.5", default-features = false }
 
 serde = { version = "1", default-features = false, features = ["derive"] }
-bincode = "1"
+bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde", "alloc"] }
 displaydoc = { version = "0.2", default-features = false}
 
 [dev-dependencies]
