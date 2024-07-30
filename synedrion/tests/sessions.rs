@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, SigningKey, VerifyingKey};
 use rand::Rng;
@@ -7,22 +7,22 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
 use synedrion::{
-    make_interactive_signing_session, make_key_gen_session, AuxInfo, CombinedMessage,
-    FinalizeOutcome, KeyShare, MappedResult, Session, TestParams,
+    make_interactive_signing_session, make_key_gen_session, AuxInfo, FinalizeOutcome, KeyShare,
+    MessageBundle, ProtocolResult, Session, SessionId, TestParams,
 };
 
-type MessageOut = (VerifyingKey, VerifyingKey, CombinedMessage<Signature>);
-type MessageIn = (VerifyingKey, CombinedMessage<Signature>);
+type MessageOut = (VerifyingKey, VerifyingKey, MessageBundle<Signature>);
+type MessageIn = (VerifyingKey, MessageBundle<Signature>);
 
 fn key_to_str(key: &VerifyingKey) -> String {
     hex::encode(&key.to_encoded_point(true).as_bytes()[1..5])
 }
 
-async fn run_session<Res: MappedResult<VerifyingKey>>(
+async fn run_session<Res: ProtocolResult>(
     tx: mpsc::Sender<MessageOut>,
     rx: mpsc::Receiver<MessageIn>,
     session: Session<Res, Signature, SigningKey, VerifyingKey>,
-) -> Res::MappedSuccess {
+) -> Res::Success {
     let mut rx = rx;
 
     let mut session = session;
@@ -65,7 +65,7 @@ async fn run_session<Res: MappedResult<VerifyingKey>>(
         for preprocessed in cached_messages {
             // In production usage, this will happen in a spawned task.
             println!("{key_str}: applying a cached message");
-            let result = session.process_message(preprocessed).unwrap();
+            let result = session.process_message(&mut OsRng, preprocessed).unwrap();
 
             // This will happen in a host task.
             accum.add_processed_message(result).unwrap().unwrap();
@@ -87,7 +87,7 @@ async fn run_session<Res: MappedResult<VerifyingKey>>(
             if let Some(preprocessed) = preprocessed {
                 // In production usage, this will happen in a spawned task.
                 println!("{key_str}: applying a message from {}", key_to_str(&from));
-                let result = session.process_message(preprocessed).unwrap();
+                let result = session.process_message(&mut OsRng, preprocessed).unwrap();
 
                 // This will happen in a host task.
                 accum.add_processed_message(result).unwrap().unwrap();
@@ -157,10 +157,10 @@ fn make_signers(num_parties: usize) -> (Vec<SigningKey>, Vec<VerifyingKey>) {
 
 async fn run_nodes<Res>(
     sessions: Vec<Session<Res, Signature, SigningKey, VerifyingKey>>,
-) -> Vec<Res::MappedSuccess>
+) -> Vec<Res::Success>
 where
-    Res: MappedResult<VerifyingKey> + Send + 'static,
-    Res::MappedSuccess: Send + 'static,
+    Res: ProtocolResult + Send + 'static,
+    Res::Success: Send,
 {
     let num_parties = sessions.len();
 
@@ -178,7 +178,7 @@ where
     let dispatcher_task = message_dispatcher(tx_map, dispatcher_rx);
     let dispatcher = tokio::spawn(dispatcher_task);
 
-    let handles: Vec<tokio::task::JoinHandle<Res::MappedSuccess>> = rxs
+    let handles: Vec<tokio::task::JoinHandle<Res::Success>> = rxs
         .into_iter()
         .zip(sessions.into_iter())
         .map(|(rx, session)| {
@@ -204,17 +204,18 @@ where
 async fn keygen_and_aux() {
     let num_parties = 3;
     let (signers, verifiers) = make_signers(num_parties);
+    let verifiers_set = BTreeSet::from_iter(verifiers.iter().cloned());
 
-    let shared_randomness = b"1234567890";
+    let session_id = SessionId::from_seed(b"1234567890");
 
     let sessions = signers
         .into_iter()
         .map(|signer| {
             make_key_gen_session::<TestParams, Signature, _, _>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 signer,
-                &verifiers,
+                &verifiers_set,
             )
             .unwrap()
         })
@@ -224,7 +225,7 @@ async fn keygen_and_aux() {
 
     for (idx, key_share) in key_shares.iter().enumerate() {
         assert_eq!(key_share.owner(), &verifiers[idx]);
-        assert_eq!(key_share.num_parties(), num_parties);
+        assert_eq!(key_share.all_parties(), verifiers_set);
         assert_eq!(key_share.verifying_key(), key_shares[0].verifying_key());
     }
 }
@@ -233,23 +234,25 @@ async fn keygen_and_aux() {
 async fn interactive_signing() {
     let num_parties = 3;
     let (signers, verifiers) = make_signers(num_parties);
+    let verifiers_set = BTreeSet::from_iter(verifiers.iter().cloned());
 
     let key_shares =
-        KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &verifiers, None);
-    let aux_infos = AuxInfo::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &verifiers);
+        KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &verifiers_set, None);
+    let aux_infos =
+        AuxInfo::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &verifiers_set);
 
-    let shared_randomness = b"1234567890";
+    let session_id = SessionId::from_seed(b"1234567890");
     let message = b"abcdefghijklmnopqrstuvwxyz123456";
 
     let sessions = (0..num_parties)
         .map(|idx| {
             make_interactive_signing_session::<_, Signature, _, _>(
                 &mut OsRng,
-                shared_randomness,
+                session_id,
                 signers[idx].clone(),
-                &verifiers,
-                &key_shares[idx],
-                &aux_infos[idx],
+                &verifiers_set,
+                &key_shares[&verifiers[idx]],
+                &aux_infos[&verifiers[idx]],
                 message,
             )
             .unwrap()
@@ -260,7 +263,7 @@ async fn interactive_signing() {
 
     for signature in signatures {
         let (sig, rec_id) = signature.to_backend();
-        let vkey = key_shares[0].verifying_key();
+        let vkey = key_shares[&verifiers[0]].verifying_key();
 
         // Check that the signature can be verified
         vkey.verify_prehash(message, &sig).unwrap();

@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use crate::curve::{Curve, Scalar, ORDER};
 use crate::paillier::PaillierParams;
 use crate::tools::hashing::{Chain, HashableType};
@@ -6,7 +8,9 @@ use crate::uint::{
     U2048Mod, U4096Mod, U512Mod, Zero, U1024, U2048, U4096, U512, U8192,
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
@@ -61,7 +65,7 @@ impl PaillierParams for PaillierTest {
     type ExtraWideUint = U4096;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaillierProduction;
 
 impl PaillierParams for PaillierProduction {
@@ -78,9 +82,7 @@ impl PaillierParams for PaillierProduction {
 /// Signing scheme parameters.
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
-pub trait SchemeParams:
-    Clone + Send + PartialEq + Eq + core::fmt::Debug + Send + Sync + 'static
-{
+pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static {
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
@@ -167,7 +169,7 @@ impl<P: SchemeParams> HashableType for P {
 
 /// Scheme parameters **for testing purposes only**.
 /// Security is weakened to allow for faster execution.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TestParams;
 
 // Some requirements from range proofs etc:
@@ -191,7 +193,7 @@ impl SchemeParams for TestParams {
 }
 
 /// Production strength parameters.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {

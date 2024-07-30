@@ -7,21 +7,27 @@ use serde::{Deserialize, Serialize};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
 use super::error::LocalError;
-use crate::tools::hashing::{Chain, Hash, HashOutput, Hashable};
+use crate::tools::hashing::{Chain, FofHasher, HashOutput};
 use crate::tools::serde_bytes;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+/// A session identifier shared between the parties.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct SessionId(HashOutput);
 
 impl SessionId {
-    pub(crate) fn from_seed(seed: &[u8]) -> Self {
-        Self(Hash::new_with_dst(b"SessionId").chain(&seed).finalize())
+    /// Deterministically creates a session ID from the given bytestring.
+    pub fn from_seed(seed: &[u8]) -> Self {
+        Self(
+            FofHasher::new_with_dst(b"SessionId")
+                .chain(&seed)
+                .finalize(),
+        )
     }
 }
 
-impl Hashable for SessionId {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.0)
+impl AsRef<[u8]> for SessionId {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
     }
 }
 
@@ -31,7 +37,7 @@ fn message_hash(
     message_type: MessageType,
     payload: &[u8],
 ) -> HashOutput {
-    Hash::new_with_dst(b"SignedMessage")
+    FofHasher::new_with_dst(b"SignedMessage")
         .chain(session_id)
         .chain(&round)
         .chain(&message_type)
@@ -47,17 +53,6 @@ pub enum MessageType {
     Direct,
     /// A service message for echo-broadcast.
     Echo,
-}
-
-impl Hashable for MessageType {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        let value: u8 = match self {
-            Self::Broadcast => 0,
-            Self::Direct => 1,
-            Self::Echo => 2,
-        };
-        digest.chain(&value)
-    }
 }
 
 /// A (yet) unverified message from a round that includes the payload signature.

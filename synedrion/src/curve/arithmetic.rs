@@ -18,11 +18,16 @@ use k256::elliptic_curve::{
     FieldBytesSize,
     NonZeroScalar,
 };
-use k256::{ecdsa::VerifyingKey, Secp256k1};
+use k256::{
+    ecdsa::{SigningKey, VerifyingKey},
+    Secp256k1,
+};
 use rand_core::CryptoRngCore;
+use secrecy::{CloneableSecret, DebugSecret, SerializableSecret};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zeroize::DefaultIsZeroes;
 
-use crate::tools::hashing::{Chain, Hashable, HashableType};
+use crate::tools::hashing::{Chain, HashableType};
 use crate::tools::serde_bytes;
 
 pub(crate) type Curve = Secp256k1;
@@ -92,6 +97,15 @@ impl Scalar {
         self.0
     }
 
+    pub fn to_signing_key(self) -> Option<SigningKey> {
+        let scalar: Option<NonZeroScalar<Secp256k1>> = NonZeroScalar::new(self.0).into();
+        Some(SigningKey::from(scalar?))
+    }
+
+    pub fn from_signing_key(sk: &SigningKey) -> Self {
+        Self(*sk.as_nonzero_scalar().as_ref())
+    }
+
     pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let arr = Array::<u8, FieldBytesSize<Secp256k1>>::try_from_iter(bytes.iter().cloned())
             .map_err(|e| format!("Invalid length of a curve scalar: {:?}", e))?;
@@ -147,11 +161,13 @@ impl<'de> Deserialize<'de> for Scalar {
     }
 }
 
-impl Hashable for Scalar {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.to_bytes().as_slice())
-    }
-}
+impl DefaultIsZeroes for Scalar {}
+
+impl DebugSecret for Scalar {}
+
+impl CloneableSecret for Scalar {}
+
+impl SerializableSecret for Scalar {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point(BackendPoint);
@@ -185,9 +201,12 @@ impl Point {
     }
 
     pub(crate) fn to_compressed_array(self) -> Array<u8, CompressedPointSize> {
-        *Array::<u8, CompressedPointSize>::from_slice(
-            self.0.to_affine().to_encoded_point(true).as_bytes(),
-        )
+        self.0
+            .to_affine()
+            .to_encoded_point(true)
+            .as_bytes()
+            .try_into()
+            .expect("TODO(dp): justify this properly")
     }
 
     pub(crate) fn to_backend(self) -> BackendPoint {
@@ -214,14 +233,6 @@ impl<'de> Deserialize<'de> for Point {
     }
 }
 
-impl Hashable for Point {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        let arr = self.to_compressed_array();
-        let arr_ref: &[u8] = arr.as_ref();
-        digest.chain_constant_sized_bytes(&arr_ref)
-    }
-}
-
 impl From<u32> for Scalar {
     fn from(val: u32) -> Self {
         Self(BackendScalar::from(val))
@@ -245,6 +256,14 @@ impl Add<Scalar> for Scalar {
     type Output = Scalar;
 
     fn add(self, other: Scalar) -> Scalar {
+        Scalar(self.0.add(&other.0))
+    }
+}
+
+impl Add<&Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn add(self, other: &Scalar) -> Scalar {
         Scalar(self.0.add(&other.0))
     }
 }

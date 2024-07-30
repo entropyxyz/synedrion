@@ -1,17 +1,22 @@
-use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
-
 use digest::{Digest, ExtendableOutput, Update};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::{Shake256, Shake256Reader};
 
 use crate::curve::Scalar;
+// TODO(dp): the `hashing_serializer` crate uses an old version of `digest` (v0.10) which conflicts
+// with our `impl Hashable for T`, so as a temporary workaround, copy&paste the whole crate source here...
+// When we get a new release of `digest`, ask for an updated version of `hashing_serializer` and
+// remove our copy in `tools/hashing_serializer.rs`
+use crate::tools::hashing_serializer::HashingSerializer;
 use crate::tools::serde_bytes;
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
+    type Digest: Update;
+
+    fn as_digest_mut(&mut self) -> &mut Self::Digest;
+
     /// Hash raw bytes.
     ///
     /// Note: only for impls in specific types, do not use directly.
@@ -53,17 +58,24 @@ pub trait Chain: Sized {
 pub(crate) type BackendDigest = Sha256;
 
 /// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub(crate) struct Hash(BackendDigest);
+pub(crate) struct FofHasher(BackendDigest);
 
-impl Chain for Hash {
+impl Chain for FofHasher {
+    type Digest = BackendDigest;
+
+    fn as_digest_mut(&mut self) -> &mut Self::Digest {
+        &mut self.0
+    }
+
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
         Self(self.0.chain_update(bytes))
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct HashOutput(
-    #[serde(with = "serde_bytes::as_hex")] [u8; 32], // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
+    // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
+    #[serde(with = "serde_bytes::as_hex")] pub(crate) [u8; 32],
 );
 
 impl AsRef<[u8]> for HashOutput {
@@ -72,7 +84,7 @@ impl AsRef<[u8]> for HashOutput {
     }
 }
 
-impl Hash {
+impl FofHasher {
     fn new() -> Self {
         Self(BackendDigest::new())
     }
@@ -91,9 +103,15 @@ impl Hash {
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
-pub struct XofHash(Shake256);
+pub struct XofHasher(Shake256);
 
-impl Chain for XofHash {
+impl Chain for XofHasher {
+    type Digest = Shake256;
+
+    fn as_digest_mut(&mut self) -> &mut Self::Digest {
+        &mut self.0
+    }
+
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
         let mut digest = self.0;
         digest.update(bytes);
@@ -101,7 +119,7 @@ impl Chain for XofHash {
     }
 }
 
-impl XofHash {
+impl XofHasher {
     fn new() -> Self {
         Self(Shake256::default())
     }
@@ -126,86 +144,25 @@ pub trait Hashable {
     fn chain<C: Chain>(&self, digest: C) -> C;
 }
 
-// NOTE: we *do not* want to implement Hashable for `usize` to prevent hashes being different
-// on different targets.
-impl Hashable for u32 {
+// We have a lot of things that already implement `Serialize`,
+// so there's no point in implementing `Hashable` for them separately.
+// The reproducibility of this hash depends on `serde` not breaking things,
+// which we can be quite certain about - it is stable, and if it does break something,
+// all the serialization will likely break too.
+impl<T: Serialize> Hashable for T {
     fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.to_be_bytes())
-    }
-}
+        let mut digest = digest;
 
-impl Hashable for u64 {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.to_be_bytes())
-    }
-}
+        let serializer = HashingSerializer {
+            digest: digest.as_digest_mut(),
+        };
 
-impl Hashable for u8 {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.to_be_bytes())
-    }
-}
+        // The only way it can return an error is if there is
+        // some non-serializable element encountered, which is 100% reproducible
+        // and will be caught in tests.
+        self.serialize(serializer)
+            .expect("The type is serializable");
 
-// TODO (#61): we use it for Vec<bool>. Inefficient, but works for now.
-// Replace with packing boolean vectors into bytes, perhaps? Maybe there is a crate for that.
-impl Hashable for bool {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(if *self { b"\x01" } else { b"\x00" })
-    }
-}
-
-impl Hashable for Box<[u8]> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_bytes(self)
-    }
-}
-
-impl Hashable for &[u8] {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_bytes(self)
-    }
-}
-
-impl<const N: usize> Hashable for [u8; N] {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_bytes(self)
-    }
-}
-
-impl<T1: Hashable, T2: Hashable> Hashable for (&T1, &T2) {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(self.0).chain(self.1)
-    }
-}
-
-impl<T1: Hashable, T2: Hashable, T3: Hashable> Hashable for (&T1, &T2, &T3) {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(self.0).chain(self.1).chain(self.2)
-    }
-}
-
-impl<T: Hashable> Hashable for Vec<T> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_slice(self)
-    }
-}
-
-impl<K: Hashable, V: Hashable> Hashable for BTreeMap<K, V> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        // Hashing the map length too to prevent collisions.
-        let len = self.len() as u64;
-        let mut digest = digest.chain(&len);
-        // The iteration is ordered (by keys)
-        for (key, value) in self {
-            digest = digest.chain(key);
-            digest = digest.chain(value);
-        }
         digest
-    }
-}
-
-impl Hashable for HashOutput {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.0)
     }
 }

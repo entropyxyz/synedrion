@@ -4,10 +4,10 @@ use core::ops::{Add, Mul};
 use crypto_bigint::{Invert, Monty, PowBoundedExp, ShrVartime, WrappingSub};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
 
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
-use crate::tools::hashing::{Chain, Hashable};
 use crate::{
     misc::pow_signed,
     uint::{
@@ -17,7 +17,7 @@ use crate::{
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZeroizeOnDrop)]
 pub(crate) struct Randomizer<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> Randomizer<P> {
@@ -30,7 +30,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub(crate) struct RandomizerMod<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> RandomizerMod<P> {
@@ -414,12 +414,6 @@ impl<P: PaillierParams> Mul<Bounded<P::Uint>> for &CiphertextMod<P> {
     type Output = CiphertextMod<P>;
     fn mul(self, other: Bounded<P::Uint>) -> CiphertextMod<P> {
         self.homomorphic_mul_unsigned_ref(&other)
-    }
-}
-
-impl<P: PaillierParams> Hashable for Ciphertext<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.ciphertext)
     }
 }
 

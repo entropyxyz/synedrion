@@ -8,7 +8,7 @@ use crate::paillier::{
     PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
     SecretKeyPaillierPrecomputed,
 };
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::{Bounded, Integer, Signed};
 
 const HASH_TAG: &[u8] = b"P_fac";
@@ -94,7 +94,7 @@ impl<P: SchemeParams> FacProof<P> {
         let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_base_xwide(&r)).retrieve();
         let cap_q = cap_q.retrieve();
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_p)
             .chain(&cap_q)
@@ -103,8 +103,8 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&cap_t)
             .chain(&sigma)
             // public parameters
-            .chain(pk0)
-            .chain(setup)
+            .chain(pk0.as_minimal())
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -141,7 +141,7 @@ impl<P: SchemeParams> FacProof<P> {
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_p)
             .chain(&self.cap_q)
@@ -150,8 +150,8 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&self.cap_t)
             .chain(&self.sigma)
             // public parameters
-            .chain(pk0)
-            .chain(setup)
+            .chain(pk0.as_minimal())
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

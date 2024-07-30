@@ -9,7 +9,7 @@ use crate::paillier::{
     Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
     RPParamsMod, Randomizer, RandomizerMod,
 };
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_mul*";
@@ -76,18 +76,18 @@ impl<P: SchemeParams> MulStarProof<P> {
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_a)
             .chain(&cap_b_x)
             .chain(&cap_e)
             .chain(&cap_s)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(&cap_d.retrieve())
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -124,18 +124,18 @@ impl<P: SchemeParams> MulStarProof<P> {
         assert_eq!(cap_c.public_key(), pk0);
         assert_eq!(cap_d.public_key(), pk0);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_a)
             .chain(&self.cap_b_x)
             .chain(&self.cap_e)
             .chain(&self.cap_s)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(&cap_d.retrieve())
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

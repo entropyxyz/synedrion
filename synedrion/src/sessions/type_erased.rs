@@ -7,7 +7,6 @@ use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use core::any::{Any, TypeId};
 
 use rand_core::CryptoRngCore;
@@ -15,8 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use super::error::LocalError;
 use crate::rounds::{
-    self, FinalizableToNextRound, FinalizableToResult, PartyIdx, ProtocolResult, Round,
-    ToNextRound, ToResult,
+    self, FinalizableToNextRound, FinalizableToResult, ProtocolResult, Round, ToNextRound, ToResult,
 };
 
 pub(crate) fn serialize_message(message: &impl Serialize) -> Result<Box<[u8]>, LocalError> {
@@ -31,25 +29,18 @@ pub(crate) fn deserialize_message<M: for<'de> Deserialize<'de>>(
     bincode::deserialize(message_bytes).map_err(|err| err.to_string())
 }
 
-pub(crate) enum FinalizeOutcome<Res: ProtocolResult> {
+pub(crate) enum FinalizeOutcome<I, Res: ProtocolResult> {
     Success(Res::Success),
-    AnotherRound(Box<dyn DynFinalizable<Res>>),
+    AnotherRound(Box<dyn DynFinalizable<I, Res>>),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub enum AccumAddError {
     /// An item with the given origin has already been added to the accumulator.
     SlotTaken,
 }
 
-#[derive(Debug, Clone)]
-pub enum AccumFinalizeError {
-    // Rustc thinks the String field is never accessed, which is incorrect.
-    #[allow(dead_code)]
-    Downcast(String),
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) enum ReceiveError<Res: ProtocolResult> {
     InvalidContents(String),
     /// Error while deserializing the given message.
@@ -58,12 +49,12 @@ pub(crate) enum ReceiveError<Res: ProtocolResult> {
     Protocol(Res::ProvableError),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) enum FinalizeError<Res: ProtocolResult> {
     /// An error from the protocol level
     Protocol(rounds::FinalizeError<Res>),
-    /// Cannot finalize (an accumulator still has empty slots).
-    Accumulator(AccumFinalizeError),
+    /// Cannot finalize.
+    Accumulator(String),
 }
 
 /// Since object-safe trait methods cannot take `impl CryptoRngCore` arguments,
@@ -99,12 +90,13 @@ impl DynArtifact {
 }
 
 /// An object-safe trait wrapping `Round`.
-pub(crate) trait DynRound<Res: ProtocolResult>: Send + Sync {
+pub(crate) trait DynRound<I, Res: ProtocolResult>: Send + Sync {
     fn round_num(&self) -> u8;
     fn next_round_num(&self) -> Option<u8>;
 
     fn requires_echo(&self) -> bool;
-    fn message_destinations(&self) -> Vec<PartyIdx>;
+    fn message_destinations(&self) -> &BTreeSet<I>;
+    fn expecting_messages_from(&self) -> &BTreeSet<I>;
     fn make_broadcast_message(
         &self,
         rng: &mut dyn CryptoRngCore,
@@ -113,29 +105,31 @@ pub(crate) trait DynRound<Res: ProtocolResult>: Send + Sync {
     fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
-        destination: PartyIdx,
+        destination: &I,
     ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError>;
     fn verify_message(
         &self,
-        from: PartyIdx,
+        rng: &mut dyn CryptoRngCore,
+        from: &I,
         broadcast_data: Option<&[u8]>,
         direct_data: Option<&[u8]>,
     ) -> Result<DynPayload, ReceiveError<Res>>;
-    fn can_finalize(&self, accum: &DynRoundAccum) -> bool;
-    fn missing_payloads(&self, accum: &DynRoundAccum) -> BTreeSet<PartyIdx>;
+    fn can_finalize(&self, accum: &DynRoundAccum<I>) -> bool;
+    fn missing_messages(&self, accum: &DynRoundAccum<I>) -> BTreeSet<I>;
 }
 
 fn is_null_type<T: 'static>() -> bool {
     TypeId::of::<T>() == TypeId::of::<()>()
 }
 
-impl<R> DynRound<R::Result> for R
+impl<I, R> DynRound<I, R::Result> for R
 where
-    R: Round + Send + Sync,
-    <R as Round>::BroadcastMessage: 'static,
-    <R as Round>::DirectMessage: 'static,
-    <R as Round>::Payload: 'static + Send,
-    <R as Round>::Artifact: 'static + Send,
+    I: Ord + Clone,
+    R: Round<I> + Send + Sync,
+    <R as Round<I>>::BroadcastMessage: 'static,
+    <R as Round<I>>::DirectMessage: 'static,
+    <R as Round<I>>::Payload: 'static + Send,
+    <R as Round<I>>::Artifact: 'static + Send,
 {
     fn round_num(&self) -> u8 {
         R::ROUND_NUM
@@ -145,8 +139,12 @@ where
         R::NEXT_ROUND_NUM
     }
 
-    fn message_destinations(&self) -> Vec<PartyIdx> {
+    fn message_destinations(&self) -> &BTreeSet<I> {
         self.message_destinations()
+    }
+
+    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+        self.expecting_messages_from()
     }
 
     fn make_broadcast_message(
@@ -168,7 +166,7 @@ where
     fn make_direct_message(
         &self,
         rng: &mut dyn CryptoRngCore,
-        destination: PartyIdx,
+        destination: &I,
     ) -> Result<(Option<Box<[u8]>>, DynArtifact), LocalError> {
         let null_message = is_null_type::<R::DirectMessage>();
         let null_artifact = is_null_type::<R::Artifact>();
@@ -191,7 +189,8 @@ where
 
     fn verify_message(
         &self,
-        from: PartyIdx,
+        rng: &mut dyn CryptoRngCore,
+        from: &I,
         broadcast_data: Option<&[u8]>,
         direct_data: Option<&[u8]>,
     ) -> Result<DynPayload, ReceiveError<R::Result>> {
@@ -209,7 +208,7 @@ where
             b""
         };
 
-        let broadcast_message: <R as Round>::BroadcastMessage =
+        let broadcast_message: <R as Round<I>>::BroadcastMessage =
             match deserialize_message(broadcast_data) {
                 Ok(message) => message,
                 Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
@@ -226,91 +225,93 @@ where
             b""
         };
 
-        let direct_message: <R as Round>::DirectMessage = match deserialize_message(direct_data) {
+        let direct_message: <R as Round<I>>::DirectMessage = match deserialize_message(direct_data)
+        {
             Ok(message) => message,
             Err(err) => return Err(ReceiveError::CannotDeserialize(err)),
         };
 
+        let mut boxed_rng = BoxedRng(rng);
+
         let payload = self
-            .verify_message(from, broadcast_message, direct_message)
+            .verify_message(&mut boxed_rng, from, broadcast_message, direct_message)
             .map_err(ReceiveError::Protocol)?;
 
         Ok(DynPayload(Box::new(payload)))
     }
 
     fn requires_echo(&self) -> bool {
-        <R as Round>::REQUIRES_ECHO
+        <R as Round<I>>::REQUIRES_ECHO
     }
 
-    fn can_finalize(&self, accum: &DynRoundAccum) -> bool {
-        self.can_finalize(accum.payloads.keys(), accum.artifacts.keys())
+    fn can_finalize(&self, accum: &DynRoundAccum<I>) -> bool {
+        self.can_finalize(&accum.received)
     }
 
-    fn missing_payloads(&self, accum: &DynRoundAccum) -> BTreeSet<PartyIdx> {
-        self.missing_payloads(accum.payloads.keys(), accum.artifacts.keys())
+    fn missing_messages(&self, accum: &DynRoundAccum<I>) -> BTreeSet<I> {
+        self.missing_messages(&accum.received)
     }
 }
 
-pub(crate) struct DynRoundAccum {
-    payloads: BTreeMap<PartyIdx, DynPayload>,
-    artifacts: BTreeMap<PartyIdx, DynArtifact>,
+pub(crate) struct DynRoundAccum<I> {
+    received: BTreeSet<I>,
+    payloads: BTreeMap<I, DynPayload>,
+    artifacts: BTreeMap<I, DynArtifact>,
 }
 
-struct RoundAccum<R: Round> {
-    payloads: BTreeMap<PartyIdx, <R as Round>::Payload>,
-    artifacts: BTreeMap<PartyIdx, <R as Round>::Artifact>,
+struct RoundAccum<I: Ord + Clone, R: Round<I>> {
+    payloads: BTreeMap<I, <R as Round<I>>::Payload>,
+    artifacts: BTreeMap<I, <R as Round<I>>::Artifact>,
 }
 
-impl DynRoundAccum {
+impl<I: Ord + Clone> DynRoundAccum<I> {
     pub fn new() -> Self {
         Self {
+            received: BTreeSet::new(),
             payloads: BTreeMap::new(),
             artifacts: BTreeMap::new(),
         }
     }
 
-    pub fn contains(&self, from: PartyIdx) -> bool {
-        self.payloads.contains_key(&from)
+    pub fn contains(&self, from: &I) -> bool {
+        self.received.contains(from)
     }
 
-    pub fn add_payload(
-        &mut self,
-        from: PartyIdx,
-        payload: DynPayload,
-    ) -> Result<(), AccumAddError> {
-        if self.payloads.contains_key(&from) {
+    pub fn add_payload(&mut self, from: &I, payload: DynPayload) -> Result<(), AccumAddError> {
+        if self.received.contains(from) {
             return Err(AccumAddError::SlotTaken);
         }
-        self.payloads.insert(from, payload);
+        self.received.insert(from.clone());
+        self.payloads.insert(from.clone(), payload);
         Ok(())
     }
 
     pub fn add_artifact(
         &mut self,
-        destination: PartyIdx,
+        destination: &I,
         artifact: DynArtifact,
     ) -> Result<(), AccumAddError> {
-        if self.artifacts.contains_key(&destination) {
+        if self.artifacts.contains_key(destination) {
             return Err(AccumAddError::SlotTaken);
         }
-        self.artifacts.insert(destination, artifact);
+        self.artifacts.insert(destination.clone(), artifact);
         Ok(())
     }
 
-    fn finalize<R: Round>(self) -> Result<RoundAccum<R>, AccumFinalizeError>
+    fn finalize<R: Round<I>>(self) -> Result<RoundAccum<I, R>, String>
     where
-        <R as Round>::Payload: 'static,
-        <R as Round>::Artifact: 'static,
+        <R as Round<I>>::Payload: 'static,
+        <R as Round<I>>::Artifact: 'static,
     {
         let payloads = self
             .payloads
             .into_iter()
-            .map(|(idx, elem)| downcast::<<R as Round>::Payload>(elem.0).map(|elem| (idx, elem)))
+            .map(|(id, elem)| downcast::<<R as Round<I>>::Payload>(elem.0).map(|elem| (id, elem)))
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         let artifacts = self
             .artifacts
             .into_iter()
-            .map(|(idx, elem)| downcast::<<R as Round>::Artifact>(elem.0).map(|elem| (idx, elem)))
+            .map(|(id, elem)| downcast::<<R as Round<I>>::Artifact>(elem.0).map(|elem| (id, elem)))
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(RoundAccum {
             payloads,
@@ -319,21 +320,18 @@ impl DynRoundAccum {
     }
 }
 
-fn downcast<T: 'static>(boxed: Box<dyn Any>) -> Result<T, AccumFinalizeError> {
-    Ok(*(boxed.downcast::<T>().map_err(|_| {
-        AccumFinalizeError::Downcast(format!(
-            "Failed to downcast into {}",
-            core::any::type_name::<T>()
-        ))
-    })?))
+fn downcast<T: 'static>(boxed: Box<dyn Any>) -> Result<T, String> {
+    Ok(*(boxed
+        .downcast::<T>()
+        .map_err(|_| format!("Failed to downcast into {}", core::any::type_name::<T>()))?))
 }
 
-pub(crate) trait DynFinalizable<Res: ProtocolResult>: DynRound<Res> {
+pub(crate) trait DynFinalizable<I, Res: ProtocolResult>: DynRound<I, Res> {
     fn finalize(
         self: Box<Self>,
         rng: &mut dyn CryptoRngCore,
-        accum: DynRoundAccum,
-    ) -> Result<FinalizeOutcome<Res>, FinalizeError<Res>>;
+        accum: DynRoundAccum<I>,
+    ) -> Result<FinalizeOutcome<I, Res>, FinalizeError<Res>>;
 }
 
 // This is needed because Rust does not currently support exclusive trait implementations.
@@ -348,41 +346,47 @@ const _: () = {
     //    of the target associated type, with the same methods as the target trait;
     // 2) A blanket implementation for the target trait.
 
-    trait _DynFinalizable<Res: ProtocolResult, T> {
+    trait _DynFinalizable<I, Res: ProtocolResult, T> {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
-            accum: DynRoundAccum,
-        ) -> Result<FinalizeOutcome<Res>, FinalizeError<Res>>;
+            accum: DynRoundAccum<I>,
+        ) -> Result<FinalizeOutcome<I, Res>, FinalizeError<Res>>;
     }
 
-    impl<R> DynFinalizable<R::Result> for R
+    impl<I, R> DynFinalizable<I, R::Result> for R
     where
-        R: Round + Send + Sync + 'static,
-        <R as Round>::Payload: Send,
-        <R as Round>::Artifact: Send,
-        Self: _DynFinalizable<R::Result, R::Type>,
+        I: Ord + Clone,
+        R: Round<I> + Send + Sync + 'static,
+        <R as Round<I>>::BroadcastMessage: 'static,
+        <R as Round<I>>::DirectMessage: 'static,
+        <R as Round<I>>::Payload: Send + 'static,
+        <R as Round<I>>::Artifact: Send + 'static,
+        Self: _DynFinalizable<I, R::Result, R::Type>,
     {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
-            accum: DynRoundAccum,
-        ) -> Result<FinalizeOutcome<R::Result>, FinalizeError<R::Result>> {
+            accum: DynRoundAccum<I>,
+        ) -> Result<FinalizeOutcome<I, R::Result>, FinalizeError<R::Result>> {
             Self::finalize(self, rng, accum)
         }
     }
 
     // Actual diverging implementations.
 
-    impl<R> _DynFinalizable<R::Result, ToResult> for R
+    impl<I, R> _DynFinalizable<I, R::Result, ToResult> for R
     where
-        R: 'static + FinalizableToResult,
+        I: Ord + Clone,
+        <R as Round<I>>::Payload: Send + 'static,
+        <R as Round<I>>::Artifact: Send + 'static,
+        R: 'static + FinalizableToResult<I>,
     {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
-            accum: DynRoundAccum,
-        ) -> Result<FinalizeOutcome<R::Result>, FinalizeError<R::Result>> {
+            accum: DynRoundAccum<I>,
+        ) -> Result<FinalizeOutcome<I, R::Result>, FinalizeError<R::Result>> {
             let mut boxed_rng = BoxedRng(rng);
             let typed_accum = accum.finalize::<R>().map_err(FinalizeError::Accumulator)?;
             let result = (*self)
@@ -392,16 +396,19 @@ const _: () = {
         }
     }
 
-    impl<R> _DynFinalizable<R::Result, ToNextRound> for R
+    impl<I, R> _DynFinalizable<I, R::Result, ToNextRound> for R
     where
-        R: 'static + FinalizableToNextRound,
-        <R as FinalizableToNextRound>::NextRound: DynFinalizable<R::Result>,
+        I: Ord + Clone,
+        <R as Round<I>>::Payload: Send + 'static,
+        <R as Round<I>>::Artifact: Send + 'static,
+        R: 'static + FinalizableToNextRound<I>,
+        <R as FinalizableToNextRound<I>>::NextRound: DynFinalizable<I, R::Result> + 'static,
     {
         fn finalize(
             self: Box<Self>,
             rng: &mut dyn CryptoRngCore,
-            accum: DynRoundAccum,
-        ) -> Result<FinalizeOutcome<R::Result>, FinalizeError<R::Result>> {
+            accum: DynRoundAccum<I>,
+        ) -> Result<FinalizeOutcome<I, R::Result>, FinalizeError<R::Result>> {
             let mut boxed_rng = BoxedRng(rng);
             let typed_accum = accum.finalize::<R>().map_err(FinalizeError::Accumulator)?;
             let next_round = (*self)

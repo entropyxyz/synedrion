@@ -1,6 +1,9 @@
 [workspace]
 members = [
     'synedrion',
-    'synedrion-wasm'
 ]
 resolver = "2"
+
+# TODO(dp): remove before merging
+[patch.crates-io]
+bip32 = { git = "https://github.com/dvdplm/crates/", branch = "dp-fresh-bip32-dependencies" }

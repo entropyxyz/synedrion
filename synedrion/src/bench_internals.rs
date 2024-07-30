@@ -3,7 +3,7 @@
 //! Functions containing sequential executions of CGGMP21 protocols,
 //! intended for benchmarking.
 
-use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, BTreeSet};
 
 use rand_core::CryptoRngCore;
 
@@ -12,8 +12,8 @@ use super::cggmp21::{
 };
 use crate::curve::Scalar;
 use crate::rounds::{
-    test_utils::{step_next_round, step_result, step_round},
-    FirstRound, PartyIdx,
+    test_utils::{step_next_round, step_result, step_round, Id, Without},
+    FirstRound,
 };
 
 /// A sequential execution of the KeyGen protocol for all parties.
@@ -21,16 +21,20 @@ pub fn key_init<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: usiz
     let mut shared_randomness = [0u8; 32];
     rng.fill_bytes(&mut shared_randomness);
 
-    let r1 = (0..num_parties)
-        .map(|idx| {
-            key_init::Round1::<P>::new(
+    let ids = BTreeSet::from_iter((0..num_parties as u32).map(Id));
+
+    let r1 = ids
+        .iter()
+        .map(|id| {
+            let round = key_init::Round1::<P, Id>::new(
                 rng,
                 &shared_randomness,
-                num_parties,
-                PartyIdx::from_usize(idx),
+                ids.clone().without(id),
+                *id,
                 (),
             )
-            .unwrap()
+            .unwrap();
+            (*id, round)
         })
         .collect();
 
@@ -47,16 +51,20 @@ pub fn key_refresh<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: u
     let mut shared_randomness = [0u8; 32];
     rng.fill_bytes(&mut shared_randomness);
 
-    let r1 = (0..num_parties)
-        .map(|idx| {
-            key_refresh::Round1::<P>::new(
+    let ids = BTreeSet::from_iter((0..num_parties as u32).map(Id));
+
+    let r1 = ids
+        .iter()
+        .map(|id| {
+            let round = key_refresh::Round1::<P, Id>::new(
                 rng,
                 &shared_randomness,
-                num_parties,
-                PartyIdx::from_usize(idx),
+                ids.clone().without(id),
+                *id,
                 (),
             )
-            .unwrap()
+            .unwrap();
+            (*id, round)
         })
         .collect();
 
@@ -71,16 +79,19 @@ pub fn key_refresh<P: SchemeParams>(rng: &mut impl CryptoRngCore, num_parties: u
 /// A public struct to use for benchmarking of Presigning protocol,
 /// to avoid exposing actual crate-private entities.
 pub struct PresigningInputs<P: SchemeParams> {
-    key_shares: Box<[KeyShare<P>]>,
-    aux_infos: Box<[AuxInfo<P>]>,
+    ids: BTreeSet<Id>,
+    key_shares: BTreeMap<Id, KeyShare<P, Id>>,
+    aux_infos: BTreeMap<Id, AuxInfo<P, Id>>,
 }
 
 impl<P: SchemeParams> PresigningInputs<P> {
     /// Creates new test data to use in the Presigning and Signing benchmarks.
     pub fn new(rng: &mut impl CryptoRngCore, num_parties: usize) -> Self {
-        let key_shares = KeyShare::new_centralized(rng, num_parties, None);
-        let aux_infos = AuxInfo::new_centralized(rng, num_parties);
+        let ids = BTreeSet::from_iter((0..num_parties as u32).map(Id));
+        let key_shares = KeyShare::new_centralized(rng, &ids, None);
+        let aux_infos = AuxInfo::new_centralized(rng, &ids);
         Self {
+            ids,
             key_shares,
             aux_infos,
         }
@@ -92,20 +103,19 @@ pub fn presigning<P: SchemeParams>(rng: &mut impl CryptoRngCore, inputs: &Presig
     let mut shared_randomness = [0u8; 32];
     rng.fill_bytes(&mut shared_randomness);
 
-    let num_parties = inputs.key_shares.len();
-    let r1 = (0..num_parties)
-        .map(|idx| {
-            presigning::Round1::<P>::new(
+    let r1 = inputs
+        .ids
+        .iter()
+        .map(|id| {
+            let round = presigning::Round1::<P, Id>::new(
                 rng,
                 &shared_randomness,
-                num_parties,
-                PartyIdx::from_usize(idx),
-                (
-                    inputs.key_shares[idx].clone(),
-                    inputs.aux_infos[idx].clone(),
-                ),
+                inputs.ids.clone().without(id),
+                *id,
+                (inputs.key_shares[id].clone(), inputs.aux_infos[id].clone()),
             )
-            .unwrap()
+            .unwrap();
+            (*id, round)
         })
         .collect();
 
@@ -119,16 +129,22 @@ pub fn presigning<P: SchemeParams>(rng: &mut impl CryptoRngCore, inputs: &Presig
 
 /// A public struct to use for benchmarking of Signing protocol,
 /// to avoid exposing actual crate-private entities.
-pub struct SigningInputs<P: SchemeParams>(Box<[PresigningData<P>]>);
+pub struct SigningInputs<P: SchemeParams> {
+    ids: BTreeSet<Id>,
+    presigning_datas: BTreeMap<Id, PresigningData<P, Id>>,
+}
 
 impl<P: SchemeParams> SigningInputs<P> {
     /// Creates new test data to use in the Signing benchmark.
     pub fn new(rng: &mut impl CryptoRngCore, presigning_inputs: &PresigningInputs<P>) -> Self {
-        Self(PresigningData::new_centralized(
-            rng,
-            &presigning_inputs.key_shares,
-            &presigning_inputs.aux_infos,
-        ))
+        Self {
+            ids: presigning_inputs.ids.clone(),
+            presigning_datas: PresigningData::new_centralized(
+                rng,
+                &presigning_inputs.key_shares,
+                &presigning_inputs.aux_infos,
+            ),
+        }
     }
 }
 
@@ -143,22 +159,24 @@ pub fn signing<P: SchemeParams>(
 
     let message = Scalar::random(rng);
 
-    let num_parties = signing_inputs.0.len();
-    let r1 = (0..num_parties)
-        .map(|idx| {
-            signing::Round1::new(
+    let r1 = signing_inputs
+        .ids
+        .iter()
+        .map(|id| {
+            let round = signing::Round1::new(
                 rng,
                 &shared_randomness,
-                num_parties,
-                PartyIdx::from_usize(idx),
+                signing_inputs.ids.clone().without(id),
+                *id,
                 signing::Inputs {
                     message,
-                    presigning: signing_inputs.0[idx].clone(),
-                    key_share: presigning_inputs.key_shares[idx].clone(),
-                    aux_info: presigning_inputs.aux_infos[idx].clone(),
+                    presigning: signing_inputs.presigning_datas[id].clone(),
+                    key_share: presigning_inputs.key_shares[id].clone(),
+                    aux_info: presigning_inputs.aux_infos[id].clone(),
                 },
             )
-            .unwrap()
+            .unwrap();
+            (*id, round)
         })
         .collect();
 

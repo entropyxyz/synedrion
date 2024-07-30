@@ -9,7 +9,7 @@ use crate::paillier::{
     Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
     RPParamsMod, Randomizer, RandomizerMod,
 };
-use crate::tools::hashing::{Chain, Hashable, XofHash};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_log*";
@@ -69,18 +69,18 @@ impl<P: SchemeParams> LogStarProof<P> {
         let cap_y = g * &P::scalar_from_signed(&alpha);
         let cap_d = setup.commit(&alpha, &gamma).retrieve();
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_s)
             .chain(&cap_a)
             .chain(&cap_y)
             .chain(&cap_d)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(g)
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 
@@ -115,18 +115,18 @@ impl<P: SchemeParams> LogStarProof<P> {
     ) -> bool {
         assert_eq!(cap_c.public_key(), pk0);
 
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_s)
             .chain(&self.cap_a)
             .chain(&self.cap_y)
             .chain(&self.cap_d)
             // public parameters
-            .chain(pk0)
+            .chain(pk0.as_minimal())
             .chain(&cap_c.retrieve())
             .chain(g)
             .chain(cap_x)
-            .chain(setup)
+            .chain(&setup.retrieve())
             .chain(aux)
             .finalize_to_reader();
 

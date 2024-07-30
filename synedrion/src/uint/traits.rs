@@ -3,8 +3,6 @@ use crypto_bigint::{
     U512, U8192,
 };
 
-use crate::tools::hashing::{Chain, Hashable};
-
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
     debug_assert!(N2 >= N1);
     let mut result_words = [0; N2];
@@ -52,15 +50,6 @@ pub trait HasWide: Sized + Zero /*TODO: remove this ––> */ + core::fmt::Debu
             return Some(lo);
         }
         None
-    }
-}
-
-impl<const L: usize> Hashable for Uint<L>
-where
-    Uint<L>: Encoding,
-{
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain_constant_sized_bytes(&self.to_be_bytes())
     }
 }
 

@@ -1,0 +1,51 @@
+# This workflow automates the process of signing our CLA. It makes use of
+# the action at https://github.com/contributor-assistant/github-action in
+# order to provide automations.
+#
+# This workflow file should be present in every repository that wants to
+# use the Contributor License Agreement automation process. Ideally, it
+# would remain more-or-less synchronized across each repository as updates
+# are rolled out.
+#
+# Since the database of signatories is maintained in a remote repository,
+# each repository that wishes to make use of the CLA Assistant will also
+# need to have a repository secret (named `CLA_ASSISTANT_LITE_PAT`) that
+# grants permission to write to the "signatures" file in that repository.
+---
+name: "CLA Assistant"
+on:
+  issue_comment:
+    types:
+      - created
+  pull_request_target:
+    types:
+      - opened
+      - closed
+      - synchronize
+
+# Explicitly configure permissions, in case the GITHUB_TOKEN workflow permissions
+# are set to read-only in the repository's settings.
+permissions:
+  actions: write
+  contents: read # We only need to `read` since signatures are in a remote repo.
+  pull-requests: write
+  statuses: write
+
+jobs:
+  CLAAssistant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "CLA Assistant"
+        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@v2.4.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required, so that the bot in this repository has `write` permissions to Contents of remote repo.
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_ASSISTANT_LITE_PAT }}
+        with:
+          path-to-signatures: 'legal/cla/v1/signatures.json'
+          path-to-document: 'https://github.com/entropyxyz/.github/blob/main/legal/cla/v1/cla.md'
+          branch: 'main'
+          allowlist: dependabot[bot]
+          remote-organization-name: entropyxyz
+          remote-repository-name: .github

@@ -2,16 +2,15 @@
 
 use alloc::vec::Vec;
 
-use rand_core::{CryptoRngCore, OsRng};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::misc::uint_from_xof;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::tools::hashing::{Chain, Hashable, XofHash};
-use crate::uint::{Retrieve, ToMod};
+use crate::tools::hashing::{Chain, Hashable, XofHasher};
+use crate::uint::{RandomPrimeWithRng, Retrieve, ToMod};
 use crypto_bigint::{PowBoundedExp, Square};
-use crypto_primes::RandomPrimeWithRng;
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -27,12 +26,6 @@ impl<P: SchemeParams> ModCommitment<P> {
     }
 }
 
-impl<P: SchemeParams> Hashable for ModCommitment<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.0)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
@@ -42,8 +35,8 @@ impl<P: SchemeParams> ModChallenge<P> {
         commitment: &ModCommitment<P>,
         aux: &impl Hashable,
     ) -> Self {
-        let mut reader = XofHash::new_with_dst(HASH_TAG)
-            .chain(pk)
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+            .chain(pk.as_minimal())
             .chain(commitment)
             .chain(aux)
             .finalize_to_reader();
@@ -147,6 +140,7 @@ impl<P: SchemeParams> ModProof<P> {
 
     pub fn verify(
         &self,
+        rng: &mut impl CryptoRngCore,
         pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
@@ -163,8 +157,7 @@ impl<P: SchemeParams> ModProof<P> {
         // It is possible to pass the external RNG similarly to how it's done for `new()`,
         // but it would require quite a bit of changes because an external RNG is not accessible
         // at the callsite.
-        // TODO (#105): consider if we should keep using the default RNG here.
-        if pk.modulus().is_prime_with_rng(&mut OsRng) {
+        if pk.modulus().is_prime_with_rng(rng) {
             return false;
         }
 
@@ -213,6 +206,6 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let proof = ModProof::<Params>::new(&mut OsRng, &sk, &aux);
-        assert!(proof.verify(pk, &aux));
+        assert!(proof.verify(&mut OsRng, pk, &aux));
     }
 }

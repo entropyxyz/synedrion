@@ -1,8 +1,6 @@
-use alloc::format;
-use alloc::vec::Vec;
+use alloc::collections::BTreeSet;
 use core::fmt::Debug;
 
-use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use signature::{
@@ -11,14 +9,13 @@ use signature::{
 };
 
 use crate::cggmp21::{
-    aux_gen, interactive_signing, key_gen, key_init, key_refresh, AuxGenResult,
-    InteractiveSigningResult, KeyGenResult, KeyInitResult, KeyRefreshResult, SchemeParams,
+    aux_gen, interactive_signing, key_gen, key_init, key_refresh, AuxGenResult, AuxInfo,
+    InteractiveSigningResult, KeyGenResult, KeyInitResult, KeyRefreshResult, KeyShare,
+    SchemeParams,
 };
-use crate::curve::{Point, Scalar};
-use crate::entities::{AuxInfo, KeyShare, ThresholdKeyShare};
-use crate::rounds::PartyIdx;
-use crate::sessions::{LocalError, Session};
-use crate::www02::{key_resharing, KeyResharingResult};
+use crate::curve::Scalar;
+use crate::sessions::{LocalError, Session, SessionId};
+use crate::www02::{key_resharing, KeyResharingInputs, KeyResharingResult};
 
 /// Prehashed message to sign.
 pub type PrehashedMessage = [u8; 32];
@@ -26,208 +23,179 @@ pub type PrehashedMessage = [u8; 32];
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
 pub fn make_key_init_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
-    verifiers: &[Verifier],
-) -> Result<Session<KeyInitResult<P>, Sig, Signer, Verifier>, LocalError>
+    verifiers: &BTreeSet<Verifier>,
+) -> Result<Session<KeyInitResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
-    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
+    Verifier: PrehashVerifier<Sig>
+        + Debug
+        + Clone
+        + Ord
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
 {
-    Session::new::<key_init::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<key_init::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
 pub fn make_key_gen_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
-    verifiers: &[Verifier],
-) -> Result<Session<KeyGenResult<P>, Sig, Signer, Verifier>, LocalError>
+    verifiers: &BTreeSet<Verifier>,
+) -> Result<Session<KeyGenResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
-    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
+    Verifier: PrehashVerifier<Sig>
+        + Debug
+        + Clone
+        + Ord
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
 {
-    Session::new::<key_gen::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<key_gen::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
 
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
 pub fn make_aux_gen_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
-    verifiers: &[Verifier],
-) -> Result<Session<AuxGenResult<P>, Sig, Signer, Verifier>, LocalError>
+    verifiers: &BTreeSet<Verifier>,
+) -> Result<Session<AuxGenResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
-    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
+    Verifier: PrehashVerifier<Sig>
+        + Debug
+        + Clone
+        + Ord
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
 {
-    Session::new::<aux_gen::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<aux_gen::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
 
 /// Creates the initial state for the KeyRefresh+Auxiliary protocol.
 pub fn make_key_refresh_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
-    verifiers: &[Verifier],
-) -> Result<Session<KeyRefreshResult<P>, Sig, Signer, Verifier>, LocalError>
+    verifiers: &BTreeSet<Verifier>,
+) -> Result<Session<KeyRefreshResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
-    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
+    Verifier: PrehashVerifier<Sig>
+        + Debug
+        + Clone
+        + Ord
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
 {
-    Session::new::<key_refresh::Round1<P>>(rng, shared_randomness, signer, verifiers, ())
+    Session::new::<key_refresh::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
 
 /// Creates the initial state for the joined Presigning and Signing protocols.
 pub fn make_interactive_signing_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
-    verifiers: &[Verifier],
+    verifiers: &BTreeSet<Verifier>,
     key_share: &KeyShare<P, Verifier>,
     aux_info: &AuxInfo<P, Verifier>,
     prehashed_message: &PrehashedMessage,
-) -> Result<Session<InteractiveSigningResult<P>, Sig, Signer, Verifier>, LocalError>
+) -> Result<Session<InteractiveSigningResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
-    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
+    Verifier: PrehashVerifier<Sig>
+        + Debug
+        + Clone
+        + Ord
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
 {
-    // TODO (#68): check that key share party index corresponds to the signer's position
-    // among the verifiers
-    if verifiers.len() != key_share.num_parties() {
-        return Err(LocalError(format!(
-            concat![
-                "Number of verifiers (got: {}) must be equal ",
-                "to the number of parties in the key share (got: {})"
-            ],
-            verifiers.len(),
-            key_share.num_parties()
-        )));
+    // TODO (#68): check that key share and aux data owner corresponds to the signer
+    if !verifiers.is_subset(&key_share.all_parties()) {
+        return Err(LocalError(
+            "The given verifiers are not a subset of the ones in the key share".into(),
+        ));
     }
 
     let scalar_message = Scalar::from_reduced_bytes(prehashed_message);
 
     let inputs = interactive_signing::Inputs {
-        key_share: key_share.map_verifiers(verifiers),
-        aux_info: aux_info.map_verifiers(verifiers),
+        key_share: key_share.clone(),
+        aux_info: aux_info.clone(),
         message: scalar_message,
     };
 
-    Session::new::<interactive_signing::Round1<P>>(
-        rng,
-        shared_randomness,
-        signer,
-        verifiers,
-        inputs,
+    Session::new::<interactive_signing::Round1<P, Verifier>>(
+        rng, session_id, signer, verifiers, inputs,
     )
-}
-
-/// Old share data.
-#[derive(Clone)]
-pub struct OldHolder<P: SchemeParams, V: Ord> {
-    /// The threshold key share.
-    pub key_share: ThresholdKeyShare<P, V>,
-}
-
-/// New share data.
-#[derive(Clone)]
-pub struct NewHolder<Verifier> {
-    /// The verifying key the old shares add up to.
-    pub verifying_key: VerifyingKey,
-    /// The old threshold.
-    pub old_threshold: usize,
-    /// The list of holders of the old shares (order not important).
-    pub old_holders: Vec<Verifier>,
-}
-
-/// Inputs for the Key Resharing protocol.
-#[derive(Clone)]
-pub struct KeyResharingInputs<P: SchemeParams, Verifier: Ord> {
-    /// Old share data if the node holds it, or `None`.
-    pub old_holder: Option<OldHolder<P, Verifier>>,
-    /// New share data if the node is one of the new holders, or `None`.
-    pub new_holder: Option<NewHolder<Verifier>>,
-    /// A list of new holders of the shares (order not important).
-    pub new_holders: Vec<Verifier>,
-    /// The new threshold.
-    pub new_threshold: usize,
 }
 
 /// Creates the initial state for the Key Resharing protocol.
 pub fn make_key_resharing_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
-    shared_randomness: &[u8],
+    session_id: SessionId,
     signer: Signer,
-    verifiers: &[Verifier],
-    inputs: &KeyResharingInputs<P, Verifier>,
-) -> Result<Session<KeyResharingResult<P>, Sig, Signer, Verifier>, LocalError>
+    verifiers: &BTreeSet<Verifier>,
+    inputs: KeyResharingInputs<P, Verifier>,
+) -> Result<Session<KeyResharingResult<P, Verifier>, Sig, Signer, Verifier>, LocalError>
 where
     Sig: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Eq,
     P: SchemeParams + 'static,
     Signer: RandomizedPrehashSigner<Sig> + Keypair<VerifyingKey = Verifier>,
-    Verifier: PrehashVerifier<Sig> + Debug + Clone + Ord,
+    Verifier: PrehashVerifier<Sig>
+        + Debug
+        + Clone
+        + Ord
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + 'static,
 {
-    let new_holder = inputs
-        .new_holder
-        .as_ref()
-        .map(|new_holder| {
-            let old_holders = new_holder
-                .old_holders
-                .iter()
-                .map(|verifier| {
-                    verifiers
-                        .iter()
-                        .position(|v| v == verifier)
-                        .map(PartyIdx::from_usize)
-                        .ok_or(LocalError(
-                            "Cannot find a given old holder in the list of verifiers".into(),
-                        ))
-                })
-                .collect::<Result<Vec<_>, LocalError>>()?;
-            Ok(key_resharing::NewHolder {
-                verifying_key: Point::from_verifying_key(&new_holder.verifying_key),
-                old_threshold: new_holder.old_threshold,
-                old_holders,
-            })
-        })
-        .transpose()?;
+    let verifiers_set = BTreeSet::from_iter(verifiers.iter().cloned());
 
-    let old_holder = inputs
-        .old_holder
-        .as_ref()
-        .map(|old_holder| key_resharing::OldHolder {
-            key_share: old_holder.key_share.map_verifiers(verifiers),
-        });
+    if !inputs.new_holders.is_subset(&verifiers_set) {
+        return Err(LocalError(
+            "The new holders must be a subset of all parties".into(),
+        ));
+    }
 
-    let new_holders = inputs
-        .new_holders
-        .iter()
-        .map(|verifier| {
-            verifiers
-                .iter()
-                .position(|v| v == verifier)
-                .map(PartyIdx::from_usize)
-                .ok_or(LocalError(
-                    "Cannot find a given new holder in the list of verifiers".into(),
-                ))
-        })
-        .collect::<Result<Vec<_>, LocalError>>()?;
+    if let Some(new_holder) = inputs.new_holder.as_ref() {
+        if !new_holder.old_holders.is_subset(&verifiers_set) {
+            return Err(LocalError(
+                "The old holders must be a subset of all parties".into(),
+            ));
+        }
+    }
 
-    let inputs = key_resharing::KeyResharingInputs {
-        old_holder,
-        new_holder,
-        new_holders,
-        new_threshold: inputs.new_threshold,
-    };
-    Session::new::<key_resharing::Round1<P>>(rng, shared_randomness, signer, verifiers, inputs)
+    Session::new::<key_resharing::Round1<P, Verifier>>(rng, session_id, signer, verifiers, inputs)
 }

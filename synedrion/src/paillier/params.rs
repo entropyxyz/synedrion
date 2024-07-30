@@ -5,13 +5,14 @@ use crypto_bigint::{
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::{tools::hashing::Hashable, uint::HasWide, uint::ToMod};
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
 
-pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send + Sync {
+pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.
     const PRIME_BITS: usize;
     /// The size of the RSA modulus (a product of two primes).
@@ -21,8 +22,11 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send + Syn
         + Bounded
         + RandomMod
         + RandomPrimeWithRng
+        + Serialize
+        + for<'de> Deserialize<'de>
         + HasWide<Wide = Self::Uint>
-        + ToMod;
+        + ToMod
+        + Zeroize;
 
     /// A modulo-residue counterpart of `HalfUint`.
     type HalfUintMod: Monty<Integer = Self::HalfUint>
@@ -41,12 +45,14 @@ pub trait PaillierParams: PartialEq + Eq + Clone + core::fmt::Debug + Send + Syn
         + RandomPrimeWithRng
         + Serialize
         + for<'de> Deserialize<'de>
-        + ToMod;
+        + ToMod
+        + Zeroize;
     /// A modulo-residue counterpart of `Uint`.
     type UintMod: ConditionallySelectable
         + Monty<Integer = Self::Uint>
         + Retrieve<Output = Self::Uint>
-        + Invert<Output = CtOption<Self::UintMod>>;
+        + Invert<Output = CtOption<Self::UintMod>>
+        + Zeroize;
 
     /// An integer that fits the squared RSA modulus.
     /// Used for Paillier ciphertexts.

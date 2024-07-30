@@ -1,8 +1,11 @@
+use core::fmt::{self, Debug};
+
 use rand_core::CryptoRngCore;
+use secrecy::DebugSecret;
 use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
 
 use super::params::PaillierParams;
-use crate::tools::hashing::{Chain, Hashable};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
@@ -12,10 +15,18 @@ use crypto_bigint::{
     Bounded as TraitBounded, InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd, WrappingSub,
 };
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     p: P::HalfUint,
     q: P::HalfUint,
+}
+
+impl<P: PaillierParams> DebugSecret for SecretKeyPaillier<P> {}
+
+impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        Self::debug_secret(f)
+    }
 }
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
@@ -318,6 +329,10 @@ pub(crate) struct PublicKeyPaillierPrecomputed<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
+    pub fn as_minimal(&self) -> &PublicKeyPaillier<P> {
+        &self.pk
+    }
+
     pub fn to_minimal(&self) -> PublicKeyPaillier<P> {
         self.pk.clone()
     }
@@ -369,18 +384,6 @@ impl<P: PaillierParams> PartialEq for PublicKeyPaillierPrecomputed<P> {
 }
 
 impl<P: PaillierParams> Eq for PublicKeyPaillierPrecomputed<P> {}
-
-impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.modulus)
-    }
-}
-
-impl<P: PaillierParams> Hashable for PublicKeyPaillierPrecomputed<P> {
-    fn chain<C: Chain>(&self, digest: C) -> C {
-        digest.chain(&self.pk)
-    }
-}
 
 #[cfg(test)]
 mod tests {
