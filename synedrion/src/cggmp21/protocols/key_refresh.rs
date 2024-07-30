@@ -3,13 +3,14 @@
 //! for ZK proofs (e.g. Paillier keys).
 
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
-use secrecy::Secret;
+use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
@@ -662,12 +663,12 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
         let secret_aux = SecretAuxInfo {
             paillier_sk: self.context.paillier_sk.to_minimal(),
-            el_gamal_sk: Secret::new(self.context.y),
+            el_gamal_sk: SecretBox::new(Box::new(self.context.y)),
         };
 
         let key_share_change = KeyShareChange {
             owner: my_id.clone(),
-            secret_share_change: Secret::new(x_star),
+            secret_share_change: SecretBox::new(Box::new(x_star)),
             public_share_changes: cap_x_star,
             phantom: PhantomData,
         };

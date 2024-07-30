@@ -3,11 +3,12 @@
 //! auxiliary parameters need to be generated as well (during the KeyRefresh protocol).
 
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::boxed::Box;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
-use secrecy::Secret;
+use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
@@ -367,7 +368,7 @@ impl<P: SchemeParams, I: Serialize + Clone + Ord + Debug> FinalizableToResult<I>
         public_shares.insert(my_id.clone(), self.context.public_data.cap_x);
         Ok(KeyShare {
             owner: my_id,
-            secret_share: Secret::new(self.context.x),
+            secret_share: SecretBox::new(Box::new(self.context.x)),
             public_shares,
             phantom: PhantomData,
         })
