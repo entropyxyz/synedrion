@@ -4,8 +4,10 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::misc::{pow_signed, pow_signed_extra_wide, pow_signed_vartime, pow_signed_wide};
-use crate::uint::{Bounded, Retrieve, Signed, ToMod};
+use crate::uint::{
+    pow_signed, pow_signed_extra_wide, pow_signed_vartime, pow_signed_wide, Bounded, Retrieve,
+    Signed, ToMod,
+};
 use crypto_bigint::{PowBoundedExp, Square};
 
 pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);

@@ -8,12 +8,10 @@ use zeroize::ZeroizeOnDrop;
 
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
-use crate::{
-    misc::pow_signed,
-    uint::{
-        subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-        Bounded, HasWide, NonZero, Retrieve, Signed, ToMod,
-    },
+use crate::uint::{
+    pow_signed,
+    subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
+    Bounded, HasWide, NonZero, Retrieve, Signed, ToMod,
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).

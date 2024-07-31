@@ -272,7 +272,7 @@ where
             .expect("Just asserted that bound is smaller than precision; qed")
             .checked_add(&T::one())
             .unwrap();
-        let positive_result = super::super::misc::uint_from_xof(
+        let positive_result = super::uint_from_xof(
             rng,
             &NonZero::new(positive_bound)
                 .expect("Guaranteed to be greater than zero because we added 1"),

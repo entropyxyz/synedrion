@@ -6,10 +6,9 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::misc::uint_from_xof;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{Chain, Hashable, XofHasher};
-use crate::uint::{RandomPrimeWithRng, Retrieve, ToMod};
+use crate::uint::{uint_from_xof, RandomPrimeWithRng, Retrieve, ToMod};
 use crypto_bigint::{PowBoundedExp, Square};
 
 const HASH_TAG: &[u8] = b"P_mod";
