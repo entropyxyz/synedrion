@@ -22,14 +22,6 @@ pub trait Chain: Sized {
     /// Note: only for impls in specific types, do not use directly.
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self;
 
-    /// Hash a bytestring that is known to be constant-sized
-    /// (e.g. byte representation of a built-in integer).
-    // TODO(dp): Can we remove this?
-    #[allow(dead_code)]
-    fn chain_constant_sized_bytes(self, bytes: &(impl AsRef<[u8]> + ?Sized)) -> Self {
-        self.chain_raw_bytes(bytes.as_ref())
-    }
-
     /// Hash raw bytes in a collision-resistant way.
     fn chain_bytes(self, bytes: &(impl AsRef<[u8]> + ?Sized)) -> Self {
         // Hash the length too to prevent hash conflicts. (e.g. H(AB|CD) == H(ABC|D)).
@@ -44,18 +36,6 @@ pub trait Chain: Sized {
 
     fn chain_type<T: HashableType>(self) -> Self {
         T::chain_type(self)
-    }
-
-    // TODO(dp): Can we remove this?
-    #[allow(dead_code)]
-    fn chain_slice<T: Hashable>(self, hashable: &[T]) -> Self {
-        // Hashing the length too to prevent collisions.
-        let len = hashable.len() as u64;
-        let mut digest = self.chain(&len);
-        for elem in hashable {
-            digest = digest.chain(elem);
-        }
-        digest
     }
 }
 
