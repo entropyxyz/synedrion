@@ -24,6 +24,8 @@ pub trait Chain: Sized {
 
     /// Hash a bytestring that is known to be constant-sized
     /// (e.g. byte representation of a built-in integer).
+    // TODO(dp): Can we remove this?
+    #[allow(dead_code)]
     fn chain_constant_sized_bytes(self, bytes: &(impl AsRef<[u8]> + ?Sized)) -> Self {
         self.chain_raw_bytes(bytes.as_ref())
     }
@@ -44,6 +46,8 @@ pub trait Chain: Sized {
         T::chain_type(self)
     }
 
+    // TODO(dp): Can we remove this?
+    #[allow(dead_code)]
     fn chain_slice<T: Hashable>(self, hashable: &[T]) -> Self {
         // Hashing the length too to prevent collisions.
         let len = hashable.len() as u64;

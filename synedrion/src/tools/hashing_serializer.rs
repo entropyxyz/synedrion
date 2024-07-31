@@ -37,6 +37,7 @@ pub enum Error {
     /// Set a breakpoint where this is thrown for more information.
     ///
     /// Can only be returned if `alloc` feature not enabled).
+    #[allow(dead_code)]
     CustomErrorNoAlloc,
 
     /// Custom `serde` error.
