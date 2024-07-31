@@ -3,12 +3,9 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::{Shake256, Shake256Reader};
 
+use hashing_serializer::HashingSerializer;
+
 use crate::curve::Scalar;
-// TODO(dp): the `hashing_serializer` crate uses an old version of `digest` (v0.10) which conflicts
-// with our `impl Hashable for T`, so as a temporary workaround, copy&paste the whole crate source here...
-// When we get a new release of `digest`, ask for an updated version of `hashing_serializer` and
-// remove our copy in `tools/hashing_serializer.rs`
-use crate::tools::hashing_serializer::HashingSerializer;
 use crate::tools::serde_bytes;
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.

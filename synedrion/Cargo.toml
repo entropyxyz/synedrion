@@ -19,7 +19,7 @@ digest = { version = "0.11.0-pre.9", default-features = false, features = ["allo
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 # TODO(dp): Make a PR to update this crate and remove the vendorized copy
-# hashing-serializer = { version = "0.1", default-features = false }
+hashing-serializer = { version = "0.1", default-features = false }
 secrecy = { version = "0.8", default-features = false, features = ["alloc", "serde"] }
 zeroize = { version = "1.8", default-features = false, features = ["alloc", "zeroize_derive"] }
 bip32 = { version = "0.5.2", default-features = false, features = ["alloc", "secp256k1", "k256"] }
