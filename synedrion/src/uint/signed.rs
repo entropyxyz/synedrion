@@ -70,7 +70,7 @@ pub struct Signed<T> {
 
 impl<T> Signed<T>
 where
-    T: Integer + crypto_bigint::Bounded,
+    T: crypto_bigint::Bounded + Integer,
 {
     fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
@@ -121,10 +121,9 @@ where
     }
 }
 
-// Medium amount of bounds
 impl<T> Signed<T>
 where
-    T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
+    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer,
 {
     fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
@@ -187,8 +186,8 @@ where
         Some(result)
     }
 
-    /// Creates a signed value from an unsigned one,
-    /// treating it as if it is the absolute value.
+    /// Creates a signed value from an unsigned one, treating it as if it is the absolute value.
+    /// Returns `None` if `abs_value` is actually negative or if the bounds are invalid.
     fn new_from_abs(abs_value: T, bound: u32, is_negative: Choice) -> Option<Self> {
         Self::new_positive(abs_value, bound).map(|x| {
             let mut x = x;
@@ -214,47 +213,6 @@ where
     pub fn in_range_bits(&self, bound_bits: usize) -> bool {
         self.abs() <= T::one() << bound_bits
     }
-}
-
-#[cfg(test)]
-impl<T> Signed<T>
-where
-    T: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable + Random,
-{
-    /// Returns a random value in the whole available range,
-    /// that is `[-(2^(BITS-1)-1), 2^(BITS-1)-1]`.
-    #[cfg(test)]
-    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        loop {
-            let value = T::random(rng);
-            if value != T::one() << (T::BITS - 1) {
-                return Self::new_from_unsigned(value, T::BITS - 1).unwrap();
-            }
-        }
-    }
-}
-
-impl<T> Signed<T>
-where
-    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable + RandomMod,
-{
-    /// Returns a random value in range `[-bound, bound]`.
-    ///
-    /// Note: variable time in bit size of `bound`.
-    pub fn random_bounded(rng: &mut impl CryptoRngCore, bound: &NonZero<T>) -> Self {
-        let bound_bits = bound.as_ref().bits_vartime();
-        assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS);
-        // Will not overflow because of the assertion above
-        let positive_bound = bound
-            .as_ref()
-            .overflowing_shl_vartime(1)
-            .expect("Just asserted that bound is smaller than precision; qed")
-            .checked_add(&T::one())
-            .unwrap();
-        let positive_result = T::random_mod(rng, &NonZero::new(positive_bound).unwrap());
-        // Will not panic because of the assertion above
-        Self::new_from_unsigned(positive_result.wrapping_sub(bound.as_ref()), bound_bits).unwrap()
-    }
 
     /// Returns a value in range `[-bound, bound]` derived from an extendable-output hash.
     ///
@@ -279,6 +237,47 @@ where
         );
         Self::new_from_unsigned(positive_result.wrapping_sub(bound.as_ref()), bound_bits)
             .expect("Guaranteed to be Some because we checked the bounds just above")
+    }
+}
+
+#[cfg(test)]
+impl<T> Signed<T>
+where
+    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer + Random,
+{
+    /// Returns a random value in the whole available range,
+    /// that is `[-(2^(BITS-1)-1), 2^(BITS-1)-1]`.
+    #[cfg(test)]
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
+        loop {
+            let value = T::random(rng);
+            if value != T::one() << (T::BITS - 1) {
+                return Self::new_from_unsigned(value, T::BITS - 1).unwrap();
+            }
+        }
+    }
+}
+
+impl<T> Signed<T>
+where
+    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer + RandomMod,
+{
+    /// Returns a random value in range `[-bound, bound]`.
+    ///
+    /// Note: variable time in bit size of `bound`.
+    pub fn random_bounded(rng: &mut impl CryptoRngCore, bound: &NonZero<T>) -> Self {
+        let bound_bits = bound.as_ref().bits_vartime();
+        assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS);
+        // Will not overflow because of the assertion above
+        let positive_bound = bound
+            .as_ref()
+            .overflowing_shl_vartime(1)
+            .expect("Just asserted that bound is smaller than precision; qed")
+            .checked_add(&T::one())
+            .expect("Checked bounds above");
+        let positive_result = T::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+        // Will not panic because of the assertion above
+        Self::new_from_unsigned(positive_result.wrapping_sub(bound.as_ref()), bound_bits).unwrap()
     }
 
     /// Returns a random value in range `[-2^bound_bits, 2^bound_bits]`.
@@ -335,7 +334,7 @@ where
 
 impl<T> Signed<T>
 where
-    T: Integer + crypto_bigint::Bounded + HasWide,
+    T: crypto_bigint::Bounded + HasWide + Integer,
     <T as HasWide>::Wide: RandomMod,
 {
     /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
@@ -372,24 +371,34 @@ where
 
 impl<T> Signed<T>
 where
-    T: Integer + HasWide + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
-    T::Wide: HasWide + crypto_bigint::Bounded + ConditionallySelectable,
-    <T::Wide as HasWide>::Wide: RandomMod + WrappingSub,
+    T: ConditionallySelectable + crypto_bigint::Bounded + HasWide + Encoding + Integer,
+    T::Wide: ConditionallySelectable + crypto_bigint::Bounded,
 {
+    /// Returns a [`Signed`] with the same value, but twice the bit-width.
+    /// Consumes `self`, but under the hood this method clones.
     pub fn into_wide(self) -> Signed<T::Wide> {
         let abs_result = self.abs().into_wide();
         Signed::new_from_abs(abs_result, self.bound(), self.is_negative()).unwrap()
     }
 
+    /// Multiplies two [`Signed`] and returns a new [`Signed`] of twice the bit-width
     pub fn mul_wide(&self, rhs: &Self) -> Signed<T::Wide> {
         let abs_result = self.abs().mul_wide(&rhs.abs());
         Signed::new_from_abs(
             abs_result,
+            // TODO(dp): This can overflow and looks a bit fishy to me. Should this be max(self_bound, rhs_bound) instead?
             self.bound() + rhs.bound(),
             self.is_negative() ^ rhs.is_negative(),
         )
-        .unwrap()
+        .expect("The call to new_positive cannot fail when the input is the absolute value ")
     }
+}
+
+impl<T> Signed<T>
+where
+    T: crypto_bigint::Bounded + HasWide + Integer,
+    T::Wide: ConditionallySelectable + crypto_bigint::Bounded + HasWide,
+{
     /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
     ///
     /// Note: variable time in `bound_bits` and `scale`.
@@ -398,7 +407,7 @@ where
         bound_bits: usize,
         scale: &Bounded<T::Wide>,
     ) -> Signed<<T::Wide as HasWide>::Wide> {
-        // TODO: @reviewers: this is a bit nasty and feels wrong. Use try_from instead? Or go over all code and make types match?
+        // TODO(dp): @reviewers: this is a bit nasty and feels wrong. Use try_from instead? Or go over all code and make types match?
         let bound_bits = bound_bits as u32;
         assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS - 1);
         let scaled_bound = scale
@@ -450,7 +459,7 @@ where
 {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        // TODO: this feels sketchy - double check
+        // TODO(dp): this feels sketchy - double check
         let rhs_neg = Self {
             bound: rhs.bound,
             value: T::zero().wrapping_sub(&rhs.value),
@@ -465,7 +474,7 @@ where
 {
     type Output = Self;
     fn sub(self, rhs: &Self) -> Self::Output {
-        // TODO: this feels sketchy - double check
+        // TODO(dp): this feels sketchy - double check
         let rhs_neg = Self {
             bound: rhs.bound,
             value: T::zero().wrapping_sub(&rhs.value),

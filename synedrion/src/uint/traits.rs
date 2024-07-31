@@ -23,14 +23,13 @@ pub trait ToMod: Integer {
     }
 }
 
-pub trait HasWide: Sized + Zero /*TODO: remove this ––> */ + core::fmt::Debug {
+pub trait HasWide: Sized + Zero {
     type Wide: Integer + Encoding + RandomMod;
     fn mul_wide(&self, other: &Self) -> Self::Wide;
     fn square_wide(&self) -> Self::Wide;
 
     /// Converts `self` to a new `Wide` uint, setting the higher half to `0`s.
     /// Consumes `self`.
-    // TODO: provide default impl here? Why not?
     fn into_wide(self) -> Self::Wide;
 
     /// Splits a `Wide` in two halves and returns the halves (`Self` sized) in a
@@ -114,25 +113,6 @@ impl HasWide for U4096 {
     }
     fn from_wide(value: Self::Wide) -> (Self, Self) {
         value.into()
-    }
-}
-
-// This is a dummy implementation to satisfy the compiler; the PaillierParams::ExtraWideUint
-// "requires" a `HasWide` bound or `into_wide()` on a `WideUint` will fail to compile.
-// TODO: dig deeper into wth is going on.
-impl HasWide for U8192 {
-    type Wide = U8192;
-    fn mul_wide(&self, _other: &Self) -> Self::Wide {
-        unimplemented!()
-    }
-    fn square_wide(&self) -> Self::Wide {
-        unimplemented!()
-    }
-    fn into_wide(self) -> Self::Wide {
-        unimplemented!()
-    }
-    fn from_wide(_value: Self::Wide) -> (Self, Self) {
-        unimplemented!()
     }
 }
 

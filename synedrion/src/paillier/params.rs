@@ -81,9 +81,6 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     // So it is easier to keep it as a double of `WideUint`.
     // type ExtraWideUint: UintLike + Serialize + for<'de> Deserialize<'de>;
     type ExtraWideUint: Bounded
-        // TODO: this makes no sense but "works" (??). Without this the compiler will not let me
-        //       call `into_wide()` on a `WideUint` and I do not understand what the problem is.
-        + HasWide
         + ConditionallySelectable
         + Encoding
         + Hashable
