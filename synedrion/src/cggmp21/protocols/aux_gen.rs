@@ -1,9 +1,9 @@
 //! AuxGen protocol, a part of the paper's Auxiliary Info. & Key Refresh in Three Rounds (Fig. 6)
 //! that only generates the auxiliary data.
 
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
-use alloc::boxed::Box;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 

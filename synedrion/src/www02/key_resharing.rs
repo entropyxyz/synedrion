@@ -5,8 +5,8 @@
 //! <https://doi.org/10.1109/SISW.2002.1183515>
 //! (Specifically, REDIST protocol).
 
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::marker::PhantomData;

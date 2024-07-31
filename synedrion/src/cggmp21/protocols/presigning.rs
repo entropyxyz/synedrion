@@ -1,7 +1,7 @@
 //! Presigning protocol, in the paper ECDSA Pre-Signing (Fig. 7).
 
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;

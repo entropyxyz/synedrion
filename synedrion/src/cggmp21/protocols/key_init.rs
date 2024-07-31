@@ -2,8 +2,8 @@
 //! Note that this protocol only generates the key itself which is not enough to perform signing;
 //! auxiliary parameters need to be generated as well (during the KeyRefresh protocol).
 
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, BTreeSet};
 use core::fmt::Debug;
 use core::marker::PhantomData;
 

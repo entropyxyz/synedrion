@@ -1,5 +1,5 @@
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::marker::PhantomData;
@@ -130,9 +130,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
         // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
         assert_eq!(self.owner, change.owner);
 
-        let secret_share = SecretBox::new(
-            Box::new(self.secret_share.expose_secret() + change.secret_share_change.expose_secret()),
-        );
+        let secret_share = SecretBox::new(Box::new(
+            self.secret_share.expose_secret() + change.secret_share_change.expose_secret(),
+        ));
         let public_shares = self
             .public_shares
             .iter()
@@ -407,7 +407,9 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 PresigningData {
                     nonce,
                     ephemeral_scalar_share: SecretBox::new(Box::new(k_i)),
-                    product_share: SecretBox::new(Box::new(P::scalar_from_signed(&product_share_nonreduced))),
+                    product_share: SecretBox::new(Box::new(P::scalar_from_signed(
+                        &product_share_nonreduced,
+                    ))),
                     product_share_nonreduced,
                     cap_k: all_cap_k[&id_i].clone(),
                     values,

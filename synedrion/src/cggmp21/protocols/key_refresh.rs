@@ -2,8 +2,8 @@
 //! This protocol generates an update to the secret key shares and new auxiliary parameters
 //! for ZK proofs (e.g. Paillier keys).
 
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
