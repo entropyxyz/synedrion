@@ -1,4 +1,4 @@
-use core::fmt::{self, Debug};
+use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
 // use secrecy::DebugSecret;
@@ -12,19 +12,11 @@ use crate::uint::{
     RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
 };
 
-#[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, ZeroizeOnDrop)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     p: P::HalfUint,
     q: P::HalfUint,
 }
-
-// impl<P: PaillierParams> DebugSecret for SecretKeyPaillier<P> {}
-
-// impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         Self::debug_secret(f)
-//     }
-// }
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {

@@ -24,7 +24,7 @@ use k256::{
     Secp256k1,
 };
 use rand_core::CryptoRngCore;
-use secrecy::{CloneableSecret, SecretBox, SerializableSecret};
+use secrecy::{CloneableSecret, SerializableSecret};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::DefaultIsZeroes;
 
@@ -163,8 +163,6 @@ impl<'de> Deserialize<'de> for Scalar {
 }
 
 impl DefaultIsZeroes for Scalar {}
-
-// impl DebugSecret for Scalar {}
 
 impl CloneableSecret for Scalar {}
 
