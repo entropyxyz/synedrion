@@ -11,10 +11,18 @@ use crate::uint::{
     RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
 };
 
-#[derive(Clone, Debug, Serialize, Deserialize, ZeroizeOnDrop)]
+#[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     p: P::HalfUint,
     q: P::HalfUint,
+}
+
+impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        f.write_str("[REDACTED ")?;
+        f.write_str(core::any::type_name::<Self>())?;
+        f.write_str("]")
+    }
 }
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
