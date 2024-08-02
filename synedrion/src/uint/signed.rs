@@ -12,7 +12,8 @@ use super::{
         Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess,
         CtOption,
     },
-    Bounded, CheckedAdd, Encoding, HasWide, Integer, NonZero, RandomMod, ShlVartime, WrappingSub,
+    Bounded, CheckedAdd, CheckedSub, Encoding, HasWide, Integer, NonZero, RandomMod, ShlVartime,
+    WrappingSub,
 };
 
 /// A packed representation for serializing Signed objects.
@@ -109,7 +110,7 @@ where
     /// Creates a signed value from an unsigned one,
     /// assuming that it encodes a positive value.
     pub fn new_positive(value: T, bound: u32) -> Option<Self> {
-        // Reserving one bit as the sign bit
+        // Reserving one bit as the sign bit (MSB)
         if bound >= T::BITS || value.bits() > bound {
             return None;
         }
@@ -167,6 +168,7 @@ where
         );
     }
 
+    /// Creates a [`Bounded`] from the absolute value of `self`.
     pub fn abs_bounded(&self) -> Bounded<T> {
         // Can unwrap here since the maximum bound on the positive Bounded
         // is always greater than the maximum bound on Signed
@@ -344,7 +346,12 @@ where
         bound_bits: usize,
         scale: &Bounded<T>,
     ) -> Signed<T::Wide> {
-        assert!((bound_bits as u32) < T::BITS - 1);
+        assert!(
+            (bound_bits as u32) < T::BITS - 1,
+            "Out of bounds: bound_bits was {} but must be smaller than {}",
+            bound_bits as u32,
+            T::BITS - 1
+        );
         let scaled_bound = scale
             .as_ref()
             .clone()
@@ -358,7 +365,11 @@ where
             .expect("TODO: justify this properly")
             .checked_add(&T::Wide::one())
             .expect("TODO: justify this properly");
-        let positive_result = T::Wide::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+        let positive_result = T::Wide::random_mod(
+            rng,
+            &NonZero::new(positive_bound)
+                .expect("Input guaranteed to be positive, i.e. it's non-zero"),
+        );
         let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
@@ -452,33 +463,41 @@ where
     }
 }
 
+impl<T> CheckedSub<Signed<T>> for Signed<T>
+where
+    T: crypto_bigint::Bounded + ConditionallySelectable + Integer,
+{
+    /// Performs subtraction that returns `None` instead of wrapping around on underflow.
+    /// The bound of the result is the bound of `self` (lhs).
+    fn checked_sub(&self, rhs: &Signed<T>) -> CtOption<Self> {
+        self.value.checked_sub(&rhs.value).and_then(|v| {
+            let signed = Signed::new_positive(v, self.bound);
+            if let Some(signed) = signed {
+                CtOption::new(signed, 1u8.into())
+            } else {
+                CtOption::new(Signed::default(), 0u8.into())
+            }
+        })
+    }
+}
+
 impl<T> Sub<Signed<T>> for Signed<T>
 where
-    T: Integer + Encoding + crypto_bigint::Bounded,
+    T: crypto_bigint::Bounded + ConditionallySelectable + Encoding + Integer,
 {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        // TODO(dp): this feels sketchy - double check
-        let rhs_neg = Self {
-            bound: rhs.bound,
-            value: T::zero().wrapping_sub(&rhs.value),
-        };
-        self.checked_add(&rhs_neg).unwrap()
+        self.checked_add(&-rhs).expect("Invalid subtraction")
     }
 }
 
 impl<T> Sub<&Signed<T>> for Signed<T>
 where
-    T: Integer + Encoding + crypto_bigint::Bounded,
+    T: crypto_bigint::Bounded + ConditionallySelectable + Encoding + Integer,
 {
     type Output = Self;
     fn sub(self, rhs: &Self) -> Self::Output {
-        // TODO(dp): this feels sketchy - double check
-        let rhs_neg = Self {
-            bound: rhs.bound,
-            value: T::zero().wrapping_sub(&rhs.value),
-        };
-        self.checked_add(&rhs_neg).unwrap()
+        self.checked_add(&-rhs).expect("Invalid subtraction")
     }
 }
 
@@ -521,14 +540,26 @@ where
     }
 }
 
+impl<T> PartialOrd for Signed<T>
+where
+    T: PartialOrd,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        // TODO(dp): Complete this by figuring out how to think about the bounds here. Are the bounds relevant at all for comparisons?
+        self.value.partial_cmp(&other.value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Signed;
     use crate::uint::U1024;
+    use crypto_bigint::CheckedSub;
     use rand::SeedableRng;
     use rand_chacha;
     use std::ops::Neg;
     const SEED: u64 = 123;
+
     #[test]
     fn neg_u1024() {
         // U1024 test vectors with bound set to 1023 in the form of tuples (signed, neg)
@@ -575,5 +606,29 @@ mod tests {
             assert_eq!(negged[i].1.neg(), signed);
             assert_eq!(signed.neg().neg(), signed);
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid subtraction")]
+    fn sub_panics_on_underflow() {
+        // Biggest allowed bound is 2^1023:
+        // 0x8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000_16
+        // Biggest/smallest Signed<U1024> is |2^1022|:
+        // 0x4000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000_16
+        let max_uint = U1024::from_be_hex("4000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+        let one_signed = Signed::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
+        let min_signed = Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into()).unwrap();
+        let _ = min_signed - one_signed;
+    }
+
+    #[test]
+    fn checked_sub_handles_underflow() {
+        // Biggest/smallest Signed<U1024> is |2^1022|
+        let max_uint = U1024::from_be_hex("4000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+        let min_signed = Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into()).unwrap();
+        let one_signed = Signed::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
+
+        let result = min_signed.checked_sub(&one_signed);
+        assert!(bool::from(result.is_none()))
     }
 }
