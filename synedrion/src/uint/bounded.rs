@@ -152,6 +152,7 @@ where
     T: Integer + crypto_bigint::Bounded,
 {
     fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
+        // TODO(dp): this looks wrong to me. Shouldn't it be just self.bound?
         let bound = self.bound + rhs.bound;
         let in_range = bound.ct_lt(&<T as crypto_bigint::Bounded>::BITS);
 
