@@ -1,5 +1,6 @@
 //! Presigning protocol, in the paper ECDSA Pre-Signing (Fig. 7).
 
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -7,7 +8,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
-use secrecy::{ExposeSecret, Secret};
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::super::{
@@ -733,8 +734,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
             return Ok(PresigningData {
                 nonce,
-                ephemeral_scalar_share: Secret::new(self.context.k),
-                product_share: Secret::new(P::scalar_from_signed(&self.chi)),
+                ephemeral_scalar_share: SecretBox::new(Box::new(self.context.k)),
+                product_share: SecretBox::new(Box::new(P::scalar_from_signed(&self.chi))),
                 product_share_nonreduced: self.chi,
                 cap_k: self.all_cap_k[&my_id].clone(),
                 values,
