@@ -3,3 +3,16 @@ members = [
     'synedrion',
 ]
 resolver = "2"
+
+[profile.dev.package."crypto-bigint"]
+opt-level = 3
+[profile.dev.package."crypto-primes"]
+opt-level = 3
+[profile.dev.package."digest"]
+opt-level = 3
+[profile.dev.package."k256"]
+opt-level = 3
+[profile.dev.package."sha2"]
+opt-level = 3
+[profile.dev.package."sha3"]
+opt-level = 3
