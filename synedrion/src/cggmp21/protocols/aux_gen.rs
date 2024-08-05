@@ -1,13 +1,14 @@
 //! AuxGen protocol, a part of the paper's Auxiliary Info. & Key Refresh in Three Rounds (Fig. 6)
 //! that only generates the auxiliary data.
 
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 
 use rand_core::CryptoRngCore;
-use secrecy::Secret;
+use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
@@ -526,7 +527,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
         let secret_aux = SecretAuxInfo {
             paillier_sk: self.context.paillier_sk.to_minimal(),
-            el_gamal_sk: Secret::new(self.context.y),
+            el_gamal_sk: SecretBox::new(Box::new(self.context.y)),
         };
 
         let aux_info = AuxInfo {

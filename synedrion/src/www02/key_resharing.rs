@@ -5,6 +5,7 @@
 //! <https://doi.org/10.1109/SISW.2002.1183515>
 //! (Specifically, REDIST protocol).
 
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -12,7 +13,7 @@ use core::marker::PhantomData;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
-use secrecy::{ExposeSecret, Secret};
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::ThresholdKeyShare;
@@ -349,7 +350,7 @@ impl<P: SchemeParams, I: Ord + Clone + Debug> FinalizableToResult<I> for Round1<
             .iter()
             .map(|id| (payloads[id].old_share_id, payloads[id].subshare))
             .collect::<BTreeMap<_, _>>();
-        let secret_share = Secret::new(shamir_join_scalars(subshares.iter()));
+        let secret_share = SecretBox::new(Box::new(shamir_join_scalars(subshares.iter())));
 
         // Generate the public shares of all the new holders.
         let public_shares = self

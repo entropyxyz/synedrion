@@ -1,7 +1,6 @@
-use core::fmt::{self, Debug};
+use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
-use secrecy::DebugSecret;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
@@ -21,11 +20,11 @@ pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     q: P::HalfUint,
 }
 
-impl<P: PaillierParams> DebugSecret for SecretKeyPaillier<P> {}
-
 impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        Self::debug_secret(f)
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        f.write_str("[REDACTED ")?;
+        f.write_str(core::any::type_name::<Self>())?;
+        f.write_str("]")
     }
 }
 

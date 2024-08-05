@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -6,7 +7,7 @@ use core::marker::PhantomData;
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use rand_core::CryptoRngCore;
-use secrecy::{ExposeSecret, Secret};
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use crate::cggmp21::{KeyShare, SchemeParams};
@@ -22,7 +23,7 @@ use crate::tools::sss::{
 pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     pub(crate) threshold: u32,
-    pub(crate) secret_share: Secret<Scalar>,
+    pub(crate) secret_share: SecretBox<Scalar>,
     pub(crate) share_ids: BTreeMap<I, ShareId>,
     pub(crate) public_shares: BTreeMap<I, Point>,
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
@@ -74,7 +75,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                     Self {
                         owner: id.clone(),
                         threshold: threshold as u32,
-                        secret_share: Secret::new(secret_shares[&share_ids[id]]),
+                        secret_share: SecretBox::new(Box::new(secret_shares[&share_ids[id]])),
                         share_ids: share_ids.clone(),
                         public_shares: public_shares.clone(),
                         phantom: PhantomData,
@@ -113,9 +114,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .map(|id| (id.clone(), self.share_ids[id]))
             .collect::<BTreeMap<_, _>>();
 
-        let secret_share = Secret::new(
+        let secret_share = SecretBox::new(Box::new(
             self.secret_share.expose_secret() * &interpolation_coeff(share_ids.values(), &share_id),
-        );
+        ));
         let public_shares = ids
             .iter()
             .map(|id| {
@@ -144,12 +145,12 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .zip((1..=ids.len()).map(ShareId::new))
             .collect::<BTreeMap<_, _>>();
 
-        let secret_share = Secret::new(
+        let secret_share = SecretBox::new(Box::new(
             key_share.secret_share.expose_secret()
                 * &interpolation_coeff(share_ids.values(), &share_ids[key_share.owner()])
                     .invert()
                     .unwrap(),
-        );
+        ));
         let public_shares = ids
             .iter()
             .map(|id| {
@@ -182,10 +183,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .expose_secret()
             .to_signing_key()
             .ok_or(bip32::Error::Crypto)?;
-        let secret_share = Secret::new(Scalar::from_signing_key(&apply_tweaks_private(
-            secret_share,
-            &tweaks,
-        )?));
+        let secret_share = SecretBox::new(Box::new(Scalar::from_signing_key(
+            &apply_tweaks_private(secret_share, &tweaks)?,
+        )));
 
         let public_shares = self
             .public_shares
