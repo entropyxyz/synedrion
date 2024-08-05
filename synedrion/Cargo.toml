@@ -33,13 +33,10 @@ bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde
 displaydoc = { version = "0.2", default-features = false}
 
 [dev-dependencies]
-num-bigint = "0.4" # need this?
-num-integer = "0.1" # need this?
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = "0.8"
 rand_chacha = "0.3"
 criterion = "0.5"
-itertools = "0.13.0" # need this?
 k256 = {git = "https://github.com/RustCrypto/elliptic-curves", default-features = false, features = ["ecdsa", "serde", "pem"]}
 impls = "1"
 
