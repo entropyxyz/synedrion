@@ -152,7 +152,6 @@ where
     T: Integer + crypto_bigint::Bounded,
 {
     fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
-        // TODO(dp): this looks wrong to me. Shouldn't it be just self.bound?
         let bound = self.bound + rhs.bound;
         let in_range = bound.ct_lt(&<T as crypto_bigint::Bounded>::BITS);
 
@@ -173,5 +172,41 @@ where
             bound: u32::conditional_select(&a.bound, &b.bound, choice),
             value: T::conditional_select(&a.value, &b.value, choice),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crypto_bigint::{CheckedMul, U1024, U128, U2048};
+
+    use super::Bounded;
+
+    #[test]
+    fn checked_mul_fails_when_operands_have_max_bounds() {
+        let bound = 88;
+        let b1 = Bounded::new(U128::from_u8(10), bound).unwrap();
+        let b2 = Bounded::new(U128::from_u8(10), bound).unwrap();
+        let b3 = b1.checked_mul(&b2);
+
+        // Bounds are summed up, so 88 + 88 = 176 ==> OoB
+        assert!(bool::from(b3.is_none()));
+
+        let b4 = Bounded::new(U128::from_u8(10), 20).unwrap();
+        let b5 = b1.checked_mul(&b4);
+        // This is fine, because 88 + 20 < MAX BOUND (127)
+        assert!(bool::from(b5.is_some()));
+        assert_eq!(b5.unwrap(), Bounded::new(U128::from_u8(100), 108).unwrap());
+    }
+
+    #[test]
+    fn mul_wide_sums_the_bounds_of_the_operands() {
+        let bound = 678;
+        let b1 = Bounded::new(U1024::from_u8(10), bound).unwrap();
+        let b2 = Bounded::new(U1024::from_u8(10), bound).unwrap();
+        let b3 = b1.mul_wide(&b2);
+
+        // Bounds are summed up, so 678 + 678 = 1356
+        assert_eq!(b3.bound(), 1356);
+        assert_eq!(b3, Bounded::new(U2048::from_u8(100), 1356).unwrap());
     }
 }
