@@ -250,9 +250,10 @@ where
     /// that is `[-(2^(BITS-1)-1), 2^(BITS-1)-1]`.
     #[cfg(test)]
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
+        let max_allowed = T::one() << (T::BITS - 1);
         loop {
             let value = T::random(rng);
-            if value != T::one() << (T::BITS - 1) {
+            if value != max_allowed {
                 return Self::new_from_unsigned(value, T::BITS - 1).unwrap();
             }
         }
@@ -263,12 +264,17 @@ impl<T> Signed<T>
 where
     T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer + RandomMod,
 {
-    /// Returns a random value in range `[-bound, bound]`.
-    ///
-    /// Note: variable time in bit size of `bound`.
-    pub fn random_bounded(rng: &mut impl CryptoRngCore, bound: &NonZero<T>) -> Self {
+    // Returns a random value in range `[-bound, bound]`.
+    //
+    // Note: variable time in bit size of `bound`.
+    fn random_bounded(rng: &mut impl CryptoRngCore, bound: &NonZero<T>) -> Self {
         let bound_bits = bound.as_ref().bits_vartime();
-        assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS);
+        assert!(
+            bound_bits < T::BITS - 1,
+            "Out of bounds: bound_bits was {} but must be smaller than {}",
+            bound_bits,
+            T::BITS - 1
+        );
         // Will not overflow because of the assertion above
         let positive_bound = bound
             .as_ref()
@@ -285,7 +291,13 @@ where
     ///
     /// Note: variable time in `bound_bits`.
     pub fn random_bounded_bits(rng: &mut impl CryptoRngCore, bound_bits: usize) -> Self {
-        assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS as usize - 1);
+        assert!(
+            bound_bits < (T::BITS - 1) as usize,
+            "Out of bounds: bound_bits was {} but must be smaller than {}",
+            bound_bits,
+            T::BITS - 1
+        );
+
         let bound =
             NonZero::new(T::one() << bound_bits).expect("Checked bound_bits just above; qed");
         Self::random_bounded(rng, &bound)
@@ -346,17 +358,18 @@ where
         bound_bits: usize,
         scale: &Bounded<T>,
     ) -> Signed<T::Wide> {
+        let bound_bits = u32::try_from(bound_bits).expect("Assumed to fit in a u32; caller beware");
         assert!(
-            (bound_bits as u32) < T::BITS - 1,
+            bound_bits < T::BITS - 1,
             "Out of bounds: bound_bits was {} but must be smaller than {}",
-            bound_bits as u32,
+            bound_bits,
             T::BITS - 1
         );
         let scaled_bound = scale
             .as_ref()
             .clone()
             .into_wide()
-            .overflowing_shl_vartime(bound_bits as u32)
+            .overflowing_shl_vartime(bound_bits)
             .expect("Just asserted that bound bits is smaller than T's bit precision");
 
         // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
@@ -368,12 +381,12 @@ where
         let positive_result = T::Wide::random_mod(
             rng,
             &NonZero::new(positive_bound)
-                .expect("Input guaranteed to be positive, i.e. it's non-zero"),
+                .expect("Input guaranteed to be positive and it's non-zero because we added 1"),
         );
         let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
-            bound: bound_bits as u32 + scale.bound(),
+            bound: bound_bits + scale.bound(),
             value: result,
         }
     }
@@ -417,9 +430,13 @@ where
         bound_bits: usize,
         scale: &Bounded<T::Wide>,
     ) -> Signed<<T::Wide as HasWide>::Wide> {
-        // TODO(dp): @reviewers: this is a bit nasty and feels wrong. Use try_from instead? Or go over all code and make types match?
-        let bound_bits = bound_bits as u32;
-        assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS - 1);
+        let bound_bits = u32::try_from(bound_bits).expect("Assumed to fit in a u32; caller beware");
+        assert!(
+            bound_bits < T::BITS - 1,
+            "Out of bounds: bound_bits was {} but must be smaller than {}",
+            bound_bits,
+            T::BITS - 1
+        );
         let scaled_bound = scale
             .as_ref()
             .into_wide()
@@ -431,9 +448,12 @@ where
             .overflowing_shl_vartime(1)
             .expect("TODO: justify this properly")
             .checked_add(&<T::Wide as HasWide>::Wide::one())
-            .unwrap();
-        let positive_result =
-            <T::Wide as HasWide>::Wide::random_mod(rng, &NonZero::new(positive_bound).unwrap());
+            .expect("TODO: justify this properly");
+        let positive_result = <T::Wide as HasWide>::Wide::random_mod(
+            rng,
+            &NonZero::new(positive_bound)
+                .expect("Input guaranteed to be positive and it's non-zero because we added 1"),
+        );
         let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
