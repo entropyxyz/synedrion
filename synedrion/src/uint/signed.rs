@@ -56,7 +56,7 @@ where
 /// A wrapper over unsigned integers that treats two's complement numbers as negative.
 // In principle, Bounded could be separate from Signed, but we only use it internally,
 // and pretty much every time we need a bounded value, it's also signed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(
     try_from = "PackedSigned",
     into = "PackedSigned",
@@ -73,6 +73,8 @@ impl<T> Signed<T>
 where
     T: crypto_bigint::Bounded + Integer,
 {
+    /// Note: when adding two [`Signed`], the bound on the result is equal to the biggest bound of
+    /// the two operands plus 1.
     fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
         let in_range = bound.ct_lt(&T::BITS);
@@ -563,12 +565,28 @@ where
     }
 }
 
+// @reviewers: Implementing `PartialEq`/`Eq` this way disregards the bound when it comes to equality,
+// which is a major difference to the implementations that were `#[derive]`d before. I think it is
+// more intuitive and useful to be able to compare two `Signed` with different bounds but I can
+// totally see how others may think differently, so this is definitely something we should discuss.
+impl<T> PartialEq for Signed<T>
+where
+    T: crypto_bigint::Bounded + ConditionallySelectable + Encoding + Integer,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.abs() == other.abs() && self.is_negative().ct_eq(&other.is_negative()).into()
+    }
+}
+impl<T> Eq for Signed<T> where
+    T: crypto_bigint::Bounded + ConditionallySelectable + Encoding + Integer
+{
+}
+
 impl<T> PartialOrd for Signed<T>
 where
     T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer + PartialOrd,
 {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        // TODO(dp): need tests
         // The bounds of the two numbers do not come into play, only the signs and absolute values
         if bool::from(self.is_negative()) {
             if bool::from(other.is_negative()) {
@@ -595,11 +613,94 @@ mod tests {
     use super::Signed;
     use crate::uint::U1024;
     use core::u128;
-    use crypto_bigint::CheckedSub;
+    use crypto_bigint::{CheckedSub, U128};
     use rand::SeedableRng;
     use rand_chacha::{self, ChaCha8Rng};
     use std::ops::Neg;
     const SEED: u64 = 123;
+
+    #[test]
+    fn partial_ord_pos_vs_pos() {
+        let bound = 34;
+        let p1 = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap();
+        let p2 = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap();
+
+        assert!(p1 < p2);
+        assert!(!(p1 > p2));
+        assert_eq!(
+            p1,
+            Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap()
+        );
+    }
+
+    #[test]
+    fn partial_ord_neg_vs_neg() {
+        let bound = 114;
+        let n1 = Signed::new_from_unsigned(U128::from_u64(10), bound)
+            .unwrap()
+            .neg();
+        let n2 = Signed::new_from_unsigned(U128::from_u64(12), bound)
+            .unwrap()
+            .neg();
+
+        assert!(n2 < n1);
+        assert!(!(n2 > n1));
+        assert_eq!(
+            n1 + Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap(),
+            Signed::new_from_unsigned(U128::ZERO, bound + 1).unwrap()
+        );
+    }
+
+    #[test]
+    fn partial_ord_pos_vs_neg() {
+        let bound = 65;
+        let p = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap();
+        let n = Signed::new_from_unsigned(U128::from_u64(12), bound)
+            .unwrap()
+            .neg();
+        assert!(n < p);
+        assert!(!(n > p));
+    }
+
+    #[test]
+    fn partial_ord_neg_vs_pos() {
+        let bound = 93;
+        let n = Signed::new_from_unsigned(U128::from_u64(10), bound)
+            .unwrap()
+            .neg();
+        let p = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap();
+        assert!(n < p);
+        assert!(!(n > p));
+    }
+
+    #[test]
+    fn partial_ord_different_bounds() {
+        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 10).unwrap();
+        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 106).unwrap();
+        let s3 = Signed::new_from_unsigned(U128::from_u8(30), 127).unwrap();
+        let s4 = Signed::new_from_unsigned(U128::from_u8(30), 47).unwrap();
+
+        assert!(s2 < s1);
+        assert!(s2 < s3);
+        assert_eq!(s3, s4);
+    }
+
+    #[test]
+    fn adding_signed_numbers_increases_the_bound() {
+        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 10).unwrap();
+        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 10).unwrap();
+
+        assert_eq!((s1 + s2).bound(), 11);
+    }
+
+    #[test]
+    #[should_panic]
+    fn adding_signed_numbers_with_max_bounds_panics() {
+        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 127).unwrap();
+        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 127).unwrap();
+
+        let _ = s1 + s2;
+    }
 
     #[test]
     fn random_bounded_bits_is_sane() {
