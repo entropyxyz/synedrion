@@ -94,6 +94,8 @@ where
         )
     }
 
+    /// Checks if a [`Signed`] is negative by checking the MSB: if it's `1` then the [`Signed`] is
+    /// negative; if it's `0` it's positive. Returns a [`Choice`].
     pub fn is_negative(&self) -> Choice {
         Choice::from(self.value.bit_vartime(T::BITS - 1) as u8)
     }
@@ -132,6 +134,7 @@ where
 
         let lhs_neg = self.is_negative();
         let rhs_neg = rhs.is_negative();
+        // TODO(dp): should be able to use let lhs = self.abs() and rhs = rhs.abs() here. Need tests first.
         let lhs = T::conditional_select(&self.value, &T::zero().wrapping_sub(&self.value), lhs_neg);
         let rhs = T::conditional_select(&rhs.value, &T::zero().wrapping_sub(&rhs.value), rhs_neg);
         let result = lhs.checked_mul(&rhs);
@@ -270,7 +273,7 @@ where
     fn random_bounded(rng: &mut impl CryptoRngCore, bound: &NonZero<T>) -> Self {
         let bound_bits = bound.as_ref().bits_vartime();
         assert!(
-            bound_bits < T::BITS - 1,
+            bound_bits < T::BITS,
             "Out of bounds: bound_bits was {} but must be smaller than {}",
             bound_bits,
             T::BITS - 1
@@ -562,11 +565,28 @@ where
 
 impl<T> PartialOrd for Signed<T>
 where
-    T: PartialOrd,
+    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer + PartialOrd,
 {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        // TODO(dp): Complete this by figuring out how to think about the bounds here. Are the bounds relevant at all for comparisons?
-        self.value.partial_cmp(&other.value)
+        // TODO(dp): need tests
+        // The bounds of the two numbers do not come into play, only the signs and absolute values
+        if bool::from(self.is_negative()) {
+            if bool::from(other.is_negative()) {
+                // both are negative, flip comparison
+                other.abs().partial_cmp(&self.abs())
+            } else {
+                // self is neg, other is not => other is bigger
+                Some(core::cmp::Ordering::Less)
+            }
+        } else {
+            if bool::from(other.is_negative()) {
+                // self is positive, other is not => self is bigger
+                Some(core::cmp::Ordering::Greater)
+            } else {
+                // both are positive, use abs value
+                self.abs().partial_cmp(&other.abs())
+            }
+        }
     }
 }
 
@@ -574,11 +594,58 @@ where
 mod tests {
     use super::Signed;
     use crate::uint::U1024;
+    use core::u128;
     use crypto_bigint::CheckedSub;
     use rand::SeedableRng;
-    use rand_chacha;
+    use rand_chacha::{self, ChaCha8Rng};
     use std::ops::Neg;
     const SEED: u64 = 123;
+
+    #[test]
+    fn random_bounded_bits_is_sane() {
+        let mut rng = ChaCha8Rng::seed_from_u64(SEED);
+        for bound_bits in 1..U1024::BITS - 1 {
+            let signed: Signed<U1024> = Signed::random_bounded_bits(&mut rng, bound_bits as usize);
+            assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound_bits));
+            signed.assert_bound(bound_bits as usize);
+        }
+    }
+
+    #[test]
+    fn signed_with_low_bounds() {
+        // a 2 bit bound means numbers must be smaller or equal to 3
+        let bound = 2;
+        let value = U1024::from_u8(3);
+        let signed = Signed::new_from_unsigned(value, bound).unwrap();
+        assert!(signed.abs() < U1024::MAX >> U1024::BITS - 1 - bound);
+        signed.assert_bound(bound as usize);
+        // 4 is too big
+        let value = U1024::from_u8(4);
+        let signed = Signed::new_from_unsigned(value, bound);
+        assert!(signed.is_none());
+
+        // a 1 bit bound means numbers must be smaller or equal to 1
+        let bound = 1;
+        let value = U1024::from_u8(1);
+        let signed = Signed::new_from_unsigned(value, bound).unwrap();
+        assert!(signed.abs() < U1024::MAX >> U1024::BITS - 1 - bound);
+        signed.assert_bound(bound as usize);
+        // 2 is too big
+        let value = U1024::from_u8(2);
+        let signed = Signed::new_from_unsigned(value, bound);
+        assert!(signed.is_none());
+
+        // a 0 bit bound means only 0 is a valid value
+        let bound = 0;
+        let value = U1024::from_u8(0);
+        let signed = Signed::new_from_unsigned(value, bound).unwrap();
+        assert!(signed.abs() < U1024::MAX >> U1024::BITS - 1 - bound);
+        signed.assert_bound(bound as usize);
+        // 1 is too big
+        let value = U1024::from_u8(1);
+        let signed = Signed::new_from_unsigned(value, bound);
+        assert!(signed.is_none());
+    }
 
     #[test]
     fn neg_u1024() {
@@ -619,7 +686,7 @@ mod tests {
                 Signed::new_from_unsigned(U1024::from_be_hex("2272CCBCE4020481F368850D1E06E6545EBFF23427AA3E091E66EE15C192C9D4692A68B7F54D6DBF12E1E0DE1F27ACF625375C4695A4F4D632FE9FA267C9EC262939C85850BCF4F9BAB34CD7CD66CE49A638FA80DC95A93A7713E8E239534F5D9A9705259F6BE212AA75B6A51CFEF150EAD773A55FC7EB4FB233F7C0037F5F54"),1023).unwrap()
             ),
         ];
-        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(SEED);
+        let mut rng = ChaCha8Rng::seed_from_u64(SEED);
         for i in 0..negged.len() {
             let signed = Signed::<U1024>::random(&mut rng);
             assert_eq!(signed.neg(), negged[i].1);
@@ -631,22 +698,32 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid subtraction")]
     fn sub_panics_on_underflow() {
-        // Biggest allowed bound is 2^1023:
-        // 0x8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000_16
-        // Biggest/smallest Signed<U1024> is |2^1022|:
-        // 0x4000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000_16
-        let max_uint = U1024::from_be_hex("4000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+        // Biggest/smallest Signed<U128> is |2^127|:
+        use crypto_bigint::U128;
+        let max_uint = U128::from_u128(u128::MAX >> 1);
+        let one_signed = Signed::new_from_abs(U128::ONE, U128::BITS - 1, 0u8.into()).unwrap();
+        let min_signed = Signed::new_from_abs(max_uint, U128::BITS - 1, 1u8.into())
+            .expect("|2^127| is a valid Signed");
+        let _ = min_signed - one_signed;
+    }
+    #[test]
+    #[should_panic(expected = "Invalid subtraction")]
+    fn sub_panics_on_underflow_1024() {
+        // Biggest/smallest Signed<U1024> is |2^1023|:
+        let max_uint = U1024::MAX >> 1;
         let one_signed = Signed::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
-        let min_signed = Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into()).unwrap();
+        let min_signed = Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into())
+            .expect("|2^1023| is a valid Signed");
         let _ = min_signed - one_signed;
     }
 
     #[test]
     fn checked_sub_handles_underflow() {
-        // Biggest/smallest Signed<U1024> is |2^1022|
-        let max_uint = U1024::from_be_hex("4000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
-        let min_signed = Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into()).unwrap();
+        // Biggest/smallest Signed<U1024> is |2^1023|
+        let max_uint = U1024::MAX >> 1;
         let one_signed = Signed::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
+        let min_signed = Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into())
+            .expect("|2^1023| is a valid Signed");
 
         let result = min_signed.checked_sub(&one_signed);
         assert!(bool::from(result.is_none()))
