@@ -26,7 +26,7 @@ use crate::rounds::{
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
-use crypto_bigint::BitOps; // TODO(dp): need this?
+use crypto_bigint::BitOps;
 
 /// Possible results of the AuxGen protocol.
 #[derive(Debug, Clone, Copy)]

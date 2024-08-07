@@ -130,18 +130,19 @@ impl<T> Signed<T>
 where
     T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer,
 {
+    /// Constant-time checked multiplication. The product must fit in a `T`; use [`Signed::mul_wide`] if widening is desired.
+    /// Note: when multiplying two [`Signed`], the bound on the result is equal to the sum of the bounds of the operands.
     fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
         let in_range = bound.ct_lt(&T::BITS);
 
         let lhs_neg = self.is_negative();
         let rhs_neg = rhs.is_negative();
-        // TODO(dp): should be able to use let lhs = self.abs() and rhs = rhs.abs() here. Need tests first.
         let lhs = T::conditional_select(&self.value, &T::zero().wrapping_sub(&self.value), lhs_neg);
         let rhs = T::conditional_select(&rhs.value, &T::zero().wrapping_sub(&rhs.value), rhs_neg);
         let result = lhs.checked_mul(&rhs);
-        let result_neg = lhs_neg ^ rhs_neg;
         result.and_then(|val| {
+            let result_neg = lhs_neg ^ rhs_neg;
             let val_neg = T::zero().wrapping_sub(&val);
             let value = T::conditional_select(&val, &val_neg, result_neg);
             CtOption::new(Self { bound, value }, in_range)
@@ -411,10 +412,9 @@ where
 
     /// Multiplies two [`Signed`] and returns a new [`Signed`] of twice the bit-width
     pub fn mul_wide(&self, rhs: &Self) -> Signed<T::Wide> {
-        let abs_result = self.abs().mul_wide(&rhs.abs());
+        let abs_value = self.abs().mul_wide(&rhs.abs());
         Signed::new_from_abs(
-            abs_result,
-            // TODO(dp): This can overflow and looks a bit fishy to me. Should this be max(self_bound, rhs_bound) instead?
+            abs_value,
             self.bound() + rhs.bound(),
             self.is_negative() ^ rhs.is_negative(),
         )
@@ -687,10 +687,10 @@ mod tests {
 
     #[test]
     fn adding_signed_numbers_increases_the_bound() {
-        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 10).unwrap();
+        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 13).unwrap();
         let s2 = Signed::new_from_unsigned(U128::from_u8(3), 10).unwrap();
-
-        assert_eq!((s1 + s2).bound(), 11);
+        // The sum has a bound that is equal to the biggest bound of the operands + 1
+        assert_eq!((s1 + s2).bound(), 14);
     }
 
     #[test]
@@ -700,6 +700,55 @@ mod tests {
         let s2 = Signed::new_from_unsigned(U128::from_u8(3), 127).unwrap();
 
         let _ = s1 + s2;
+    }
+
+    #[test]
+    fn checked_mul_sums_bounds() {
+        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 27).unwrap();
+        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 17).unwrap();
+        let mul = s1.checked_mul(&s2).unwrap();
+
+        assert_eq!(mul.bound(), 44);
+    }
+
+    #[test]
+    fn checked_mul_fails_when_sum_of_bounds_is_too_large() {
+        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 127).unwrap();
+        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 17).unwrap();
+        let mul = s1.checked_mul(&s2);
+
+        assert!(bool::from(mul.is_none()));
+    }
+
+    #[test]
+    fn mul_wide_sums_bounds() {
+        let s1 = Signed::new_from_unsigned(U1024::MAX >> 1, 1023).unwrap();
+        let mul = s1.mul_wide(&s1);
+        assert_eq!(mul.bound(), 2046);
+
+        let s2 = Signed::new_from_unsigned(U1024::from_u8(8), 4).unwrap();
+        let mul = s1.mul_wide(&s2);
+        assert_eq!(mul.bound(), 1027);
+    }
+
+    #[test]
+    fn checked_mul_handles_sign() {
+        let n = Signed::new_from_unsigned(U128::from_u8(5), 27)
+            .unwrap()
+            .neg();
+        let p = Signed::new_from_unsigned(U128::from_u8(3), 17).unwrap();
+        let neg_pos = n.checked_mul(&p).unwrap();
+        let pos_neg = p.checked_mul(&n).unwrap();
+        let pos_pos = p.checked_mul(&p).unwrap();
+        let neg_neg = n.checked_mul(&n).unwrap();
+        // negative * positive ⇒ negative
+        assert!(bool::from(neg_pos.is_negative()));
+        // positive * negative ⇒ negative
+        assert!(bool::from(pos_neg.is_negative()));
+        // positive * positive ⇒ positive
+        assert!(!bool::from(pos_pos.is_negative()));
+        // negative * negative ⇒ positive
+        assert!(!bool::from(neg_neg.is_negative()));
     }
 
     #[test]

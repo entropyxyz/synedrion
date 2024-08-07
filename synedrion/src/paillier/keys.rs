@@ -60,7 +60,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             P::HalfUintMod::new_params_vartime(Odd::new(self.q.clone()).expect("TODO: Justify"));
 
         let public_key = PublicKeyPaillier {
-            // TODO: manually check that p*q is odd?
+            // TODO(dp): manually check that p*q is odd?
             modulus: self.p.mul_wide(&self.q),
         };
         let public_key = public_key.to_precomputed();
@@ -76,7 +76,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             modulus.inv_mod(totient.as_ref()).unwrap(),
             P::MODULUS_BITS as u32,
         )
-        .expect("TODO: Proper justification for this - inv_modulust");
+        .expect("TODO: Proper justification for this - inv_modulus");
 
         let inv_p_mod_q = self
             .p
@@ -361,13 +361,9 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
     /// Finds an invertible group element via rejection sampling. Returns the
     /// element in Montgomery form.
     pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
-        // Finding an invertible element via rejection sampling.
-        // TODO: Shouldn't the loop be bounded?
-        // TODO: Is the conversion to Montgomery form here warranted? Why not
-        // attempt to invert `r` directly? For single, sporadic values it might
-        // be faster (given there's a clone involved). Benchmark!
+        let modulus = self.modulus_nonzero();
         loop {
-            let r = P::Uint::random_mod(rng, &self.modulus_nonzero());
+            let r = P::Uint::random_mod(rng, &modulus);
             let r_m = P::UintMod::new(r, self.precomputed_modulus().clone());
             if r_m.invert().is_some().into() {
                 return r_m;

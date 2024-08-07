@@ -40,7 +40,6 @@ pub(crate) const ORDER: U256 = Secp256k1::ORDER;
 
 impl HashableType for Curve {
     fn chain_type<C: Chain>(digest: C) -> C {
-        // TODO: is this because we have duplicate versions of crypto_bigint in the tree?
         digest.chain(&ORDER).chain(&Point::GENERATOR)
     }
 }
