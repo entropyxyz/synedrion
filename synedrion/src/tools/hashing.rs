@@ -1,8 +1,9 @@
 use digest::{Digest, ExtendableOutput, Update};
-use hashing_serializer::HashingSerializer;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::{Shake256, Shake256Reader};
+
+use hashing_serializer::HashingSerializer;
 
 use crate::curve::Scalar;
 use crate::tools::serde_bytes;
@@ -18,12 +19,6 @@ pub trait Chain: Sized {
     /// Note: only for impls in specific types, do not use directly.
     fn chain_raw_bytes(self, bytes: &[u8]) -> Self;
 
-    /// Hash a bytestring that is known to be constant-sized
-    /// (e.g. byte representation of a built-in integer).
-    fn chain_constant_sized_bytes(self, bytes: &(impl AsRef<[u8]> + ?Sized)) -> Self {
-        self.chain_raw_bytes(bytes.as_ref())
-    }
-
     /// Hash raw bytes in a collision-resistant way.
     fn chain_bytes(self, bytes: &(impl AsRef<[u8]> + ?Sized)) -> Self {
         // Hash the length too to prevent hash conflicts. (e.g. H(AB|CD) == H(ABC|D)).
@@ -38,16 +33,6 @@ pub trait Chain: Sized {
 
     fn chain_type<T: HashableType>(self) -> Self {
         T::chain_type(self)
-    }
-
-    fn chain_slice<T: Hashable>(self, hashable: &[T]) -> Self {
-        // Hashing the length too to prevent collisions.
-        let len = hashable.len() as u64;
-        let mut digest = self.chain(&len);
-        for elem in hashable {
-            digest = digest.chain(elem);
-        }
-        digest
     }
 }
 

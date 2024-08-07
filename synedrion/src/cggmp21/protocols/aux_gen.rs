@@ -26,7 +26,7 @@ use crate::rounds::{
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
-use crate::uint::UintLike;
+use crypto_bigint::BitOps;
 
 /// Possible results of the AuxGen protocol.
 #[derive(Debug, Clone, Copy)]
@@ -305,7 +305,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let paillier_pk = broadcast_msg.data.paillier_pk.to_precomputed();
 
-        if paillier_pk.modulus().bits_vartime() < 8 * P::SECURITY_PARAMETER {
+        if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
             return Err(AuxGenError(AuxGenErrorEnum::Round2(
                 "Paillier modulus is too small".into(),
             )));

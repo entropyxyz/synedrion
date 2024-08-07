@@ -57,7 +57,7 @@ impl<P: SchemeParams> FacProof<P> {
         // Note that it has to be matched when we check the range of
         // `z1` and `z2` during verification.
         let sqrt_cap_n = Bounded::new(
-            <P::Paillier as PaillierParams>::Uint::ONE
+            <P::Paillier as PaillierParams>::Uint::one()
                 << (<P::Paillier as PaillierParams>::PRIME_BITS - 2),
             <P::Paillier as PaillierParams>::PRIME_BITS as u32,
         )
