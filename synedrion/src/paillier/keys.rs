@@ -49,18 +49,25 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         // that are relatively prime to it.
         // Since $p$ and $q$ are primes, $\phi(p q) = (p - 1) (q - 1)$.
         let one = <P::HalfUint as Integer>::one();
-        let p_minus_one = self.p.checked_sub(&one).expect("TODO: Justify");
-        let q_minus_one = self.q.checked_sub(&one).expect("TODO: Justify");
+        let p_minus_one = self
+            .p
+            .checked_sub(&one)
+            .expect("`p` is prime, so greater than one");
+        let q_minus_one = self
+            .q
+            .checked_sub(&one)
+            .expect("`q` is prime, so greater than one");
         let totient = Bounded::new(p_minus_one.mul_wide(&q_minus_one), P::MODULUS_BITS as u32)
-            .expect("TODO: Justify");
+            .expect("The pre-configured bound set in `P::MODULUS_BITS` is assumed to be valid");
 
-        let precomputed_mod_p =
-            P::HalfUintMod::new_params_vartime(Odd::new(self.p.clone()).expect("TODO: Justify"));
-        let precomputed_mod_q =
-            P::HalfUintMod::new_params_vartime(Odd::new(self.q.clone()).expect("TODO: Justify"));
+        let precomputed_mod_p = P::HalfUintMod::new_params_vartime(
+            Odd::new(self.p.clone()).expect("`p` is assumed to be a prime greater than 2"),
+        );
+        let precomputed_mod_q = P::HalfUintMod::new_params_vartime(
+            Odd::new(self.q.clone()).expect("`q` is assumed to be a prime greater than 2"),
+        );
 
         let public_key = PublicKeyPaillier {
-            // TODO(dp): manually check that p*q is odd?
             modulus: self.p.mul_wide(&self.q),
         };
         let public_key = public_key.to_precomputed();
@@ -69,28 +76,30 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             .as_ref()
             .to_mod(public_key.precomputed_modulus())
             .invert()
-            .expect("TODO: Proper justification for this - inv totient");
+            .expect("The modulus is pq. ϕ(pq) = (p-1)(q-1) is invertible mod pq because nor (p-1) or (q-1) share factors with pq.");
 
-        let modulus: &P::Uint = public_key.modulus();
+        let modulus: &P::Uint = public_key.modulus(); // pq
         let inv_modulus = Bounded::new(
-            modulus.inv_mod(totient.as_ref()).unwrap(),
+            modulus
+                .inv_mod(totient.as_ref())
+                .expect("pq is invertible mod ϕ(pq) because gcd(pq, (p-1)(q-1)) = 1"),
             P::MODULUS_BITS as u32,
         )
-        .expect("TODO: Proper justification for this - inv_modulus");
+        .expect("We assume `P::MODULUS_BITS` is properly configured");
 
         let inv_p_mod_q = self
             .p
             .clone()
             .to_mod(&precomputed_mod_q)
             .invert()
-            .expect("TODO: Proper justification for this - inv_p_mod_q");
+            .expect("All non-zero integers have a multiplicative inverse mod a prime");
 
         let inv_q_mod_p = self
             .q
             .clone()
             .to_mod(&precomputed_mod_p)
             .invert()
-            .expect("TODO: Proper justification for this - inv_q_mod_p");
+            .expect("All non-zero integers have a multiplicative inverse mod a prime");
 
         // Calculate $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
         // Using step of Garner's algorithm:

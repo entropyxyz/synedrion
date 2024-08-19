@@ -7,6 +7,11 @@ use crypto_bigint::{
 
 use crate::uint::{HasWide, Signed};
 
+/// Constant-time exponentiation of an integer in Montgomery form by a signed exponent.
+///
+/// #Panics
+///
+/// Panics if `uint` is not invertible.
 pub(crate) fn pow_signed<T>(
     uint: <T as Integer>::Monty,
     exponent: &Signed<T>,
@@ -17,10 +22,17 @@ where
 {
     let abs_exponent = exponent.abs();
     let abs_result = uint.pow_bounded_exp(&abs_exponent, exponent.bound());
-    let inv_result = abs_result.invert().expect("TODO: justify this properly");
+    let inv_result = abs_result
+        .invert()
+        .expect("The `uint` param is assumed invertible");
     <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
 
+/// Constant-time exponentiation of an integer in Montgomery form by a "wide" and signed exponent.
+///
+/// #Panics
+///
+/// Panics if `uint` is not invertible.
 pub(crate) fn pow_signed_wide<T>(
     uint: <T as Integer>::Monty,
     exponent: &Signed<<T as HasWide>::Wide>,
@@ -32,10 +44,17 @@ where
 {
     let abs_exponent = exponent.abs();
     let abs_result = pow_wide::<T>(uint, &abs_exponent, exponent.bound());
-    let inv_result = abs_result.invert().expect("TODO: justify this properly");
+    let inv_result = abs_result
+        .invert()
+        .expect("The `uint` param is assumed invertible");
     <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
 
+/// Constant-time exponentiation of an integer in Montgomery form by an "extra wide" and signed exponent.
+///
+/// #Panics
+///
+/// Panics if `uint` is not invertible.
 pub(crate) fn pow_signed_extra_wide<T>(
     uint: <T as Integer>::Monty,
     exponent: &Signed<<<T as HasWide>::Wide as HasWide>::Wide>,
@@ -64,10 +83,17 @@ where
         lo_res
     };
 
-    let inv_result = abs_result.invert().expect("TODO: Justify this properly");
+    let inv_result = abs_result
+        .invert()
+        .expect("The `uint` param is assumed invertible");
     <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
 }
 
+/// Variable-time exponentiation of an integer in Montgomery form by a signed exponent.
+///
+/// #Panics
+///
+/// Panics if `uint` is not invertible.
 pub(crate) fn pow_signed_vartime<T>(
     uint: <T as Integer>::Monty,
     exponent: &Signed<T>,
@@ -79,7 +105,9 @@ where
     let abs_exponent = exponent.abs();
     let abs_result = uint.pow_bounded_exp(&abs_exponent, exponent.bound());
     if exponent.is_negative().into() {
-        abs_result.invert().expect("TODO: justify this properly")
+        abs_result
+            .invert()
+            .expect("The `uint` param is assumed invertible")
     } else {
         abs_result
     }

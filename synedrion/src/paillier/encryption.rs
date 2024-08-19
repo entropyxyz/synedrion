@@ -43,7 +43,9 @@ impl<P: PaillierParams> RandomizerMod<P> {
     pub fn pow_signed(&self, exponent: &Signed<P::Uint>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.0.pow_bounded_exp(&abs_exponent, exponent.bound());
-        let inv_result = abs_result.invert().expect("TODO: justify this properly");
+        let inv_result = abs_result
+            .invert()
+            .expect("`RandomizerMod` values are invertible by construction; exponentiations of modular inverses are invertible.");
         let inner = <P::UintMod as ConditionallySelectable>::conditional_select(
             &abs_result,
             &inv_result,
@@ -56,7 +58,7 @@ impl<P: PaillierParams> RandomizerMod<P> {
         let abs_exponent = exponent.abs();
         let abs_result = self.0.pow_bounded_exp(&abs_exponent, exponent.bound());
         let inner = if exponent.is_negative().into() {
-            abs_result.invert().expect("TODO: justify this properly")
+            abs_result.invert().expect("`RandomizerMod` values are invertible by construction; exponentiations of modular inverses are invertible.")
         } else {
             abs_result
         };

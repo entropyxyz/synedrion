@@ -372,19 +372,19 @@ where
             bound_bits,
             T::BITS - 1
         );
-        let scaled_bound = scale
-            .as_ref()
+        let scaled_bound: <T as HasWide>::Wide = scale
             .clone()
             .into_wide()
+            .as_ref()
             .overflowing_shl_vartime(bound_bits)
             .expect("Just asserted that bound bits is smaller than T's bit precision");
 
         // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
         let positive_bound = scaled_bound
             .overflowing_shl_vartime(1)
-            .expect("TODO: justify this properly")
+            .expect("`scaled_bound` is double the size of a T; we asserted that the `bound_bits` will not cause overflow in T ⇒ it's safe to left-shift 1 step (aka multiply by 2).")
             .checked_add(&T::Wide::one())
-            .expect("TODO: justify this properly");
+            .expect("`scaled_bound` is double the size of a T; we asserted that the `bound_bits` will not cause overflow in T ⇒ it's safe to add 1.");
         let positive_result = T::Wide::random_mod(
             rng,
             &NonZero::new(positive_bound)
@@ -452,9 +452,9 @@ where
         // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
         let positive_bound = scaled_bound
             .overflowing_shl_vartime(1)
-            .expect("TODO: justify this properly")
+            .expect("`scaled_bound` is double the size of a T::Wide; we asserted that the `bound_bits` will not cause overflow in T::Wide ⇒ it's safe to left-shift 1 step (aka multiply by 2).")
             .checked_add(&<T::Wide as HasWide>::Wide::one())
-            .expect("TODO: justify this properly");
+            .expect("`scaled_bound` is double the size of a T::Wide; we asserted that the `bound_bits` will not cause overflow in T::Wide ⇒ it's safe to add 1.");
         let positive_result = <T::Wide as HasWide>::Wide::random_mod(
             rng,
             &NonZero::new(positive_bound)

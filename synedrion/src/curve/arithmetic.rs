@@ -203,7 +203,7 @@ impl Point {
             .to_encoded_point(true)
             .as_bytes()
             .try_into()
-            .expect("TODO(dp): justify this properly")
+            .expect("An AffinePoint is composed of elements of the correct size and their slice repr fits in the `CompressedPointSize`-sized array.")
     }
 
     pub(crate) fn to_backend(self) -> BackendPoint {
