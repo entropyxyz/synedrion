@@ -15,6 +15,7 @@ use super::{
     Bounded, CheckedAdd, CheckedSub, Encoding, HasWide, Integer, NonZero, RandomMod, ShlVartime,
     WrappingSub,
 };
+use crate::tools::hashing::uint_from_xof;
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound much lower than the full size of the integer,
@@ -237,7 +238,7 @@ where
             .expect("Just asserted that bound is smaller than precision; qed")
             .checked_add(&T::one())
             .unwrap();
-        let positive_result = super::uint_from_xof(
+        let positive_result = uint_from_xof(
             rng,
             &NonZero::new(positive_bound)
                 .expect("Guaranteed to be greater than zero because we added 1"),
@@ -596,14 +597,12 @@ where
                 // self is neg, other is not => other is bigger
                 Some(core::cmp::Ordering::Less)
             }
+        } else if bool::from(other.is_negative()) {
+            // self is positive, other is not => self is bigger
+            Some(core::cmp::Ordering::Greater)
         } else {
-            if bool::from(other.is_negative()) {
-                // self is positive, other is not => self is bigger
-                Some(core::cmp::Ordering::Greater)
-            } else {
-                // both are positive, use abs value
-                self.abs().partial_cmp(&other.abs())
-            }
+            // both are positive, use abs value
+            self.abs().partial_cmp(&other.abs())
         }
     }
 }
@@ -612,7 +611,6 @@ where
 mod tests {
     use super::Signed;
     use crate::uint::U1024;
-    use core::u128;
     use crypto_bigint::{CheckedSub, U128};
     use rand::SeedableRng;
     use rand_chacha::{self, ChaCha8Rng};
@@ -626,7 +624,6 @@ mod tests {
         let p2 = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap();
 
         assert!(p1 < p2);
-        assert!(!(p1 > p2));
         assert_eq!(
             p1,
             Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap()
@@ -644,7 +641,6 @@ mod tests {
             .neg();
 
         assert!(n2 < n1);
-        assert!(!(n2 > n1));
         assert_eq!(
             n1 + Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap(),
             Signed::new_from_unsigned(U128::ZERO, bound + 1).unwrap()
@@ -659,7 +655,6 @@ mod tests {
             .unwrap()
             .neg();
         assert!(n < p);
-        assert!(!(n > p));
     }
 
     #[test]
@@ -670,7 +665,6 @@ mod tests {
             .neg();
         let p = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap();
         assert!(n < p);
-        assert!(!(n > p));
     }
 
     #[test]
@@ -767,7 +761,7 @@ mod tests {
         let bound = 2;
         let value = U1024::from_u8(3);
         let signed = Signed::new_from_unsigned(value, bound).unwrap();
-        assert!(signed.abs() < U1024::MAX >> U1024::BITS - 1 - bound);
+        assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
         signed.assert_bound(bound as usize);
         // 4 is too big
         let value = U1024::from_u8(4);
@@ -778,7 +772,7 @@ mod tests {
         let bound = 1;
         let value = U1024::from_u8(1);
         let signed = Signed::new_from_unsigned(value, bound).unwrap();
-        assert!(signed.abs() < U1024::MAX >> U1024::BITS - 1 - bound);
+        assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
         signed.assert_bound(bound as usize);
         // 2 is too big
         let value = U1024::from_u8(2);
@@ -789,7 +783,7 @@ mod tests {
         let bound = 0;
         let value = U1024::from_u8(0);
         let signed = Signed::new_from_unsigned(value, bound).unwrap();
-        assert!(signed.abs() < U1024::MAX >> U1024::BITS - 1 - bound);
+        assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
         signed.assert_bound(bound as usize);
         // 1 is too big
         let value = U1024::from_u8(1);
@@ -837,10 +831,10 @@ mod tests {
             ),
         ];
         let mut rng = ChaCha8Rng::seed_from_u64(SEED);
-        for i in 0..negged.len() {
+        for neg_val in negged {
             let signed = Signed::<U1024>::random(&mut rng);
-            assert_eq!(signed.neg(), negged[i].1);
-            assert_eq!(negged[i].1.neg(), signed);
+            assert_eq!(signed.neg(), neg_val.1);
+            assert_eq!(neg_val.1.neg(), signed);
             assert_eq!(signed.neg().neg(), signed);
         }
     }

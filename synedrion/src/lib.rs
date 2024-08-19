@@ -31,7 +31,7 @@ mod uint;
 mod www02;
 
 // Some re-exports to avoid the need for version-matching
-// pub use bip32;
+pub use bip32;
 pub use k256;
 pub use k256::ecdsa;
 pub use signature;

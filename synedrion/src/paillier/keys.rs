@@ -228,8 +228,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         // TODO (#73): when we can extract the modulus from `HalfUintMod`, this can be moved there.
         // For now we have to keep this a method of SecretKey to have access to `p` and `q`.
         let (p_part, q_part) = rns;
-        let p_res = self.sqrt_part(&p_part, &self.sk.p);
-        let q_res = self.sqrt_part(&q_part, &self.sk.q);
+        let p_res = self.sqrt_part(p_part, &self.sk.p);
+        let q_res = self.sqrt_part(q_part, &self.sk.q);
         match (p_res, q_res) {
             (Some(p), Some(q)) => Some((p, q)),
             _ => None,

@@ -162,7 +162,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         let pk_mod_bound = pk.modulus_bounded().into_wide();
         let factor2 = randomizer
             .to_mod(pk.precomputed_modulus_squared())
-            .pow_bounded_exp(&pk_mod_bound.as_ref(), pk_mod_bound.bound());
+            .pow_bounded_exp(pk_mod_bound.as_ref(), pk_mod_bound.bound());
 
         let ciphertext = factor1 * factor2;
 
@@ -347,7 +347,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         assert!(self.pk == rhs.pk);
         Self {
             pk: self.pk,
-            ciphertext: self.ciphertext * rhs.ciphertext.clone(),
+            ciphertext: self.ciphertext * rhs.ciphertext,
         }
     }
 

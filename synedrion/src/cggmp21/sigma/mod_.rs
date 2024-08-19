@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::tools::hashing::{Chain, Hashable, XofHasher};
-use crate::uint::{uint_from_xof, RandomPrimeWithRng, Retrieve, ToMod};
+use crate::tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher};
+use crate::uint::{RandomPrimeWithRng, Retrieve, ToMod};
 use crypto_bigint::{PowBoundedExp, Square};
 
 const HASH_TAG: &[u8] = b"P_mod";
@@ -101,8 +101,8 @@ impl<P: SchemeParams> ModProof<P> {
                         y_mod_q = -y_mod_q;
                     }
                     if *b {
-                        y_mod_p = y_mod_p * omega_mod_p.clone();
-                        y_mod_q = y_mod_q * omega_mod_q.clone();
+                        y_mod_p *= omega_mod_p.clone();
+                        y_mod_q *= omega_mod_q.clone();
                     }
 
                     if let Some((p, q)) = sk.sqrt(&(y_mod_p, y_mod_q)) {
@@ -174,7 +174,7 @@ impl<P: SchemeParams> ModProof<P> {
                 y_m = -y_m;
             }
             if elem.b {
-                y_m = y_m * omega_mod;
+                y_m *= omega_mod;
             }
             let x = elem.x.to_mod(precomputed);
             let x_4 = x.square().square();

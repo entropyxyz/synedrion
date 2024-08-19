@@ -43,6 +43,7 @@ where
 {
     Session::new::<key_init::Round1<P, Verifier>>(rng, session_id, signer, verifiers, ())
 }
+
 /// Creates the initial state for the joined KeyGen and KeyRefresh+Auxiliary protocols.
 pub fn make_key_gen_session<P, Sig, Signer, Verifier>(
     rng: &mut impl CryptoRngCore,
