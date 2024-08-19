@@ -9,7 +9,7 @@ use zeroize::ZeroizeOnDrop;
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
 use crate::uint::{
-    pow_signed,
+    pow::pow_signed,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
     Bounded, HasWide, NonZero, Retrieve, Signed, ToMod,
 };

@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::uint::{
-    pow_signed, pow_signed_extra_wide, pow_signed_vartime, pow_signed_wide, Bounded, Retrieve,
-    Signed, ToMod,
+    pow::{pow_signed, pow_signed_extra_wide, pow_signed_vartime, pow_signed_wide},
+    Bounded, Retrieve, Signed, ToMod,
 };
 use crypto_bigint::{PowBoundedExp, Square};
 

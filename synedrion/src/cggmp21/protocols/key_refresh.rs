@@ -65,7 +65,6 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
     "))]
 #[serde(bound(deserialize = "
         PrmProof<P>: for<'x> Deserialize<'x>,
-        PublicKeyPaillier<<P as SchemeParams>::Paillier>: for<'x> Deserialize<'x>
     "))]
 pub struct PublicData1<P: SchemeParams> {
     cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
