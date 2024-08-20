@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher};
-use crate::uint::{RandomPrimeWithRng, Retrieve, ToMod};
+use crate::uint::{RandomPrimeWithRng, Retrieve, ToMontgomery};
 use crypto_bigint::{PowBoundedExp, Square};
 
 const HASH_TAG: &[u8] = b"P_mod";
@@ -117,7 +117,7 @@ impl<P: SchemeParams> ModProof<P> {
                 let y_4th_parts = sk.sqrt(&y_sqrt).unwrap();
                 let y_4th = sk.rns_join(&y_4th_parts);
 
-                let y = challenge.0[i].to_mod(pk.precomputed_modulus());
+                let y = challenge.0[i].to_montgomery(pk.precomputed_modulus());
                 let sk_inv_modulus = sk.inv_modulus();
                 let z = y.pow_bounded_exp(sk_inv_modulus.as_ref(), sk_inv_modulus.bound());
 
@@ -161,10 +161,10 @@ impl<P: SchemeParams> ModProof<P> {
         }
 
         let precomputed = pk.precomputed_modulus();
-        let omega_mod = self.commitment.0.to_mod(precomputed);
+        let omega_mod = self.commitment.0.to_montgomery(precomputed);
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
-            let z_m = elem.z.to_mod(precomputed);
-            let mut y_m = y.to_mod(precomputed);
+            let z_m = elem.z.to_montgomery(precomputed);
+            let mut y_m = y.to_montgomery(precomputed);
             let pk_modulus_bounded = pk.modulus_bounded();
             if z_m.pow_bounded_exp(pk_modulus_bounded.as_ref(), pk_modulus_bounded.bound()) != y_m {
                 return false;
@@ -176,7 +176,7 @@ impl<P: SchemeParams> ModProof<P> {
             if elem.b {
                 y_m *= omega_mod;
             }
-            let x = elem.x.to_mod(precomputed);
+            let x = elem.x.to_montgomery(precomputed);
             let x_4 = x.square().square();
             if y_m != x_4 {
                 return false;

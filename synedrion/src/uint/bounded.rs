@@ -103,6 +103,11 @@ where
     pub fn into_signed(self) -> Option<Signed<T>> {
         Signed::new_positive(self.value, self.bound)
     }
+
+    /// Extracts the inner `T` from the `Bounded`. Consumes `self`.
+    pub fn into_inner(self) -> T {
+        self.value
+    }
 }
 
 impl<T> AsRef<T> for Bounded<T> {

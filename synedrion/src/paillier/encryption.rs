@@ -11,7 +11,7 @@ use super::params::PaillierParams;
 use crate::uint::{
     pow::pow_signed,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    Bounded, HasWide, NonZero, Retrieve, Signed, ToMod,
+    Bounded, HasWide, NonZero, Retrieve, Signed, ToMontgomery,
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
@@ -24,7 +24,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
-        RandomizerMod(self.0.to_mod(pk.precomputed_modulus()))
+        RandomizerMod(self.0.to_montgomery(pk.precomputed_modulus()))
     }
 }
 
@@ -111,7 +111,9 @@ impl<P: PaillierParams> Ciphertext<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> CiphertextMod<P> {
         CiphertextMod {
             pk: pk.clone(),
-            ciphertext: self.ciphertext.to_mod(pk.precomputed_modulus_squared()),
+            ciphertext: self
+                .ciphertext
+                .to_montgomery(pk.precomputed_modulus_squared()),
         }
     }
 }
@@ -156,14 +158,14 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // Since `m` can be negative, we calculate `m * N +- 1` (never overflows since `m < N`),
         // then conditionally negate modulo N^2
         let prod = abs_plaintext.mul_wide(pk.modulus());
-        let mut prod_mod = prod.to_mod(pk.precomputed_modulus_squared());
+        let mut prod_mod = prod.to_montgomery(pk.precomputed_modulus_squared());
         prod_mod.conditional_negate(plaintext_is_negative);
 
         let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared().clone());
 
         let pk_mod_bound = pk.modulus_bounded().into_wide();
         let factor2 = randomizer
-            .to_mod(pk.precomputed_modulus_squared())
+            .to_montgomery(pk.precomputed_modulus_squared())
             .pow_bounded_exp(pk_mod_bound.as_ref(), pk_mod_bound.bound());
 
         let ciphertext = factor1 * factor2;
@@ -244,7 +246,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
                 / modulus_wide,
         )
         .unwrap();
-        let x_mod = x.to_mod(pk.precomputed_modulus());
+        let x_mod = x.to_montgomery(pk.precomputed_modulus());
 
         (x_mod * sk.inv_totient()).retrieve()
     }
@@ -286,7 +288,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // Therefore `C mod N = rho^N mod N`.
         let ciphertext_mod_n =
             P::Uint::try_from_wide(self.ciphertext.retrieve() % modulus_wide).unwrap();
-        let ciphertext_mod_n = ciphertext_mod_n.to_mod(pk.precomputed_modulus());
+        let ciphertext_mod_n = ciphertext_mod_n.to_montgomery(pk.precomputed_modulus());
 
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
@@ -357,7 +359,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         let randomizer_mod = randomizer
             .0
             .into_wide()
-            .to_mod(self.pk.precomputed_modulus_squared());
+            .to_montgomery(self.pk.precomputed_modulus_squared());
         let pk_modulus_wide = self.pk.modulus_bounded().into_wide();
         let ciphertext = self.ciphertext
             * randomizer_mod.pow_bounded_exp(pk_modulus_wide.as_ref(), pk_modulus_wide.bound());

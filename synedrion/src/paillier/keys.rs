@@ -8,7 +8,7 @@ use super::params::PaillierParams;
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
-    RandomPrimeWithRng, Retrieve, Signed, ToMod,
+    RandomPrimeWithRng, Retrieve, Signed, ToMontgomery,
 };
 use crypto_bigint::{
     Bounded as TraitBounded, InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd, WrappingSub,
@@ -73,8 +73,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let public_key = public_key.to_precomputed();
 
         let inv_totient = totient
-            .as_ref()
-            .to_mod(public_key.precomputed_modulus())
+            .into_inner()
+            .to_montgomery(public_key.precomputed_modulus())
             .invert()
             .expect("The modulus is pq. ϕ(pq) = (p-1)(q-1) is invertible mod pq because nor (p-1) or (q-1) share factors with pq.");
 
@@ -90,14 +90,14 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let inv_p_mod_q = self
             .p
             .clone()
-            .to_mod(&precomputed_mod_q)
+            .to_montgomery(&precomputed_mod_q)
             .invert()
             .expect("All non-zero integers have a multiplicative inverse mod a prime");
 
         let inv_q_mod_p = self
             .q
             .clone()
-            .to_mod(&precomputed_mod_p)
+            .to_montgomery(&precomputed_mod_p)
             .invert()
             .expect("All non-zero integers have a multiplicative inverse mod a prime");
 

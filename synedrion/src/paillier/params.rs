@@ -7,7 +7,7 @@ use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use crate::{tools::hashing::Hashable, uint::HasWide, uint::ToMod};
+use crate::{tools::hashing::Hashable, uint::HasWide, uint::ToMontgomery};
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
@@ -25,7 +25,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Serialize
         + for<'de> Deserialize<'de>
         + HasWide<Wide = Self::Uint>
-        + ToMod
+        + ToMontgomery
         + Zeroize;
 
     /// A modulo-residue counterpart of `HalfUint`.
@@ -45,7 +45,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + RandomPrimeWithRng
         + Serialize
         + for<'de> Deserialize<'de>
-        + ToMod
+        + ToMontgomery
         + Zeroize;
     /// A modulo-residue counterpart of `Uint`.
     type UintMod: ConditionallySelectable
@@ -65,7 +65,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + RandomMod
         + Serialize
         + for<'de> Deserialize<'de>
-        + ToMod;
+        + ToMontgomery;
 
     /// A modulo-residue counterpart of `WideUint`.
     type WideUintMod: Monty<Integer = Self::WideUint>

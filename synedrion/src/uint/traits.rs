@@ -14,8 +14,8 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1
     Uint::from_words(result_words)
 }
 
-pub trait ToMod: Integer {
-    fn to_mod(
+pub trait ToMontgomery: Integer {
+    fn to_montgomery(
         self,
         precomputed: &<<Self as Integer>::Monty as crypto_bigint::Monty>::Params,
     ) -> <Self as Integer>::Monty {
@@ -121,8 +121,8 @@ pub type U1024Mod = MontyForm<{ nlimbs!(1024) }>;
 pub type U2048Mod = MontyForm<{ nlimbs!(2048) }>;
 pub type U4096Mod = MontyForm<{ nlimbs!(4096) }>;
 
-impl ToMod for U512 {}
-impl ToMod for U1024 {}
-impl ToMod for U2048 {}
-impl ToMod for U4096 {}
-impl ToMod for U8192 {}
+impl ToMontgomery for U512 {}
+impl ToMontgomery for U1024 {}
+impl ToMontgomery for U2048 {}
+impl ToMontgomery for U4096 {}
+impl ToMontgomery for U8192 {}

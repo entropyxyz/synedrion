@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::uint::{
     pow::{pow_signed, pow_signed_extra_wide, pow_signed_vartime, pow_signed_wide},
-    Bounded, Retrieve, Signed, ToMod,
+    Bounded, Retrieve, Signed, ToMontgomery,
 };
 use crypto_bigint::{PowBoundedExp, Square};
 
@@ -130,8 +130,8 @@ impl<P: PaillierParams> RPParams<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPParamsMod<P> {
         RPParamsMod {
             pk: pk.clone(),
-            base: self.base.to_mod(pk.precomputed_modulus()),
-            power: self.power.to_mod(pk.precomputed_modulus()),
+            base: self.base.to_montgomery(pk.precomputed_modulus()),
+            power: self.power.to_montgomery(pk.precomputed_modulus()),
         }
     }
 }
@@ -169,6 +169,6 @@ pub(crate) struct RPCommitment<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
-        RPCommitmentMod(self.0.to_mod(pk.precomputed_modulus()))
+        RPCommitmentMod(self.0.to_montgomery(pk.precomputed_modulus()))
     }
 }

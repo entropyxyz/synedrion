@@ -14,7 +14,7 @@ use crate::paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPr
 use crate::tools::hashing::{Chain, Hashable, XofHasher};
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
-    Bounded, Retrieve, ToMod,
+    Bounded, Retrieve, ToMontgomery,
 };
 use crypto_bigint::PowBoundedExp;
 
@@ -134,7 +134,7 @@ impl<P: SchemeParams> PrmProof<P> {
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a = self.commitment.0[i].to_mod(precomputed);
+            let a = self.commitment.0[i].to_montgomery(precomputed);
             let pwr = setup.base.pow_bounded_exp(z.as_ref(), z.bound());
             let test = if e { pwr == a * setup.power } else { pwr == a };
             if !test {
