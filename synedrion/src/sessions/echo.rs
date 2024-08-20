@@ -55,16 +55,14 @@ where
         &self.destinations
     }
 
-    pub fn make_broadcast(&self) -> Box<[u8]> {
-        let message = Message {
-            broadcasts: self
-                .broadcasts
-                .clone()
-                .into_iter()
-                .map(|(idx, msg)| (idx, msg.into_unverified()))
-                .collect(),
-        };
-        serialize_message(&message).unwrap()
+    /// Serialize an [`EchoRound`] into a bincode encoded [`Message`].
+    pub fn make_broadcast(&self) -> Result<Box<[u8]>, LocalError> {
+        let message: Box<[(_, _)]> = self
+            .broadcasts
+            .iter()
+            .map(|(idx, msg)| (idx, msg.as_unverified()))
+            .collect();
+        serialize_message(&message)
     }
 
     pub fn verify_broadcast(&self, from: &I, payload: &[u8]) -> Result<(), EchoError> {

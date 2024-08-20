@@ -335,7 +335,7 @@ where
                 echo_round,
             } => {
                 let round_num = next_round.round_num() - 1;
-                let payload = echo_round.make_broadcast();
+                let payload = echo_round.make_broadcast()?;
                 let artifact = DynArtifact::null();
                 let message = VerifiedMessage::new(
                     rng,
