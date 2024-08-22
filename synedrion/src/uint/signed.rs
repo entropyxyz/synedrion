@@ -57,7 +57,7 @@ where
 /// A wrapper over unsigned integers that treats two's complement numbers as negative.
 // In principle, Bounded could be separate from Signed, but we only use it internally,
 // and pretty much every time we need a bounded value, it's also signed.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(
     try_from = "PackedSigned",
     into = "PackedSigned",
@@ -566,23 +566,6 @@ where
     }
 }
 
-// @reviewers: Implementing `PartialEq`/`Eq` this way disregards the bound when it comes to equality,
-// which is a major difference to the implementations that were `#[derive]`d before. I think it is
-// more intuitive and useful to be able to compare two `Signed` with different bounds but I can
-// totally see how others may think differently, so this is definitely something we should discuss.
-impl<T> PartialEq for Signed<T>
-where
-    T: crypto_bigint::Bounded + ConditionallySelectable + Encoding + Integer,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.abs() == other.abs() && self.is_negative().ct_eq(&other.is_negative()).into()
-    }
-}
-impl<T> Eq for Signed<T> where
-    T: crypto_bigint::Bounded + ConditionallySelectable + Encoding + Integer
-{
-}
-
 impl<T> PartialOrd for Signed<T>
 where
     T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer + PartialOrd,
@@ -676,7 +659,8 @@ mod tests {
 
         assert!(s2 < s1);
         assert!(s2 < s3);
-        assert_eq!(s3, s4);
+        assert_ne!(s3, s4); // different bounds compare differently
+        assert_eq!(s3.abs(), s4.abs());
     }
 
     #[test]
