@@ -113,9 +113,9 @@ pub struct PresigningData<P: SchemeParams, I> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PresigningValues<P: SchemeParams> {
-    pub(crate) hat_beta: Signed<<P::Paillier as PaillierParams>::Uint>,
-    pub(crate) hat_r: Randomizer<P::Paillier>,
-    pub(crate) hat_s: Randomizer<P::Paillier>,
+    pub(crate) hat_beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    pub(crate) hat_r: SecretBox<Randomizer<P::Paillier>>,
+    pub(crate) hat_s: SecretBox<Randomizer<P::Paillier>>,
     pub(crate) cap_k: CiphertextMod<P::Paillier>,
     /// Received $\hat{D}_{i,j}$.
     pub(crate) hat_cap_d_received: CiphertextMod<P::Paillier>,
@@ -368,9 +368,9 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 values.insert(
                     id_j.clone(),
                     PresigningValues {
-                        hat_beta: hat_betas[&id_ij],
-                        hat_r: hat_rs[&id_ij].clone(),
-                        hat_s: hat_ss[&id_ij].clone(),
+                        hat_beta: hat_betas[&id_ij].secret_box(),
+                        hat_r: hat_rs[&id_ij].clone().secret_box(), // TODO(dp): fix unessecary cloning here
+                        hat_s: hat_ss[&id_ij].clone().secret_box(),
                         hat_cap_d_received: hat_cap_ds[&id_ij].clone(),
                         hat_cap_d: hat_cap_ds[&id_ji].clone(),
                         hat_cap_f: hat_cap_fs[&id_ji].clone(),

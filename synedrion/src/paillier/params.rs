@@ -8,7 +8,7 @@ use crate::uint::{HasWide, UintLike, UintModLike};
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
 
-pub trait PaillierParams: Debug + PartialEq + Eq + Clone + Send + Sync {
+pub trait PaillierParams: Debug + PartialEq + Eq + Clone + Send + Sync + Zeroize {
     /// The size of one of the pair of RSA primes.
     const PRIME_BITS: usize;
     /// The size of the RSA modulus (a product of two primes).
@@ -48,7 +48,7 @@ pub trait PaillierParams: Debug + PartialEq + Eq + Clone + Send + Sync {
 
 /// Paillier parameters for unit tests in this submodule.
 #[cfg(test)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Zeroize)]
 pub(crate) struct PaillierTest;
 
 #[cfg(test)]

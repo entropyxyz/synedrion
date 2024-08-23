@@ -97,7 +97,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 
 #[derive(Clone)]
 pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
-    sk: SecretKeyPaillier<P>,
+    sk: SecretKeyPaillier<P>, // TODO(dp): Should be a SecretBox yeah?
     totient: Bounded<P::Uint>,
     /// $\phi(N)^{-1} \mod N$
     inv_totient: P::UintMod,

@@ -1,6 +1,7 @@
 //! Paillier Affine Operation with Group Commitment in Range ($\Pi^{aff-g}$, Section 6.2, Fig. 15)
 
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
@@ -59,7 +60,7 @@ impl<P: SchemeParams> AffGProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        y: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        y: &SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
         rho: &RandomizerMod<P::Paillier>,
         rho_y: &RandomizerMod<P::Paillier>,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
@@ -72,7 +73,7 @@ impl<P: SchemeParams> AffGProof<P> {
         aux: &impl Hashable,
     ) -> Self {
         x.assert_bound(P::L_BOUND);
-        y.assert_bound(P::LP_BOUND);
+        y.expose_secret().assert_bound(P::LP_BOUND);
         assert!(cap_c.public_key() == pk0);
         assert!(cap_d.public_key() == pk0);
         assert!(cap_y.public_key() == pk1);
@@ -103,7 +104,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // NOTE: deviation from the paper to support a different $D$
         // (see the comment in `AffGProof`)
         // Original: $s^y$. Modified: $s^{-y}$
-        let cap_t = setup.commit(&-y, &mu).retrieve();
+        let cap_t = setup.commit(&-y.expose_secret(), &mu).retrieve();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -135,7 +136,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // (see the comment in `AffGProof`)
         // Original: $z_2 = \beta + e y$
         // Modified: $z_2 = \beta - e y$
-        let z2 = beta + e * (-y);
+        let z2 = beta + e * (-y.expose_secret());
 
         let z3 = gamma + e_wide * m;
         let z4 = delta + e_wide * mu;
@@ -267,6 +268,7 @@ impl<P: SchemeParams> AffGProof<P> {
 #[cfg(test)]
 mod tests {
     use rand_core::OsRng;
+    use secrecy::ExposeSecret;
 
     use super::AffGProof;
     use crate::cggmp21::{SchemeParams, TestParams};
@@ -290,16 +292,17 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let y = Signed::random_bounded_bits(&mut OsRng, Params::LP_BOUND);
+        let y = Signed::random_bounded_bits(&mut OsRng, Params::LP_BOUND).secret_box();
 
         let rho = RandomizerMod::random(&mut OsRng, pk0);
         let rho_y = RandomizerMod::random(&mut OsRng, pk1);
         let secret = Signed::random(&mut OsRng);
         let cap_c = CiphertextMod::new_signed(&mut OsRng, pk0, &secret);
 
-        let cap_d =
-            &cap_c * x + CiphertextMod::new_with_randomizer_signed(pk0, &-y, &rho.retrieve());
-        let cap_y = CiphertextMod::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
+        let cap_d = &cap_c * x
+            + CiphertextMod::new_with_randomizer_signed(pk0, &-y.expose_secret(), &rho.retrieve());
+        let cap_y =
+            CiphertextMod::new_with_randomizer_signed(pk1, y.expose_secret(), &rho_y.retrieve());
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(

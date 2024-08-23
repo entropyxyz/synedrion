@@ -1,9 +1,11 @@
+use alloc::boxed::Box;
 use core::marker::PhantomData;
 use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
+use secrecy::{CloneableSecret, SecretBox};
 use serde::{Deserialize, Serialize};
-use zeroize::ZeroizeOnDrop;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
@@ -13,7 +15,7 @@ use crate::uint::{
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
-#[derive(Debug, Clone, Serialize, Deserialize, ZeroizeOnDrop)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZeroizeOnDrop, Default, Zeroize)]
 pub(crate) struct Randomizer<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> Randomizer<P> {
@@ -24,9 +26,15 @@ impl<P: PaillierParams> Randomizer<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
         RandomizerMod(self.0.to_mod(pk.precomputed_modulus()))
     }
+
+    pub fn secret_box(self) -> SecretBox<Randomizer<P>> {
+        Box::new(self).into()
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop)]
+impl<P: PaillierParams + Zeroize> CloneableSecret for Randomizer<P> {}
+
+#[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop, Zeroize)]
 pub(crate) struct RandomizerMod<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> RandomizerMod<P> {
@@ -44,6 +52,10 @@ impl<P: PaillierParams> RandomizerMod<P> {
 
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
         Self(self.0.pow_signed_vartime(exponent))
+    }
+
+    pub fn secret_box(self) -> SecretBox<RandomizerMod<P>> {
+        Box::new(self).into()
     }
 }
 

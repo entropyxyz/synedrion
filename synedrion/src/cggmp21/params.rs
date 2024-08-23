@@ -9,8 +9,9 @@ use crate::uint::{
 };
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
 pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
@@ -65,7 +66,7 @@ impl PaillierParams for PaillierTest {
     type ExtraWideUint = U4096;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
 pub struct PaillierProduction;
 
 impl PaillierParams for PaillierProduction {

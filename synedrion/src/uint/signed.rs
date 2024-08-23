@@ -1,8 +1,8 @@
-use alloc::string::String;
+use alloc::{boxed::Box, string::String};
 use core::ops::{Add, Mul, Neg, Sub};
-
 use digest::XofReader;
 use rand_core::CryptoRngCore;
+use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -202,6 +202,10 @@ impl<T: UintLike> Signed<T> {
         T::ModUint::conditional_select(&abs_mod, &-abs_mod, self.is_negative())
     }
 
+    pub fn secret_box(self) -> SecretBox<Signed<T>> {
+        Box::new(self).into()
+    }
+
     fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
         let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
@@ -248,6 +252,10 @@ impl<T: UintLike> Default for Signed<T> {
         }
     }
 }
+
+impl<T: UintLike> zeroize::DefaultIsZeroes for Signed<T> {}
+
+impl<T: UintLike> secrecy::CloneableSecret for Signed<T> {}
 
 impl<T: UintLike> ConditionallySelectable for Signed<T> {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
