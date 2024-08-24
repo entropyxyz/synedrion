@@ -92,11 +92,12 @@ impl<P: SchemeParams> AffGProof<P> {
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
         let cap_a = (cap_c * alpha
-            + CiphertextMod::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()))
+            + CiphertextMod::new_with_randomizer_signed(pk0, &beta, r_mod.retrieve().secret_box()))
         .retrieve();
         let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
         let cap_b_y =
-            CiphertextMod::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve()).retrieve();
+            CiphertextMod::new_with_randomizer_signed(pk1, &beta, r_y_mod.retrieve().secret_box())
+                .retrieve();
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
         let cap_f = setup.commit(&beta, &delta).retrieve();
@@ -223,7 +224,12 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
-        if cap_c * self.z1 + CiphertextMod::new_with_randomizer_signed(pk0, &self.z2, &self.omega)
+        if cap_c * self.z1
+            + CiphertextMod::new_with_randomizer_signed(
+                pk0,
+                &self.z2,
+                self.omega.clone().secret_box(),
+            )
             != cap_d * e + self.cap_a.to_mod(pk0)
         {
             return false;
@@ -241,8 +247,11 @@ impl<P: SchemeParams> AffGProof<P> {
         // Original: `Y^e`. Modified `Y^{-e}`.
         // (1 + N_1)^{z_2} \omega_y^{N_1} = B_y Y^(-e) \mod N_1^2
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
-        if CiphertextMod::new_with_randomizer_signed(pk1, &self.z2, &self.omega_y)
-            != cap_y * (-e) + self.cap_b_y.to_mod(pk1)
+        if CiphertextMod::new_with_randomizer_signed(
+            pk1,
+            &self.z2,
+            self.omega_y.clone().secret_box(),
+        ) != cap_y * (-e) + self.cap_b_y.to_mod(pk1)
         {
             return false;
         }
@@ -300,9 +309,16 @@ mod tests {
         let cap_c = CiphertextMod::new_signed(&mut OsRng, pk0, &secret);
 
         let cap_d = &cap_c * x
-            + CiphertextMod::new_with_randomizer_signed(pk0, &-y.expose_secret(), &rho.retrieve());
-        let cap_y =
-            CiphertextMod::new_with_randomizer_signed(pk1, y.expose_secret(), &rho_y.retrieve());
+            + CiphertextMod::new_with_randomizer_signed(
+                pk0,
+                &-y.expose_secret(),
+                rho.retrieve().secret_box(),
+            );
+        let cap_y = CiphertextMod::new_with_randomizer_signed(
+            pk1,
+            y.expose_secret(),
+            rho_y.retrieve().secret_box(),
+        );
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(

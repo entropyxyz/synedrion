@@ -331,22 +331,25 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
 
             for id_j in ids.iter().filter(|id| id != &id_i) {
                 let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
-                let hat_s = RandomizerMod::random(rng, &public_keys[&id_j]).retrieve();
-                let hat_r = RandomizerMod::random(rng, pk_i).retrieve();
+                let hat_s = RandomizerMod::random(rng, &public_keys[&id_j])
+                    .retrieve()
+                    .secret_box();
+                let hat_r = RandomizerMod::random(rng, pk_i).retrieve().secret_box();
 
                 let hat_cap_d = &all_cap_k[id_j] * P::signed_from_scalar(x_i.expose_secret())
                     + CiphertextMod::new_with_randomizer_signed(
                         &public_keys[&id_j],
                         &-hat_beta,
-                        &hat_s,
+                        hat_s.clone(),
                     );
-                let hat_cap_f = CiphertextMod::new_with_randomizer_signed(pk_i, &hat_beta, &hat_r);
+                let hat_cap_f =
+                    CiphertextMod::new_with_randomizer_signed(pk_i, &hat_beta, hat_r.clone());
 
                 let id_ij = (id_i.clone(), id_j.clone());
                 let id_ji = (id_j.clone(), id_i.clone());
 
                 hat_betas.insert(id_ij.clone(), hat_beta);
-                hat_ss.insert(id_ij.clone(), hat_s);
+                hat_ss.insert(id_ij.clone(), hat_s.clone());
                 hat_rs.insert(id_ij.clone(), hat_r);
 
                 hat_cap_ds.insert(id_ji.clone(), hat_cap_d);
@@ -369,8 +372,8 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                     id_j.clone(),
                     PresigningValues {
                         hat_beta: hat_betas[&id_ij].secret_box(),
-                        hat_r: hat_rs[&id_ij].clone().secret_box(),
-                        hat_s: hat_ss[&id_ij].clone().secret_box(),
+                        hat_r: hat_rs[&id_ij].clone(),
+                        hat_s: hat_ss[&id_ij].clone(),
                         hat_cap_d_received: hat_cap_ds[&id_ij].clone(),
                         hat_cap_d: hat_cap_ds[&id_ji].clone(),
                         hat_cap_f: hat_cap_fs[&id_ji].clone(),

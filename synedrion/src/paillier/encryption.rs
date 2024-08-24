@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
-use secrecy::{CloneableSecret, SecretBox};
+use secrecy::{CloneableSecret, ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -125,7 +125,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     fn new_with_randomizer_inner(
         pk: &PublicKeyPaillierPrecomputed<P>,
         abs_plaintext: &P::Uint,
-        randomizer: &Randomizer<P>,
+        randomizer: SecretBox<Randomizer<P>>,
         plaintext_is_negative: Choice,
     ) -> Self {
         // Technically if `abs_plaintext` is greater than the modulus of `pk`,
@@ -139,7 +139,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // be overcome by fixing #27 and using a small 32- or 64-bit curve for tests)
 
         // TODO (#77): wrap in Secret
-        let randomizer = randomizer.0.into_wide();
+        let randomizer = randomizer.expose_secret().0.into_wide();
 
         // Calculate the ciphertext `C = (N + 1)^m * rho^N mod N^2`
         // where `N` is the Paillier composite modulus, `m` is the plaintext,
@@ -170,7 +170,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &P::Uint,
-        randomizer: &Randomizer<P>,
+        randomizer: SecretBox<Randomizer<P>>,
     ) -> Self {
         Self::new_with_randomizer_inner(pk, plaintext, randomizer, Choice::from(0))
     }
@@ -178,7 +178,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer_signed(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
-        randomizer: &Randomizer<P>,
+        randomizer: SecretBox<Randomizer<P>>,
     ) -> Self {
         Self::new_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())
     }
@@ -186,7 +186,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer_wide(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::WideUint>,
-        randomizer: &Randomizer<P>,
+        randomizer: SecretBox<Randomizer<P>>,
     ) -> Self {
         let plaintext_reduced = P::Uint::try_from_wide(
             plaintext.abs() % NonZero::new(pk.modulus().into_wide()).unwrap(),
@@ -201,7 +201,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &P::Uint,
     ) -> Self {
-        Self::new_with_randomizer(pk, plaintext, &Randomizer::random(rng, pk))
+        Self::new_with_randomizer(pk, plaintext, Randomizer::random(rng, pk).secret_box())
     }
 
     #[cfg(test)]
@@ -210,7 +210,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
     ) -> Self {
-        Self::new_with_randomizer_signed(pk, plaintext, &Randomizer::random(rng, pk))
+        Self::new_with_randomizer_signed(pk, plaintext, Randomizer::random(rng, pk).secret_box())
     }
 
     /// Decrypts this ciphertext assuming that the plaintext is in range `[0, N)`.
@@ -479,7 +479,7 @@ mod tests {
         let ciphertext = CiphertextMod::<PaillierTest>::new_with_randomizer(
             pk,
             &plaintext,
-            &randomizer.retrieve(),
+            randomizer.retrieve().secret_box(),
         );
         let randomizer_back = ciphertext.derive_randomizer(&sk);
         assert_eq!(randomizer, randomizer_back);
