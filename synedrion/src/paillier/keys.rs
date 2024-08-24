@@ -1,8 +1,9 @@
+use alloc::boxed::Box;
 use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use zeroize::ZeroizeOnDrop;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::params::PaillierParams;
 use crate::uint::{
@@ -10,11 +11,13 @@ use crate::uint::{
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
     RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
 };
+use secrecy::{CloneableSecret, ExposeSecret, SecretBox, SerializableSecret};
 
-#[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop)]
+// TODO(dp): Do we need both Zeroize and ZeroizeOnDrop??
+#[derive(Deserialize, ZeroizeOnDrop, Zeroize)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
-    p: P::HalfUint,
-    q: P::HalfUint,
+    p: SecretBox<P::HalfUint>,
+    q: SecretBox<P::HalfUint>,
 }
 
 impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
@@ -25,12 +28,36 @@ impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
     }
 }
 
+impl<P: PaillierParams> Clone for SecretKeyPaillier<P> {
+    fn clone(&self) -> Self {
+        Self {
+            p: Box::new(self.p.expose_secret().clone()).into(),
+            q: Box::new(self.q.expose_secret().clone()).into(),
+        }
+    }
+}
+// TODO(dp): dig into why we even want to serialize the secret key. Is it just an oversight?
+impl<P: PaillierParams> Serialize for SecretKeyPaillier<P> {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<P: PaillierParams> SerializableSecret for SecretKeyPaillier<P> {}
+impl<P: PaillierParams> CloneableSecret for SecretKeyPaillier<P> {}
+
 impl<P: PaillierParams> SecretKeyPaillier<P> {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         let p = P::HalfUint::generate_safe_prime_with_rng(rng, Some(P::PRIME_BITS));
         let q = P::HalfUint::generate_safe_prime_with_rng(rng, Some(P::PRIME_BITS));
 
-        Self { p, q }
+        Self {
+            p: Box::new(p).into(),
+            q: Box::new(q).into(),
+        }
     }
 
     pub fn to_precomputed(&self) -> SecretKeyPaillierPrecomputed<P> {
@@ -38,16 +65,18 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         // that are relatively prime to it.
         // Since $p$ and $q$ are primes, $\phi(p q) = (p - 1) (q - 1)$.
         let one = P::HalfUint::ONE;
-        let p_minus_one = self.p.checked_sub(&one).unwrap();
-        let q_minus_one = self.q.checked_sub(&one).unwrap();
+        let p_minus_one = self.p.expose_secret().checked_sub(&one).unwrap();
+        let q_minus_one = self.q.expose_secret().checked_sub(&one).unwrap();
         let totient =
             Bounded::new(p_minus_one.mul_wide(&q_minus_one), P::MODULUS_BITS as u32).unwrap();
 
-        let precomputed_mod_p = P::HalfUintMod::new_precomputed(&NonZero::new(self.p).unwrap());
-        let precomputed_mod_q = P::HalfUintMod::new_precomputed(&NonZero::new(self.q).unwrap());
+        let precomputed_mod_p =
+            P::HalfUintMod::new_precomputed(&NonZero::new(self.p.expose_secret().clone()).unwrap());
+        let precomputed_mod_q =
+            P::HalfUintMod::new_precomputed(&NonZero::new(self.q.expose_secret().clone()).unwrap());
 
         let public_key = PublicKeyPaillier {
-            modulus: self.p.mul_wide(&self.q),
+            modulus: self.p.expose_secret().mul_wide(&self.q.expose_secret()),
         };
         let public_key = public_key.to_precomputed();
 
@@ -64,8 +93,18 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         )
         .unwrap();
 
-        let inv_p_mod_q = self.p.to_mod(&precomputed_mod_q).invert().unwrap();
-        let inv_q_mod_p = self.q.to_mod(&precomputed_mod_p).invert().unwrap();
+        let inv_p_mod_q = self
+            .p
+            .expose_secret()
+            .to_mod(&precomputed_mod_q)
+            .invert()
+            .unwrap();
+        let inv_q_mod_p = self
+            .q
+            .expose_secret()
+            .to_mod(&precomputed_mod_p)
+            .invert()
+            .unwrap();
 
         // Calculate $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
         // Using step of Garner's algorithm:
@@ -73,8 +112,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let t = (inv_q_mod_p + inv_q_mod_p - P::HalfUintMod::one(&precomputed_mod_p)).retrieve();
         // Note that the wrapping add/sub won't overflow by construction.
         let nonsquare_sampling_constant = t
-            .mul_wide(&self.q)
-            .wrapping_add(&self.q.into_wide())
+            .mul_wide(&self.q.expose_secret())
+            .wrapping_add(&self.q.expose_secret().into_wide())
             .wrapping_sub(&P::Uint::ONE);
         let nonsquare_sampling_constant = P::UintMod::new(
             &nonsquare_sampling_constant,
@@ -120,9 +159,12 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         // The primes are positive, but where this method is used Signed is needed,
         // so we return that for convenience.
         // TODO (#77): must be wrapped in a Secret
+        // TODO(dp): Should the return tuple be wrapped in a SecretBox here perhaps? Or each `Signed`?
         (
-            Signed::new_positive(self.sk.p.into_wide(), P::PRIME_BITS as u32).unwrap(),
-            Signed::new_positive(self.sk.q.into_wide(), P::PRIME_BITS as u32).unwrap(),
+            Signed::new_positive(self.sk.p.expose_secret().into_wide(), P::PRIME_BITS as u32)
+                .unwrap(),
+            Signed::new_positive(self.sk.q.expose_secret().into_wide(), P::PRIME_BITS as u32)
+                .unwrap(),
         )
     }
 
@@ -165,8 +207,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
 
         // May be some speed up potential here since we know p and q are small,
         // but it needs to be supported by `crypto-bigint`.
-        let p_rem = *elem % NonZero::new(self.sk.p.into_wide()).unwrap();
-        let q_rem = *elem % NonZero::new(self.sk.q.into_wide()).unwrap();
+        let p_rem = *elem % NonZero::new(self.sk.p.expose_secret().into_wide()).unwrap();
+        let q_rem = *elem % NonZero::new(self.sk.q.expose_secret().into_wide()).unwrap();
         let p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
         let q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
 
@@ -198,8 +240,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         // TODO (#73): when we can extract the modulus from `HalfUintMod`, this can be moved there.
         // For now we have to keep this a method of SecretKey to have access to `p` and `q`.
         let (p_part, q_part) = *rns;
-        let p_res = self.sqrt_part(&p_part, &self.sk.p);
-        let q_res = self.sqrt_part(&q_part, &self.sk.q);
+        let p_res = self.sqrt_part(&p_part, &self.sk.p.expose_secret());
+        let q_res = self.sqrt_part(&q_part, &self.sk.q.expose_secret());
         match (p_res, q_res) {
             (Some(p), Some(q)) => Some((p, q)),
             _ => None,
@@ -219,7 +261,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         let a = a_half.into_wide();
 
         // Will not overflow since 0 <= x < q, and 0 <= a < p.
-        a.checked_add(&self.sk.p.mul_wide(&x)).unwrap()
+        a.checked_add(&self.sk.p.expose_secret().mul_wide(&x))
+            .unwrap()
     }
 
     pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
