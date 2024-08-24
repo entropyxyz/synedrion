@@ -369,7 +369,7 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                     id_j.clone(),
                     PresigningValues {
                         hat_beta: hat_betas[&id_ij].secret_box(),
-                        hat_r: hat_rs[&id_ij].clone().secret_box(), // TODO(dp): fix unessecary cloning here
+                        hat_r: hat_rs[&id_ij].clone().secret_box(),
                         hat_s: hat_ss[&id_ij].clone().secret_box(),
                         hat_cap_d_received: hat_cap_ds[&id_ij].clone(),
                         hat_cap_d: hat_cap_ds[&id_ji].clone(),
