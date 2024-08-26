@@ -168,9 +168,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         )
     }
 
-    pub fn totient(&self) -> &Bounded<P::Uint> {
-        // TODO (#77): must be wrapped in a Secret
-        &self.totient
+    pub fn totient(&self) -> SecretBox<Bounded<P::Uint>> {
+        self.totient.into()
     }
 
     /// Returns Euler's totient function of the modulus.

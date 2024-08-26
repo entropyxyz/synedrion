@@ -216,7 +216,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         assert_eq!(sk.public_key(), &self.pk);
 
         let pk = sk.public_key();
-        let totient_wide = sk.totient().into_wide();
+        let totient_wide = sk.totient().expose_secret().into_wide();
         let modulus_wide = NonZero::new(pk.modulus().into_wide()).unwrap();
 
         // Calculate the plaintext `m = ((C^phi mod N^2 - 1) / N) * mu mod N`,
