@@ -136,7 +136,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 
 #[derive(Clone)]
 pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
-    sk: SecretKeyPaillier<P>, // TODO(dp): Should be a SecretBox yeah?
+    sk: SecretKeyPaillier<P>,
     totient: Bounded<P::Uint>,
     /// $\phi(N)^{-1} \mod N$
     inv_totient: P::UintMod,
@@ -168,14 +168,18 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         )
     }
 
+    /// Returns Euler's totient function (`φ(n)`) of the modulus, wrapped in a [`SecretBox`].
     pub fn totient(&self) -> SecretBox<Bounded<P::Uint>> {
         self.totient.into()
     }
 
-    /// Returns Euler's totient function of the modulus.
+    /// Returns Euler's totient function (`φ(n)`) of the modulus as a [`NonZero`]
     pub fn totient_nonzero(&self) -> NonZero<P::Uint> {
-        // TODO (#77): must be wrapped in a Secret
-        NonZero::new(*self.totient.as_ref()).unwrap()
+        // TODO (#77): must be wrapped in a Secret – This must await the release of crypto-bigint
+        // v0.6, because `NonZero` doesn't implement `Zeroize` in prior versions. Without `Zeroize`
+        // we cannot build a `SecretBox`.
+
+        NonZero::new(*self.totient.as_ref()).expect("φ(n) is a positive, non-zero number")
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
