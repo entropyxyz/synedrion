@@ -257,6 +257,18 @@ impl<T: UintLike> zeroize::DefaultIsZeroes for Signed<T> {}
 
 impl<T: UintLike> secrecy::CloneableSecret for Signed<T> {}
 
+impl<T: UintLike> From<Signed<T>> for SecretBox<Signed<T>> {
+    fn from(value: Signed<T>) -> Self {
+        value.secret_box()
+    }
+}
+
+impl<T: UintLike> From<&Signed<T>> for SecretBox<Signed<T>> {
+    fn from(value: &Signed<T>) -> Self {
+        value.secret_box()
+    }
+}
+
 impl<T: UintLike> ConditionallySelectable for Signed<T> {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Self {

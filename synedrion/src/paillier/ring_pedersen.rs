@@ -1,6 +1,7 @@
 use core::ops::Mul;
 
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
@@ -68,30 +69,40 @@ impl<P: PaillierParams> RPParamsMod<P> {
     // - this will match the order in the paper
     pub fn commit(
         &self,
-        secret: &Signed<P::Uint>,
+        secret: &SecretBox<Signed<P::Uint>>,
         randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed(secret))
+        RPCommitmentMod(
+            self.base.pow_signed_wide(randomizer) * self.power.pow_signed(secret.expose_secret()),
+        )
     }
 
     pub fn commit_wide(
         &self,
-        secret: &Signed<P::WideUint>,
+        // TODO(dp): @reviewers Why is the `secret` a `P::WideUint` in this method but a `P::Uint`
+        // in `commit_xwide` below? Should it be the same here? Or `P::ExtraWide` there? Maybe it's
+        // like it should, because while `commit` and `commit_wide` take a `Signed` secret,
+        // `commit_xwide` takes a `Bounded`?
+        secret: &SecretBox<Signed<P::WideUint>>,
         randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed_wide(secret))
+        RPCommitmentMod(
+            self.base.pow_signed_wide(randomizer)
+                * self.power.pow_signed_wide(secret.expose_secret()),
+        )
     }
 
     pub fn commit_xwide(
         &self,
-        secret: &Bounded<P::Uint>,
+        secret: &SecretBox<Bounded<P::Uint>>,
         randomizer: &Signed<P::ExtraWideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            self.base.pow_signed_extra_wide(randomizer) * self.power.pow_bounded(secret),
+            self.base.pow_signed_extra_wide(randomizer)
+                * self.power.pow_bounded(secret.expose_secret()),
         )
     }
 

@@ -61,8 +61,8 @@ impl<P: SchemeParams> DecProof<P> {
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let r = RandomizerMod::random(rng, pk0);
 
-        let cap_s = setup.commit(y, &mu).retrieve();
-        let cap_t = setup.commit(&alpha, &nu).retrieve();
+        let cap_s = setup.commit(&y.into(), &mu).retrieve();
+        let cap_t = setup.commit(&alpha.into(), &nu).retrieve();
         let cap_a =
             CiphertextMod::new_with_randomizer_signed(pk0, &alpha, r.retrieve().secret_box())
                 .retrieve();
@@ -151,7 +151,9 @@ impl<P: SchemeParams> DecProof<P> {
         // s^{z_1} t^{z_2} == T S^e
         let cap_s_mod = self.cap_s.to_mod(setup.public_key());
         let cap_t_mod = self.cap_t.to_mod(setup.public_key());
-        if setup.commit_wide(&self.z1, &self.z2) != &cap_t_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit_wide(&self.z1.into(), &self.z2)
+            != &cap_t_mod * &cap_s_mod.pow_signed_vartime(&e)
+        {
             return false;
         }
 

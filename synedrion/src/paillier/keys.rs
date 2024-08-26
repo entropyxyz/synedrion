@@ -155,16 +155,16 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         self.sk.clone()
     }
 
-    pub fn primes(&self) -> (Signed<P::Uint>, Signed<P::Uint>) {
+    pub fn primes(&self) -> (SecretBox<Signed<P::Uint>>, SecretBox<Signed<P::Uint>>) {
         // The primes are positive, but where this method is used Signed is needed,
         // so we return that for convenience.
-        // TODO (#77): must be wrapped in a Secret
-        // TODO(dp): Should the return tuple be wrapped in a SecretBox here perhaps? Or each `Signed`?
         (
             Signed::new_positive(self.sk.p.expose_secret().into_wide(), P::PRIME_BITS as u32)
-                .unwrap(),
+                .expect("The primes in the `SecretKeyPaillier` are 'safe primes' and positive by construction; the bound is assumed to be configured correctly by the user.")
+                .secret_box(),
             Signed::new_positive(self.sk.q.expose_secret().into_wide(), P::PRIME_BITS as u32)
-                .unwrap(),
+                .expect("The primes in the `SecretKeyPaillier` are 'safe primes' and positive by construction; the bound is assumed to be configured correctly by the user.")
+                .secret_box(),
         )
     }
 

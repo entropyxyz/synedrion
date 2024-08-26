@@ -138,9 +138,6 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // `SchemeParameters`/`PaillierParameters` values in tests, which can only
         // be overcome by fixing #27 and using a small 32- or 64-bit curve for tests)
 
-        // TODO (#77): wrap in Secret
-        let randomizer = randomizer.expose_secret().0.into_wide();
-
         // Calculate the ciphertext `C = (N + 1)^m * rho^N mod N^2`
         // where `N` is the Paillier composite modulus, `m` is the plaintext,
         // and `rho` is the randomizer.
@@ -154,6 +151,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
 
         let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared());
 
+        let randomizer = randomizer.expose_secret().0.into_wide();
         let factor2 = randomizer
             .to_mod(pk.precomputed_modulus_squared())
             .pow_bounded(&pk.modulus_bounded().into_wide());

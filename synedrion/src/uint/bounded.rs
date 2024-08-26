@@ -2,7 +2,9 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
+use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
+use zeroize::DefaultIsZeroes;
 
 use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
@@ -54,7 +56,7 @@ impl<T: UintLike> TryFrom<PackedBounded> for Bounded<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(try_from = "PackedBounded", into = "PackedBounded")]
 pub struct Bounded<T: UintLike> {
     /// bound on the bit size of the value
@@ -150,5 +152,13 @@ impl<T: UintLike> ConditionallySelectable for Bounded<T> {
             bound: u32::conditional_select(&a.bound, &b.bound, choice),
             value: T::conditional_select(&a.value, &b.value, choice),
         }
+    }
+}
+
+impl<T: UintLike> DefaultIsZeroes for Bounded<T> {}
+
+impl<T: UintLike> From<Bounded<T>> for SecretBox<Bounded<T>> {
+    fn from(value: Bounded<T>) -> Self {
+        Box::new(value).into()
     }
 }
