@@ -33,6 +33,7 @@ impl<P: PaillierParams> Randomizer<P> {
 }
 
 impl<P: PaillierParams + Zeroize> CloneableSecret for Randomizer<P> {}
+impl<P: PaillierParams + Zeroize> CloneableSecret for RandomizerMod<P> {}
 
 #[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop, Zeroize)]
 pub(crate) struct RandomizerMod<P: PaillierParams>(P::UintMod);
