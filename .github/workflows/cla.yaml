@@ -37,7 +37,7 @@ jobs:
     steps:
       - name: "CLA Assistant"
         if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
-        uses: contributor-assistant/github-action@v2.4.0
+        uses: entropyxyz/contributor-assistant-github-action@c5f4628ffe1edb97724edb64e0dd4795394d33e5 # exemptRepoOrgMembers
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Required, so that the bot in this repository has `write` permissions to Contents of remote repo.
@@ -47,5 +47,6 @@ jobs:
           path-to-document: 'https://github.com/entropyxyz/.github/blob/main/legal/cla/v1/cla.md'
           branch: 'main'
           allowlist: dependabot[bot],entropyxyz
+          exemptRepoOrgMembers: true
           remote-organization-name: entropyxyz
           remote-repository-name: .github
