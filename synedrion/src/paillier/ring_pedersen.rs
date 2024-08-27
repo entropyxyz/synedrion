@@ -80,10 +80,10 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn commit_wide(
         &self,
-        // TODO(dp): @reviewers Why is the `secret` a `P::WideUint` in this method but a `P::Uint`
-        // in `commit_xwide` below? Should it be the same here? Or `P::ExtraWide` there? Maybe it's
-        // like it should, because while `commit` and `commit_wide` take a `Signed` secret,
-        // `commit_xwide` takes a `Bounded`?
+        // TODO(dp): @reviewers Question unrelated to the PR, just something I noticed: Why is the
+        // `secret` a `P::WideUint` in this method but a `P::Uint` in `commit_xwide` below? Should
+        // it be the same here? Or `P::ExtraWide` there? Maybe it's like it should, because while
+        // `commit` and `commit_wide` take a `Signed` secret, `commit_xwide` takes a `Bounded`?
         secret: &SecretBox<Signed<P::WideUint>>,
         randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
