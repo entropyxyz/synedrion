@@ -234,7 +234,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         .unwrap();
         let x_mod = x.to_mod(pk.precomputed_modulus());
 
-        (x_mod * sk.inv_totient()).retrieve()
+        (x_mod * sk.inv_totient().expose_secret()).retrieve()
     }
 
     /// Decrypts this ciphertext assuming that the plaintext is in range `[-N/2, N/2)`.

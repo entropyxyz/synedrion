@@ -183,9 +183,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
-    pub fn inv_totient(&self) -> &P::UintMod {
-        // TODO (#77): must be wrapped in a Secret
-        &self.inv_totient
+    pub fn inv_totient(&self) -> SecretBox<P::UintMod> {
+        Box::new(self.inv_totient).into()
     }
 
     /// Returns $N^{-1} \mod \phi(N)$
@@ -206,17 +205,25 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     }
 
     pub fn rns_split(&self, elem: &P::Uint) -> (P::HalfUintMod, P::HalfUintMod) {
-        // TODO (#77): zeroize intermediate values
-
         // May be some speed up potential here since we know p and q are small,
         // but it needs to be supported by `crypto-bigint`.
-        let p_rem = *elem % NonZero::new(self.sk.p.expose_secret().into_wide()).unwrap();
-        let q_rem = *elem % NonZero::new(self.sk.q.expose_secret().into_wide()).unwrap();
-        let p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
-        let q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
+        let mut p_rem = *elem % NonZero::new(self.sk.p.expose_secret().into_wide()).unwrap();
+        let mut q_rem = *elem % NonZero::new(self.sk.q.expose_secret().into_wide()).unwrap();
+        let mut p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
+        let mut q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
 
         let p_rem_mod = p_rem_half.to_mod(self.precomputed_mod_p());
         let q_rem_mod = q_rem_half.to_mod(self.precomputed_mod_q());
+
+        // TODO (#77): zeroize intermediate values
+        // @reviewers: crypto_bigint::Uint<LIMB> does not impl `ZeroizeOnDrop` (only
+        // `DefaultIsZeroes`) so we're stuck with this rather clunky way of zeroizing. Shoule we do
+        // this for *all* intermediate values in all of our code?
+        p_rem.zeroize();
+        q_rem.zeroize();
+        p_rem_half.zeroize();
+        q_rem_half.zeroize();
+
         (p_rem_mod, q_rem_mod)
     }
 
