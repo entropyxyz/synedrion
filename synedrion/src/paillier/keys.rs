@@ -13,7 +13,6 @@ use crate::uint::{
 };
 use secrecy::{CloneableSecret, ExposeSecret, SecretBox, SerializableSecret};
 
-// TODO(dp): Do we need both Zeroize and ZeroizeOnDrop??
 #[derive(Deserialize, ZeroizeOnDrop, Zeroize)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     p: SecretBox<P::HalfUint>,
@@ -36,13 +35,13 @@ impl<P: PaillierParams> Clone for SecretKeyPaillier<P> {
         }
     }
 }
-// TODO(dp): dig into why we even want to serialize the secret key. Is it just an oversight?
+// TODO(dp): @reviewers Do we *really* need to serialize the secrets? Seems dangerous!
 impl<P: PaillierParams> Serialize for SecretKeyPaillier<P> {
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        todo!()
+        (self.p.expose_secret(), self.q.expose_secret()).serialize(serializer)
     }
 }
 
