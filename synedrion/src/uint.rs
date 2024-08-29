@@ -1,5 +1,4 @@
 mod bounded;
-pub(crate) mod pow;
 mod signed;
 mod traits;
 

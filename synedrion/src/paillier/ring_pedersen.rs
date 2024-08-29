@@ -4,10 +4,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::uint::{
-    pow::{pow_signed_extra_wide, pow_signed_vartime},
-    Bounded, Exponentiable, Retrieve, Signed, ToMontgomery,
-};
+use crate::uint::{Bounded, Exponentiable, Retrieve, Signed, ToMontgomery};
 use crypto_bigint::{PowBoundedExp, Square};
 
 pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
@@ -95,14 +92,14 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            pow_signed_extra_wide::<P::Uint>(self.base, randomizer)
+            self.base.pow_signed_extra_wide(randomizer)
                 * self.power.pow_bounded_exp(secret.as_ref(), secret.bound()),
         )
     }
 
     pub fn commit_base_xwide(&self, randomizer: &Signed<P::ExtraWideUint>) -> RPCommitmentMod<P> {
         // $t^\rho mod N$ where $\rho$ is the randomizer.
-        RPCommitmentMod(pow_signed_extra_wide::<P::Uint>(self.base, randomizer))
+        RPCommitmentMod(self.base.pow_signed_extra_wide(randomizer))
     }
 
     pub fn retrieve(&self) -> RPParams<P> {
@@ -144,7 +141,7 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     /// Note: this is variable time in `exponent`.
     /// `exponent` will be effectively reduced modulo `totient(N)`.
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(pow_signed_vartime(self.0, exponent))
+        Self(self.0.pow_signed_vartime(exponent))
     }
 
     pub fn pow_signed_wide(&self, exponent: &Signed<P::WideUint>) -> Self {
