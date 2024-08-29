@@ -216,7 +216,7 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
 
         // TODO (#77): zeroize intermediate values
         // @reviewers: crypto_bigint::Uint<LIMB> does not impl `ZeroizeOnDrop` (only
-        // `DefaultIsZeroes`) so we're stuck with this rather clunky way of zeroizing. Shoule we do
+        // `DefaultIsZeroes`) so we're stuck with this rather clunky way of zeroizing. Should we do
         // this for *all* intermediate values in all of our code?
         p_rem.zeroize();
         q_rem.zeroize();
