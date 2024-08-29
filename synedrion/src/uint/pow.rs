@@ -7,49 +7,6 @@ use crypto_bigint::{
 
 use crate::uint::{HasWide, Signed};
 
-/// Constant-time exponentiation of an integer in Montgomery form by a signed exponent.
-///
-/// #Panics
-///
-/// Panics if `uint` is not invertible.
-pub(crate) fn pow_signed<T>(
-    uint: <T as Integer>::Monty,
-    exponent: &Signed<T>,
-) -> <T as Integer>::Monty
-where
-    T: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
-    T::Monty: Invert<Output = CtOption<<T as Integer>::Monty>> + ConditionallySelectable,
-{
-    let abs_exponent = exponent.abs();
-    let abs_result = uint.pow_bounded_exp(&abs_exponent, exponent.bound());
-    let inv_result = abs_result
-        .invert()
-        .expect("The `uint` param is assumed invertible");
-    <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
-}
-
-/// Constant-time exponentiation of an integer in Montgomery form by a "wide" and signed exponent.
-///
-/// #Panics
-///
-/// Panics if `uint` is not invertible.
-pub(crate) fn pow_signed_wide<T>(
-    uint: <T as Integer>::Monty,
-    exponent: &Signed<<T as HasWide>::Wide>,
-) -> <T as Integer>::Monty
-where
-    T: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable + HasWide,
-    <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
-    T::Monty: Invert<Output = CtOption<<T as Integer>::Monty>> + ConditionallySelectable,
-{
-    let abs_exponent = exponent.abs();
-    let abs_result = pow_wide::<T>(uint, &abs_exponent, exponent.bound());
-    let inv_result = abs_result
-        .invert()
-        .expect("The `uint` param is assumed invertible");
-    <T as Integer>::Monty::conditional_select(&abs_result, &inv_result, exponent.is_negative())
-}
-
 /// Constant-time exponentiation of an integer in Montgomery form by an "extra wide" and signed exponent.
 ///
 /// #Panics

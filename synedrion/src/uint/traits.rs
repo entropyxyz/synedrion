@@ -1,7 +1,12 @@
 use crypto_bigint::{
-    modular::MontyForm, nlimbs, Encoding, Integer, RandomMod, Uint, Zero, U1024, U2048, U4096,
-    U512, U8192,
+    modular::MontyForm,
+    nlimbs,
+    subtle::{ConditionallySelectable, CtOption},
+    Bounded, Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048,
+    U4096, U512, U8192,
 };
+
+use crate::uint::Signed;
 
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
     debug_assert!(N2 >= N1);
@@ -20,6 +25,63 @@ pub trait ToMontgomery: Integer {
         precomputed: &<<Self as Integer>::Monty as crypto_bigint::Monty>::Params,
     ) -> <Self as Integer>::Monty {
         <<Self as Integer>::Monty as crypto_bigint::Monty>::new(self, precomputed.clone())
+    }
+}
+
+pub trait Exponentiable<T>:
+    PowBoundedExp<T>
+    + Invert<Output = CtOption<Self>>
+    + ConditionallySelectable
+    + Square
+    + core::ops::Mul<Output = Self>
+where
+    T: Integer + Bounded + Encoding + ConditionallySelectable + HasWide,
+    <T as HasWide>::Wide: Bounded + ConditionallySelectable,
+{
+    /// Constant-time exponentiation of an integer in Montgomery form by a signed exponent.
+    ///
+    /// #Panics
+    ///
+    /// Panics if `self` is not invertible.
+    fn pow_signed(&self, exponent: &Signed<T>) -> Self {
+        let abs_exponent = exponent.abs();
+        let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let inv_result = abs_result
+            .invert()
+            .expect("`self` is assumed to be invertible");
+        Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
+    /// Constant-time exponentiation of an integer in Montgomery form by a "wide" and signed exponent.
+    ///
+    /// #Panics
+    ///
+    /// Panics if `self` is not invertible.
+    fn pow_signed_wide(&self, exp: &Signed<<T as HasWide>::Wide>) -> Self {
+        let exp_abs = exp.abs();
+        let abs = self.pow_wide(&exp_abs, exp.bound());
+        let inv = abs.invert().expect("self is assumed to be invertible");
+        Self::conditional_select(&abs, &inv, exp.is_negative())
+    }
+
+    fn pow_wide(self, exp: &<T as HasWide>::Wide, bound: u32) -> Self {
+        let bits = <T as Bounded>::BITS;
+        let bound = bound % (2 * bits + 1);
+
+        let (lo, hi) = <T as HasWide>::from_wide(exp.clone());
+        let lo_res = self.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
+
+        // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
+        // exponents of any size - it keeps the self^(2^k) already.
+        if bound > bits {
+            let mut hi_res = self.pow_bounded_exp(&hi, bound - bits);
+            for _ in 0..bits {
+                hi_res = hi_res.square()
+            }
+            hi_res * lo_res
+        } else {
+            lo_res
+        }
     }
 }
 
@@ -126,3 +188,8 @@ impl ToMontgomery for U1024 {}
 impl ToMontgomery for U2048 {}
 impl ToMontgomery for U4096 {}
 impl ToMontgomery for U8192 {}
+
+impl Exponentiable<U512> for U512Mod {}
+impl Exponentiable<U1024> for U1024Mod {}
+impl Exponentiable<U2048> for U2048Mod {}
+impl Exponentiable<U4096> for U4096Mod {}

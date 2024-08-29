@@ -7,7 +7,10 @@ use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use crate::{tools::hashing::Hashable, uint::HasWide, uint::ToMontgomery};
+use crate::{
+    tools::hashing::Hashable,
+    uint::{Exponentiable, HasWide, ToMontgomery},
+};
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
@@ -49,6 +52,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Zeroize;
     /// A modulo-residue counterpart of `Uint`.
     type UintMod: ConditionallySelectable
+        + Exponentiable<Self::Uint>
         + Monty<Integer = Self::Uint>
         + Retrieve<Output = Self::Uint>
         + Invert<Output = CtOption<Self::UintMod>>
@@ -69,6 +73,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
 
     /// A modulo-residue counterpart of `WideUint`.
     type WideUintMod: Monty<Integer = Self::WideUint>
+        + Exponentiable<Self::WideUint>
         + ConditionallyNegatable
         + ConditionallySelectable
         + Invert<Output = CtOption<Self::WideUintMod>>
