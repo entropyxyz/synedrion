@@ -69,8 +69,7 @@ impl<P: SchemeParams> MulProof<P> {
         let s = s_mod.retrieve();
 
         let cap_a = (cap_y * alpha).mul_randomizer(&r).retrieve();
-        let cap_b =
-            CiphertextMod::new_with_randomizer(pk, alpha.as_ref(), s.secret_box()).retrieve();
+        let cap_b = CiphertextMod::new_with_randomizer(pk, alpha.as_ref(), s).retrieve();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -141,7 +140,7 @@ impl<P: SchemeParams> MulProof<P> {
 
         // enc(z, v) == B * X^e \mod N^2
         // (Note: typo in the paper, it uses `c` and not `v` here)
-        if CiphertextMod::new_with_randomizer_wide(pk, &self.z, self.v.clone().secret_box())
+        if CiphertextMod::new_with_randomizer_wide(pk, &self.z, self.v.clone())
             != self.cap_b.to_mod(pk) + cap_x * e
         {
             return false;
@@ -175,8 +174,7 @@ mod tests {
         let rho_x = RandomizerMod::random(&mut OsRng, pk);
         let rho = RandomizerMod::random(&mut OsRng, pk);
 
-        let cap_x =
-            CiphertextMod::new_with_randomizer_signed(pk, &x, rho_x.retrieve().secret_box());
+        let cap_x = CiphertextMod::new_with_randomizer_signed(pk, &x, rho_x.retrieve());
         let cap_y = CiphertextMod::new_signed(&mut OsRng, pk, &y);
         let cap_c = (&cap_y * x).mul_randomizer(&rho.retrieve());
 

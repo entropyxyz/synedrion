@@ -114,8 +114,8 @@ pub struct PresigningData<P: SchemeParams, I> {
 #[derive(Debug, Clone)]
 pub(crate) struct PresigningValues<P: SchemeParams> {
     pub(crate) hat_beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
-    pub(crate) hat_r: SecretBox<Randomizer<P::Paillier>>,
-    pub(crate) hat_s: SecretBox<Randomizer<P::Paillier>>,
+    pub(crate) hat_r: Randomizer<P::Paillier>,
+    pub(crate) hat_s: Randomizer<P::Paillier>,
     pub(crate) cap_k: CiphertextMod<P::Paillier>,
     /// Received $\hat{D}_{i,j}$.
     pub(crate) hat_cap_d_received: CiphertextMod<P::Paillier>,
@@ -331,10 +331,8 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
 
             for id_j in ids.iter().filter(|id| id != &id_i) {
                 let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
-                let hat_s = RandomizerMod::random(rng, &public_keys[&id_j])
-                    .retrieve()
-                    .secret_box();
-                let hat_r = RandomizerMod::random(rng, pk_i).retrieve().secret_box();
+                let hat_s = RandomizerMod::random(rng, &public_keys[&id_j]).retrieve();
+                let hat_r = RandomizerMod::random(rng, pk_i).retrieve();
 
                 let hat_cap_d = &all_cap_k[id_j] * P::signed_from_scalar(x_i.expose_secret())
                     + CiphertextMod::new_with_randomizer_signed(

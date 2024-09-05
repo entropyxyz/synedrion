@@ -59,9 +59,7 @@ impl<P: SchemeParams> EncProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(&k.into(), &mu).retrieve();
-        let cap_a =
-            CiphertextMod::new_with_randomizer_signed(pk0, &alpha, r.retrieve().secret_box())
-                .retrieve();
+        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, r.retrieve()).retrieve();
         let cap_c = setup.commit(&alpha.into(), &gamma).retrieve();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -128,8 +126,7 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) K (*) e
-        let c =
-            CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, self.z2.clone().secret_box());
+        let c = CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, self.z2.clone());
         if c != self.cap_a.to_mod(pk0) + cap_k * e {
             return false;
         }
@@ -170,11 +167,8 @@ mod tests {
 
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let randomizer = RandomizerMod::random(&mut OsRng, pk);
-        let ciphertext = CiphertextMod::new_with_randomizer_signed(
-            pk,
-            &secret,
-            randomizer.retrieve().secret_box(),
-        );
+        let ciphertext =
+            CiphertextMod::new_with_randomizer_signed(pk, &secret, randomizer.retrieve());
 
         let proof = EncProof::<Params>::new(
             &mut OsRng,

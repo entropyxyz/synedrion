@@ -1,9 +1,8 @@
-use alloc::boxed::Box;
 use core::marker::PhantomData;
 use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
-use secrecy::{CloneableSecret, ExposeSecret, SecretBox};
+use secrecy::{CloneableSecret, ExposeSecret};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -25,10 +24,6 @@ impl<P: PaillierParams> Randomizer<P> {
 
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
         RandomizerMod(self.0.to_mod(pk.precomputed_modulus()))
-    }
-
-    pub fn secret_box(self) -> SecretBox<Randomizer<P>> {
-        Box::new(self).into()
     }
 }
 
@@ -53,10 +48,6 @@ impl<P: PaillierParams> RandomizerMod<P> {
 
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
         Self(self.0.pow_signed_vartime(exponent))
-    }
-
-    pub fn secret_box(self) -> SecretBox<RandomizerMod<P>> {
-        Box::new(self).into()
     }
 }
 
@@ -126,7 +117,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     fn new_with_randomizer_inner(
         pk: &PublicKeyPaillierPrecomputed<P>,
         abs_plaintext: &P::Uint,
-        randomizer: SecretBox<Randomizer<P>>,
+        randomizer: Randomizer<P>,
         plaintext_is_negative: Choice,
     ) -> Self {
         // Technically if `abs_plaintext` is greater than the modulus of `pk`,
@@ -152,7 +143,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
 
         let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared());
 
-        let randomizer = randomizer.expose_secret().0.into_wide();
+        let randomizer = randomizer.0.into_wide();
         let factor2 = randomizer
             .to_mod(pk.precomputed_modulus_squared())
             .pow_bounded(&pk.modulus_bounded().into_wide());
@@ -169,7 +160,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &P::Uint,
-        randomizer: SecretBox<Randomizer<P>>,
+        randomizer: Randomizer<P>,
     ) -> Self {
         Self::new_with_randomizer_inner(pk, plaintext, randomizer, Choice::from(0))
     }
@@ -177,7 +168,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer_signed(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
-        randomizer: SecretBox<Randomizer<P>>,
+        randomizer: Randomizer<P>,
     ) -> Self {
         Self::new_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())
     }
@@ -185,7 +176,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer_wide(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::WideUint>,
-        randomizer: SecretBox<Randomizer<P>>,
+        randomizer: Randomizer<P>,
     ) -> Self {
         let plaintext_reduced = P::Uint::try_from_wide(
             plaintext.abs() % NonZero::new(pk.modulus().into_wide()).unwrap(),
@@ -200,7 +191,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &P::Uint,
     ) -> Self {
-        Self::new_with_randomizer(pk, plaintext, Randomizer::random(rng, pk).secret_box())
+        Self::new_with_randomizer(pk, plaintext, Randomizer::random(rng, pk))
     }
 
     #[cfg(test)]
@@ -209,7 +200,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
     ) -> Self {
-        Self::new_with_randomizer_signed(pk, plaintext, Randomizer::random(rng, pk).secret_box())
+        Self::new_with_randomizer_signed(pk, plaintext, Randomizer::random(rng, pk))
     }
 
     /// Decrypts this ciphertext assuming that the plaintext is in range `[0, N)`.
@@ -478,7 +469,7 @@ mod tests {
         let ciphertext = CiphertextMod::<PaillierTest>::new_with_randomizer(
             pk,
             &plaintext,
-            randomizer.retrieve().secret_box(),
+            randomizer.retrieve(),
         );
         let randomizer_back = ciphertext.derive_randomizer(&sk);
         assert_eq!(randomizer, randomizer_back);
