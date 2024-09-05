@@ -30,8 +30,8 @@ impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
 impl<P: PaillierParams> Clone for SecretKeyPaillier<P> {
     fn clone(&self) -> Self {
         Self {
-            p: Box::new(self.p.expose_secret().clone()).into(),
-            q: Box::new(self.q.expose_secret().clone()).into(),
+            p: Box::new(*self.p.expose_secret()).into(),
+            q: Box::new(*self.q.expose_secret()).into(),
         }
     }
 }
@@ -70,12 +70,12 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             Bounded::new(p_minus_one.mul_wide(&q_minus_one), P::MODULUS_BITS as u32).unwrap();
 
         let precomputed_mod_p =
-            P::HalfUintMod::new_precomputed(&NonZero::new(self.p.expose_secret().clone()).unwrap());
+            P::HalfUintMod::new_precomputed(&NonZero::new(*self.p.expose_secret()).unwrap());
         let precomputed_mod_q =
-            P::HalfUintMod::new_precomputed(&NonZero::new(self.q.expose_secret().clone()).unwrap());
+            P::HalfUintMod::new_precomputed(&NonZero::new(*self.q.expose_secret()).unwrap());
 
         let public_key = PublicKeyPaillier {
-            modulus: self.p.expose_secret().mul_wide(&self.q.expose_secret()),
+            modulus: self.p.expose_secret().mul_wide(self.q.expose_secret()),
         };
         let public_key = public_key.to_precomputed();
 
@@ -111,7 +111,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let t = (inv_q_mod_p + inv_q_mod_p - P::HalfUintMod::one(&precomputed_mod_p)).retrieve();
         // Note that the wrapping add/sub won't overflow by construction.
         let nonsquare_sampling_constant = t
-            .mul_wide(&self.q.expose_secret())
+            .mul_wide(self.q.expose_secret())
             .wrapping_add(&self.q.expose_secret().into_wide())
             .wrapping_sub(&P::Uint::ONE);
         let nonsquare_sampling_constant = P::UintMod::new(
@@ -154,6 +154,7 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         self.sk.clone()
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn primes(&self) -> (SecretBox<Signed<P::Uint>>, SecretBox<Signed<P::Uint>>) {
         // The primes are positive, but where this method is used Signed is needed,
         // so we return that for convenience.
@@ -249,8 +250,8 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         // TODO (#73): when we can extract the modulus from `HalfUintMod`, this can be moved there.
         // For now we have to keep this a method of SecretKey to have access to `p` and `q`.
         let (p_part, q_part) = *rns;
-        let p_res = self.sqrt_part(&p_part, &self.sk.p.expose_secret());
-        let q_res = self.sqrt_part(&q_part, &self.sk.q.expose_secret());
+        let p_res = self.sqrt_part(&p_part, self.sk.p.expose_secret());
+        let q_res = self.sqrt_part(&q_part, self.sk.q.expose_secret());
         match (p_res, q_res) {
             (Some(p), Some(q)) => Some((p, q)),
             _ => None,
