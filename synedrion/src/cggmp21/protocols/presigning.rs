@@ -98,11 +98,11 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Roun
 
         let nu = RandomizerMod::<P::Paillier>::random(rng, pk);
         let cap_g =
-            CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), nu.retrieve());
+            CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), &nu.retrieve());
 
         let rho = RandomizerMod::<P::Paillier>::random(rng, pk);
         let cap_k =
-            CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&k), rho.retrieve());
+            CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&k), &rho.retrieve());
 
         Ok(Self {
             context: Context {
@@ -356,25 +356,25 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
         let hat_s = RandomizerMod::random(rng, target_pk);
 
         let cap_f =
-            CiphertextMod::new_with_randomizer_signed(pk, beta.expose_secret(), r.retrieve());
+            CiphertextMod::new_with_randomizer_signed(pk, beta.expose_secret(), &r.retrieve());
         let cap_d = &self.all_cap_k[destination] * P::signed_from_scalar(&self.context.gamma)
             + CiphertextMod::new_with_randomizer_signed(
                 target_pk,
                 &-beta.expose_secret(),
-                s.retrieve(),
+                &s.retrieve(),
             );
 
         let hat_cap_f = CiphertextMod::new_with_randomizer_signed(
             pk,
             hat_beta.expose_secret(),
-            hat_r.retrieve(),
+            &hat_r.retrieve(),
         );
         let hat_cap_d = &self.all_cap_k[destination]
             * P::signed_from_scalar(self.context.key_share.secret_share.expose_secret())
             + CiphertextMod::new_with_randomizer_signed(
                 target_pk,
                 &-hat_beta.expose_secret(),
-                hat_s.retrieve(),
+                &hat_s.retrieve(),
             );
 
         let public_aux = &self.context.aux_info.public_aux[destination];

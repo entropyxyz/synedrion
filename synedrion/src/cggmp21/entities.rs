@@ -338,10 +338,9 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                     + CiphertextMod::new_with_randomizer_signed(
                         &public_keys[&id_j],
                         &-hat_beta,
-                        hat_s.clone(),
+                        &hat_s,
                     );
-                let hat_cap_f =
-                    CiphertextMod::new_with_randomizer_signed(pk_i, &hat_beta, hat_r.clone());
+                let hat_cap_f = CiphertextMod::new_with_randomizer_signed(pk_i, &hat_beta, &hat_r);
 
                 let id_ij = (id_i.clone(), id_j.clone());
                 let id_ji = (id_j.clone(), id_i.clone());

@@ -64,7 +64,8 @@ impl<P: SchemeParams> LogStarProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(&x.into(), &mu).retrieve();
-        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, r.retrieve()).retrieve();
+        let cap_a =
+            CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
         let cap_y = g * &P::scalar_from_signed(&alpha);
         let cap_d = setup.commit(&alpha.into(), &gamma).retrieve();
 
@@ -142,7 +143,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) C (*) e
-        let c = CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, self.z2.clone());
+        let c = CiphertextMod::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self.cap_a.to_mod(pk0) + cap_c * e {
             return false;
         }
@@ -190,7 +191,7 @@ mod tests {
         let g = Point::GENERATOR * Scalar::random(&mut OsRng);
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let rho = RandomizerMod::random(&mut OsRng, pk);
-        let cap_c = CiphertextMod::new_with_randomizer_signed(pk, &x, rho.retrieve());
+        let cap_c = CiphertextMod::new_with_randomizer_signed(pk, &x, &rho.retrieve());
         let cap_x = g * Params::scalar_from_signed(&x);
 
         let proof =

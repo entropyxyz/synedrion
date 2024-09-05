@@ -63,7 +63,8 @@ impl<P: SchemeParams> DecProof<P> {
 
         let cap_s = setup.commit(&y.into(), &mu).retrieve();
         let cap_t = setup.commit(&alpha.into(), &nu).retrieve();
-        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, r.retrieve()).retrieve();
+        let cap_a =
+            CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
         let gamma = P::scalar_from_signed(&alpha);
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -135,7 +136,7 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // enc(z_1, \omega) == A (+) C (*) e
-        if CiphertextMod::new_with_randomizer_wide(pk0, &self.z1, self.omega.clone())
+        if CiphertextMod::new_with_randomizer_wide(pk0, &self.z1, &self.omega)
             != self.cap_a.to_mod(pk0) + cap_c * e
         {
             return false;
@@ -188,7 +189,7 @@ mod tests {
         let x = Params::scalar_from_signed(&y);
 
         let rho = RandomizerMod::random(&mut OsRng, pk);
-        let cap_c = CiphertextMod::new_with_randomizer_signed(pk, &y, rho.retrieve());
+        let cap_c = CiphertextMod::new_with_randomizer_signed(pk, &y, &rho.retrieve());
 
         let proof = DecProof::<Params>::new(&mut OsRng, &y, &rho, pk, &x, &cap_c, &setup, &aux);
         assert!(proof.verify(pk, &x, &cap_c, &setup, &aux));

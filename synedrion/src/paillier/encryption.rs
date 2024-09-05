@@ -117,7 +117,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     fn new_with_randomizer_inner(
         pk: &PublicKeyPaillierPrecomputed<P>,
         abs_plaintext: &P::Uint,
-        randomizer: Randomizer<P>,
+        randomizer: &Randomizer<P>,
         plaintext_is_negative: Choice,
     ) -> Self {
         // Technically if `abs_plaintext` is greater than the modulus of `pk`,
@@ -160,7 +160,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &P::Uint,
-        randomizer: Randomizer<P>,
+        randomizer: &Randomizer<P>,
     ) -> Self {
         Self::new_with_randomizer_inner(pk, plaintext, randomizer, Choice::from(0))
     }
@@ -168,7 +168,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer_signed(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
-        randomizer: Randomizer<P>,
+        randomizer: &Randomizer<P>,
     ) -> Self {
         Self::new_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())
     }
@@ -176,7 +176,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
     pub fn new_with_randomizer_wide(
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::WideUint>,
-        randomizer: Randomizer<P>,
+        randomizer: &Randomizer<P>,
     ) -> Self {
         let plaintext_reduced = P::Uint::try_from_wide(
             plaintext.abs() % NonZero::new(pk.modulus().into_wide()).unwrap(),
@@ -191,7 +191,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &P::Uint,
     ) -> Self {
-        Self::new_with_randomizer(pk, plaintext, Randomizer::random(rng, pk))
+        Self::new_with_randomizer(pk, plaintext, &Randomizer::random(rng, pk))
     }
 
     #[cfg(test)]
@@ -200,7 +200,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
         plaintext: &Signed<P::Uint>,
     ) -> Self {
-        Self::new_with_randomizer_signed(pk, plaintext, Randomizer::random(rng, pk))
+        Self::new_with_randomizer_signed(pk, plaintext, &Randomizer::random(rng, pk))
     }
 
     /// Decrypts this ciphertext assuming that the plaintext is in range `[0, N)`.
@@ -469,7 +469,7 @@ mod tests {
         let ciphertext = CiphertextMod::<PaillierTest>::new_with_randomizer(
             pk,
             &plaintext,
-            randomizer.retrieve(),
+            &randomizer.retrieve(),
         );
         let randomizer_back = ciphertext.derive_randomizer(&sk);
         assert_eq!(randomizer, randomizer_back);
