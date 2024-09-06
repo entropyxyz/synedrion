@@ -11,7 +11,7 @@ use crate::uint::{
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
     RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
 };
-use secrecy::{CloneableSecret, ExposeSecret, SecretBox, SerializableSecret};
+use secrecy::{ExposeSecret, SecretBox};
 
 #[derive(Deserialize, ZeroizeOnDrop, Zeroize)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
@@ -35,7 +35,7 @@ impl<P: PaillierParams> Clone for SecretKeyPaillier<P> {
         }
     }
 }
-// TODO(dp): @reviewers Do we *really* need to serialize the secrets? Seems dangerous!
+
 impl<P: PaillierParams> Serialize for SecretKeyPaillier<P> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -44,9 +44,6 @@ impl<P: PaillierParams> Serialize for SecretKeyPaillier<P> {
         (self.p.expose_secret(), self.q.expose_secret()).serialize(serializer)
     }
 }
-
-impl<P: PaillierParams> SerializableSecret for SecretKeyPaillier<P> {}
-impl<P: PaillierParams> CloneableSecret for SecretKeyPaillier<P> {}
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
