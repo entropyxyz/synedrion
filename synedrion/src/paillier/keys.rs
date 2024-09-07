@@ -406,4 +406,12 @@ mod tests {
         let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
         let _pk = sk.public_key();
     }
+
+    #[test]
+    fn debug_redacts_secrets() {
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
+
+        let debug_output = format!("Sikrit {:?}", sk);
+        assert_eq!(debug_output, "Sikrit [REDACTED synedrion::paillier::keys::SecretKeyPaillier<synedrion::paillier::params::PaillierTest>]");
+    }
 }
