@@ -396,7 +396,10 @@ impl<P: PaillierParams> Eq for PublicKeyPaillierPrecomputed<P> {}
 
 #[cfg(test)]
 mod tests {
+    use rand::SeedableRng;
     use rand_core::OsRng;
+    use serde::Serialize;
+    use serde_assert::Token;
 
     use super::super::params::PaillierTest;
     use super::SecretKeyPaillier;
@@ -413,5 +416,27 @@ mod tests {
 
         let debug_output = format!("Sikrit {:?}", sk);
         assert_eq!(debug_output, "Sikrit [REDACTED synedrion::paillier::keys::SecretKeyPaillier<synedrion::paillier::params::PaillierTest>]");
+    }
+
+    #[test]
+    fn serialization_and_clone_works() {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(123456);
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut rng);
+
+        // Can't compare SecretKeyPaillier so we serialize and compare output tokens in this awkward way.
+        let serializer = serde_assert::Serializer::builder().build();
+        let sk_ser = sk.serialize(&serializer).unwrap();
+        let expected_tokens = [
+            Token::Tuple { len: 2 },
+            Token::Str("c3583e6f6b1ce8cf3af885cfa46f8248ea9ac87e093da07ae119573f63351f7b89c28f50f23ab980a6d8d937890796c131d2018376d7f61a8a8ff2107cf8fdba".into()),
+            Token::Str("c3d4aaacc5ed80dd0e63cf1bc3df5dbc0931f60879cc4bd6b4abd70b3bfa8460293fd1dc06a8835b7a5dd555b9546cd23ffd3a2db60d1f2977819f28530cc7be".into()),
+            Token::TupleEnd,
+        ];
+
+        assert_eq!(sk_ser, expected_tokens);
+
+        let clone = sk.clone();
+        let clone_ser = clone.serialize(&serializer).unwrap();
+        assert_eq!(clone_ser, expected_tokens);
     }
 }
