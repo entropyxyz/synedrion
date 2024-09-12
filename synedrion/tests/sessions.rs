@@ -263,7 +263,7 @@ async fn interactive_signing() {
 
     for signature in signatures {
         let (sig, rec_id) = signature.to_backend();
-        let vkey = key_shares[&verifiers[0]].verifying_key();
+        let vkey = key_shares[&verifiers[0]].verifying_key().unwrap();
 
         // Check that the signature can be verified
         vkey.verify_prehash(message, &sig).unwrap();
