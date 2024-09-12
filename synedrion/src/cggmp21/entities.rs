@@ -187,10 +187,10 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
     }
 
     /// Return the verifying key to which this set of shares corresponds.
-    pub fn verifying_key(&self) -> VerifyingKey {
+    pub fn verifying_key(&self) -> Option<VerifyingKey> {
         // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
-        self.verifying_key_as_point().to_verifying_key().unwrap()
+        self.verifying_key_as_point().to_verifying_key()
     }
 
     /// Returns the owner of this key share.
@@ -334,7 +334,8 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 let hat_s = RandomizerMod::random(rng, &public_keys[&id_j]).retrieve();
                 let hat_r = RandomizerMod::random(rng, pk_i).retrieve();
 
-                let hat_cap_d = &all_cap_k[id_j] * P::signed_from_scalar(x_i.expose_secret())
+                let hat_cap_d = &all_cap_k[id_j]
+                    * P::signed_from_scalar(x_i.expose_secret()).unwrap()
                     + CiphertextMod::new_with_randomizer_signed(
                         &public_keys[&id_j],
                         &-hat_beta,
@@ -386,8 +387,8 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 .iter()
                 .filter(|id| id != &&id_i)
                 .map(|id_j| {
-                    P::signed_from_scalar(key_shares[id_j].secret_share.expose_secret())
-                        * P::signed_from_scalar(&k_i)
+                    P::signed_from_scalar(key_shares[id_j].secret_share.expose_secret()).unwrap()
+                        * P::signed_from_scalar(&k_i).unwrap()
                         - hat_betas[&(id_j.clone(), id_i.clone())]
                 })
                 .sum();
@@ -397,8 +398,8 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 .filter(|id| id != &&id_i)
                 .map(|id_j| hat_betas[&(id_i.clone(), id_j.clone())])
                 .sum();
-            let product_share_nonreduced = P::signed_from_scalar(x_i.expose_secret())
-                * P::signed_from_scalar(&k_i)
+            let product_share_nonreduced = P::signed_from_scalar(x_i.expose_secret()).unwrap()
+                * P::signed_from_scalar(&k_i).unwrap()
                 + alpha_sum
                 + beta_sum;
 
@@ -443,6 +444,6 @@ mod tests {
             KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &ids, Some(&sk));
         assert!(shares
             .values()
-            .all(|share| &share.verifying_key() == sk.verifying_key()));
+            .all(|share| &share.verifying_key().unwrap() == sk.verifying_key()));
     }
 }
