@@ -19,6 +19,13 @@ pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     q: SecretBox<P::HalfUint>,
 }
 
+impl<P: PaillierParams> PartialEq for SecretKeyPaillier<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.p.expose_secret() == other.p.expose_secret()
+            && self.q.expose_secret() == other.q.expose_secret()
+    }
+}
+
 impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.write_str("[REDACTED ")?;
@@ -423,7 +430,6 @@ mod tests {
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(123456);
         let sk = SecretKeyPaillier::<PaillierTest>::random(&mut rng);
 
-        // Can't compare SecretKeyPaillier so we serialize and compare output tokens in this awkward way.
         let serializer = serde_assert::Serializer::builder().build();
         let sk_ser = sk.serialize(&serializer).unwrap();
         let expected_tokens = [
@@ -432,11 +438,10 @@ mod tests {
             Token::Str("c3d4aaacc5ed80dd0e63cf1bc3df5dbc0931f60879cc4bd6b4abd70b3bfa8460293fd1dc06a8835b7a5dd555b9546cd23ffd3a2db60d1f2977819f28530cc7be".into()),
             Token::TupleEnd,
         ];
-
         assert_eq!(sk_ser, expected_tokens);
 
+        // Clone works
         let clone = sk.clone();
-        let clone_ser = clone.serialize(&serializer).unwrap();
-        assert_eq!(clone_ser, expected_tokens);
+        assert_eq!(sk, clone);
     }
 }
