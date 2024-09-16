@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
-use secrecy::{CloneableSecret, ExposeSecret};
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -26,9 +26,6 @@ impl<P: PaillierParams> Randomizer<P> {
         RandomizerMod(self.0.to_mod(pk.precomputed_modulus()))
     }
 }
-
-impl<P: PaillierParams + Zeroize> CloneableSecret for Randomizer<P> {}
-impl<P: PaillierParams + Zeroize> CloneableSecret for RandomizerMod<P> {}
 
 #[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop, Zeroize)]
 pub(crate) struct RandomizerMod<P: PaillierParams>(P::UintMod);
