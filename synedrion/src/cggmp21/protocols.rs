@@ -3,6 +3,7 @@ pub(crate) mod interactive_signing;
 pub(crate) mod key_gen;
 pub(crate) mod key_init;
 pub(crate) mod key_init_errors;
+pub(crate) mod key_init_malicious;
 pub(crate) mod key_refresh;
 pub(crate) mod presigning;
 pub(crate) mod signing;

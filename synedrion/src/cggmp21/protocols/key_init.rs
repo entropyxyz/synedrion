@@ -39,7 +39,7 @@ pub(super) struct PublicData<P: SchemeParams> {
     pub(super) cap_x: Point,
     pub(super) cap_a: SchCommitment,
     pub(super) rid: BitVec,
-    u: BitVec,
+    pub(super) u: BitVec,
     phantom: PhantomData<P>,
 }
 

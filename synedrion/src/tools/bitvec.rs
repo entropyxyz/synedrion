@@ -26,6 +26,11 @@ impl BitVec {
         }
         result
     }
+
+    // Test only
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl BitXorAssign<&BitVec> for BitVec {
