@@ -6,17 +6,17 @@ use core::fmt::Debug;
 
 use displaydoc::Display;
 use rand_core::CryptoRngCore;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use super::generic::{FinalizableToNextRound, FinalizableToResult, ProtocolResult, Round};
+use super::generic::{FinalizableToNextRound, FinalizableToResult, PartyId, ProtocolResult, Round};
 use super::FinalizeError;
 
 /// A simple identity type for tests.
-#[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Id(pub(crate) u32);
 
 #[derive(Debug, Display)]
-pub(crate) enum StepError<I: Debug> {
+pub(crate) enum StepError<I: PartyId> {
     /// Error when finalizing the round (missing messages).
     AccumFinalize,
     /// Error when verifying a received message.
@@ -27,7 +27,7 @@ pub(crate) enum StepError<I: Debug> {
     MessageToItself(I),
 }
 
-pub(crate) struct AssembledRound<I: Ord + Clone, R: Round<I>> {
+pub(crate) struct AssembledRound<I: PartyId, R: Round<I>> {
     round: R,
     payloads: BTreeMap<I, <R as Round<I>>::Payload>,
     artifacts: BTreeMap<I, <R as Round<I>>::Artifact>,
@@ -40,7 +40,7 @@ pub(crate) fn step_round<I, R>(
 where
     R: Round<I>,
     <R as Round<I>>::BroadcastMessage: Clone,
-    I: Debug + Clone + Ord + PartialEq,
+    I: PartyId,
 {
     // Collect outgoing messages
 
@@ -121,10 +121,10 @@ where
     Ok(assembled)
 }
 
-pub(crate) fn step_next_round<I: Ord + Clone, R: FinalizableToNextRound<I>>(
+pub(crate) fn step_next_round<I: PartyId, R: FinalizableToNextRound<I>>(
     rng: &mut impl CryptoRngCore,
     assembled_rounds: BTreeMap<I, AssembledRound<I, R>>,
-) -> Result<BTreeMap<I, R::NextRound>, FinalizeError<R::Result>> {
+) -> Result<BTreeMap<I, R::NextRound>, FinalizeError<I, R::Result>> {
     let mut results = BTreeMap::new();
     for (id, assembled_round) in assembled_rounds.into_iter() {
         let next_round = assembled_round.round.finalize_to_next_round(
@@ -138,10 +138,10 @@ pub(crate) fn step_next_round<I: Ord + Clone, R: FinalizableToNextRound<I>>(
 }
 
 #[allow(clippy::type_complexity)]
-pub(crate) fn step_result<I: Ord + Clone, R: FinalizableToResult<I>>(
+pub(crate) fn step_result<I: PartyId, R: FinalizableToResult<I>>(
     rng: &mut impl CryptoRngCore,
     assembled_rounds: BTreeMap<I, AssembledRound<I, R>>,
-) -> Result<BTreeMap<I, <R::Result as ProtocolResult>::Success>, FinalizeError<R::Result>> {
+) -> Result<BTreeMap<I, <R::Result as ProtocolResult<I>>::Success>, FinalizeError<I, R::Result>> {
     let mut results = BTreeMap::new();
     for (id, assembled_round) in assembled_rounds.into_iter() {
         let next_round = assembled_round.round.finalize_to_result(
