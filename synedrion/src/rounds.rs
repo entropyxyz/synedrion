@@ -13,3 +13,6 @@ pub use generic::{PartyId, ProtocolResult};
 pub(crate) use wrappers::{
     wrap_finalize_error, CorrectnessProofWrapper, ProvableErrorWrapper, RoundWrapper, WrappedRound,
 };
+
+#[cfg(test)]
+pub mod malicious;
