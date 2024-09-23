@@ -11,7 +11,7 @@ categories = ["cryptography", "no-std"]
 
 [dependencies]
 signature = { version = "2.3.0-pre.4", default-features = false, features = ["alloc"] }
-k256 = {git = "https://github.com/RustCrypto/elliptic-curves", default-features = false, features = ["ecdsa", "arithmetic"]}
+k256 = {version = "0.14.0-pre.2", default-features = false, features = ["ecdsa", "arithmetic"]}
 rand_core = { version = "0.6.4", default-features = false, features = ["getrandom"] }
 sha2 = { version = "0.11.0-pre.4", default-features = false }
 sha3 = { version = "0.11.0-pre.4", default-features = false }
@@ -41,7 +41,7 @@ tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = "0.8"
 rand_chacha = "0.3"
 criterion = "0.5"
-k256 = {git = "https://github.com/RustCrypto/elliptic-curves", default-features = false, features = ["ecdsa", "serde", "pem"]}
+k256 = {version = "0.14.0-pre.2", default-features = false, features = ["ecdsa", "arithmetic", "pem"]}
 impls = "1"
 
 [features]
