@@ -76,7 +76,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             .into_inner()
             .to_montgomery(public_key.precomputed_modulus())
             .invert()
-            .expect("The modulus is pq. ϕ(pq) = (p-1)(q-1) is invertible mod pq because nor (p-1) or (q-1) share factors with pq.");
+            .expect("The modulus is pq. ϕ(pq) = (p-1)(q-1) is invertible mod pq because neither (p-1) nor (q-1) share factors with pq.");
 
         let modulus: &P::Uint = public_key.modulus(); // pq
         let inv_modulus = Bounded::new(
@@ -92,7 +92,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             .clone()
             .to_montgomery(&precomputed_mod_q)
             .invert()
-            .expect("All non-zero integers have a multiplicative inverse mod a prime");
+            .expect("All non-zero integers mod a prime have a multiplicative inverse");
 
         let inv_q_mod_p = self
             .q
