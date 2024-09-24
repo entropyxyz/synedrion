@@ -322,7 +322,7 @@ mod tests {
             nt_share0.secret_share.expose_secret() + nt_share1.secret_share.expose_secret(),
             Scalar::from(sk.as_nonzero_scalar())
         );
-        assert_eq!(&nt_share0.verifying_key(), sk.verifying_key());
-        assert_eq!(&nt_share1.verifying_key(), sk.verifying_key());
+        assert_eq!(&nt_share0.verifying_key().unwrap(), sk.verifying_key());
+        assert_eq!(&nt_share1.verifying_key().unwrap(), sk.verifying_key());
     }
 }

@@ -112,14 +112,21 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     }
 
     /// Converts a curve scalar to the associated integer type, wrapped in `Bounded`.
-    fn bounded_from_scalar(value: &Scalar) -> Bounded<<Self::Paillier as PaillierParams>::Uint> {
+    fn bounded_from_scalar(
+        value: &Scalar,
+    ) -> Option<Bounded<<Self::Paillier as PaillierParams>::Uint>> {
         const ORDER_BITS: u32 = ORDER.bits_vartime();
-        Bounded::new(Self::uint_from_scalar(value), ORDER_BITS).unwrap()
+        Bounded::new(Self::uint_from_scalar(value), ORDER_BITS)
     }
 
     /// Converts a curve scalar to the associated integer type, wrapped in `Signed`.
-    fn signed_from_scalar(value: &Scalar) -> Signed<<Self::Paillier as PaillierParams>::Uint> {
-        Self::bounded_from_scalar(value).into_signed().unwrap()
+    /// Returns `None` if:
+    /// - the bound provided by [`ORDER_BITS`] is invalid for the associated integer type from [`PaillierParams`];
+    /// - the scalar value encodes a negative value
+    fn signed_from_scalar(
+        value: &Scalar,
+    ) -> Option<Signed<<Self::Paillier as PaillierParams>::Uint>> {
+        Self::bounded_from_scalar(value).and_then(Bounded::into_signed)
     }
 
     /// Converts an integer to the associated curve scalar type.

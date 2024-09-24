@@ -63,6 +63,7 @@ impl Scalar {
         Point::GENERATOR * self
     }
 
+    /// Invert the [`Scalar`]. Returns [`None`] if the scalar is zero.
     pub fn invert(&self) -> CtOption<Self> {
         self.0.invert().map(Self)
     }
@@ -183,6 +184,8 @@ impl Point {
         Self(key.as_affine().into())
     }
 
+    /// Convert a [`Point`] to a [`VerifyingKey`] wrapped in an [`Option`]. Returns [`None`] if the
+    /// `Point` is the point at infinity.
     pub fn to_verifying_key(self) -> Option<VerifyingKey> {
         VerifyingKey::from_affine(self.0.to_affine()).ok()
     }

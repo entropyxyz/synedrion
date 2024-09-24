@@ -346,7 +346,7 @@ mod tests {
         for signature in signatures.values() {
             let (sig, rec_id) = signature.to_backend();
 
-            let vkey = key_shares[&Id(0)].verifying_key();
+            let vkey = key_shares[&Id(0)].verifying_key().unwrap();
 
             // Check that the signature can be verified
             vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();

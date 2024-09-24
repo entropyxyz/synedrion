@@ -122,7 +122,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> FirstRound<I> for Round1<P, I> {
         let message_destinations = if inputs.old_holder.is_some() {
             // It is possible that a party is both an old holder and a new holder.
             // This will be processed separately.
-            let mut new_holders_except_me = inputs.new_holders.clone();
+            let mut new_holders_except_me = inputs.new_holders;
             new_holders_except_me.remove(&my_id);
             new_holders_except_me
         } else {
@@ -238,7 +238,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> Round<I> for Round1<P, I> {
         direct_msg: Self::DirectMessage,
     ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
         if let Some(new_holder) = self.new_holder.as_ref() {
-            if new_holder.inputs.old_holders.iter().any(|id| id == from) {
+            if new_holder.inputs.old_holders.contains(from) {
                 let public_subshare_from_poly = broadcast_msg
                     .public_polynomial
                     .evaluate(&self.new_share_ids[self.my_id()]);
