@@ -9,7 +9,7 @@ use crypto_bigint::{
 use crate::uint::Signed;
 
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
-    debug_assert!(
+    assert!(
         N2 >= N1,
         "Upcast target must be bigger than the upcast candidate"
     );
