@@ -1,10 +1,18 @@
 use crypto_bigint::{
-    modular::MontyForm, nlimbs, Encoding, Integer, RandomMod, Uint, Zero, U1024, U2048, U4096,
-    U512, U8192,
+    modular::MontyForm,
+    nlimbs,
+    subtle::{ConditionallySelectable, CtOption},
+    Bounded, Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048,
+    U4096, U512, U8192,
 };
 
+use crate::uint::Signed;
+
 pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
-    debug_assert!(N2 >= N1);
+    assert!(
+        N2 >= N1,
+        "Upcast target must be bigger than the upcast candidate"
+    );
     let mut result_words = [0; N2];
     let mut i = 0;
     while i < N1 {
@@ -20,6 +28,119 @@ pub trait ToMontgomery: Integer {
         precomputed: &<<Self as Integer>::Monty as crypto_bigint::Monty>::Params,
     ) -> <Self as Integer>::Monty {
         <<Self as Integer>::Monty as crypto_bigint::Monty>::new(self, precomputed.clone())
+    }
+}
+
+/// Exponentiation functions for generic integers (in our case used for integers in Montgomery form
+/// with `Signed` exponents).
+pub trait Exponentiable<T>:
+    PowBoundedExp<T>
+    + Invert<Output = CtOption<Self>>
+    + ConditionallySelectable
+    + Square
+    + core::ops::Mul<Output = Self>
+where
+    T: Integer + Bounded + Encoding + ConditionallySelectable,
+{
+    /// Constant-time exponentiation of an integer in Montgomery form by a signed exponent.
+    ///
+    /// #Panics
+    ///
+    /// Panics if `self` is not invertible.
+    fn pow_signed(&self, exponent: &Signed<T>) -> Self {
+        let abs_exponent = exponent.abs();
+        let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let inv_result = abs_result
+            .invert()
+            .expect("`self` is assumed to be invertible");
+        Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
+    }
+
+    /// Constant-time exponentiation of an integer in Montgomery form by a "wide" and signed exponent.
+    ///
+    /// #Panics
+    ///
+    /// Panics if `self` is not invertible.
+    fn pow_signed_wide(&self, exp: &Signed<<T as HasWide>::Wide>) -> Self
+    where
+        T: HasWide,
+        <T as HasWide>::Wide: Bounded + ConditionallySelectable,
+    {
+        let exp_abs = exp.abs();
+        let abs = self.pow_wide(&exp_abs, exp.bound());
+        let inv = abs.invert().expect("self is assumed to be invertible");
+        Self::conditional_select(&abs, &inv, exp.is_negative())
+    }
+
+    fn pow_wide(self, exp: &<T as HasWide>::Wide, bound: u32) -> Self
+    where
+        T: HasWide,
+    {
+        let bits = <T as Bounded>::BITS;
+        let bound = bound % (2 * bits + 1);
+
+        let (lo, hi) = <T as HasWide>::from_wide(exp.clone());
+        let lo_res = self.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
+
+        // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
+        // exponents of any size - it keeps the self^(2^k) already.
+        if bound > bits {
+            let mut hi_res = self.pow_bounded_exp(&hi, bound - bits);
+            for _ in 0..bits {
+                hi_res = hi_res.square()
+            }
+            hi_res * lo_res
+        } else {
+            lo_res
+        }
+    }
+
+    /// Constant-time exponentiation of an integer in Montgomery form by an "extra wide" and signed exponent.
+    ///
+    /// #Panics
+    ///
+    /// Panics if `self` is not invertible.
+    fn pow_signed_extra_wide(&self, exp: &Signed<<<T as HasWide>::Wide as HasWide>::Wide>) -> Self
+    where
+        T: HasWide,
+        <T as HasWide>::Wide: Bounded + ConditionallySelectable + HasWide,
+        <<T as HasWide>::Wide as HasWide>::Wide: Bounded + ConditionallySelectable,
+    {
+        let bits = <<T as HasWide>::Wide as Bounded>::BITS;
+        let bound = exp.bound();
+
+        let abs_exponent = exp.abs();
+        let (wlo, whi) = <T as HasWide>::Wide::from_wide(abs_exponent);
+
+        let lo_res = self.pow_wide(&wlo, core::cmp::min(bits, bound));
+
+        let abs_result = if bound > bits {
+            let mut hi_res = self.pow_wide(&whi, bound - bits);
+            for _ in 0..bits {
+                hi_res = hi_res.square();
+            }
+            hi_res * lo_res
+        } else {
+            lo_res
+        };
+
+        let inv_result = abs_result.invert().expect("`self` is assumed invertible");
+        Self::conditional_select(&abs_result, &inv_result, exp.is_negative())
+    }
+
+    /// Variable-time exponentiation of an integer in Montgomery form by a signed exponent.
+    ///
+    /// #Panics
+    ///
+    /// Panics if `self` is not invertible.
+    fn pow_signed_vartime(self, exp: &Signed<T>) -> Self {
+        let abs_exp = exp.abs();
+        let abs_result = self.pow_bounded_exp(&abs_exp, exp.bound());
+        if exp.is_negative().into() {
+            abs_result.invert().expect("`self` is assumed invertible")
+        } else {
+            abs_result
+        }
     }
 }
 
@@ -126,3 +247,36 @@ impl ToMontgomery for U1024 {}
 impl ToMontgomery for U2048 {}
 impl ToMontgomery for U4096 {}
 impl ToMontgomery for U8192 {}
+
+impl Exponentiable<U512> for U512Mod {}
+impl Exponentiable<U1024> for U1024Mod {}
+impl Exponentiable<U2048> for U2048Mod {}
+impl Exponentiable<U4096> for U4096Mod {}
+
+#[cfg(test)]
+mod tests {
+    use super::upcast_uint;
+    use crypto_bigint::{U256, U64};
+    #[test]
+    fn upcast_uint_results_in_a_bigger_type() {
+        let n = U64::from_u8(10);
+        let expected = U256::from_u8(10);
+        let bigger_n: U256 = upcast_uint(n);
+
+        assert_eq!(bigger_n, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "Upcast target must be bigger than the upcast candidate")]
+    fn upcast_uint_panics_in_test_if_actually_attempting_downcast() {
+        let n256 = U256::from_u8(8);
+        let _n: U64 = upcast_uint(n256);
+    }
+
+    #[test]
+    fn upcast_uint_allows_casting_to_same_size() {
+        let n256 = U256::from_u8(8);
+        let n: U256 = upcast_uint(n256);
+        assert_eq!(n, n256)
+    }
+}

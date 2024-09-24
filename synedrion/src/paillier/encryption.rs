@@ -9,9 +9,8 @@ use zeroize::ZeroizeOnDrop;
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
 use crate::uint::{
-    pow::pow_signed,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    Bounded, HasWide, NonZero, Retrieve, Signed, ToMontgomery,
+    Bounded, Exponentiable, HasWide, NonZero, Retrieve, Signed, ToMontgomery,
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
@@ -306,14 +305,14 @@ impl<P: PaillierParams> CiphertextMod<P> {
     fn homomorphic_mul(self, rhs: &Signed<P::Uint>) -> Self {
         Self {
             pk: self.pk,
-            ciphertext: pow_signed(self.ciphertext, &rhs.into_wide()),
+            ciphertext: self.ciphertext.pow_signed(&rhs.into_wide()),
         }
     }
 
     fn homomorphic_mul_ref(&self, rhs: &Signed<P::Uint>) -> Self {
         Self {
             pk: self.pk.clone(),
-            ciphertext: pow_signed(self.ciphertext, &rhs.into_wide()),
+            ciphertext: self.ciphertext.pow_signed(&rhs.into_wide()),
         }
     }
 
@@ -323,7 +322,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // But this method is only used once, so it's not a problem to spell it out.
         Self {
             pk: self.pk.clone(),
-            ciphertext: pow_signed(self.ciphertext, rhs),
+            ciphertext: self.ciphertext.pow_signed(rhs),
         }
     }
 
