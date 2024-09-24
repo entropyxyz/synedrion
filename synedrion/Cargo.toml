@@ -11,7 +11,7 @@ categories = ["cryptography", "no-std"]
 
 [dependencies]
 signature = { version = "2.3.0-pre.4", default-features = false, features = ["alloc"] }
-k256 = {git = "https://github.com/RustCrypto/elliptic-curves", default-features = false, features = ["ecdsa", "arithmetic"]}
+k256 = {version = "0.14.0-pre.2", default-features = false, features = ["ecdsa", "arithmetic"]}
 rand_core = { version = "0.6.4", default-features = false, features = ["getrandom"] }
 sha2 = { version = "0.11.0-pre.4", default-features = false }
 sha3 = { version = "0.11.0-pre.4", default-features = false }
@@ -21,7 +21,7 @@ base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 hashing-serializer = { version = "0.2.0-pre.0", default-features = false }
 secrecy = { version = "0.9.0-pre.0", default-features = false, features = ["serde"] }
 zeroize = { version = "1.8", default-features = false, features = ["alloc", "zeroize_derive"] }
-bip32 = { version = "0.5.2", default-features = false, features = ["alloc", "secp256k1", "k256"] }
+bip32 = { version = "0.6.0-pre.0", default-features = false, features = ["alloc", "secp256k1", "k256"] }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
@@ -41,7 +41,7 @@ tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = "0.8"
 rand_chacha = "0.3"
 criterion = "0.5"
-k256 = {git = "https://github.com/RustCrypto/elliptic-curves", default-features = false, features = ["ecdsa", "serde", "pem"]}
+k256 = {version = "0.14.0-pre.2", default-features = false, features = ["ecdsa", "arithmetic", "pem", "serde"]}
 impls = "1"
 
 [features]
