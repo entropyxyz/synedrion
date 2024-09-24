@@ -28,7 +28,7 @@ use crate::rounds::{
 };
 use crate::tools::bitvec::BitVec;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
-use crate::uint::UintLike;
+use crypto_bigint::BitOps;
 
 /// Possible results of the KeyRefresh protocol.
 #[derive(Debug)]
@@ -59,10 +59,13 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
         mu: Randomizer<P::Paillier>,
     },
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PrmProof<P>: Serialize"))]
-#[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "
+        PrmProof<P>: Serialize,
+    "))]
+#[serde(bound(deserialize = "
+        PrmProof<P>: for<'x> Deserialize<'x>,
+    "))]
 pub struct PublicData1<P: SchemeParams> {
     cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
     cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
@@ -352,7 +355,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let paillier_pk = broadcast_msg.data.paillier_pk.to_precomputed();
 
-        if paillier_pk.modulus().bits_vartime() < 8 * P::SECURITY_PARAMETER {
+        if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
             return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
                 "Paillier modulus is too small".into(),
             )));

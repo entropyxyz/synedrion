@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 use core::ops::{Add, Mul};
 
+use crypto_bigint::{Invert, Monty, PowBoundedExp, ShrVartime, WrappingSub};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
@@ -8,8 +9,9 @@ use zeroize::ZeroizeOnDrop;
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
 use crate::uint::{
+    pow::pow_signed,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    Bounded, HasWide, NonZero, Retrieve, Signed, UintLike, UintModLike,
+    Bounded, HasWide, NonZero, Retrieve, Signed, ToMontgomery,
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
@@ -22,7 +24,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
-        RandomizerMod(self.0.to_mod(pk.precomputed_modulus()))
+        RandomizerMod(self.0.to_montgomery(pk.precomputed_modulus()))
     }
 }
 
@@ -39,11 +41,28 @@ impl<P: PaillierParams> RandomizerMod<P> {
     }
 
     pub fn pow_signed(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(self.0.pow_signed(exponent))
+        let abs_exponent = exponent.abs();
+        let abs_result = self.0.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let inv_result = abs_result
+            .invert()
+            .expect("`RandomizerMod` values are invertible by construction; exponentiations of modular inverses are invertible.");
+        let inner = <P::UintMod as ConditionallySelectable>::conditional_select(
+            &abs_result,
+            &inv_result,
+            exponent.is_negative(),
+        );
+        Self(inner)
     }
 
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(self.0.pow_signed_vartime(exponent))
+        let abs_exponent = exponent.abs();
+        let abs_result = self.0.pow_bounded_exp(&abs_exponent, exponent.bound());
+        let inner = if exponent.is_negative().into() {
+            abs_result.invert().expect("`RandomizerMod` values are invertible by construction; exponentiations of modular inverses are invertible.")
+        } else {
+            abs_result
+        };
+        Self(inner)
     }
 }
 
@@ -92,7 +111,9 @@ impl<P: PaillierParams> Ciphertext<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> CiphertextMod<P> {
         CiphertextMod {
             pk: pk.clone(),
-            ciphertext: self.ciphertext.to_mod(pk.precomputed_modulus_squared()),
+            ciphertext: self
+                .ciphertext
+                .to_montgomery(pk.precomputed_modulus_squared()),
         }
     }
 }
@@ -137,14 +158,15 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // Since `m` can be negative, we calculate `m * N +- 1` (never overflows since `m < N`),
         // then conditionally negate modulo N^2
         let prod = abs_plaintext.mul_wide(pk.modulus());
-        let mut prod_mod = prod.to_mod(pk.precomputed_modulus_squared());
+        let mut prod_mod = prod.to_montgomery(pk.precomputed_modulus_squared());
         prod_mod.conditional_negate(plaintext_is_negative);
 
-        let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared());
+        let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared().clone());
 
+        let pk_mod_bound = pk.modulus_bounded().into_wide();
         let factor2 = randomizer
-            .to_mod(pk.precomputed_modulus_squared())
-            .pow_bounded(&pk.modulus_bounded().into_wide());
+            .to_montgomery(pk.precomputed_modulus_squared())
+            .pow_bounded_exp(pk_mod_bound.as_ref(), pk_mod_bound.bound());
 
         let ciphertext = factor1 * factor2;
 
@@ -216,13 +238,15 @@ impl<P: PaillierParams> CiphertextMod<P> {
 
         // `C^phi mod N^2` may be 0 if `C == N`, which is very unlikely for large `N`.
         let x = P::Uint::try_from_wide(
-            (self.ciphertext.pow_bounded(&totient_wide)
-                - P::WideUintMod::one(pk.precomputed_modulus_squared()))
+            (self
+                .ciphertext
+                .pow_bounded_exp(totient_wide.as_ref(), totient_wide.bound())
+                - P::WideUintMod::one(pk.precomputed_modulus_squared().clone()))
             .retrieve()
                 / modulus_wide,
         )
         .unwrap();
-        let x_mod = x.to_mod(pk.precomputed_modulus());
+        let x_mod = x.to_montgomery(pk.precomputed_modulus());
 
         (x_mod * sk.inv_totient()).retrieve()
     }
@@ -234,7 +258,8 @@ impl<P: PaillierParams> CiphertextMod<P> {
         let pk = sk.public_key();
         let positive_result = self.decrypt(sk);
         let negative_result = pk.modulus().wrapping_sub(&positive_result);
-        let is_negative = Choice::from((positive_result > pk.modulus().shr_vartime(1)) as u8);
+        let is_negative =
+            Choice::from((positive_result > pk.modulus().wrapping_shr_vartime(1)) as u8);
 
         let mut result = Signed::new_from_unsigned(
             P::Uint::conditional_select(&positive_result, &negative_result, is_negative),
@@ -263,11 +288,14 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // Therefore `C mod N = rho^N mod N`.
         let ciphertext_mod_n =
             P::Uint::try_from_wide(self.ciphertext.retrieve() % modulus_wide).unwrap();
-        let ciphertext_mod_n = ciphertext_mod_n.to_mod(pk.precomputed_modulus());
+        let ciphertext_mod_n = ciphertext_mod_n.to_montgomery(pk.precomputed_modulus());
 
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
-        RandomizerMod(ciphertext_mod_n.pow_bounded(sk.inv_modulus()))
+        let sk_inv_modulus = sk.inv_modulus();
+        RandomizerMod(
+            ciphertext_mod_n.pow_bounded_exp(sk_inv_modulus.as_ref(), sk_inv_modulus.bound()),
+        )
     }
 
     // Note: while it is true that `enc(x) (*) rhs == enc((x * rhs) mod N)`,
@@ -278,14 +306,14 @@ impl<P: PaillierParams> CiphertextMod<P> {
     fn homomorphic_mul(self, rhs: &Signed<P::Uint>) -> Self {
         Self {
             pk: self.pk,
-            ciphertext: self.ciphertext.pow_signed(&rhs.into_wide()),
+            ciphertext: pow_signed(self.ciphertext, &rhs.into_wide()),
         }
     }
 
     fn homomorphic_mul_ref(&self, rhs: &Signed<P::Uint>) -> Self {
         Self {
             pk: self.pk.clone(),
-            ciphertext: self.ciphertext.pow_signed(&rhs.into_wide()),
+            ciphertext: pow_signed(self.ciphertext, &rhs.into_wide()),
         }
     }
 
@@ -295,21 +323,27 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // But this method is only used once, so it's not a problem to spell it out.
         Self {
             pk: self.pk.clone(),
-            ciphertext: self.ciphertext.pow_signed(rhs),
+            ciphertext: pow_signed(self.ciphertext, rhs),
         }
     }
 
     fn homomorphic_mul_unsigned(self, rhs: &Bounded<P::Uint>) -> Self {
+        let rhs_wide = rhs.into_wide();
         Self {
             pk: self.pk,
-            ciphertext: self.ciphertext.pow_bounded(&rhs.into_wide()),
+            ciphertext: self
+                .ciphertext
+                .pow_bounded_exp(rhs_wide.as_ref(), rhs_wide.bound()),
         }
     }
 
     fn homomorphic_mul_unsigned_ref(&self, rhs: &Bounded<P::Uint>) -> Self {
+        let rhs_wide = rhs.into_wide();
         Self {
             pk: self.pk.clone(),
-            ciphertext: self.ciphertext.pow_bounded(&rhs.into_wide()),
+            ciphertext: self
+                .ciphertext
+                .pow_bounded_exp(rhs_wide.as_ref(), rhs_wide.bound()),
         }
     }
 
@@ -325,9 +359,10 @@ impl<P: PaillierParams> CiphertextMod<P> {
         let randomizer_mod = randomizer
             .0
             .into_wide()
-            .to_mod(self.pk.precomputed_modulus_squared());
-        let ciphertext =
-            self.ciphertext * randomizer_mod.pow_bounded(&self.pk.modulus_bounded().into_wide());
+            .to_montgomery(self.pk.precomputed_modulus_squared());
+        let pk_modulus_wide = self.pk.modulus_bounded().into_wide();
+        let ciphertext = self.ciphertext
+            * randomizer_mod.pow_bounded_exp(pk_modulus_wide.as_ref(), pk_modulus_wide.bound());
         Self {
             pk: self.pk,
             ciphertext,
@@ -393,12 +428,14 @@ mod tests {
     use super::{CiphertextMod, RandomizerMod};
 
     use crate::uint::{
-        subtle::ConditionallyNegatable, HasWide, NonZero, RandomMod, Signed, UintLike,
+        subtle::{ConditionallyNegatable, ConditionallySelectable},
+        HasWide, NonZero, RandomMod, Signed,
     };
+    use crypto_bigint::{Encoding, Integer, ShrVartime, WrappingSub};
 
     fn mul_mod<T>(lhs: &T, rhs: &Signed<T>, modulus: &NonZero<T>) -> T
     where
-        T: UintLike + HasWide,
+        T: Integer + HasWide + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
     {
         // There may be more efficient ways to do this (e.g. Barrett reduction),
         // but it's only used in tests.
@@ -420,7 +457,7 @@ mod tests {
         modulus: &NonZero<P::Uint>,
     ) -> Signed<P::Uint> {
         let result = val.abs() % *modulus;
-        let twos_complement_result = if result > modulus.as_ref().shr_vartime(1) {
+        let twos_complement_result = if result > modulus.as_ref().wrapping_shr_vartime(1) {
             result.wrapping_sub(modulus.as_ref())
         } else {
             result
