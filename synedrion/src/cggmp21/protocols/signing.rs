@@ -337,8 +337,8 @@ mod tests {
         fn new(ids: &BTreeSet<Id>) -> Self {
             let mut randomness = [0u8; 32];
             OsRng.fill_bytes(&mut randomness);
-            let key_shares = KeyShare::new_centralized(&mut OsRng, &ids, None);
-            let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids);
+            let key_shares = KeyShare::new_centralized(&mut OsRng, ids, None);
+            let aux_infos = AuxInfo::new_centralized(&mut OsRng, ids);
 
             let presigning_data =
                 PresigningData::new_centralized(&mut OsRng, &key_shares, &aux_infos);
@@ -364,7 +364,7 @@ mod tests {
     ) -> Round1<TestParams, Id> {
         Round1::<TestParams, Id>::new(
             &mut OsRng,
-            &shared_randomness,
+            shared_randomness,
             ids.clone().without(id),
             *id,
             Inputs {
@@ -437,10 +437,8 @@ mod tests {
         let mut r1a = step_round(&mut OsRng, r1).unwrap();
 
         // Manipulate second party's signature, causing finalize_to_result to fail
-        r1a.get_mut(&Id(1)).and_then(|assr| {
-            assr.round.r = Scalar::random_nonzero(&mut OsRng);
-            Some(assr)
-        });
+        let assr = r1a.get_mut(&Id(1)).unwrap();
+        assr.round.r = Scalar::random_nonzero(&mut OsRng);
 
         // First party is fine
         match r1a.pop_first() {
