@@ -393,6 +393,24 @@ mod tests {
             .collect()
     }
 
+    fn check_sig(
+        signature: &RecoverableSignature,
+        key_shares: &BTreeMap<Id, KeyShare<TestParams, Id>>,
+        message: &Scalar,
+    ) {
+        let (sig, rec_id) = signature.to_backend();
+        let vkey = key_shares[&Id(0)].verifying_key();
+
+        // Check that the signature can be verified
+        vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();
+
+        // Check that the key can be recovered
+        let recovered_key =
+            VerifyingKey::recover_from_prehash(&message.to_bytes(), &sig, rec_id).unwrap();
+
+        assert_eq!(recovered_key, vkey);
+    }
+
     #[test]
     fn execute_signing() {
         let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
@@ -450,23 +468,5 @@ mod tests {
             }
             None => unreachable!(),
         }
-    }
-
-    fn check_sig(
-        signature: &RecoverableSignature,
-        key_shares: &BTreeMap<Id, KeyShare<TestParams, Id>>,
-        message: &Scalar,
-    ) {
-        let (sig, rec_id) = signature.to_backend();
-        let vkey = key_shares[&Id(0)].verifying_key();
-
-        // Check that the signature can be verified
-        vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();
-
-        // Check that the key can be recovered
-        let recovered_key =
-            VerifyingKey::recover_from_prehash(&message.to_bytes(), &sig, rec_id).unwrap();
-
-        assert_eq!(recovered_key, vkey);
     }
 }
