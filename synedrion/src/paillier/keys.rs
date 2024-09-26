@@ -9,7 +9,10 @@ use super::params::PaillierParams;
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
-    RandomPrimeWithRng, Retrieve, Signed, UintLike, UintModLike,
+    RandomPrimeWithRng, Retrieve, Signed, ToMontgomery,
+};
+use crypto_bigint::{
+    Bounded as TraitBounded, InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd, WrappingSub,
 };
 use secrecy::{ExposeSecret, SecretBox};
 
@@ -37,8 +40,8 @@ impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
 impl<P: PaillierParams> Clone for SecretKeyPaillier<P> {
     fn clone(&self) -> Self {
         Self {
-            p: Box::new(*self.p.expose_secret()).into(),
-            q: Box::new(*self.q.expose_secret()).into(),
+            p: Box::new(self.p.expose_secret().clone()).into(),
+            q: Box::new(self.q.expose_secret().clone()).into(),
         }
     }
 }
@@ -54,8 +57,16 @@ impl<P: PaillierParams> Serialize for SecretKeyPaillier<P> {
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        let p = P::HalfUint::generate_safe_prime_with_rng(rng, Some(P::PRIME_BITS));
-        let q = P::HalfUint::generate_safe_prime_with_rng(rng, Some(P::PRIME_BITS));
+        let p = P::HalfUint::generate_safe_prime_with_rng(
+            rng,
+            P::PRIME_BITS as u32,
+            <P as PaillierParams>::HalfUint::BITS,
+        );
+        let q = P::HalfUint::generate_safe_prime_with_rng(
+            rng,
+            P::PRIME_BITS as u32,
+            <P as PaillierParams>::HalfUint::BITS,
+        );
 
         Self {
             p: Box::new(p).into(),
@@ -67,16 +78,28 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         // Euler's totient function of $p q$ - the number of positive integers up to $p q$
         // that are relatively prime to it.
         // Since $p$ and $q$ are primes, $\phi(p q) = (p - 1) (q - 1)$.
-        let one = P::HalfUint::ONE;
-        let p_minus_one = self.p.expose_secret().checked_sub(&one).unwrap();
-        let q_minus_one = self.q.expose_secret().checked_sub(&one).unwrap();
-        let totient =
-            Bounded::new(p_minus_one.mul_wide(&q_minus_one), P::MODULUS_BITS as u32).unwrap();
+        let one = <P::HalfUint as Integer>::one();
+        let p_minus_one = self
+            .p
+            .expose_secret()
+            .checked_sub(&one)
+            .expect("`p` is prime, so greater than one");
+        let q_minus_one = self
+            .q
+            .expose_secret()
+            .checked_sub(&one)
+            .expect("`q` is prime, so greater than one");
+        let totient = Bounded::new(p_minus_one.mul_wide(&q_minus_one), P::MODULUS_BITS as u32)
+            .expect("The pre-configured bound set in `P::MODULUS_BITS` is assumed to be valid");
 
-        let precomputed_mod_p =
-            P::HalfUintMod::new_precomputed(&NonZero::new(*self.p.expose_secret()).unwrap());
-        let precomputed_mod_q =
-            P::HalfUintMod::new_precomputed(&NonZero::new(*self.q.expose_secret()).unwrap());
+        let precomputed_mod_p = P::HalfUintMod::new_params_vartime(
+            Odd::new(self.p.expose_secret().clone())
+                .expect("`p` is assumed to be a prime greater than 2"),
+        );
+        let precomputed_mod_q = P::HalfUintMod::new_params_vartime(
+            Odd::new(self.q.expose_secret().clone())
+                .expect("`q` is assumed to be a prime greater than 2"),
+        );
 
         let public_key = PublicKeyPaillier {
             modulus: self.p.expose_secret().mul_wide(self.q.expose_secret()),
@@ -84,43 +107,51 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         let public_key = public_key.to_precomputed();
 
         let inv_totient = totient
-            .as_ref()
-            .to_mod(public_key.precomputed_modulus())
+            .into_inner()
+            .to_montgomery(public_key.precomputed_modulus())
             .invert()
-            .unwrap();
+            .expect("The modulus is pq. ϕ(pq) = (p-1)(q-1) is invertible mod pq because neither (p-1) nor (q-1) share factors with pq.");
 
-        let modulus: &P::Uint = public_key.modulus();
+        let modulus: &P::Uint = public_key.modulus(); // pq
         let inv_modulus = Bounded::new(
-            modulus.inv_mod(totient.as_ref()).unwrap(),
+            modulus
+                .inv_mod(totient.as_ref())
+                .expect("pq is invertible mod ϕ(pq) because gcd(pq, (p-1)(q-1)) = 1"),
             P::MODULUS_BITS as u32,
         )
-        .unwrap();
+        .expect("We assume `P::MODULUS_BITS` is properly configured");
 
         let inv_p_mod_q = self
             .p
             .expose_secret()
-            .to_mod(&precomputed_mod_q)
+            .clone()
+            .to_montgomery(&precomputed_mod_q)
             .invert()
-            .unwrap();
+            .expect("All non-zero integers mod a prime have a multiplicative inverse");
+
         let inv_q_mod_p = self
             .q
             .expose_secret()
-            .to_mod(&precomputed_mod_p)
+            .clone()
+            .to_montgomery(&precomputed_mod_p)
             .invert()
-            .unwrap();
+            .expect("All non-zero integers have a multiplicative inverse mod a prime");
 
         // Calculate $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
         // Using step of Garner's algorithm:
         // $u = q - 1 + q (2 q^{-1} - 1 \mod p)$
-        let t = (inv_q_mod_p + inv_q_mod_p - P::HalfUintMod::one(&precomputed_mod_p)).retrieve();
+        let t = (inv_q_mod_p.clone() + inv_q_mod_p.clone()
+            - <P::HalfUintMod as Monty>::one(precomputed_mod_p.clone()))
+        .retrieve();
         // Note that the wrapping add/sub won't overflow by construction.
         let nonsquare_sampling_constant = t
             .mul_wide(self.q.expose_secret())
-            .wrapping_add(&self.q.expose_secret().into_wide())
-            .wrapping_sub(&P::Uint::ONE);
+            .wrapping_add(&self.q.expose_secret().clone().into_wide())
+            .wrapping_sub(&<P::Uint as Integer>::one());
+
         let nonsquare_sampling_constant = P::UintMod::new(
-            &nonsquare_sampling_constant,
-            &public_key.precomputed_modulus,
+            nonsquare_sampling_constant,
+            Clone::clone(public_key.precomputed_modulus()),
         );
 
         SecretKeyPaillierPrecomputed {
@@ -130,8 +161,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             inv_modulus,
             inv_p_mod_q,
             nonsquare_sampling_constant,
-            precomputed_mod_p,
-            precomputed_mod_q,
+            precomputed_mod_p: precomputed_mod_p.clone(),
+            precomputed_mod_q: precomputed_mod_q.clone(),
             public_key,
         }
     }
@@ -148,12 +179,15 @@ pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     inv_p_mod_q: P::HalfUintMod,
     // $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
     nonsquare_sampling_constant: P::UintMod,
-    precomputed_mod_p: <P::HalfUintMod as UintModLike>::Precomputed,
-    precomputed_mod_q: <P::HalfUintMod as UintModLike>::Precomputed,
+    precomputed_mod_p: <P::HalfUintMod as Monty>::Params,
+    precomputed_mod_q: <P::HalfUintMod as Monty>::Params,
     public_key: PublicKeyPaillierPrecomputed<P>,
 }
 
-impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
+impl<P> SecretKeyPaillierPrecomputed<P>
+where
+    P: PaillierParams,
+{
     pub fn to_minimal(&self) -> SecretKeyPaillier<P> {
         self.sk.clone()
     }
@@ -163,12 +197,12 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         // The primes are positive, but where this method is used Signed is needed,
         // so we return that for convenience.
         (
-            Signed::new_positive(self.sk.p.expose_secret().into_wide(), P::PRIME_BITS as u32)
+            SecretBox::new(Box::new(Signed::new_positive(self.sk.p.expose_secret().clone().into_wide(), P::PRIME_BITS as u32)
                 .expect("The primes in the `SecretKeyPaillier` are 'safe primes' and positive by construction; the bound is assumed to be configured correctly by the user.")
-                .secret_box(),
-            Signed::new_positive(self.sk.q.expose_secret().into_wide(), P::PRIME_BITS as u32)
+        )),
+        SecretBox::new(Box::new(Signed::new_positive(self.sk.q.expose_secret().clone().into_wide(), P::PRIME_BITS as u32)
                 .expect("The primes in the `SecretKeyPaillier` are 'safe primes' and positive by construction; the bound is assumed to be configured correctly by the user.")
-                .secret_box(),
+    )),
         )
     }
 
@@ -196,11 +230,11 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         &self.inv_modulus
     }
 
-    fn precomputed_mod_p(&self) -> &<P::HalfUintMod as UintModLike>::Precomputed {
+    fn precomputed_mod_p(&self) -> &<P::HalfUintMod as Monty>::Params {
         &self.precomputed_mod_p
     }
 
-    fn precomputed_mod_q(&self) -> &<P::HalfUintMod as UintModLike>::Precomputed {
+    fn precomputed_mod_q(&self) -> &<P::HalfUintMod as Monty>::Params {
         &self.precomputed_mod_q
     }
 
@@ -211,22 +245,20 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     pub fn rns_split(&self, elem: &P::Uint) -> (P::HalfUintMod, P::HalfUintMod) {
         // May be some speed up potential here since we know p and q are small,
         // but it needs to be supported by `crypto-bigint`.
-        let mut p_rem = *elem % NonZero::new(self.sk.p.expose_secret().into_wide()).unwrap();
-        let mut q_rem = *elem % NonZero::new(self.sk.q.expose_secret().into_wide()).unwrap();
-        let mut p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
-        let mut q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
+        let mut p_rem =
+            *elem % NonZero::new(self.sk.p.expose_secret().clone().into_wide()).unwrap();
+        let mut q_rem =
+            *elem % NonZero::new(self.sk.q.expose_secret().clone().into_wide()).unwrap();
+        let p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
+        let q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
 
-        let p_rem_mod = p_rem_half.to_mod(self.precomputed_mod_p());
-        let q_rem_mod = q_rem_half.to_mod(self.precomputed_mod_q());
+        let p_rem_mod = p_rem_half.to_montgomery(self.precomputed_mod_p());
+        let q_rem_mod = q_rem_half.to_montgomery(self.precomputed_mod_q());
 
-        // TODO (#77): zeroize intermediate values
-        // @reviewers: crypto_bigint::Uint<LIMB> does not impl `ZeroizeOnDrop` (only
-        // `DefaultIsZeroes`) so we're stuck with this rather clunky way of zeroizing. Should we do
-        // this for *all* intermediate values in all of our code?
+        // crypto_bigint::Uint<LIMB> does not impl `ZeroizeOnDrop` (only
+        // `DefaultIsZeroes`) so we're stuck with this rather clunky way of zeroizing.
         p_rem.zeroize();
         q_rem.zeroize();
-        p_rem_half.zeroize();
-        q_rem_half.zeroize();
 
         (p_rem_mod, q_rem_mod)
     }
@@ -237,8 +269,10 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         // Also it means that `(modulus+1)/4 == modulus/4+1`
         // (this will help avoid a possible overflow).
         let candidate = x.pow_bounded_exp(
-            &modulus.shr_vartime(2).wrapping_add(&P::HalfUint::ONE),
-            P::PRIME_BITS - 1,
+            &modulus
+                .wrapping_shr_vartime(2)
+                .wrapping_add(&<P::HalfUint as Integer>::one()),
+            P::PRIME_BITS as u32 - 1,
         );
         if candidate.square() == *x {
             Some(candidate)
@@ -253,9 +287,9 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
     ) -> Option<(P::HalfUintMod, P::HalfUintMod)> {
         // TODO (#73): when we can extract the modulus from `HalfUintMod`, this can be moved there.
         // For now we have to keep this a method of SecretKey to have access to `p` and `q`.
-        let (p_part, q_part) = *rns;
-        let p_res = self.sqrt_part(&p_part, self.sk.p.expose_secret());
-        let q_res = self.sqrt_part(&q_part, self.sk.q.expose_secret());
+        let (p_part, q_part) = rns;
+        let p_res = self.sqrt_part(p_part, self.sk.p.expose_secret());
+        let q_res = self.sqrt_part(q_part, self.sk.q.expose_secret());
         match (p_res, q_res) {
             (Some(p), Some(q)) => Some((p, q)),
             _ => None,
@@ -267,16 +301,16 @@ impl<P: PaillierParams> SecretKeyPaillierPrecomputed<P> {
         // One step of Garner's algorithm:
         // x = a + p * ((b - a) * p^{-1} mod q)
 
-        let (a_mod_p, b_mod_q) = *rns;
+        let (a_mod_p, b_mod_q) = rns;
 
         let a_half = a_mod_p.retrieve();
-        let a_mod_q = a_half.to_mod(&self.precomputed_mod_q);
-        let x = ((b_mod_q - a_mod_q) * self.inv_p_mod_q).retrieve();
+        let a_mod_q = P::HalfUintMod::new(a_half.clone(), self.precomputed_mod_q.clone());
+        let x = ((b_mod_q.clone() - a_mod_q) * self.inv_p_mod_q.clone()).retrieve();
         let a = a_half.into_wide();
 
         // Will not overflow since 0 <= x < q, and 0 <= a < p.
         a.checked_add(&self.sk.p.expose_secret().mul_wide(&x))
-            .unwrap()
+            .expect("Will not overflow since 0 <= x < q, and 0 <= a < p.")
     }
 
     pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
@@ -332,9 +366,12 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     pub fn to_precomputed(&self) -> PublicKeyPaillierPrecomputed<P> {
         // Note that this ensures that `self.modulus` is odd,
         // otherwise creating the Montgomery parameters fails.
-        let precomputed_modulus = P::UintMod::new_precomputed(&NonZero::new(self.modulus).unwrap());
-        let precomputed_modulus_squared =
-            P::WideUintMod::new_precomputed(&NonZero::new(self.modulus.square_wide()).unwrap());
+        let odd = Odd::new(self.modulus).expect("Assumed to  be odd");
+        let precomputed_modulus = P::UintMod::new_params_vartime(odd);
+        let precomputed_modulus_squared = P::WideUintMod::new_params_vartime(
+            Odd::new(self.modulus.square_wide()).expect("Square of odd number is odd"),
+        );
+
         PublicKeyPaillierPrecomputed {
             pk: self.clone(),
             precomputed_modulus,
@@ -343,11 +380,11 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct PublicKeyPaillierPrecomputed<P: PaillierParams> {
     pk: PublicKeyPaillier<P>,
-    precomputed_modulus: <P::UintMod as UintModLike>::Precomputed,
-    precomputed_modulus_squared: <P::WideUintMod as UintModLike>::Precomputed,
+    precomputed_modulus: <P::UintMod as Monty>::Params,
+    precomputed_modulus_squared: <P::WideUintMod as Monty>::Params,
 }
 
 impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
@@ -372,20 +409,22 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
     }
 
     /// Returns precomputed parameters for integers modulo N
-    pub fn precomputed_modulus(&self) -> &<P::UintMod as UintModLike>::Precomputed {
+    pub fn precomputed_modulus(&self) -> &<P::UintMod as Monty>::Params {
         &self.precomputed_modulus
     }
 
     /// Returns precomputed parameters for integers modulo N^2
-    pub fn precomputed_modulus_squared(&self) -> &<P::WideUintMod as UintModLike>::Precomputed {
+    pub fn precomputed_modulus_squared(&self) -> &<P::WideUintMod as Monty>::Params {
         &self.precomputed_modulus_squared
     }
 
+    /// Finds an invertible group element via rejection sampling. Returns the
+    /// element in Montgomery form.
     pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
-        // Finding an invertible element via rejection sampling.
+        let modulus = self.modulus_nonzero();
         loop {
-            let r = P::Uint::random_mod(rng, &self.modulus_nonzero());
-            let r_m = r.to_mod(self.precomputed_modulus());
+            let r = P::Uint::random_mod(rng, &modulus);
+            let r_m = P::UintMod::new(r, self.precomputed_modulus().clone());
             if r_m.invert().is_some().into() {
                 return r_m;
             }
@@ -434,8 +473,8 @@ mod tests {
         let sk_ser = sk.serialize(&serializer).unwrap();
         let expected_tokens = [
             Token::Tuple { len: 2 },
-            Token::Str("c3583e6f6b1ce8cf3af885cfa46f8248ea9ac87e093da07ae119573f63351f7b89c28f50f23ab980a6d8d937890796c131d2018376d7f61a8a8ff2107cf8fdba".into()),
-            Token::Str("c3d4aaacc5ed80dd0e63cf1bc3df5dbc0931f60879cc4bd6b4abd70b3bfa8460293fd1dc06a8835b7a5dd555b9546cd23ffd3a2db60d1f2977819f28530cc7be".into()),
+            Token::Str("d30b226b6f3a29a048826fa4cf85f83a7aa03d097ec89aea7b1f35633f5719e180b93af2508fc289c196078937d9d8a61af6d7768301d231bafdf87c10f28f8a".into()),
+            Token::Str("7f0e0796291488cf87ed167109d9daf34e4ad5cc1399c9d034803b953652598963abf19b9675653a51e619651f1ab15e66256829c250903fae3ab96683b5aff9".into()),
             Token::TupleEnd,
         ];
         assert_eq!(sk_ser, expected_tokens);

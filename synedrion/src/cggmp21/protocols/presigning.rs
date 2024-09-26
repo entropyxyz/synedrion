@@ -348,8 +348,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let target_pk = &self.context.aux_info.public_aux[destination].paillier_pk;
 
-        let beta = Signed::random_bounded_bits(rng, P::LP_BOUND).secret_box();
-        let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND).secret_box();
+        let beta = SecretBox::new(Box::new(Signed::random_bounded_bits(rng, P::LP_BOUND)));
+        let hat_beta = SecretBox::new(Box::new(Signed::random_bounded_bits(rng, P::LP_BOUND)));
         let r = RandomizerMod::random(rng, pk);
         let s = RandomizerMod::random(rng, target_pk);
         let hat_r = RandomizerMod::random(rng, pk);

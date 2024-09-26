@@ -276,7 +276,11 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
+impl<P, I> PresigningData<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Clone + PartialEq,
+{
     /// Creates a consistent set of presigning data for testing purposes.
     #[cfg(any(test, feature = "bench-internals"))]
     pub(crate) fn new_centralized(
@@ -368,7 +372,7 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 values.insert(
                     id_j.clone(),
                     PresigningValues {
-                        hat_beta: hat_betas[&id_ij].secret_box(),
+                        hat_beta: SecretBox::new(Box::new(hat_betas[&id_ij])),
                         hat_r: hat_rs[&id_ij].clone(),
                         hat_s: hat_ss[&id_ij].clone(),
                         hat_cap_d_received: hat_cap_ds[&id_ij].clone(),

@@ -5,7 +5,11 @@ use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::uint::{Bounded, Retrieve, Signed, UintLike, UintModLike};
+use crate::uint::{
+    pow::{pow_signed, pow_signed_extra_wide, pow_signed_vartime, pow_signed_wide},
+    Bounded, Retrieve, Signed, ToMontgomery,
+};
+use crypto_bigint::{PowBoundedExp, Square};
 
 pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
 
@@ -51,7 +55,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
         let r = pk.random_invertible_group_elem(rng);
 
         let base = r.square();
-        let power = base.pow_bounded(&secret.0);
+        let power = base.pow_bounded_exp(secret.0.as_ref(), secret.0.bound());
 
         Self {
             pk: pk.clone(),
@@ -74,7 +78,8 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            self.base.pow_signed_wide(randomizer) * self.power.pow_signed(secret.expose_secret()),
+            pow_signed_wide::<P::Uint>(self.base, randomizer)
+                * pow_signed(self.power, secret.expose_secret()),
         )
     }
 
@@ -89,8 +94,8 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            self.base.pow_signed_wide(randomizer)
-                * self.power.pow_signed_wide(secret.expose_secret()),
+            pow_signed_wide::<P::Uint>(self.base, randomizer)
+                * pow_signed_wide::<P::Uint>(self.power, secret.expose_secret()),
         )
     }
 
@@ -101,14 +106,17 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            self.base.pow_signed_extra_wide(randomizer)
-                * self.power.pow_bounded(secret.expose_secret()),
+            pow_signed_extra_wide::<P::Uint>(self.base, randomizer)
+                * self.power.pow_bounded_exp(
+                    secret.expose_secret().as_ref(),
+                    secret.expose_secret().bound(),
+                ),
         )
     }
 
     pub fn commit_base_xwide(&self, randomizer: &Signed<P::ExtraWideUint>) -> RPCommitmentMod<P> {
         // $t^\rho mod N$ where $\rho$ is the randomizer.
-        RPCommitmentMod(self.base.pow_signed_extra_wide(randomizer))
+        RPCommitmentMod(pow_signed_extra_wide::<P::Uint>(self.base, randomizer))
     }
 
     pub fn retrieve(&self) -> RPParams<P> {
@@ -131,8 +139,8 @@ impl<P: PaillierParams> RPParams<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPParamsMod<P> {
         RPParamsMod {
             pk: pk.clone(),
-            base: self.base.to_mod(pk.precomputed_modulus()),
-            power: self.power.to_mod(pk.precomputed_modulus()),
+            base: self.base.to_montgomery(pk.precomputed_modulus()),
+            power: self.power.to_montgomery(pk.precomputed_modulus()),
         }
     }
 }
@@ -150,11 +158,11 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     /// Note: this is variable time in `exponent`.
     /// `exponent` will be effectively reduced modulo `totient(N)`.
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(self.0.pow_signed_vartime(exponent))
+        Self(pow_signed_vartime(self.0, exponent))
     }
 
     pub fn pow_signed_wide(&self, exponent: &Signed<P::WideUint>) -> Self {
-        Self(self.0.pow_signed_wide(exponent))
+        Self(pow_signed_wide::<P::Uint>(self.0, exponent))
     }
 }
 
@@ -170,6 +178,6 @@ pub(crate) struct RPCommitment<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
-        RPCommitmentMod(self.0.to_mod(pk.precomputed_modulus()))
+        RPCommitmentMod(self.0.to_montgomery(pk.precomputed_modulus()))
     }
 }

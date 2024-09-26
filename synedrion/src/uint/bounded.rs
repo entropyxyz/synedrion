@@ -8,10 +8,9 @@ use zeroize::DefaultIsZeroes;
 
 use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
-    CheckedAdd, CheckedMul, HasWide, Integer, NonZero, Signed, UintLike,
+    CheckedAdd, CheckedMul, Encoding, HasWide, Integer, NonZero, Signed,
 };
 use crate::tools::serde_bytes;
-
 /// A packed representation for serializing Bounded objects.
 /// Usually they have the bound much lower than the full size of the integer,
 /// so this way we avoid serializing a bunch of zeros.
@@ -22,7 +21,10 @@ pub(crate) struct PackedBounded {
     bytes: Box<[u8]>,
 }
 
-impl<T: UintLike> From<Bounded<T>> for PackedBounded {
+impl<T> From<Bounded<T>> for PackedBounded
+where
+    T: Integer + Encoding + crypto_bigint::Bounded,
+{
     fn from(val: Bounded<T>) -> Self {
         let repr = val.as_ref().to_be_bytes();
         let bound_bytes = (val.bound() + 7) / 8;
@@ -34,10 +36,13 @@ impl<T: UintLike> From<Bounded<T>> for PackedBounded {
     }
 }
 
-impl<T: UintLike> TryFrom<PackedBounded> for Bounded<T> {
+impl<T> TryFrom<PackedBounded> for Bounded<T>
+where
+    T: Integer + Encoding + crypto_bigint::Bounded,
+{
     type Error = String;
     fn try_from(val: PackedBounded) -> Result<Self, Self::Error> {
-        let mut repr = T::ZERO.to_be_bytes();
+        let mut repr = T::zero().to_be_bytes();
         let bytes_len: usize = val.bytes.len();
         let repr_len: usize = repr.as_ref().len();
 
@@ -57,14 +62,21 @@ impl<T: UintLike> TryFrom<PackedBounded> for Bounded<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(try_from = "PackedBounded", into = "PackedBounded")]
-pub struct Bounded<T: UintLike> {
+#[serde(
+    try_from = "PackedBounded",
+    into = "PackedBounded",
+    bound = "T: Integer + Encoding + crypto_bigint::Bounded"
+)]
+pub struct Bounded<T> {
     /// bound on the bit size of the value
     bound: u32,
     value: T,
 }
 
-impl<T: UintLike> Bounded<T> {
+impl<T> Bounded<T>
+where
+    T: Integer + crypto_bigint::Bounded,
+{
     pub fn bound(&self) -> u32 {
         self.bound
     }
@@ -75,7 +87,7 @@ impl<T: UintLike> Bounded<T> {
     }
 
     pub fn new(value: T, bound: u32) -> Option<Self> {
-        if bound > T::BITS as u32 || value.bits() as u32 > bound {
+        if bound > T::BITS || value.bits() > bound {
             return None;
         }
         Some(Self { value, bound })
@@ -86,22 +98,30 @@ impl<T: UintLike> Bounded<T> {
         // (although the modulus itself might be)
         Self {
             value: self.value.add_mod(&rhs.value, modulus),
-            bound: modulus.bits_vartime() as u32,
+            bound: modulus.bits_vartime(),
         }
     }
 
     pub fn into_signed(self) -> Option<Signed<T>> {
         Signed::new_positive(self.value, self.bound)
     }
+
+    /// Extracts the inner `T` from the `Bounded`. Consumes `self`.
+    pub fn into_inner(self) -> T {
+        self.value
+    }
 }
 
-impl<T: UintLike> AsRef<T> for Bounded<T> {
+impl<T> AsRef<T> for Bounded<T> {
     fn as_ref(&self) -> &T {
         &self.value
     }
 }
 
-impl<T: UintLike + HasWide> Bounded<T> {
+impl<T> Bounded<T>
+where
+    T: HasWide,
+{
     pub fn into_wide(self) -> Bounded<T::Wide> {
         Bounded {
             value: self.value.into_wide(),
@@ -118,11 +138,13 @@ impl<T: UintLike + HasWide> Bounded<T> {
     }
 }
 
-impl<T: UintLike> CheckedAdd for Bounded<T> {
-    type Output = Self;
-    fn checked_add(&self, rhs: Self) -> CtOption<Self> {
+impl<T> CheckedAdd for Bounded<T>
+where
+    T: Integer + crypto_bigint::Bounded,
+{
+    fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
-        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+        let in_range = bound.ct_lt(&<T as crypto_bigint::Bounded>::BITS);
 
         let result = Self {
             bound,
@@ -132,11 +154,13 @@ impl<T: UintLike> CheckedAdd for Bounded<T> {
     }
 }
 
-impl<T: UintLike> CheckedMul for Bounded<T> {
-    type Output = Self;
-    fn checked_mul(&self, rhs: Self) -> CtOption<Self> {
+impl<T> CheckedMul for Bounded<T>
+where
+    T: Integer + crypto_bigint::Bounded,
+{
+    fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
-        let in_range = bound.ct_lt(&(<T as Integer>::BITS as u32));
+        let in_range = bound.ct_lt(&<T as crypto_bigint::Bounded>::BITS);
 
         let result = Self {
             bound,
@@ -146,7 +170,10 @@ impl<T: UintLike> CheckedMul for Bounded<T> {
     }
 }
 
-impl<T: UintLike> ConditionallySelectable for Bounded<T> {
+impl<T> ConditionallySelectable for Bounded<T>
+where
+    T: ConditionallySelectable,
+{
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Self {
             bound: u32::conditional_select(&a.bound, &b.bound, choice),
@@ -155,10 +182,48 @@ impl<T: UintLike> ConditionallySelectable for Bounded<T> {
     }
 }
 
-impl<T: UintLike> DefaultIsZeroes for Bounded<T> {}
+impl<T> DefaultIsZeroes for Bounded<T> where T: Integer + Copy {}
 
-impl<T: UintLike> From<Bounded<T>> for SecretBox<Bounded<T>> {
+impl<T> From<Bounded<T>> for SecretBox<Bounded<T>>
+where
+    T: Integer + Copy,
+{
     fn from(value: Bounded<T>) -> Self {
         Box::new(value).into()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use crypto_bigint::{CheckedMul, U1024, U128, U2048};
+
+    use super::Bounded;
+
+    #[test]
+    fn checked_mul_fails_when_operands_have_max_bounds() {
+        let bound = 88;
+        let b1 = Bounded::new(U128::from_u8(10), bound).unwrap();
+        let b2 = Bounded::new(U128::from_u8(10), bound).unwrap();
+        let b3 = b1.checked_mul(&b2);
+
+        // Bounds are summed up, so 88 + 88 = 176 ==> OoB
+        assert!(bool::from(b3.is_none()));
+
+        let b4 = Bounded::new(U128::from_u8(10), 20).unwrap();
+        let b5 = b1.checked_mul(&b4);
+        // This is fine, because 88 + 20 < MAX BOUND (127)
+        assert!(bool::from(b5.is_some()));
+        assert_eq!(b5.unwrap(), Bounded::new(U128::from_u8(100), 108).unwrap());
+    }
+
+    #[test]
+    fn mul_wide_sums_the_bounds_of_the_operands() {
+        let bound = 678;
+        let b1 = Bounded::new(U1024::from_u8(10), bound).unwrap();
+        let b2 = Bounded::new(U1024::from_u8(10), bound).unwrap();
+        let b3 = b1.mul_wide(&b2);
+
+        // Bounds are summed up, so 678 + 678 = 1356
+        assert_eq!(b3.bound(), 1356);
+        assert_eq!(b3, Bounded::new(U2048::from_u8(100), 1356).unwrap());
     }
 }

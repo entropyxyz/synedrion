@@ -270,7 +270,7 @@ impl<P: SchemeParams> AffGProof<P> {
 #[cfg(test)]
 mod tests {
     use rand_core::OsRng;
-    use secrecy::ExposeSecret;
+    use secrecy::{ExposeSecret, SecretBox};
 
     use super::AffGProof;
     use crate::cggmp21::{SchemeParams, TestParams};
@@ -294,7 +294,10 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let y = Signed::random_bounded_bits(&mut OsRng, Params::LP_BOUND).secret_box();
+        let y = SecretBox::new(Box::new(Signed::random_bounded_bits(
+            &mut OsRng,
+            Params::LP_BOUND,
+        )));
 
         let rho = RandomizerMod::random(&mut OsRng, pk0);
         let rho_y = RandomizerMod::random(&mut OsRng, pk1);

@@ -188,7 +188,7 @@ where
         })
         .collect();
 
-    // Drop the last copy of the dispatcher's incoming channel so that it could finish.
+    // Drop the last copy of the dispatcher's incoming channel so that it can finish.
     drop(dispatcher_tx);
 
     let mut results = Vec::with_capacity(num_parties);
@@ -248,7 +248,7 @@ async fn full_sequence() {
 
     // Reshare to `n` nodes
 
-    // This will need to be published so that new holders could see it and verify the received data
+    // This will need to be published so that new holders can see it and verify the received data
     let new_holder = NewHolder {
         verifying_key: t_key_shares[0].verifying_key(),
         old_threshold: t_key_shares[0].threshold(),
