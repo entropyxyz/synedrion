@@ -65,7 +65,6 @@ where
     into = "PackedSigned",
     bound = "T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable"
 )]
-
 pub struct Signed<T> {
     /// bound on the bit size of the absolute value
     bound: u32,

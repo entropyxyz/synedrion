@@ -5,7 +5,7 @@ use crypto_bigint::{
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
-use zeroize::{DefaultIsZeroes, Zeroize};
+use zeroize::Zeroize;
 
 use crate::{tools::hashing::Hashable, uint::HasWide, uint::ToMontgomery};
 
@@ -47,8 +47,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Serialize
         + for<'de> Deserialize<'de>
         + ToMontgomery
-        + Zeroize
-        + DefaultIsZeroes;
+        + Zeroize;
     /// A modulo-residue counterpart of `Uint`.
     type UintMod: ConditionallySelectable
         + Monty<Integer = Self::Uint>
@@ -82,7 +81,6 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     // Technically, it doesn't have to be that large, but the time spent multiplying these
     // is negligible, and when it is used as an exponent, it is bounded anyway.
     // So it is easier to keep it as a double of `WideUint`.
-    // type ExtraWideUint: UintLike + Serialize + for<'de> Deserialize<'de>;
     type ExtraWideUint: Bounded
         + ConditionallySelectable
         + Encoding
