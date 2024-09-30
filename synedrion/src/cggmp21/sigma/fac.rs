@@ -1,6 +1,7 @@
 //! No small factor proof ($\Pi^{fac}$, Section C.5, Fig. 28)
 
 use rand_core::CryptoRngCore;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
@@ -89,8 +90,8 @@ impl<P: SchemeParams> FacProof<P> {
 
         let cap_p = setup.commit(&p, &mu).retrieve();
         let cap_q = setup.commit(&q, &nu);
-        let cap_a = setup.commit_wide(&alpha, &x).retrieve();
-        let cap_b = setup.commit_wide(&beta, &y).retrieve();
+        let cap_a = setup.commit_wide(&alpha.into(), &x).retrieve();
+        let cap_b = setup.commit_wide(&beta.into(), &y).retrieve();
         let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_base_xwide(&r)).retrieve();
         let cap_q = cap_q.retrieve();
 
@@ -112,9 +113,9 @@ impl<P: SchemeParams> FacProof<P> {
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.into_wide();
 
-        let hat_sigma = sigma - (nu * p.into_wide()).into_wide();
-        let z1 = alpha + (e * p).into_wide();
-        let z2 = beta + (e * q).into_wide();
+        let hat_sigma = sigma - (nu * p.expose_secret().into_wide()).into_wide();
+        let z1 = alpha + (e * p.expose_secret()).into_wide();
+        let z2 = beta + (e * q.expose_secret()).into_wide();
         let omega1 = x + e_wide * mu;
         let omega2 = y + e_wide * nu;
         let v = r + (e_wide.into_wide() * hat_sigma);
@@ -165,12 +166,12 @@ impl<P: SchemeParams> FacProof<P> {
         let aux_pk = setup.public_key();
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &setup.commit_xwide(&pk0.modulus_bounded(), &self.sigma);
+        let cap_r = &setup.commit_xwide(&pk0.modulus_bounded().into(), &self.sigma);
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a_mod = self.cap_a.to_mod(aux_pk);
         let cap_p_mod = self.cap_p.to_mod(aux_pk);
-        if setup.commit_wide(&self.z1, &self.omega1)
+        if setup.commit_wide(&self.z1.into(), &self.omega1)
             != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e)
         {
             return false;
@@ -179,7 +180,7 @@ impl<P: SchemeParams> FacProof<P> {
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
         let cap_b_mod = self.cap_b.to_mod(aux_pk);
         let cap_q_mod = self.cap_q.to_mod(aux_pk);
-        if setup.commit_wide(&self.z2, &self.omega2)
+        if setup.commit_wide(&self.z2.into(), &self.omega2)
             != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e)
         {
             return false;
