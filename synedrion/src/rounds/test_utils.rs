@@ -28,9 +28,9 @@ pub(crate) enum StepError<I: Debug> {
 }
 
 pub(crate) struct AssembledRound<I: Ord + Clone, R: Round<I>> {
-    round: R,
-    payloads: BTreeMap<I, <R as Round<I>>::Payload>,
-    artifacts: BTreeMap<I, <R as Round<I>>::Artifact>,
+    pub round: R,
+    pub payloads: BTreeMap<I, <R as Round<I>>::Payload>,
+    pub artifacts: BTreeMap<I, <R as Round<I>>::Artifact>,
 }
 
 pub(crate) fn step_round<I, R>(
