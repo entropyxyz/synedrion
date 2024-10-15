@@ -2,7 +2,9 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
+use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
+use zeroize::DefaultIsZeroes;
 
 use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
@@ -59,7 +61,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(
     try_from = "PackedBounded",
     into = "PackedBounded",
@@ -185,6 +187,16 @@ where
     }
 }
 
+impl<T> DefaultIsZeroes for Bounded<T> where T: Integer + Copy {}
+
+impl<T> From<Bounded<T>> for SecretBox<Bounded<T>>
+where
+    T: Integer + Copy,
+{
+    fn from(value: Bounded<T>) -> Self {
+        Box::new(value).into()
+    }
+}
 #[cfg(test)]
 mod tests {
     use crypto_bigint::{CheckedMul, U1024, U128, U2048};

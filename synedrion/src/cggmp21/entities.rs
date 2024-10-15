@@ -113,7 +113,7 @@ pub struct PresigningData<P: SchemeParams, I> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PresigningValues<P: SchemeParams> {
-    pub(crate) hat_beta: Signed<<P::Paillier as PaillierParams>::Uint>,
+    pub(crate) hat_beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
     pub(crate) hat_r: Randomizer<P::Paillier>,
     pub(crate) hat_s: Randomizer<P::Paillier>,
     pub(crate) cap_k: CiphertextMod<P::Paillier>,
@@ -276,7 +276,11 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
+impl<P, I> PresigningData<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Clone + PartialEq,
+{
     /// Creates a consistent set of presigning data for testing purposes.
     #[cfg(any(test, feature = "bench-internals"))]
     pub(crate) fn new_centralized(
@@ -347,7 +351,7 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 let id_ji = (id_j.clone(), id_i.clone());
 
                 hat_betas.insert(id_ij.clone(), hat_beta);
-                hat_ss.insert(id_ij.clone(), hat_s);
+                hat_ss.insert(id_ij.clone(), hat_s.clone());
                 hat_rs.insert(id_ij.clone(), hat_r);
 
                 hat_cap_ds.insert(id_ji.clone(), hat_cap_d);
@@ -369,7 +373,7 @@ impl<P: SchemeParams, I: Ord + Clone + PartialEq> PresigningData<P, I> {
                 values.insert(
                     id_j.clone(),
                     PresigningValues {
-                        hat_beta: hat_betas[&id_ij],
+                        hat_beta: SecretBox::new(Box::new(hat_betas[&id_ij])),
                         hat_r: hat_rs[&id_ij].clone(),
                         hat_s: hat_ss[&id_ij].clone(),
                         hat_cap_d_received: hat_cap_ds[&id_ij].clone(),

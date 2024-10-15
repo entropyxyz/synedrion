@@ -295,12 +295,12 @@ pub struct Round2Message<P: SchemeParams> {
 
 #[derive(Debug, Clone)]
 pub struct Round2Artifact<P: SchemeParams> {
-    beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO (#77): secret
-    hat_beta: Signed<<P::Paillier as PaillierParams>::Uint>, // TODO (#77): secret
-    r: Randomizer<P::Paillier>,                          // TODO (#77): secret
-    s: Randomizer<P::Paillier>,                          // TODO (#77): secret
-    hat_r: Randomizer<P::Paillier>,                      // TODO (#77): secret
-    hat_s: Randomizer<P::Paillier>,                      // TODO (#77): secret
+    beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    hat_beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    r: Randomizer<P::Paillier>,
+    s: Randomizer<P::Paillier>,
+    hat_r: Randomizer<P::Paillier>,
+    hat_s: Randomizer<P::Paillier>,
     cap_d: CiphertextMod<P::Paillier>,
     cap_f: CiphertextMod<P::Paillier>,
     hat_cap_d: CiphertextMod<P::Paillier>,
@@ -344,26 +344,39 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
         let aux = (&self.context.ssid_hash, &self.my_id());
 
         let cap_gamma = self.context.gamma.mul_by_generator();
-        let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
+        let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
 
         let target_pk = &self.context.aux_info.public_aux[destination].paillier_pk;
 
-        let beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
-        let hat_beta = Signed::random_bounded_bits(rng, P::LP_BOUND);
+        let beta = SecretBox::new(Box::new(Signed::random_bounded_bits(rng, P::LP_BOUND)));
+        let hat_beta = SecretBox::new(Box::new(Signed::random_bounded_bits(rng, P::LP_BOUND)));
         let r = RandomizerMod::random(rng, pk);
         let s = RandomizerMod::random(rng, target_pk);
         let hat_r = RandomizerMod::random(rng, pk);
         let hat_s = RandomizerMod::random(rng, target_pk);
 
-        let cap_f = CiphertextMod::new_with_randomizer_signed(pk, &beta, &r.retrieve());
+        let cap_f =
+            CiphertextMod::new_with_randomizer_signed(pk, beta.expose_secret(), &r.retrieve());
         let cap_d = &self.all_cap_k[destination]
             * P::signed_from_scalar(&self.context.gamma).unwrap()
-            + CiphertextMod::new_with_randomizer_signed(target_pk, &-beta, &s.retrieve());
+            + CiphertextMod::new_with_randomizer_signed(
+                target_pk,
+                &-beta.expose_secret(),
+                &s.retrieve(),
+            );
 
-        let hat_cap_f = CiphertextMod::new_with_randomizer_signed(pk, &hat_beta, &hat_r.retrieve());
+        let hat_cap_f = CiphertextMod::new_with_randomizer_signed(
+            pk,
+            hat_beta.expose_secret(),
+            &hat_r.retrieve(),
+        );
         let hat_cap_d = &self.all_cap_k[destination]
             * P::signed_from_scalar(self.context.key_share.secret_share.expose_secret()).unwrap()
-            + CiphertextMod::new_with_randomizer_signed(target_pk, &-hat_beta, &hat_s.retrieve());
+            + CiphertextMod::new_with_randomizer_signed(
+                target_pk,
+                &-hat_beta.expose_secret(),
+                &hat_s.retrieve(),
+            );
 
         let public_aux = &self.context.aux_info.public_aux[destination];
         let rp = &public_aux.rp_params;
@@ -372,8 +385,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
             rng,
             &P::signed_from_scalar(&self.context.gamma).unwrap(),
             &beta,
-            &s,
-            &r,
+            s.clone(),
+            r.clone(),
             target_pk,
             pk,
             &self.all_cap_k[destination],
@@ -388,8 +401,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
             rng,
             &P::signed_from_scalar(self.context.key_share.secret_share.expose_secret()).unwrap(),
             &hat_beta,
-            &hat_s,
-            &hat_r,
+            hat_s.clone(),
+            hat_r.clone(),
             target_pk,
             pk,
             &self.all_cap_k[destination],
@@ -543,14 +556,17 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
         let cap_delta = cap_gamma * self.context.k;
 
         let alpha_sum: Signed<_> = payloads.values().map(|p| p.alpha).sum();
-        let beta_sum: Signed<_> = artifacts.values().map(|p| p.beta).sum();
+        let beta_sum: Signed<_> = artifacts.values().map(|p| p.beta.expose_secret()).sum();
         let delta = P::signed_from_scalar(&self.context.gamma).unwrap()
             * P::signed_from_scalar(&self.context.k).unwrap()
             + alpha_sum
             + beta_sum;
 
         let hat_alpha_sum: Signed<_> = payloads.values().map(|payload| payload.hat_alpha).sum();
-        let hat_beta_sum: Signed<_> = artifacts.values().map(|artifact| artifact.hat_beta).sum();
+        let hat_beta_sum: Signed<_> = artifacts
+            .values()
+            .map(|artifact| artifact.hat_beta.expose_secret())
+            .sum();
         let chi = P::signed_from_scalar(self.context.key_share.secret_share.expose_secret())
             .unwrap()
             * P::signed_from_scalar(&self.context.k).unwrap()
@@ -772,8 +788,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
                     rng,
                     &P::signed_from_scalar(&self.context.gamma).unwrap(),
                     beta,
-                    &s.to_mod(target_pk),
-                    &r.to_mod(pk),
+                    s.to_mod(target_pk),
+                    r.to_mod(pk),
                     target_pk,
                     pk,
                     &self.all_cap_k[id_j],
