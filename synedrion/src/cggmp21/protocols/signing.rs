@@ -182,14 +182,14 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
                 let target_pk = &self.aux_info.public_aux[id_j].paillier_pk;
                 let rp = &self.aux_info.public_aux[id_l].rp_params;
 
-                let values = &self.inputs.presigning.values.get(id_j).unwrap();
+                let values = self.inputs.presigning.values.get(id_j).unwrap();
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
                     &P::signed_from_scalar(self.inputs.key_share.secret_share.expose_secret()),
                     &values.hat_beta,
-                    &values.hat_s.to_mod(target_pk),
-                    &values.hat_r.to_mod(pk),
+                    values.hat_s.to_mod(target_pk),
+                    values.hat_r.to_mod(pk),
                     target_pk,
                     pk,
                     &values.cap_k,

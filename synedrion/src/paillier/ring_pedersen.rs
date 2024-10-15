@@ -1,6 +1,7 @@
 use core::ops::Mul;
 
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
@@ -72,36 +73,44 @@ impl<P: PaillierParams> RPParamsMod<P> {
     // - this will match the order in the paper
     pub fn commit(
         &self,
-        secret: &Signed<P::Uint>,
-        randomizer: &Signed<P::WideUint>,
-    ) -> RPCommitmentMod<P> {
-        // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(
-            pow_signed_wide::<P::Uint>(self.base, randomizer) * pow_signed(self.power, secret),
-        )
-    }
-
-    pub fn commit_wide(
-        &self,
-        secret: &Signed<P::WideUint>,
+        secret: &SecretBox<Signed<P::Uint>>,
         randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
             pow_signed_wide::<P::Uint>(self.base, randomizer)
-                * pow_signed_wide::<P::Uint>(self.power, secret),
+                * pow_signed(self.power, secret.expose_secret()),
+        )
+    }
+
+    pub fn commit_wide(
+        &self,
+        // TODO(dp): @reviewers Question unrelated to the PR, just something I noticed: Why is the
+        // `secret` a `P::WideUint` in this method but a `P::Uint` in `commit_xwide` below? Should
+        // it be the same here? Or `P::ExtraWide` there? Maybe it's like it should, because while
+        // `commit` and `commit_wide` take a `Signed` secret, `commit_xwide` takes a `Bounded`?
+        secret: &SecretBox<Signed<P::WideUint>>,
+        randomizer: &Signed<P::WideUint>,
+    ) -> RPCommitmentMod<P> {
+        // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
+        RPCommitmentMod(
+            pow_signed_wide::<P::Uint>(self.base, randomizer)
+                * pow_signed_wide::<P::Uint>(self.power, secret.expose_secret()),
         )
     }
 
     pub fn commit_xwide(
         &self,
-        secret: &Bounded<P::Uint>,
+        secret: &SecretBox<Bounded<P::Uint>>,
         randomizer: &Signed<P::ExtraWideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
             pow_signed_extra_wide::<P::Uint>(self.base, randomizer)
-                * self.power.pow_bounded_exp(secret.as_ref(), secret.bound()),
+                * self.power.pow_bounded_exp(
+                    secret.expose_secret().as_ref(),
+                    secret.expose_secret().bound(),
+                ),
         )
     }
 

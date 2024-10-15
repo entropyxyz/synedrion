@@ -58,10 +58,10 @@ impl<P: SchemeParams> EncProof<P> {
         let r = RandomizerMod::random(rng, pk0);
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        let cap_s = setup.commit(k, &mu).retrieve();
+        let cap_s = setup.commit(&k.into(), &mu).retrieve();
         let cap_a =
             CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
-        let cap_c = setup.commit(&alpha, &gamma).retrieve();
+        let cap_c = setup.commit(&alpha.into(), &gamma).retrieve();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -135,7 +135,8 @@ impl<P: SchemeParams> EncProof<P> {
         // s^{z_1} t^{z_3} == C S^e \mod \hat{N}
         let cap_c_mod = self.cap_c.to_mod(setup.public_key());
         let cap_s_mod = self.cap_s.to_mod(setup.public_key());
-        if setup.commit(&self.z1, &self.z3) != &cap_c_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z1.into(), &self.z3) != &cap_c_mod * &cap_s_mod.pow_signed_vartime(&e)
+        {
             return false;
         }
 

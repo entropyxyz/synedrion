@@ -1,6 +1,7 @@
 //! Paillier Affine Operation with Group Commitment in Range ($\Pi^{aff-g}$, Section 6.2, Fig. 15)
 
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
@@ -59,9 +60,9 @@ impl<P: SchemeParams> AffGProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        y: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        rho: &RandomizerMod<P::Paillier>,
-        rho_y: &RandomizerMod<P::Paillier>,
+        y: &SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
+        rho: RandomizerMod<P::Paillier>,
+        rho_y: RandomizerMod<P::Paillier>,
         pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
         pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
         cap_c: &CiphertextMod<P::Paillier>,
@@ -72,7 +73,7 @@ impl<P: SchemeParams> AffGProof<P> {
         aux: &impl Hashable,
     ) -> Self {
         x.assert_bound(P::L_BOUND);
-        y.assert_bound(P::LP_BOUND);
+        y.expose_secret().assert_bound(P::LP_BOUND);
         assert!(cap_c.public_key() == pk0);
         assert!(cap_d.public_key() == pk0);
         assert!(cap_y.public_key() == pk1);
@@ -96,14 +97,14 @@ impl<P: SchemeParams> AffGProof<P> {
         let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
         let cap_b_y =
             CiphertextMod::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve()).retrieve();
-        let cap_e = setup.commit(&alpha, &gamma).retrieve();
-        let cap_s = setup.commit(x, &m).retrieve();
-        let cap_f = setup.commit(&beta, &delta).retrieve();
+        let cap_e = setup.commit(&alpha.into(), &gamma).retrieve();
+        let cap_s = setup.commit(&x.into(), &m).retrieve();
+        let cap_f = setup.commit(&beta.into(), &delta).retrieve();
 
         // NOTE: deviation from the paper to support a different $D$
         // (see the comment in `AffGProof`)
         // Original: $s^y$. Modified: $s^{-y}$
-        let cap_t = setup.commit(&-y, &mu).retrieve();
+        let cap_t = setup.commit(&(-y.expose_secret()).into(), &mu).retrieve();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -135,7 +136,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // (see the comment in `AffGProof`)
         // Original: $z_2 = \beta + e y$
         // Modified: $z_2 = \beta - e y$
-        let z2 = beta + e * (-y);
+        let z2 = beta + e * (-y.expose_secret());
 
         let z3 = gamma + e_wide * m;
         let z4 = delta + e_wide * mu;
@@ -249,14 +250,16 @@ impl<P: SchemeParams> AffGProof<P> {
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
         let cap_e_mod = self.cap_e.to_mod(aux_pk);
         let cap_s_mod = self.cap_s.to_mod(aux_pk);
-        if setup.commit(&self.z1, &self.z3) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z1.into(), &self.z3) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e)
+        {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
         let cap_f_mod = self.cap_f.to_mod(aux_pk);
         let cap_t_mod = self.cap_t.to_mod(aux_pk);
-        if setup.commit(&self.z2, &self.z4) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e) {
+        if setup.commit(&self.z2.into(), &self.z4) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e)
+        {
             return false;
         }
 
@@ -267,6 +270,7 @@ impl<P: SchemeParams> AffGProof<P> {
 #[cfg(test)]
 mod tests {
     use rand_core::OsRng;
+    use secrecy::{ExposeSecret, SecretBox};
 
     use super::AffGProof;
     use crate::cggmp21::{SchemeParams, TestParams};
@@ -290,21 +294,24 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let y = Signed::random_bounded_bits(&mut OsRng, Params::LP_BOUND);
+        let y = SecretBox::new(Box::new(Signed::random_bounded_bits(
+            &mut OsRng,
+            Params::LP_BOUND,
+        )));
 
         let rho = RandomizerMod::random(&mut OsRng, pk0);
         let rho_y = RandomizerMod::random(&mut OsRng, pk1);
         let secret = Signed::random(&mut OsRng);
         let cap_c = CiphertextMod::new_signed(&mut OsRng, pk0, &secret);
 
-        let cap_d =
-            &cap_c * x + CiphertextMod::new_with_randomizer_signed(pk0, &-y, &rho.retrieve());
-        let cap_y = CiphertextMod::new_with_randomizer_signed(pk1, &y, &rho_y.retrieve());
+        let cap_d = &cap_c * x
+            + CiphertextMod::new_with_randomizer_signed(pk0, &-y.expose_secret(), &rho.retrieve());
+        let cap_y =
+            CiphertextMod::new_with_randomizer_signed(pk1, y.expose_secret(), &rho_y.retrieve());
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(
-            &mut OsRng, &x, &y, &rho, &rho_y, pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup,
-            &aux,
+            &mut OsRng, &x, &y, rho, rho_y, pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux,
         );
         assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux));
     }
