@@ -211,13 +211,10 @@ where
         self.totient.into()
     }
 
-    /// Returns Euler's totient function (`φ(n)`) of the modulus as a [`NonZero`]
-    pub fn totient_nonzero(&self) -> NonZero<P::Uint> {
-        // TODO (#77): must be wrapped in a Secret – This must await the release of crypto-bigint
-        // v0.6, because `NonZero` doesn't implement `Zeroize` in prior versions. Without `Zeroize`
-        // we cannot build a `SecretBox`.
-
-        NonZero::new(*self.totient.as_ref()).expect("φ(n) is a positive, non-zero number")
+    /// Returns Euler's totient function (`φ(n)`) of the modulus as a [`NonZero`], wrapped in a [`SecretBox`].
+    pub fn totient_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
+        Box::new(NonZero::new(*self.totient.as_ref()).expect("φ(n) is a positive, non-zero number"))
+            .into()
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
@@ -315,7 +312,7 @@ where
 
     pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
         Bounded::new(
-            P::Uint::random_mod(rng, &self.totient_nonzero()),
+            P::Uint::random_mod(rng, self.totient_nonzero().expose_secret()),
             P::MODULUS_BITS as u32,
         )
         .unwrap()
