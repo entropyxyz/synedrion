@@ -34,7 +34,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     /// A modulo-residue counterpart of `HalfUint`.
     type HalfUintMod: Monty<Integer = Self::HalfUint>
         + Retrieve<Output = Self::HalfUint>
-        + Invert<Output = CtOption<Self::HalfUintMod>>;
+        + Invert<Output = CtOption<Self::HalfUintMod>>
+        + Zeroize;
 
     /// An integer that fits the RSA modulus.
     type Uint: Integer<Monty = Self::UintMod>
@@ -69,7 +70,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + RandomMod
         + Serialize
         + for<'de> Deserialize<'de>
-        + ToMontgomery;
+        + ToMontgomery
+        + Zeroize;
 
     /// A modulo-residue counterpart of `WideUint`.
     type WideUintMod: Monty<Integer = Self::WideUint>
@@ -84,7 +86,6 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     // Technically, it doesn't have to be that large, but the time spent multiplying these
     // is negligible, and when it is used as an exponent, it is bounded anyway.
     // So it is easier to keep it as a double of `WideUint`.
-    // type ExtraWideUint: UintLike + Serialize + for<'de> Deserialize<'de>;
     type ExtraWideUint: Bounded
         + ConditionallySelectable
         + Encoding
@@ -97,7 +98,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
 
 /// Paillier parameters for unit tests in this submodule.
 #[cfg(test)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Zeroize)]
 pub(crate) struct PaillierTest;
 
 #[cfg(test)]

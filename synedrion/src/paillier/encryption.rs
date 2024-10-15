@@ -3,8 +3,9 @@ use core::ops::{Add, Mul};
 
 use crypto_bigint::{Invert, Monty, PowBoundedExp, ShrVartime, WrappingSub};
 use rand_core::CryptoRngCore;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
-use zeroize::ZeroizeOnDrop;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use super::params::PaillierParams;
@@ -14,7 +15,7 @@ use crate::uint::{
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
-#[derive(Debug, Clone, Serialize, Deserialize, ZeroizeOnDrop)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZeroizeOnDrop, Default, Zeroize)]
 pub(crate) struct Randomizer<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> Randomizer<P> {
@@ -27,7 +28,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop)]
+#[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop, Zeroize)]
 pub(crate) struct RandomizerMod<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> RandomizerMod<P> {
@@ -72,14 +73,14 @@ impl<'a, P: PaillierParams> Mul<&'a RandomizerMod<P>> for &'a RandomizerMod<P> {
     }
 }
 
-impl<'a, P: PaillierParams> Mul<RandomizerMod<P>> for &'a RandomizerMod<P> {
+impl<P: PaillierParams> Mul<RandomizerMod<P>> for &RandomizerMod<P> {
     type Output = RandomizerMod<P>;
     fn mul(self, rhs: RandomizerMod<P>) -> Self::Output {
         self * &rhs
     }
 }
 
-impl<'a, P: PaillierParams> Mul<&'a RandomizerMod<P>> for RandomizerMod<P> {
+impl<P: PaillierParams> Mul<&RandomizerMod<P>> for RandomizerMod<P> {
     type Output = RandomizerMod<P>;
     fn mul(self, rhs: &RandomizerMod<P>) -> Self::Output {
         &self * rhs
@@ -146,9 +147,6 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // `SchemeParameters`/`PaillierParameters` values in tests, which can only
         // be overcome by fixing #27 and using a small 32- or 64-bit curve for tests)
 
-        // TODO (#77): wrap in Secret
-        let randomizer = randomizer.0.into_wide();
-
         // Calculate the ciphertext `C = (N + 1)^m * rho^N mod N^2`
         // where `N` is the Paillier composite modulus, `m` is the plaintext,
         // and `rho` is the randomizer.
@@ -162,6 +160,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
 
         let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared().clone());
 
+        let randomizer = randomizer.0.into_wide();
         let pk_mod_bound = pk.modulus_bounded().into_wide();
         let factor2 = randomizer
             .to_montgomery(pk.precomputed_modulus_squared())
@@ -227,7 +226,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         assert_eq!(sk.public_key(), &self.pk);
 
         let pk = sk.public_key();
-        let totient_wide = sk.totient().into_wide();
+        let totient_wide = sk.totient().expose_secret().into_wide();
         let modulus_wide = NonZero::new(pk.modulus().into_wide()).unwrap();
 
         // Calculate the plaintext `m = ((C^phi mod N^2 - 1) / N) * mu mod N`,
@@ -247,7 +246,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         .unwrap();
         let x_mod = x.to_montgomery(pk.precomputed_modulus());
 
-        (x_mod * sk.inv_totient()).retrieve()
+        (x_mod * sk.inv_totient().expose_secret()).retrieve()
     }
 
     /// Decrypts this ciphertext assuming that the plaintext is in range `[-N/2, N/2)`.

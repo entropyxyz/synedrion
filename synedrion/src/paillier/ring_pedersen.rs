@@ -1,6 +1,7 @@
 use core::ops::Mul;
 
 use rand_core::CryptoRngCore;
+use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
@@ -87,13 +88,16 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn commit_xwide(
         &self,
-        secret: &Bounded<P::Uint>,
+        secret: &SecretBox<Bounded<P::Uint>>,
         randomizer: &Signed<P::ExtraWideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
             self.base.pow_signed_extra_wide(randomizer)
-                * self.power.pow_bounded_exp(secret.as_ref(), secret.bound()),
+                * self.power.pow_bounded_exp(
+                    secret.expose_secret().as_ref(),
+                    secret.expose_secret().bound(),
+                ),
         )
     }
 

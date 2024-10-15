@@ -4,12 +4,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.2.0] - In development
+## [0.2.0-pre.0] - 2024-10-03
 
 ### Changed
 
 - `FirstRound::Context` renamed to `Inputs`. ([#102])
 - `Payload` and `Artifact` values are hidden in wrapper types where they were previously exposed. ([#102])
+- A number of crates set to their `pre` releases hinging on the `pre` release of `crypto-bigint`.
 
 
 ### Added

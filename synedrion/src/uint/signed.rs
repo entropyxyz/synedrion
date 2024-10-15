@@ -1,10 +1,12 @@
-use alloc::string::String;
+use alloc::{boxed::Box, string::String};
 use core::ops::{Add, Mul, Neg, Sub};
 #[cfg(test)]
 use crypto_bigint::Random;
 use digest::XofReader;
 use rand_core::CryptoRngCore;
+use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use super::{
     bounded::PackedBounded,
@@ -63,7 +65,6 @@ where
     into = "PackedSigned",
     bound = "T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable"
 )]
-
 pub struct Signed<T> {
     /// bound on the bit size of the absolute value
     bound: u32,
@@ -320,6 +321,35 @@ impl<T: Integer> Default for Signed<T> {
     }
 }
 
+impl<T> Zeroize for Signed<T>
+where
+    T: Integer + Zeroize,
+{
+    fn zeroize(&mut self) {
+        self.value.zeroize();
+    }
+}
+
+impl<T> secrecy::CloneableSecret for Signed<T> where T: Clone + Integer + Zeroize {}
+
+impl<T> From<Signed<T>> for SecretBox<Signed<T>>
+where
+    T: Integer + Zeroize,
+{
+    fn from(value: Signed<T>) -> Self {
+        Box::new(value).into()
+    }
+}
+
+impl<T> From<&Signed<T>> for SecretBox<Signed<T>>
+where
+    T: Integer + Zeroize,
+{
+    fn from(value: &Signed<T>) -> Self {
+        SecretBox::new(Box::new(value.clone()))
+    }
+}
+
 impl<T> ConditionallySelectable for Signed<T>
 where
     T: Integer + ConditionallySelectable,
@@ -342,7 +372,7 @@ where
     }
 }
 
-impl<'a, T> Neg for &'a Signed<T>
+impl<T> Neg for &Signed<T>
 where
     T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
 {

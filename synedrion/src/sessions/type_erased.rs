@@ -63,9 +63,9 @@ pub(crate) enum FinalizeError<Res: ProtocolResult> {
 /// to be passed to statically typed round methods.
 struct BoxedRng<'a>(&'a mut dyn CryptoRngCore);
 
-impl<'a> rand_core::CryptoRng for BoxedRng<'a> {}
+impl rand_core::CryptoRng for BoxedRng<'_> {}
 
-impl<'a> rand_core::RngCore for BoxedRng<'a> {
+impl rand_core::RngCore for BoxedRng<'_> {
     fn next_u32(&mut self) -> u32 {
         self.0.next_u32()
     }

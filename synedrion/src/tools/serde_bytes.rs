@@ -25,7 +25,7 @@ impl<'a, T> TryFromBytes<'a, T::Error> for T where T: TryFrom<&'a [u8]> {}
 
 struct B64Visitor<T, V>(PhantomData<T>, PhantomData<V>);
 
-impl<'de, T, V> de::Visitor<'de> for B64Visitor<T, V>
+impl<T, V> de::Visitor<'_> for B64Visitor<T, V>
 where
     T: for<'a> TryFromBytes<'a, V>,
     V: fmt::Display,
@@ -49,7 +49,7 @@ where
 
 struct HexVisitor<T, V>(PhantomData<T>, PhantomData<V>);
 
-impl<'de, T, V> de::Visitor<'de> for HexVisitor<T, V>
+impl<T, V> de::Visitor<'_> for HexVisitor<T, V>
 where
     T: for<'a> TryFromBytes<'a, V>,
     V: fmt::Display,
@@ -83,7 +83,7 @@ where
 
 struct BytesVisitor<T, V>(PhantomData<T>, PhantomData<V>);
 
-impl<'de, T, V> de::Visitor<'de> for BytesVisitor<T, V>
+impl<T, V> de::Visitor<'_> for BytesVisitor<T, V>
 where
     T: for<'a> TryFromBytes<'a, V>,
     V: fmt::Display,
