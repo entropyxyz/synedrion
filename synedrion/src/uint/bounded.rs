@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
-use secrecy::SecretBox;
+use secrecy::{CloneableSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 use zeroize::DefaultIsZeroes;
 
@@ -183,6 +183,7 @@ where
 }
 
 impl<T> DefaultIsZeroes for Bounded<T> where T: Integer + Copy {}
+impl<T> CloneableSecret for Bounded<T> where T: Integer + Copy {}
 
 impl<T> From<Bounded<T>> for SecretBox<Bounded<T>>
 where
@@ -192,6 +193,7 @@ where
         Box::new(value).into()
     }
 }
+
 #[cfg(test)]
 mod tests {
     use crypto_bigint::{CheckedMul, U1024, U128, U2048};

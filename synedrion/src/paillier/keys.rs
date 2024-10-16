@@ -156,7 +156,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 
         SecretKeyPaillierPrecomputed {
             sk: self.clone(),
-            totient,
+            totient: Box::new(totient).into(),
             inv_totient,
             inv_modulus,
             inv_p_mod_q,
@@ -171,7 +171,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 #[derive(Clone)]
 pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     sk: SecretKeyPaillier<P>,
-    totient: Bounded<P::Uint>,
+    totient: SecretBox<Bounded<P::Uint>>,
     /// $\phi(N)^{-1} \mod N$
     inv_totient: P::UintMod,
     /// $N^{-1} \mod \phi(N)$
@@ -208,16 +208,14 @@ where
 
     /// Returns Euler's totient function (`φ(n)`) of the modulus, wrapped in a [`SecretBox`].
     pub fn totient(&self) -> SecretBox<Bounded<P::Uint>> {
-        self.totient.into()
+        self.totient.clone()
     }
 
-    /// Returns Euler's totient function (`φ(n)`) of the modulus as a [`NonZero`]
-    pub fn totient_nonzero(&self) -> NonZero<P::Uint> {
-        // TODO (#77): must be wrapped in a Secret – This must await the release of crypto-bigint
-        // v0.6, because `NonZero` doesn't implement `Zeroize` in prior versions. Without `Zeroize`
-        // we cannot build a `SecretBox`.
-
-        NonZero::new(*self.totient.as_ref()).expect("φ(n) is a positive, non-zero number")
+    /// Returns Euler's totient function (`φ(n)`) of the modulus as a [`NonZero`], wrapped in a [`SecretBox`].
+    pub fn totient_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
+        let p = NonZero::new(self.totient.expose_secret().into_inner())
+            .expect("φ(n) is never zero for n >= 1; n is strictly greater than 1 because it is (p-1)(q-1) and given that both p and q are prime they are both strictly greater than 1");
+        Box::new(p).into()
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
@@ -315,7 +313,7 @@ where
 
     pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
         Bounded::new(
-            P::Uint::random_mod(rng, &self.totient_nonzero()),
+            P::Uint::random_mod(rng, self.totient_nonzero().expose_secret()),
             P::MODULUS_BITS as u32,
         )
         .unwrap()
