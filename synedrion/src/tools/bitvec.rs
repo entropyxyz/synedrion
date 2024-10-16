@@ -4,11 +4,10 @@ use core::ops::BitXorAssign;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-
-use crate::tools::serde_bytes;
+use serde_encoded_bytes::{Base64, SliceLike};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct BitVec(#[serde(with = "serde_bytes::as_base64")] Box<[u8]>);
+pub(crate) struct BitVec(#[serde(with = "SliceLike::<Base64>")] Box<[u8]>);
 
 impl BitVec {
     pub fn random(rng: &mut impl CryptoRngCore, min_bits: usize) -> Self {
