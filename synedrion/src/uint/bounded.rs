@@ -4,20 +4,21 @@ use alloc::string::String;
 
 use secrecy::{CloneableSecret, SecretBox};
 use serde::{Deserialize, Serialize};
+use serde_encoded_bytes::{Hex, SliceLike};
 use zeroize::DefaultIsZeroes;
 
 use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
     CheckedAdd, CheckedMul, Encoding, HasWide, Integer, NonZero, Signed,
 };
-use crate::tools::serde_bytes;
+
 /// A packed representation for serializing Bounded objects.
 /// Usually they have the bound much lower than the full size of the integer,
 /// so this way we avoid serializing a bunch of zeros.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct PackedBounded {
     bound: u32,
-    #[serde(with = "serde_bytes::as_hex")]
+    #[serde(with = "SliceLike::<Hex>")]
     bytes: Box<[u8]>,
 }
 

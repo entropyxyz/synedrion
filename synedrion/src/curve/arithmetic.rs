@@ -25,10 +25,10 @@ use k256::{
 use rand_core::CryptoRngCore;
 use secrecy::{CloneableSecret, SerializableSecret};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_encoded_bytes::{Hex, SliceLike};
 use zeroize::DefaultIsZeroes;
 
 use crate::tools::hashing::{Chain, HashableType};
-use crate::tools::serde_bytes;
 
 pub(crate) type Curve = Secp256k1;
 pub(crate) type BackendScalar = k256::Scalar;
@@ -150,13 +150,13 @@ impl ConditionallySelectable for Scalar {
 
 impl Serialize for Scalar {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serde_bytes::as_hex::serialize(&self.to_bytes(), serializer)
+        SliceLike::<Hex>::serialize(&self.to_bytes(), serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for Scalar {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        serde_bytes::as_hex::deserialize(deserializer)
+        SliceLike::<Hex>::deserialize(deserializer)
     }
 }
 
@@ -220,13 +220,13 @@ impl<'a> TryFrom<&'a [u8]> for Point {
 
 impl Serialize for Point {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serde_bytes::as_hex::serialize(&self.to_compressed_array(), serializer)
+        SliceLike::<Hex>::serialize(&self.to_compressed_array(), serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for Point {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        serde_bytes::as_hex::deserialize(deserializer)
+        SliceLike::<Hex>::deserialize(deserializer)
     }
 }
 
