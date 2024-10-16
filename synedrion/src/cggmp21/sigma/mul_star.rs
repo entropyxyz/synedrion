@@ -73,8 +73,8 @@ impl<P: SchemeParams> MulStarProof<P> {
 
         let cap_a = (cap_c * alpha).mul_randomizer(&r.retrieve()).retrieve();
         let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
-        let cap_e = setup.commit(&alpha.into(), &gamma).retrieve();
-        let cap_s = setup.commit(&x.into(), &m).retrieve();
+        let cap_e = setup.commit(&alpha, &gamma).retrieve();
+        let cap_s = setup.commit(x, &m).retrieve();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -168,8 +168,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         // s^{z_1} t^{z_2} == E S^e
         let cap_e_mod = self.cap_e.to_mod(aux_pk);
         let cap_s_mod = self.cap_s.to_mod(aux_pk);
-        if setup.commit(&self.z1.into(), &self.z2) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e)
-        {
+        if setup.commit(&self.z1, &self.z2) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 

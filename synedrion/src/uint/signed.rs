@@ -372,7 +372,7 @@ where
     }
 }
 
-impl<'a, T> Neg for &'a Signed<T>
+impl<T> Neg for &Signed<T>
 where
     T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
 {

@@ -88,10 +88,10 @@ impl<P: SchemeParams> FacProof<P> {
 
         let (p, q) = sk0.primes();
 
-        let cap_p = setup.commit(&p, &mu).retrieve();
-        let cap_q = setup.commit(&q, &nu);
-        let cap_a = setup.commit_wide(&alpha.into(), &x).retrieve();
-        let cap_b = setup.commit_wide(&beta.into(), &y).retrieve();
+        let cap_p = setup.commit(p.expose_secret(), &mu).retrieve();
+        let cap_q = setup.commit(q.expose_secret(), &nu);
+        let cap_a = setup.commit_wide(&alpha, &x).retrieve();
+        let cap_b = setup.commit_wide(&beta, &y).retrieve();
         let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_base_xwide(&r)).retrieve();
         let cap_q = cap_q.retrieve();
 
@@ -171,7 +171,7 @@ impl<P: SchemeParams> FacProof<P> {
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a_mod = self.cap_a.to_mod(aux_pk);
         let cap_p_mod = self.cap_p.to_mod(aux_pk);
-        if setup.commit_wide(&self.z1.into(), &self.omega1)
+        if setup.commit_wide(&self.z1, &self.omega1)
             != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e)
         {
             return false;
@@ -180,7 +180,7 @@ impl<P: SchemeParams> FacProof<P> {
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
         let cap_b_mod = self.cap_b.to_mod(aux_pk);
         let cap_q_mod = self.cap_q.to_mod(aux_pk);
-        if setup.commit_wide(&self.z2.into(), &self.omega2)
+        if setup.commit_wide(&self.z2, &self.omega2)
             != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e)
         {
             return false;
