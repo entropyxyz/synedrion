@@ -4,14 +4,37 @@ use crate::curve::{Curve, Scalar, ORDER};
 use crate::paillier::PaillierParams;
 use crate::tools::hashing::{Chain, HashableType};
 use crate::uint::{
-    subtle::ConditionallySelectable, upcast_uint, Bounded, Encoding, NonZero, Signed, U1024Mod,
-    U2048Mod, U4096Mod, U512Mod, Zero, U1024, U2048, U4096, U512, U8192,
+    subtle::ConditionallySelectable, Bounded, Encoding, NonZero, Signed, U1024Mod, U2048Mod,
+    U4096Mod, U512Mod, Uint, Zero, U1024, U2048, U4096, U512, U8192,
 };
+// We're depending on a pre-release `crypto-bigint` version,
+// and `k256` depends on the released one.
+// So as long as that is the case, `k256` `Uint` is separate
+// from the one used throughout the crate.
+use k256::elliptic_curve::bigint::Uint as K256Uint;
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaillierTest;
+
+const fn upcast_uint<const N1: usize, const N2: usize>(value: K256Uint<N1>) -> K256Uint<N2> {
+    assert!(
+        N2 >= N1,
+        "Upcast target must be bigger than the upcast candidate"
+    );
+    let mut result_words = [0; N2];
+    let mut i = 0;
+    while i < N1 {
+        result_words[i] = value.as_words()[i];
+        i += 1;
+    }
+    K256Uint::from_words(result_words)
+}
+
+const fn convert_uint<const N: usize>(value: K256Uint<N>) -> Uint<N> {
+    Uint::from_words(value.to_words())
+}
 
 impl PaillierParams for PaillierTest {
     /*
@@ -115,8 +138,7 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     fn bounded_from_scalar(
         value: &Scalar,
     ) -> Option<Bounded<<Self::Paillier as PaillierParams>::Uint>> {
-        const ORDER_BITS: u32 = ORDER.bits_vartime();
-        Bounded::new(Self::uint_from_scalar(value), ORDER_BITS)
+        Bounded::new(Self::uint_from_scalar(value), ORDER.bits_vartime() as u32)
     }
 
     /// Converts a curve scalar to the associated integer type, wrapped in `Signed`.
@@ -194,9 +216,13 @@ impl SchemeParams for TestParams {
     const EPS_BOUND: usize = 320;
     type Paillier = PaillierTest;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        upcast_uint(ORDER).to_nz().expect("Correct by construction");
+        convert_uint(upcast_uint(ORDER))
+            .to_nz()
+            .expect("Correct by construction");
     const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        upcast_uint(ORDER).to_nz().expect("Correct by construction");
+        convert_uint(upcast_uint(ORDER))
+            .to_nz()
+            .expect("Correct by construction");
 }
 
 /// Production strength parameters.
@@ -210,7 +236,41 @@ impl SchemeParams for ProductionParams {
     const EPS_BOUND: usize = Self::L_BOUND * 2;
     type Paillier = PaillierProduction;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        upcast_uint(ORDER).to_nz().expect("Correct by construction");
+        convert_uint(upcast_uint(ORDER))
+            .to_nz()
+            .expect("Correct by construction");
     const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        upcast_uint(ORDER).to_nz().expect("Correct by construction");
+        convert_uint(upcast_uint(ORDER))
+            .to_nz()
+            .expect("Correct by construction");
+}
+
+#[cfg(test)]
+mod tests {
+    use k256::elliptic_curve::bigint::{U256, U64};
+
+    use super::upcast_uint;
+
+    #[test]
+    fn upcast_uint_results_in_a_bigger_type() {
+        let n = U64::from_u8(10);
+        let expected = U256::from_u8(10);
+        let bigger_n: U256 = upcast_uint(n);
+
+        assert_eq!(bigger_n, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "Upcast target must be bigger than the upcast candidate")]
+    fn upcast_uint_panics_in_test_if_actually_attempting_downcast() {
+        let n256 = U256::from_u8(8);
+        let _n: U64 = upcast_uint(n256);
+    }
+
+    #[test]
+    fn upcast_uint_allows_casting_to_same_size() {
+        let n256 = U256::from_u8(8);
+        let n: U256 = upcast_uint(n256);
+        assert_eq!(n, n256)
+    }
 }

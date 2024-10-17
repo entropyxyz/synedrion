@@ -21,7 +21,7 @@ impl RecoverableSignature {
         // Normalize the `s` component.
         // `BackendSignature`'s constructor does not require `s` to be normalized,
         // but consequent usage of it may fail otherwise.
-        let signature = signature.normalize_s();
+        let signature = signature.normalize_s().unwrap_or(signature);
 
         let message_bytes = message.to_bytes();
         let recovery_id = RecoveryId::trial_recovery_from_prehash(

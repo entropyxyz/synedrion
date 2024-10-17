@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `FirstRound::Context` renamed to `Inputs`. ([#102])
 - `Payload` and `Artifact` values are hidden in wrapper types where they were previously exposed. ([#102])
-- A number of crates set to their `pre` releases hinging on the `pre` release of `crypto-bigint`.
+- A number of crates set to their `pre` releases hinging on the `pre` release of `crypto-bigint`. ([#120])
+- Signature and elliptic curve dependencies reset back to stable versions. (#[154])
 
 
 ### Added
@@ -20,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [#96]: https://github.com/entropyxyz/synedrion/pull/96
 [#102]: https://github.com/entropyxyz/synedrion/pull/102
+[#120]: https://github.com/entropyxyz/synedrion/pull/120
+[#154]: https://github.com/entropyxyz/synedrion/pull/154
 
 
 ## [0.1.0] - 2023-12-07
