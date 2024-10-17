@@ -311,7 +311,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
 #[cfg(test)]
 mod tests {
-    use alloc::collections::BTreeSet;
+    use alloc::collections::{BTreeMap, BTreeSet};
 
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use rand_core::{OsRng, RngCore};
@@ -319,60 +319,152 @@ mod tests {
     use super::{Inputs, Round1};
     use crate::cggmp21::{AuxInfo, KeyShare, PresigningData, TestParams};
     use crate::curve::Scalar;
+    use crate::rounds::FinalizeError;
     use crate::rounds::{
         test_utils::{step_result, step_round, Id, Without},
-        FirstRound,
+        FinalizableToResult, FirstRound,
     };
+    use crate::{RecoverableSignature, SigningProof};
+
+    struct TestContext {
+        message: Scalar,
+        randomness: [u8; 32],
+        presigning_data: BTreeMap<Id, PresigningData<TestParams, Id>>,
+        key_shares: BTreeMap<Id, KeyShare<TestParams, Id>>,
+        aux_infos: BTreeMap<Id, AuxInfo<TestParams, Id>>,
+    }
+    impl TestContext {
+        fn new(ids: &BTreeSet<Id>) -> Self {
+            let mut randomness = [0u8; 32];
+            OsRng.fill_bytes(&mut randomness);
+            let key_shares = KeyShare::new_centralized(&mut OsRng, ids, None);
+            let aux_infos = AuxInfo::new_centralized(&mut OsRng, ids);
+
+            let presigning_data =
+                PresigningData::new_centralized(&mut OsRng, &key_shares, &aux_infos);
+
+            Self {
+                message: Scalar::random(&mut OsRng),
+                randomness,
+                presigning_data,
+                key_shares,
+                aux_infos,
+            }
+        }
+    }
+
+    fn make_test_round1(
+        shared_randomness: &[u8],
+        ids: &BTreeSet<Id>,
+        id: &Id,
+        presigning_data: &BTreeMap<Id, PresigningData<TestParams, Id>>,
+        message: Scalar,
+        key_shares: &BTreeMap<Id, KeyShare<TestParams, Id>>,
+        aux_infos: &BTreeMap<Id, AuxInfo<TestParams, Id>>,
+    ) -> Round1<TestParams, Id> {
+        Round1::<TestParams, Id>::new(
+            &mut OsRng,
+            shared_randomness,
+            ids.clone().without(id),
+            *id,
+            Inputs {
+                presigning: presigning_data[id].clone(),
+                message,
+                key_share: key_shares[id].clone(),
+                aux_info: aux_infos[id].clone(),
+            },
+        )
+        .unwrap()
+    }
+    fn make_rounds(ctx: &TestContext, ids: &BTreeSet<Id>) -> BTreeMap<Id, Round1<TestParams, Id>> {
+        ids.iter()
+            .map(|id| {
+                let round = make_test_round1(
+                    &ctx.randomness,
+                    ids,
+                    id,
+                    &ctx.presigning_data,
+                    ctx.message,
+                    &ctx.key_shares,
+                    &ctx.aux_infos,
+                );
+                (*id, round)
+            })
+            .collect()
+    }
+
+    fn check_sig(
+        signature: &RecoverableSignature,
+        key_shares: &BTreeMap<Id, KeyShare<TestParams, Id>>,
+        message: &Scalar,
+    ) {
+        let (sig, rec_id) = signature.to_backend();
+        let vkey = key_shares[&Id(0)].verifying_key();
+
+        // Check that the signature can be verified
+        vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();
+
+        // Check that the key can be recovered
+        let recovered_key =
+            VerifyingKey::recover_from_prehash(&message.to_bytes(), &sig, rec_id).unwrap();
+
+        assert_eq!(recovered_key, vkey);
+    }
 
     #[test]
     fn execute_signing() {
-        let mut shared_randomness = [0u8; 32];
-        OsRng.fill_bytes(&mut shared_randomness);
-
         let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
+        let ctx = TestContext::new(&ids);
 
-        let key_shares = KeyShare::new_centralized(&mut OsRng, &ids, None);
-        let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids);
-
-        let presigning_datas = PresigningData::new_centralized(&mut OsRng, &key_shares, &aux_infos);
-
-        let message = Scalar::random(&mut OsRng);
-
-        let r1 = ids
-            .iter()
-            .map(|id| {
-                let round = Round1::<TestParams, Id>::new(
-                    &mut OsRng,
-                    &shared_randomness,
-                    ids.clone().without(id),
-                    *id,
-                    Inputs {
-                        presigning: presigning_datas[id].clone(),
-                        message,
-                        key_share: key_shares[id].clone(),
-                        aux_info: aux_infos[id].clone(),
-                    },
-                )
-                .unwrap();
-                (*id, round)
-            })
-            .collect();
+        let r1 = make_rounds(&ctx, &ids);
 
         let r1a = step_round(&mut OsRng, r1).unwrap();
+
         let signatures = step_result(&mut OsRng, r1a).unwrap();
 
         for signature in signatures.values() {
-            let (sig, rec_id) = signature.to_backend();
+            check_sig(signature, &ctx.key_shares, &ctx.message);
+        }
+    }
 
-            let vkey = key_shares[&Id(0)].verifying_key();
+    #[test]
+    fn cheating_signer() {
+        let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
+        let ctx = TestContext::new(&ids);
 
-            // Check that the signature can be verified
-            vkey.verify_prehash(&message.to_bytes(), &sig).unwrap();
+        let r1 = make_rounds(&ctx, &ids);
 
-            // Check that the key can be recovered
-            let recovered_key =
-                VerifyingKey::recover_from_prehash(&message.to_bytes(), &sig, rec_id).unwrap();
-            assert_eq!(recovered_key, vkey);
+        let mut r1a = step_round(&mut OsRng, r1).unwrap();
+
+        // Manipulate second party's signature, causing finalize_to_result to fail
+        let assr = r1a.get_mut(&Id(1)).unwrap();
+        assr.round.r = Scalar::random_nonzero(&mut OsRng);
+
+        // First party is fine
+        match r1a.pop_first() {
+            Some((id, assr)) => {
+                assert!(id == Id(0));
+                let finalized =
+                    assr.round
+                        .finalize_to_result(&mut OsRng, assr.payloads, assr.artifacts);
+                assert!(finalized.is_ok());
+                check_sig(&finalized.unwrap(), &ctx.key_shares, &ctx.message);
+            }
+            None => unreachable!(),
+        }
+        // Second is bad
+        match r1a.pop_first() {
+            Some((id, assr)) => {
+                assert!(id == Id(1));
+                let finalized =
+                    assr.round
+                        .finalize_to_result(&mut OsRng, assr.payloads, assr.artifacts);
+                assert!(finalized.is_err());
+                assert!(
+                    matches!(finalized, Err(err) if matches!(&err, FinalizeError::Proof(SigningProof{..})))
+                );
+            }
+            None => unreachable!(),
         }
     }
 }
