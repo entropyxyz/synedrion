@@ -4,11 +4,11 @@ use alloc::string::{String, ToString};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+use serde_encoded_bytes::{Base64, SliceLike};
 use signature::hazmat::{PrehashVerifier, RandomizedPrehashSigner};
 
 use super::error::LocalError;
 use crate::tools::hashing::{Chain, FofHasher, HashOutput};
-use crate::tools::serde_bytes;
 
 /// A session identifier shared between the parties.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -61,7 +61,7 @@ pub struct SignedMessage<Sig> {
     session_id: SessionId,
     round: u8,
     message_type: MessageType,
-    #[serde(with = "serde_bytes::as_base64")]
+    #[serde(with = "SliceLike::<Base64>")]
     payload: Box<[u8]>,
     signature: Sig,
 }

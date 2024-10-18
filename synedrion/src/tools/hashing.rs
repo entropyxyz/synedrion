@@ -4,9 +4,9 @@ use sha2::Sha256;
 use sha3::{Shake256, Shake256Reader};
 
 use hashing_serializer::HashingSerializer;
+use serde_encoded_bytes::{ArrayLike, Hex};
 
 use crate::curve::Scalar;
-use crate::tools::serde_bytes;
 use crypto_bigint::{Encoding, Integer, NonZero};
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
@@ -57,7 +57,7 @@ impl Chain for FofHasher {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct HashOutput(
     // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
-    #[serde(with = "serde_bytes::as_hex")] pub(crate) [u8; 32],
+    #[serde(with = "ArrayLike::<Hex>")] pub(crate) [u8; 32],
 );
 
 impl AsRef<[u8]> for HashOutput {

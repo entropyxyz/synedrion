@@ -7,6 +7,7 @@ use alloc::{vec, vec::Vec};
 
 use digest::XofReader;
 use rand_core::CryptoRngCore;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
@@ -110,7 +111,7 @@ impl<P: SchemeParams> PrmProof<P> {
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| {
-                let x = a.add_mod(lambda.as_ref(), &totient);
+                let x = a.add_mod(lambda.as_ref(), totient.expose_secret());
                 let choice = Choice::from(*e as u8);
                 Bounded::conditional_select(a, &x, choice)
             })

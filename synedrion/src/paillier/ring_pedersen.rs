@@ -5,10 +5,7 @@ use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::uint::{
-    pow::{pow_signed, pow_signed_extra_wide, pow_signed_vartime, pow_signed_wide},
-    Bounded, Retrieve, Signed, ToMontgomery,
-};
+use crate::uint::{Bounded, Exponentiable, Retrieve, Signed, ToMontgomery};
 use crypto_bigint::{PowBoundedExp, Square};
 
 pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
@@ -73,30 +70,20 @@ impl<P: PaillierParams> RPParamsMod<P> {
     // - this will match the order in the paper
     pub fn commit(
         &self,
-        secret: &SecretBox<Signed<P::Uint>>,
+        secret: &Signed<P::Uint>,
         randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(
-            pow_signed_wide::<P::Uint>(self.base, randomizer)
-                * pow_signed(self.power, secret.expose_secret()),
-        )
+        RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed(secret))
     }
 
     pub fn commit_wide(
         &self,
-        // TODO(dp): @reviewers Question unrelated to the PR, just something I noticed: Why is the
-        // `secret` a `P::WideUint` in this method but a `P::Uint` in `commit_xwide` below? Should
-        // it be the same here? Or `P::ExtraWide` there? Maybe it's like it should, because while
-        // `commit` and `commit_wide` take a `Signed` secret, `commit_xwide` takes a `Bounded`?
-        secret: &SecretBox<Signed<P::WideUint>>,
+        secret: &Signed<P::WideUint>,
         randomizer: &Signed<P::WideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(
-            pow_signed_wide::<P::Uint>(self.base, randomizer)
-                * pow_signed_wide::<P::Uint>(self.power, secret.expose_secret()),
-        )
+        RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed_wide(secret))
     }
 
     pub fn commit_xwide(
@@ -106,7 +93,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
-            pow_signed_extra_wide::<P::Uint>(self.base, randomizer)
+            self.base.pow_signed_extra_wide(randomizer)
                 * self.power.pow_bounded_exp(
                     secret.expose_secret().as_ref(),
                     secret.expose_secret().bound(),
@@ -116,7 +103,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn commit_base_xwide(&self, randomizer: &Signed<P::ExtraWideUint>) -> RPCommitmentMod<P> {
         // $t^\rho mod N$ where $\rho$ is the randomizer.
-        RPCommitmentMod(pow_signed_extra_wide::<P::Uint>(self.base, randomizer))
+        RPCommitmentMod(self.base.pow_signed_extra_wide(randomizer))
     }
 
     pub fn retrieve(&self) -> RPParams<P> {
@@ -158,11 +145,11 @@ impl<P: PaillierParams> RPCommitmentMod<P> {
     /// Note: this is variable time in `exponent`.
     /// `exponent` will be effectively reduced modulo `totient(N)`.
     pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(pow_signed_vartime(self.0, exponent))
+        Self(self.0.pow_signed_vartime(exponent))
     }
 
     pub fn pow_signed_wide(&self, exponent: &Signed<P::WideUint>) -> Self {
-        Self(pow_signed_wide::<P::Uint>(self.0, exponent))
+        Self(self.0.pow_signed_wide(exponent))
     }
 }
 

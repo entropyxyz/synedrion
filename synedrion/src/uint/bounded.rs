@@ -2,22 +2,23 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
-use secrecy::SecretBox;
+use secrecy::{CloneableSecret, SecretBox};
 use serde::{Deserialize, Serialize};
+use serde_encoded_bytes::{Hex, SliceLike};
 use zeroize::DefaultIsZeroes;
 
 use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
     CheckedAdd, CheckedMul, Encoding, HasWide, Integer, NonZero, Signed,
 };
-use crate::tools::serde_bytes;
+
 /// A packed representation for serializing Bounded objects.
 /// Usually they have the bound much lower than the full size of the integer,
 /// so this way we avoid serializing a bunch of zeros.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct PackedBounded {
     bound: u32,
-    #[serde(with = "serde_bytes::as_hex")]
+    #[serde(with = "SliceLike::<Hex>")]
     bytes: Box<[u8]>,
 }
 
@@ -188,6 +189,7 @@ where
 }
 
 impl<T> DefaultIsZeroes for Bounded<T> where T: Integer + Copy {}
+impl<T> CloneableSecret for Bounded<T> where T: Integer + Copy {}
 
 impl<T> From<Bounded<T>> for SecretBox<Bounded<T>>
 where
@@ -197,6 +199,7 @@ where
         Box::new(value).into()
     }
 }
+
 #[cfg(test)]
 mod tests {
     use crypto_bigint::{CheckedMul, U1024, U128, U2048};
