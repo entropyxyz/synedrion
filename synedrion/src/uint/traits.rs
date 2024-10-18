@@ -2,25 +2,11 @@ use crypto_bigint::{
     modular::MontyForm,
     nlimbs,
     subtle::{ConditionallySelectable, CtOption},
-    Bounded, Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048,
+    Bounded, Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Zero, U1024, U2048,
     U4096, U512, U8192,
 };
 
 use crate::uint::Signed;
-
-pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(value: Uint<N1>) -> Uint<N2> {
-    assert!(
-        N2 >= N1,
-        "Upcast target must be bigger than the upcast candidate"
-    );
-    let mut result_words = [0; N2];
-    let mut i = 0;
-    while i < N1 {
-        result_words[i] = value.as_words()[i];
-        i += 1;
-    }
-    Uint::from_words(result_words)
-}
 
 pub trait ToMontgomery: Integer {
     fn to_montgomery(
@@ -252,31 +238,3 @@ impl Exponentiable<U512> for U512Mod {}
 impl Exponentiable<U1024> for U1024Mod {}
 impl Exponentiable<U2048> for U2048Mod {}
 impl Exponentiable<U4096> for U4096Mod {}
-
-#[cfg(test)]
-mod tests {
-    use super::upcast_uint;
-    use crypto_bigint::{U256, U64};
-    #[test]
-    fn upcast_uint_results_in_a_bigger_type() {
-        let n = U64::from_u8(10);
-        let expected = U256::from_u8(10);
-        let bigger_n: U256 = upcast_uint(n);
-
-        assert_eq!(bigger_n, expected);
-    }
-
-    #[test]
-    #[should_panic(expected = "Upcast target must be bigger than the upcast candidate")]
-    fn upcast_uint_panics_in_test_if_actually_attempting_downcast() {
-        let n256 = U256::from_u8(8);
-        let _n: U64 = upcast_uint(n256);
-    }
-
-    #[test]
-    fn upcast_uint_allows_casting_to_same_size() {
-        let n256 = U256::from_u8(8);
-        let n: U256 = upcast_uint(n256);
-        assert_eq!(n, n256)
-    }
-}

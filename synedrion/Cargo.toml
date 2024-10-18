@@ -10,22 +10,22 @@ readme = "README.md"
 categories = ["cryptography", "no-std"]
 
 [dependencies]
-signature = { version = "2.3.0-pre.4", default-features = false, features = ["alloc"] }
-k256 = {version = "0.14.0-pre.2", default-features = false, features = ["ecdsa", "arithmetic"]}
+signature = { version = "2", default-features = false, features = ["alloc"] }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["getrandom"] }
-sha2 = { version = "0.11.0-pre.4", default-features = false }
-sha3 = { version = "0.11.0-pre.4", default-features = false }
-digest = { version = "0.11.0-pre.9", default-features = false, features = ["alloc"]}
+sha2 = { version = "0.10", default-features = false }
+sha3 = { version = "0.10", default-features = false }
+digest = { version = "0.10", default-features = false, features = ["alloc"]}
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
-base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
-hashing-serializer = { version = "0.2.0-pre.0", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+hashing-serializer = { version = "0.1", default-features = false }
 secrecy = { version = "0.9.0-pre.0", default-features = false, features = ["serde"] }
 zeroize = { version = "1.8", default-features = false, features = ["alloc", "zeroize_derive"] }
-bip32 = { version = "0.6.0-pre.0", default-features = false, features = ["alloc", "secp256k1", "k256"] }
+bip32 = { version = "0.5", default-features = false, features = ["alloc", "secp256k1", "k256"] }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
-crypto-bigint = { version = "0.6.0-rc.2", features = ["serde", "alloc", "rand_core"] }
+crypto-bigint = { version = "0.6.0-rc.2", features = ["serde", "alloc", "rand_core", "zeroize"] }
 crypto-primes = "0.6.0-pre.1"
 
 serde = { version = "1", default-features = false, features = ["derive"] }
@@ -43,7 +43,7 @@ serde_assert = "0.8"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = "0.8"
 criterion = "0.5"
-k256 = {version = "0.14.0-pre.2", default-features = false, features = ["ecdsa", "arithmetic", "pem", "serde"]}
+k256 = {version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "pem", "serde"]}
 impls = "1"
 
 [features]

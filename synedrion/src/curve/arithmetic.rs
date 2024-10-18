@@ -7,8 +7,8 @@ use core::ops::{Add, Mul, Neg, Sub};
 use digest::Digest;
 use k256::elliptic_curve::group::ff::PrimeField;
 use k256::elliptic_curve::{
-    array::{typenum::marker_traits::Unsigned, Array},
     bigint::U256, // Note that this type is different from typenum::U256
+    generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     ops::Reduce,
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
@@ -40,7 +40,18 @@ pub(crate) const ORDER: U256 = Secp256k1::ORDER;
 
 impl HashableType for Curve {
     fn chain_type<C: Chain>(digest: C) -> C {
-        digest.chain(&ORDER).chain(&Point::GENERATOR)
+        let mut digest = digest;
+
+        // TODO: `k256 0.14` depends on `crypto-bigint` that supports `Serialize` for `Uint`'s,
+        // so we can just chain `ORDER`. For now we have to do it manually.
+        // Note that since only `to_words` is available, we need to chain it
+        // so that the result is the same on 32- and 64-bit targets - that is, in low-endian order.
+        let words = ORDER.to_words();
+        for word in words {
+            digest = digest.chain(&word.to_le_bytes());
+        }
+
+        digest.chain(&Point::GENERATOR)
     }
 }
 
@@ -81,7 +92,7 @@ impl Scalar {
     /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
     /// is larger than the modulus.
     pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
-        let arr = Array::<u8, FieldBytesSize<Secp256k1>>::from(*bytes);
+        let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from(*bytes);
         Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr))
     }
 
@@ -107,8 +118,9 @@ impl Scalar {
     }
 
     pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let arr = Array::<u8, FieldBytesSize<Secp256k1>>::try_from_iter(bytes.iter().cloned())
-            .map_err(|e| format!("Invalid length of a curve scalar: {:?}", e))?;
+        let arr =
+            GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
+                .ok_or("Invalid length of a curve scalar")?;
 
         BackendScalar::from_repr_vartime(arr)
             .map(Self)
@@ -200,13 +212,10 @@ impl Point {
             .ok_or_else(|| "Invalid curve point representation".into())
     }
 
-    pub(crate) fn to_compressed_array(self) -> Array<u8, CompressedPointSize> {
-        self.0
-            .to_affine()
-            .to_encoded_point(true)
-            .as_bytes()
-            .try_into()
-            .expect("An AffinePoint is composed of elements of the correct size and their slice repr fits in the `CompressedPointSize`-sized array.")
+    pub(crate) fn to_compressed_array(self) -> GenericArray<u8, CompressedPointSize> {
+        GenericArray::<u8, CompressedPointSize>::from_exact_iter(
+            self.0.to_affine().to_encoded_point(true).as_bytes().iter().cloned(),
+        ).expect("An AffinePoint is composed of elements of the correct size and their slice repr fits in the `CompressedPointSize`-sized array.")
     }
 
     pub(crate) fn to_backend(self) -> BackendPoint {
