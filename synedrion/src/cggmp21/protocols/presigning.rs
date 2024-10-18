@@ -180,7 +180,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P,
         let aux = (&self.context.ssid_hash, &destination);
         let psi0 = EncProof::new(
             rng,
-            &P::signed_from_scalar(&self.context.k),
+            &P::signed_from_scalar(&self.context.k).unwrap(),
             &self.context.rho,
             self.context.aux_info.secret_aux.paillier_sk.public_key(),
             &self.cap_k,
@@ -357,7 +357,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let cap_f =
             CiphertextMod::new_with_randomizer_signed(pk, beta.expose_secret(), &r.retrieve());
-        let cap_d = &self.all_cap_k[destination] * P::signed_from_scalar(&self.context.gamma)
+        let cap_d = &self.all_cap_k[destination]
+            * P::signed_from_scalar(&self.context.gamma).unwrap()
             + CiphertextMod::new_with_randomizer_signed(
                 target_pk,
                 &-beta.expose_secret(),
@@ -370,7 +371,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
             &hat_r.retrieve(),
         );
         let hat_cap_d = &self.all_cap_k[destination]
-            * P::signed_from_scalar(self.context.key_share.secret_share.expose_secret())
+            * P::signed_from_scalar(self.context.key_share.secret_share.expose_secret()).unwrap()
             + CiphertextMod::new_with_randomizer_signed(
                 target_pk,
                 &-hat_beta.expose_secret(),
@@ -382,7 +383,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let psi = AffGProof::new(
             rng,
-            &P::signed_from_scalar(&self.context.gamma),
+            &P::signed_from_scalar(&self.context.gamma).unwrap(),
             &beta,
             s.clone(),
             r.clone(),
@@ -398,7 +399,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let hat_psi = AffGProof::new(
             rng,
-            &P::signed_from_scalar(self.context.key_share.secret_share.expose_secret()),
+            &P::signed_from_scalar(self.context.key_share.secret_share.expose_secret()).unwrap(),
             &hat_beta,
             hat_s.clone(),
             hat_r.clone(),
@@ -414,7 +415,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P,
 
         let hat_psi_prime = LogStarProof::new(
             rng,
-            &P::signed_from_scalar(&self.context.gamma),
+            &P::signed_from_scalar(&self.context.gamma).unwrap(),
             &self.context.nu,
             pk,
             &self.all_cap_g[self.my_id()],
@@ -556,8 +557,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
 
         let alpha_sum: Signed<_> = payloads.values().map(|p| p.alpha).sum();
         let beta_sum: Signed<_> = artifacts.values().map(|p| p.beta.expose_secret()).sum();
-        let delta = P::signed_from_scalar(&self.context.gamma)
-            * P::signed_from_scalar(&self.context.k)
+        let delta = P::signed_from_scalar(&self.context.gamma).unwrap()
+            * P::signed_from_scalar(&self.context.k).unwrap()
             + alpha_sum
             + beta_sum;
 
@@ -567,7 +568,8 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
             .map(|artifact| artifact.hat_beta.expose_secret())
             .sum();
         let chi = P::signed_from_scalar(self.context.key_share.secret_share.expose_secret())
-            * P::signed_from_scalar(&self.context.k)
+            .unwrap()
+            * P::signed_from_scalar(&self.context.k).unwrap()
             + hat_alpha_sum
             + hat_beta_sum;
 
@@ -652,7 +654,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
 
         let psi_pprime = LogStarProof::new(
             rng,
-            &P::signed_from_scalar(&self.context.k),
+            &P::signed_from_scalar(&self.context.k).unwrap(),
             &self.context.rho,
             pk,
             &self.all_cap_k[self.my_id()],
@@ -784,7 +786,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
-                    &P::signed_from_scalar(&self.context.gamma),
+                    &P::signed_from_scalar(&self.context.gamma).unwrap(),
                     beta,
                     s.to_mod(target_pk),
                     r.to_mod(pk),
@@ -816,12 +818,13 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
         // Mul proof
 
         let rho = RandomizerMod::random(rng, pk);
-        let cap_h = (&self.all_cap_g[self.my_id()] * P::bounded_from_scalar(&self.context.k))
-            .mul_randomizer(&rho.retrieve());
+        let cap_h = (&self.all_cap_g[self.my_id()]
+            * P::bounded_from_scalar(&self.context.k).unwrap())
+        .mul_randomizer(&rho.retrieve());
 
         let p_mul = MulProof::<P>::new(
             rng,
-            &P::signed_from_scalar(&self.context.k),
+            &P::signed_from_scalar(&self.context.k).unwrap(),
             &self.context.rho,
             &rho,
             pk,

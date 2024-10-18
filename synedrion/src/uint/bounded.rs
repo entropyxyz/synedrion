@@ -87,6 +87,11 @@ where
         self.bound as usize
     }
 
+    /// Creates a new [`Bounded`] wrapper around `T`, restricted to `bound`.
+    ///
+    /// Returns `None` if the bound is invalid, i.e.:
+    /// - The bound is bigger than a `T` can represent.
+    /// - The value of `T` is too big to be bounded by the provided bound.
     pub fn new(value: T, bound: u32) -> Option<Self> {
         if bound > T::BITS || value.bits() > bound {
             return None;
