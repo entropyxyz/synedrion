@@ -16,7 +16,7 @@ use crypto_bigint::{
 };
 use secrecy::{ExposeSecret, SecretBox};
 
-#[derive(Deserialize, ZeroizeOnDrop, Zeroize)]
+#[derive(Debug, Deserialize, ZeroizeOnDrop, Zeroize)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     p: SecretBox<P::HalfUint>,
     q: SecretBox<P::HalfUint>,
@@ -26,14 +26,6 @@ impl<P: PaillierParams> PartialEq for SecretKeyPaillier<P> {
     fn eq(&self, other: &Self) -> bool {
         self.p.expose_secret() == other.p.expose_secret()
             && self.q.expose_secret() == other.q.expose_secret()
-    }
-}
-
-impl<P: PaillierParams> Debug for SecretKeyPaillier<P> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        f.write_str("[REDACTED ")?;
-        f.write_str(core::any::type_name::<Self>())?;
-        f.write_str("]")
     }
 }
 
@@ -459,7 +451,14 @@ mod tests {
         let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
 
         let debug_output = format!("Sikrit {:?}", sk);
-        assert_eq!(debug_output, "Sikrit [REDACTED synedrion::paillier::keys::SecretKeyPaillier<synedrion::paillier::params::PaillierTest>]");
+        assert_eq!(
+            debug_output,
+            concat![
+                "Sikrit SecretKeyPaillier ",
+                "{ p: SecretBox<crypto_bigint::uint::Uint<8>>([REDACTED]), ",
+                "q: SecretBox<crypto_bigint::uint::Uint<8>>([REDACTED]) }"
+            ]
+        );
     }
 
     #[test]
@@ -471,8 +470,20 @@ mod tests {
         let sk_ser = sk.serialize(&serializer).unwrap();
         let expected_tokens = [
             Token::Tuple { len: 2 },
-            Token::Str("d30b226b6f3a29a048826fa4cf85f83a7aa03d097ec89aea7b1f35633f5719e180b93af2508fc289c196078937d9d8a61af6d7768301d231bafdf87c10f28f8a".into()),
-            Token::Str("7f0e0796291488cf87ed167109d9daf34e4ad5cc1399c9d034803b953652598963abf19b9675653a51e619651f1ab15e66256829c250903fae3ab96683b5aff9".into()),
+            Token::Str(
+                concat![
+                    "d30b226b6f3a29a048826fa4cf85f83a7aa03d097ec89aea7b1f35633f5719e1",
+                    "80b93af2508fc289c196078937d9d8a61af6d7768301d231bafdf87c10f28f8a"
+                ]
+                .into(),
+            ),
+            Token::Str(
+                concat![
+                    "7f0e0796291488cf87ed167109d9daf34e4ad5cc1399c9d034803b9536525989",
+                    "63abf19b9675653a51e619651f1ab15e66256829c250903fae3ab96683b5aff9"
+                ]
+                .into(),
+            ),
             Token::TupleEnd,
         ];
         assert_eq!(sk_ser, expected_tokens);
