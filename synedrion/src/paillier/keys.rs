@@ -11,9 +11,7 @@ use crate::uint::{
     Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
     RandomPrimeWithRng, Retrieve, Signed, ToMontgomery,
 };
-use crypto_bigint::{
-    Bounded as TraitBounded, InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd, WrappingSub,
-};
+use crypto_bigint::{InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd, WrappingSub};
 use secrecy::{ExposeSecret, SecretBox};
 
 #[derive(Debug, Deserialize, ZeroizeOnDrop, Zeroize)]
@@ -49,16 +47,8 @@ impl<P: PaillierParams> Serialize for SecretKeyPaillier<P> {
 
 impl<P: PaillierParams> SecretKeyPaillier<P> {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        let p = P::HalfUint::generate_safe_prime_with_rng(
-            rng,
-            P::PRIME_BITS as u32,
-            <P as PaillierParams>::HalfUint::BITS,
-        );
-        let q = P::HalfUint::generate_safe_prime_with_rng(
-            rng,
-            P::PRIME_BITS as u32,
-            <P as PaillierParams>::HalfUint::BITS,
-        );
+        let p = P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS as u32);
+        let q = P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS as u32);
 
         Self {
             p: Box::new(p).into(),
