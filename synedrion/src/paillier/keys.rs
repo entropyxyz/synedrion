@@ -3,7 +3,7 @@ use core::fmt::Debug;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::Zeroize;
 
 use super::params::PaillierParams;
 use crate::uint::{
@@ -14,7 +14,7 @@ use crate::uint::{
 use crypto_bigint::{InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd, WrappingSub};
 use secrecy::{ExposeSecret, SecretBox};
 
-#[derive(Debug, Deserialize, ZeroizeOnDrop, Zeroize)]
+#[derive(Debug, Deserialize)]
 pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     p: SecretBox<P::HalfUint>,
     q: SecretBox<P::HalfUint>,
