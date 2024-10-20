@@ -28,7 +28,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop, Zeroize)]
+#[derive(Debug, Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub(crate) struct RandomizerMod<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> RandomizerMod<P> {
