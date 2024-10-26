@@ -1,12 +1,12 @@
 use core::ops::Mul;
 
+use crypto_bigint::{PowBoundedExp, Square};
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
 use crate::uint::{Bounded, Exponentiable, Retrieve, Signed, ToMontgomery};
-use crypto_bigint::{PowBoundedExp, Square};
 
 pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
 

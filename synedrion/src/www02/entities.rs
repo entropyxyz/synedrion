@@ -1,8 +1,9 @@
-use alloc::boxed::Box;
-use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::vec::Vec;
-use core::fmt::Debug;
-use core::marker::PhantomData;
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    vec::Vec,
+};
+use core::{fmt::Debug, marker::PhantomData};
 
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
 use k256::ecdsa::{SigningKey, VerifyingKey};
@@ -10,11 +11,16 @@ use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
-use crate::cggmp21::{KeyShare, SchemeParams};
-use crate::curve::{Point, Scalar};
-use crate::tools::hashing::{Chain, FofHasher};
-use crate::tools::sss::{
-    interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareId,
+use crate::{
+    cggmp21::{KeyShare, SchemeParams},
+    curve::{Point, Scalar},
+    tools::{
+        hashing::{Chain, FofHasher},
+        sss::{
+            interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split,
+            ShareId,
+        },
+    },
 };
 
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
@@ -291,32 +297,43 @@ mod tests {
     use alloc::collections::BTreeSet;
 
     use k256::ecdsa::SigningKey;
+    use manul::{
+        dev::{TestSigner, TestVerifier},
+        session::signature::Keypair,
+    };
     use rand_core::OsRng;
     use secrecy::ExposeSecret;
 
     use super::ThresholdKeyShare;
-    use crate::cggmp21::TestParams;
-    use crate::curve::Scalar;
-    use crate::rounds::test_utils::Id;
+    use crate::{cggmp21::TestParams, curve::Scalar};
 
     #[test]
     fn threshold_key_share_centralized() {
         let sk = SigningKey::random(&mut OsRng);
 
-        let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
+        let signers = (0..3).map(TestSigner::new).collect::<Vec<_>>();
+        let ids = signers
+            .iter()
+            .map(|signer| signer.verifying_key())
+            .collect::<Vec<_>>();
+        let ids_set = ids.iter().cloned().collect::<BTreeSet<_>>();
 
-        let shares =
-            ThresholdKeyShare::<TestParams, Id>::new_centralized(&mut OsRng, &ids, 2, Some(&sk));
+        let shares = ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(
+            &mut OsRng,
+            &ids_set,
+            2,
+            Some(&sk),
+        );
 
-        assert_eq!(&shares[&Id(0)].verifying_key(), sk.verifying_key());
-        assert_eq!(&shares[&Id(1)].verifying_key(), sk.verifying_key());
-        assert_eq!(&shares[&Id(2)].verifying_key(), sk.verifying_key());
+        assert_eq!(&shares[&ids[0]].verifying_key(), sk.verifying_key());
+        assert_eq!(&shares[&ids[1]].verifying_key(), sk.verifying_key());
+        assert_eq!(&shares[&ids[2]].verifying_key(), sk.verifying_key());
 
-        assert_eq!(&shares[&Id(0)].verifying_key(), sk.verifying_key());
+        assert_eq!(&shares[&ids[0]].verifying_key(), sk.verifying_key());
 
-        let ids_subset = BTreeSet::from([Id(2), Id(0)]);
-        let nt_share0 = shares[&Id(0)].to_key_share(&ids_subset);
-        let nt_share1 = shares[&Id(2)].to_key_share(&ids_subset);
+        let ids_subset = BTreeSet::from([ids[2], ids[0]]);
+        let nt_share0 = shares[&ids[0]].to_key_share(&ids_subset);
+        let nt_share1 = shares[&ids[2]].to_key_share(&ids_subset);
 
         assert_eq!(
             nt_share0.secret_share.expose_secret() + nt_share1.secret_share.expose_secret(),

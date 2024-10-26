@@ -2,13 +2,20 @@
 //! This protocol generates an update to the secret key shares and new auxiliary parameters
 //! for ZK proofs (e.g. Paillier keys).
 
-use alloc::boxed::Box;
-use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::String;
-use alloc::vec::Vec;
-use core::fmt::Debug;
-use core::marker::PhantomData;
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    string::String,
+    vec::Vec,
+};
+use core::{fmt::Debug, marker::PhantomData};
 
+use crypto_bigint::BitOps;
+use manul::protocol::{
+    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome,
+    LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
+    ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
+};
 use rand_core::CryptoRngCore;
 use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
@@ -17,33 +24,39 @@ use super::super::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
     AuxInfo, KeyShareChange, PublicAuxInfo, SchemeParams, SecretAuxInfo,
 };
-use crate::curve::{Point, Scalar};
-use crate::paillier::{
-    Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
-    RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+use crate::{
+    curve::{Point, Scalar},
+    paillier::{
+        Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
+        RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+    },
+    tools::{
+        bitvec::BitVec,
+        hashing::{Chain, FofHasher, HashOutput},
+        DowncastMap, Without,
+    },
 };
-use crate::rounds::{
-    no_broadcast_messages, no_direct_messages, FinalizableToNextRound, FinalizableToResult,
-    FinalizeError, FirstRound, InitError, ProtocolResult, Round, ToNextRound, ToResult,
-};
-use crate::tools::bitvec::BitVec;
-use crate::tools::hashing::{Chain, FofHasher, HashOutput};
-use crypto_bigint::BitOps;
 
-/// Possible results of the KeyRefresh protocol.
+/// A protocol for generating auxiliary information for signing,
+/// and a simultaneous generation of updates for the secret key shares.
 #[derive(Debug)]
-pub struct KeyRefreshResult<P: SchemeParams, I: Debug>(PhantomData<P>, PhantomData<I>);
+pub struct KeyRefreshProtocol<P: SchemeParams, I: PartyId>(PhantomData<(P, I)>);
 
-impl<P: SchemeParams, I: Debug + Ord> ProtocolResult for KeyRefreshResult<P, I> {
-    type Success = (KeyShareChange<P, I>, AuxInfo<P, I>);
-    type ProvableError = KeyRefreshError<P>;
-    type CorrectnessProof = ();
+impl<P: SchemeParams, I: PartyId> Protocol for KeyRefreshProtocol<P, I> {
+    type Result = (KeyShareChange<P, I>, AuxInfo<P, I>);
+    type ProtocolError = KeyRefreshError<P>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "
+    KeyRefreshErrorEnum<P>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    KeyRefreshErrorEnum<P>: for<'x> Deserialize<'x>,
+"))]
 pub struct KeyRefreshError<P: SchemeParams>(KeyRefreshErrorEnum<P>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 enum KeyRefreshErrorEnum<P: SchemeParams> {
     // TODO (#43): this can be removed when error verification is added
     #[allow(dead_code)]
@@ -59,72 +72,76 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
         mu: Randomizer<P::Paillier>,
     },
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-        PrmProof<P>: Serialize,
-    "))]
-#[serde(bound(deserialize = "
-        PrmProof<P>: for<'x> Deserialize<'x>,
-    "))]
-pub struct PublicData1<P: SchemeParams> {
-    cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
-    cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
-    cap_y: Point,
-    cap_b: SchCommitment,
-    paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
-    rp_params: RPParams<P::Paillier>,            // $s_i$ and $t_i$
-    hat_psi: PrmProof<P>,
-    rho: BitVec,
-    u: BitVec,
-}
 
-#[derive(Debug, Clone)]
-pub struct PublicData1Precomp<P: SchemeParams> {
-    data: PublicData1<P>,
-    paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
-    rp_params: RPParamsMod<P::Paillier>,
-}
+impl<P: SchemeParams> ProtocolError for KeyRefreshError<P> {
+    fn description(&self) -> String {
+        unimplemented!()
+    }
 
-struct Context<P: SchemeParams, I> {
-    paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
-    y: Scalar,
-    x_to_send: BTreeMap<I, Scalar>, // $x_i^j$ where $i$ is this party's index
-    tau_y: SchSecret,
-    tau_x: BTreeMap<I, SchSecret>,
-    data_precomp: PublicData1Precomp<P>,
-    my_id: I,
-    other_ids: BTreeSet<I>,
-    sid_hash: HashOutput,
-    ids_ordering: BTreeMap<I, usize>,
-}
+    fn required_direct_messages(&self) -> BTreeSet<RoundId> {
+        unimplemented!()
+    }
 
-impl<P: SchemeParams> PublicData1<P> {
-    fn hash<I: Serialize>(&self, sid_hash: &HashOutput, id: &I) -> HashOutput {
-        FofHasher::new_with_dst(b"Auxiliary")
-            .chain(sid_hash)
-            .chain(id)
-            .chain(self)
-            .finalize()
+    fn required_echo_broadcasts(&self) -> BTreeSet<RoundId> {
+        unimplemented!()
+    }
+
+    fn required_combined_echos(&self) -> BTreeSet<RoundId> {
+        unimplemented!()
+    }
+
+    fn verify_messages_constitute_error(
+        &self,
+        _deserializer: &Deserializer,
+        _echo_broadcast: &EchoBroadcast,
+        _normal_broadcat: &NormalBroadcast,
+        _direct_message: &DirectMessage,
+        _echo_broadcasts: &BTreeMap<RoundId, EchoBroadcast>,
+        _normal_broadcasts: &BTreeMap<RoundId, NormalBroadcast>,
+        _direct_messages: &BTreeMap<RoundId, DirectMessage>,
+        _combined_echos: &BTreeMap<RoundId, Vec<EchoBroadcast>>,
+    ) -> Result<(), ProtocolValidationError> {
+        unimplemented!()
     }
 }
 
-pub struct Round1<P: SchemeParams, I> {
-    context: Context<P, I>,
+/// An entry point for the [`KeyRefreshProtocol`].
+#[derive(Debug, Clone)]
+pub struct KeyRefresh<P, I> {
+    all_ids: BTreeSet<I>,
+    phantom: PhantomData<P>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Round1<P, I> {
-    type Inputs = ();
-    fn new(
+impl<P, I: PartyId> KeyRefresh<P, I> {
+    /// Creates a new entry point given the set of the participants' IDs
+    /// (including this node's).
+    pub fn new(all_ids: BTreeSet<I>) -> Result<Self, LocalError> {
+        Ok(Self {
+            all_ids,
+            phantom: PhantomData,
+        })
+    }
+}
+
+impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
+    type Protocol = KeyRefreshProtocol<P, I>;
+
+    fn make_round(
+        self,
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        other_ids: BTreeSet<I>,
-        my_id: I,
-        _inputs: Self::Inputs,
-    ) -> Result<Self, InitError> {
-        let mut all_ids = other_ids.clone();
-        all_ids.insert(my_id.clone());
+        id: &I,
+    ) -> Result<BoxedRound<I, Self::Protocol>, LocalError> {
+        if !self.all_ids.contains(id) {
+            return Err(LocalError::new(
+                "The given node IDs must contain this node's ID",
+            ));
+        }
 
-        let ids_ordering = all_ids
+        let other_ids = self.all_ids.clone().without(id);
+
+        let ids_ordering = self
+            .all_ids
             .iter()
             .cloned()
             .enumerate()
@@ -134,7 +151,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Roun
         let sid_hash = FofHasher::new_with_dst(b"SID")
             .chain_type::<P>()
             .chain(&shared_randomness)
-            .chain(&all_ids)
+            .chain(&self.all_ids)
             .finalize();
 
         // $p_i$, $q_i$
@@ -151,10 +168,11 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Roun
         let cap_b = SchCommitment::new(&tau_y);
 
         // Secret share updates for each node ($x_i^j$ where $i$ is this party's index).
-        let x_to_send = all_ids
+        let x_to_send = self
+            .all_ids
             .iter()
             .cloned()
-            .zip(Scalar::ZERO.split(rng, all_ids.len()))
+            .zip(Scalar::ZERO.split(rng, self.all_ids.len()))
             .collect::<BTreeMap<_, _>>();
 
         // Public counterparts of secret share updates ($X_i^j$ where $i$ is this party's index).
@@ -164,11 +182,12 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Roun
         // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
         let rp_params = RPParamsMod::random_with_secret(rng, &lambda, paillier_pk);
 
-        let aux = (&sid_hash, &my_id);
+        let aux = (&sid_hash, id);
         let hat_psi = PrmProof::<P>::new(rng, &paillier_sk, &lambda, &rp_params, &aux);
 
         // The secrets share changes ($\tau_j$, not to be confused with $\tau$)
-        let tau_x = all_ids
+        let tau_x = self
+            .all_ids
             .iter()
             .map(|id| (id.clone(), SchSecret::random(rng)))
             .collect::<BTreeMap<_, _>>();
@@ -204,95 +223,155 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FirstRound<I> for Roun
             tau_x,
             tau_y,
             data_precomp,
-            my_id,
+            my_id: id.clone(),
             other_ids,
             sid_hash,
             ids_ordering,
         };
 
-        Ok(Self { context })
+        Ok(BoxedRound::new_dynamic(Round1 { context }))
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Round1Message {
+#[serde(bound(serialize = "
+        PrmProof<P>: Serialize,
+    "))]
+#[serde(bound(deserialize = "
+        PrmProof<P>: for<'x> Deserialize<'x>,
+    "))]
+struct PublicData1<P: SchemeParams> {
+    cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
+    cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
+    cap_y: Point,
+    cap_b: SchCommitment,
+    paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
+    rp_params: RPParams<P::Paillier>,            // $s_i$ and $t_i$
+    hat_psi: PrmProof<P>,
+    rho: BitVec,
+    u: BitVec,
+}
+
+#[derive(Debug, Clone)]
+struct PublicData1Precomp<P: SchemeParams> {
+    data: PublicData1<P>,
+    paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
+    rp_params: RPParamsMod<P::Paillier>,
+}
+
+#[derive(Debug)]
+struct Context<P: SchemeParams, I> {
+    paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
+    y: Scalar,
+    x_to_send: BTreeMap<I, Scalar>, // $x_i^j$ where $i$ is this party's index
+    tau_y: SchSecret,
+    tau_x: BTreeMap<I, SchSecret>,
+    data_precomp: PublicData1Precomp<P>,
+    my_id: I,
+    other_ids: BTreeSet<I>,
+    sid_hash: HashOutput,
+    ids_ordering: BTreeMap<I, usize>,
+}
+
+impl<P: SchemeParams> PublicData1<P> {
+    fn hash<I: Serialize>(&self, sid_hash: &HashOutput, id: &I) -> HashOutput {
+        FofHasher::new_with_dst(b"Auxiliary")
+            .chain(sid_hash)
+            .chain(id)
+            .chain(self)
+            .finalize()
+    }
+}
+
+#[derive(Debug)]
+struct Round1<P: SchemeParams, I> {
+    context: Context<P, I>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Round1Message {
     cap_v: HashOutput,
 }
 
-pub struct Round1Payload {
+struct Round1Payload {
     cap_v: HashOutput,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round1<P, I> {
-    type Type = ToNextRound;
-    type Result = KeyRefreshResult<P, I>;
-    const ROUND_NUM: u8 = 1;
-    const NEXT_ROUND_NUM: Option<u8> = Some(2);
+impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
+    type Protocol = KeyRefreshProtocol<P, I>;
 
-    fn other_ids(&self) -> &BTreeSet<I> {
+    fn id(&self) -> RoundId {
+        RoundId::new(1)
+    }
+
+    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
+        BTreeSet::from([RoundId::new(2)])
+    }
+
+    fn message_destinations(&self) -> &BTreeSet<I> {
         &self.context.other_ids
     }
 
-    fn my_id(&self) -> &I {
-        &self.context.my_id
+    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
 
-    const REQUIRES_ECHO: bool = true;
-    type BroadcastMessage = Round1Message;
-    type DirectMessage = ();
-    type Payload = Round1Payload;
-    type Artifact = ();
-
-    fn make_broadcast_message(
+    fn make_echo_broadcast(
         &self,
         _rng: &mut impl CryptoRngCore,
-    ) -> Option<Self::BroadcastMessage> {
-        Some(Round1Message {
-            cap_v: self
-                .context
-                .data_precomp
-                .data
-                .hash(&self.context.sid_hash, self.my_id()),
-        })
+        serializer: &Serializer,
+    ) -> Result<EchoBroadcast, LocalError> {
+        EchoBroadcast::new(
+            serializer,
+            Round1Message {
+                cap_v: self
+                    .context
+                    .data_precomp
+                    .data
+                    .hash(&self.context.sid_hash, &self.context.my_id),
+            },
+        )
     }
 
-    no_direct_messages!(I);
-
-    fn verify_message(
+    fn receive_message(
         &self,
         _rng: &mut impl CryptoRngCore,
+        deserializer: &Deserializer,
         _from: &I,
-        broadcast_msg: Self::BroadcastMessage,
-        _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
-        Ok(Round1Payload {
-            cap_v: broadcast_msg.cap_v,
-        })
+        echo_broadcast: EchoBroadcast,
+        normal_broadcast: NormalBroadcast,
+        direct_message: DirectMessage,
+    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+        normal_broadcast.assert_is_none()?;
+        direct_message.assert_is_none()?;
+        let echo_broadcast = echo_broadcast.deserialize::<Round1Message>(deserializer)?;
+        Ok(Payload::new(Round1Payload {
+            cap_v: echo_broadcast.cap_v,
+        }))
     }
-}
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
-    for Round1<P, I>
-{
-    type NextRound = Round2<P, I>;
-    fn finalize_to_next_round(
+    fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
-        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+        payloads: BTreeMap<I, Payload>,
+        _artifacts: BTreeMap<I, Artifact>,
+    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        let payloads = payloads.downcast_all::<Round1Payload>()?;
         let others_cap_v = payloads
             .into_iter()
             .map(|(id, payload)| (id, payload.cap_v))
             .collect();
-        Ok(Round2 {
-            context: self.context,
-            others_cap_v,
-        })
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
+            Round2 {
+                context: self.context,
+                others_cap_v,
+            },
+        )))
     }
 }
 
-pub struct Round2<P: SchemeParams, I> {
+#[derive(Debug)]
+struct Round2<P: SchemeParams, I> {
     context: Context<P, I>,
     others_cap_v: BTreeMap<I, HashOutput>,
 }
@@ -300,102 +379,106 @@ pub struct Round2<P: SchemeParams, I> {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicData1<P>: Serialize"))]
 #[serde(bound(deserialize = "PublicData1<P>: for<'x> Deserialize<'x>"))]
-pub struct Round2Message<P: SchemeParams> {
+struct Round2Message<P: SchemeParams> {
     data: PublicData1<P>,
 }
 
-pub struct Round2Payload<P: SchemeParams> {
+struct Round2Payload<P: SchemeParams> {
     data: PublicData1Precomp<P>,
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round2<P, I> {
-    type Type = ToNextRound;
-    type Result = KeyRefreshResult<P, I>;
-    const ROUND_NUM: u8 = 2;
-    const NEXT_ROUND_NUM: Option<u8> = Some(3);
+impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
+    type Protocol = KeyRefreshProtocol<P, I>;
 
-    fn other_ids(&self) -> &BTreeSet<I> {
+    fn id(&self) -> RoundId {
+        RoundId::new(2)
+    }
+
+    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
+        BTreeSet::from([RoundId::new(3)])
+    }
+
+    fn message_destinations(&self) -> &BTreeSet<I> {
         &self.context.other_ids
     }
 
-    fn my_id(&self) -> &I {
-        &self.context.my_id
+    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
 
-    type BroadcastMessage = Round2Message<P>;
-    type DirectMessage = ();
-    type Payload = Round2Payload<P>;
-    type Artifact = ();
-
-    fn make_broadcast_message(
+    fn make_normal_broadcast(
         &self,
         _rng: &mut impl CryptoRngCore,
-    ) -> Option<Self::BroadcastMessage> {
-        Some(Round2Message {
-            data: self.context.data_precomp.data.clone(),
-        })
+        serializer: &Serializer,
+    ) -> Result<NormalBroadcast, LocalError> {
+        NormalBroadcast::new(
+            serializer,
+            Round2Message {
+                data: self.context.data_precomp.data.clone(),
+            },
+        )
     }
 
-    no_direct_messages!(I);
-
-    fn verify_message(
+    fn receive_message(
         &self,
         _rng: &mut impl CryptoRngCore,
+        deserializer: &Deserializer,
         from: &I,
-        broadcast_msg: Self::BroadcastMessage,
-        _direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
-        if &broadcast_msg.data.hash(&self.context.sid_hash, from)
+        echo_broadcast: EchoBroadcast,
+        normal_broadcast: NormalBroadcast,
+        direct_message: DirectMessage,
+    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+        echo_broadcast.assert_is_none()?;
+        direct_message.assert_is_none()?;
+        let normal_broadcast = normal_broadcast.deserialize::<Round2Message<P>>(deserializer)?;
+
+        if &normal_broadcast.data.hash(&self.context.sid_hash, from)
             != self.others_cap_v.get(from).unwrap()
         {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
-                "Hash mismatch".into(),
+            return Err(ReceiveError::protocol(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("Hash mismatch".into()),
             )));
         }
 
-        let paillier_pk = broadcast_msg.data.paillier_pk.to_precomputed();
+        let paillier_pk = normal_broadcast.data.paillier_pk.to_precomputed();
 
         if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
-                "Paillier modulus is too small".into(),
+            return Err(ReceiveError::protocol(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("Paillier modulus is too small".into()),
             )));
         }
 
-        if broadcast_msg.data.cap_x_to_send.iter().sum::<Point>() != Point::IDENTITY {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
-                "Sum of X points is not identity".into(),
+        if normal_broadcast.data.cap_x_to_send.iter().sum::<Point>() != Point::IDENTITY {
+            return Err(ReceiveError::protocol(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("Sum of X points is not identity".into()),
             )));
         }
 
         let aux = (&self.context.sid_hash, &from);
 
-        let rp_params = broadcast_msg.data.rp_params.to_mod(&paillier_pk);
-        if !broadcast_msg.data.hat_psi.verify(&rp_params, &aux) {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round2(
-                "PRM verification failed".into(),
+        let rp_params = normal_broadcast.data.rp_params.to_mod(&paillier_pk);
+        if !normal_broadcast.data.hat_psi.verify(&rp_params, &aux) {
+            return Err(ReceiveError::protocol(KeyRefreshError(
+                KeyRefreshErrorEnum::Round2("PRM verification failed".into()),
             )));
         }
 
-        Ok(Round2Payload {
+        Ok(Payload::new(Round2Payload {
             data: PublicData1Precomp {
-                data: broadcast_msg.data,
+                data: normal_broadcast.data,
                 paillier_pk,
                 rp_params,
             },
-        })
+        }))
     }
-}
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound<I>
-    for Round2<P, I>
-{
-    type NextRound = Round3<P, I>;
-    fn finalize_to_next_round(
+    fn finalize(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
-        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<Self::NextRound, FinalizeError<Self::Result>> {
+        payloads: BTreeMap<I, Payload>,
+        _artifacts: BTreeMap<I, Artifact>,
+    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        let payloads = payloads.downcast_all::<Round2Payload<P>>()?;
         let others_data = payloads
             .into_iter()
             .map(|(id, payload)| (id, payload.data))
@@ -405,11 +488,14 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToNextRound
             rho ^= &data.data.rho;
         }
 
-        Ok(Round3::new(rng, self.context, others_data, rho))
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
+            Round3::new(rng, self.context, others_data, rho),
+        )))
     }
 }
 
-pub struct Round3<P: SchemeParams, I> {
+#[derive(Debug)]
+struct Round3<P: SchemeParams, I> {
     context: Context<P, I>,
     rho: BitVec,
     others_data: BTreeMap<I, PublicData1Precomp<P>>,
@@ -428,7 +514,7 @@ pub struct Round3<P: SchemeParams, I> {
     FacProof<P>: for<'x> Deserialize<'x>,
     Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
 "))]
-pub struct PublicData2<P: SchemeParams> {
+struct PublicData2<P: SchemeParams> {
     psi_mod: ModProof<P>, // $\psi_i$, a P^{mod} for the Paillier modulus
     phi: FacProof<P>,
     pi: SchProof,
@@ -436,7 +522,7 @@ pub struct PublicData2<P: SchemeParams> {
     psi_sch: SchProof,                       // $psi_i^j$, a P^{sch} for the secret share change
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round3<P, I> {
+impl<P: SchemeParams, I: PartyId> Round3<P, I> {
     fn new(
         rng: &mut impl CryptoRngCore,
         context: Context<P, I>,
@@ -467,41 +553,44 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round3<P, I> {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicData2<P>: Serialize"))]
 #[serde(bound(deserialize = "PublicData2<P>: for<'x> Deserialize<'x>"))]
-pub struct Round3Message<P: SchemeParams> {
+struct Round3Message<P: SchemeParams> {
     data2: PublicData2<P>,
 }
 
-pub struct Round3Payload {
+struct Round3Payload {
     x: Scalar, // $x_j^i$, a secret share change received from the party $j$
 }
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P, I> {
-    type Type = ToResult;
-    type Result = KeyRefreshResult<P, I>;
-    const ROUND_NUM: u8 = 3;
-    const NEXT_ROUND_NUM: Option<u8> = None;
+impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
+    type Protocol = KeyRefreshProtocol<P, I>;
 
-    fn other_ids(&self) -> &BTreeSet<I> {
+    fn id(&self) -> RoundId {
+        RoundId::new(3)
+    }
+
+    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
+        BTreeSet::new()
+    }
+
+    fn may_produce_result(&self) -> bool {
+        true
+    }
+
+    fn message_destinations(&self) -> &BTreeSet<I> {
         &self.context.other_ids
     }
 
-    fn my_id(&self) -> &I {
-        &self.context.my_id
+    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+        &self.context.other_ids
     }
-
-    type BroadcastMessage = ();
-    type DirectMessage = Round3Message<P>;
-    type Payload = Round3Payload;
-    type Artifact = ();
-
-    no_broadcast_messages!();
 
     fn make_direct_message(
         &self,
         rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
         destination: &I,
-    ) -> (Self::DirectMessage, Self::Artifact) {
-        let aux = (&self.context.sid_hash, self.my_id(), &self.rho);
+    ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
+        let aux = (&self.context.sid_hash, &self.context.my_id, &self.rho);
 
         let data = self.others_data.get(destination).unwrap();
 
@@ -535,98 +624,105 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> Round<I> for Round3<P,
             psi_sch,
         };
 
-        (Round3Message { data2 }, ())
+        let dm = DirectMessage::new(serializer, Round3Message { data2 })?;
+        Ok((dm, None))
     }
 
-    fn verify_message(
+    fn receive_message(
         &self,
         rng: &mut impl CryptoRngCore,
+        deserializer: &Deserializer,
         from: &I,
-        _broadcast_msg: Self::BroadcastMessage,
-        direct_msg: Self::DirectMessage,
-    ) -> Result<Self::Payload, <Self::Result as ProtocolResult>::ProvableError> {
+        echo_broadcast: EchoBroadcast,
+        normal_broadcast: NormalBroadcast,
+        direct_message: DirectMessage,
+    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+        echo_broadcast.assert_is_none()?;
+        normal_broadcast.assert_is_none()?;
+        let direct_message = direct_message.deserialize::<Round3Message<P>>(deserializer)?;
+
         let sender_data = &self.others_data.get(from).unwrap();
 
-        let enc_x = direct_msg
+        let enc_x = direct_message
             .data2
             .paillier_enc_x
             .to_mod(self.context.paillier_sk.public_key());
 
         let x = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
 
-        let my_idx = self.context.ids_ordering[self.my_id()];
+        let my_idx = self.context.ids_ordering[&self.context.my_id];
 
         if x.mul_by_generator() != sender_data.data.cap_x_to_send[my_idx] {
             let mu = enc_x.derive_randomizer(&self.context.paillier_sk);
-            return Err(KeyRefreshError(
+            return Err(ReceiveError::protocol(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3MismatchedSecret {
-                    cap_c: direct_msg.data2.paillier_enc_x,
+                    cap_c: direct_message.data2.paillier_enc_x,
                     x,
                     mu: mu.retrieve(),
                 },
-            ));
+            )));
         }
 
         let aux = (&self.context.sid_hash, &from, &self.rho);
 
-        if !direct_msg
+        if !direct_message
             .data2
             .psi_mod
             .verify(rng, &sender_data.paillier_pk, &aux)
         {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
-                "Mod proof verification failed".into(),
+            return Err(ReceiveError::protocol(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3("Mod proof verification failed".into()),
             )));
         }
 
-        if !direct_msg.data2.phi.verify(
+        if !direct_message.data2.phi.verify(
             &sender_data.paillier_pk,
             &self.context.data_precomp.rp_params,
             &aux,
         ) {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
-                "Fac proof verification failed".into(),
+            return Err(ReceiveError::protocol(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3("Fac proof verification failed".into()),
             )));
         }
 
-        if !direct_msg
+        if !direct_message
             .data2
             .pi
             .verify(&sender_data.data.cap_b, &sender_data.data.cap_y, &aux)
         {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
-                "Sch proof verification (Y) failed".into(),
+            return Err(ReceiveError::protocol(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3("Sch proof verification (Y) failed".into()),
             )));
         }
 
-        if !direct_msg.data2.psi_sch.verify(
+        if !direct_message.data2.psi_sch.verify(
             &sender_data.data.cap_a_to_send[my_idx],
             &sender_data.data.cap_x_to_send[my_idx],
             &aux,
         ) {
-            return Err(KeyRefreshError(KeyRefreshErrorEnum::Round3(
-                "Sch proof verification (X) failed".into(),
+            return Err(ReceiveError::protocol(KeyRefreshError(
+                KeyRefreshErrorEnum::Round3("Sch proof verification (X) failed".into()),
             )));
         }
 
-        Ok(Round3Payload { x })
+        Ok(Payload::new(Round3Payload { x }))
     }
-}
 
-impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I> for Round3<P, I> {
-    fn finalize_to_result(
+    fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, <Self as Round<I>>::Payload>,
-        _artifacts: BTreeMap<I, <Self as Round<I>>::Artifact>,
-    ) -> Result<<Self::Result as ProtocolResult>::Success, FinalizeError<Self::Result>> {
+        payloads: BTreeMap<I, Payload>,
+        _artifacts: BTreeMap<I, Artifact>,
+    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        let payloads = payloads.downcast_all::<Round3Payload>()?;
         let others_x = payloads
             .into_iter()
             .map(|(id, payload)| (id, payload.x))
             .collect::<BTreeMap<_, _>>();
 
         // The combined secret share change
-        let x_star = others_x.values().sum::<Scalar>() + self.context.x_to_send[self.my_id()];
+        let x_star =
+            others_x.values().sum::<Scalar>() + self.context.x_to_send[&self.context.my_id];
 
         let my_id = self.context.my_id.clone();
         let mut all_ids = self.context.other_ids;
@@ -682,7 +778,7 @@ impl<P: SchemeParams, I: Debug + Clone + Ord + Serialize> FinalizableToResult<I>
             public_aux,
         };
 
-        Ok((key_share_change, aux_info))
+        Ok(FinalizeOutcome::Result((key_share_change, aux_info)))
     }
 }
 
@@ -691,45 +787,37 @@ mod tests {
 
     use alloc::collections::{BTreeMap, BTreeSet};
 
-    use rand_core::{OsRng, RngCore};
+    use manul::{
+        dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
+        session::signature::Keypair,
+    };
+    use rand_core::OsRng;
     use secrecy::ExposeSecret;
 
-    use super::Round1;
-    use crate::cggmp21::TestParams;
-    use crate::curve::Scalar;
-    use crate::rounds::{
-        test_utils::{step_next_round, step_result, step_round, Id, Without},
-        FirstRound,
-    };
+    use super::KeyRefresh;
+    use crate::{cggmp21::TestParams, curve::Scalar};
 
     #[test]
     fn execute_key_refresh() {
-        let mut shared_randomness = [0u8; 32];
-        OsRng.fill_bytes(&mut shared_randomness);
+        let signers = (0..3).map(TestSigner::new).collect::<Vec<_>>();
 
-        let ids = BTreeSet::from([Id(0), Id(1), Id(2)]);
-
-        let r1 = ids
+        let all_ids = signers
             .iter()
-            .map(|id| {
-                let round = Round1::<TestParams, Id>::new(
-                    &mut OsRng,
-                    &shared_randomness,
-                    ids.clone().without(id),
-                    *id,
-                    (),
-                )
-                .unwrap();
-                (*id, round)
+            .map(|signer| signer.verifying_key())
+            .collect::<BTreeSet<_>>();
+        let entry_points = signers
+            .into_iter()
+            .map(|signer| {
+                let entry_point =
+                    KeyRefresh::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
+                (signer, entry_point)
             })
-            .collect();
+            .collect::<Vec<_>>();
 
-        let r1a = step_round(&mut OsRng, r1).unwrap();
-        let r2 = step_next_round(&mut OsRng, r1a).unwrap();
-        let r2a = step_round(&mut OsRng, r2).unwrap();
-        let r3 = step_next_round(&mut OsRng, r2a).unwrap();
-        let r3a = step_round(&mut OsRng, r3).unwrap();
-        let results = step_result(&mut OsRng, r3a).unwrap();
+        let results = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
+            .unwrap()
+            .results()
+            .unwrap();
 
         let (changes, aux_infos): (BTreeMap<_, _>, BTreeMap<_, _>) = results
             .into_iter()

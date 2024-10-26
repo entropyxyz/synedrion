@@ -1,5 +1,7 @@
-use core::marker::PhantomData;
-use core::ops::{Add, Mul};
+use core::{
+    marker::PhantomData,
+    ops::{Add, Mul},
+};
 
 use crypto_bigint::{Invert, Monty, PowBoundedExp, ShrVartime, WrappingSub};
 use rand_core::CryptoRngCore;
@@ -7,8 +9,10 @@ use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use super::keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use super::params::PaillierParams;
+use super::{
+    keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed},
+    params::PaillierParams,
+};
 use crate::uint::{
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
     Bounded, Exponentiable, HasWide, NonZero, Retrieve, Signed, ToMontgomery,
@@ -419,17 +423,17 @@ impl<P: PaillierParams> Mul<Bounded<P::Uint>> for &CiphertextMod<P> {
 
 #[cfg(test)]
 mod tests {
+    use crypto_bigint::{Encoding, Integer, ShrVartime, WrappingSub};
     use rand_core::OsRng;
 
-    use super::super::params::PaillierTest;
-    use super::super::{PaillierParams, SecretKeyPaillier};
-    use super::{CiphertextMod, RandomizerMod};
-
+    use super::{
+        super::{params::PaillierTest, PaillierParams, SecretKeyPaillier},
+        CiphertextMod, RandomizerMod,
+    };
     use crate::uint::{
         subtle::{ConditionallyNegatable, ConditionallySelectable},
         HasWide, NonZero, RandomMod, Signed,
     };
-    use crypto_bigint::{Encoding, Integer, ShrVartime, WrappingSub};
 
     fn mul_mod<T>(lhs: &T, rhs: &Signed<T>, modulus: &NonZero<T>) -> T
     where

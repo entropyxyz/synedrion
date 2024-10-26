@@ -12,16 +12,10 @@ mod params;
 mod protocols;
 mod sigma;
 
-pub use entities::{AuxInfo, KeyShare, KeyShareChange, PresigningData};
+pub use entities::{AuxInfo, KeyShare, KeyShareChange};
 pub(crate) use entities::{PublicAuxInfo, SecretAuxInfo};
 pub use params::{ProductionParams, SchemeParams, TestParams};
-pub(crate) use protocols::{aux_gen, interactive_signing, key_gen, key_init, key_refresh};
 pub use protocols::{
-    AuxGenError, AuxGenResult, InteractiveSigningError, InteractiveSigningProof,
-    InteractiveSigningResult, KeyGenError, KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult,
-    KeyRefreshResult, PresigningError, PresigningProof, PresigningResult, SigningProof,
-    SigningResult,
+    AuxGen, AuxGenProtocol, InteractiveSigning, InteractiveSigningProtocol, KeyInit,
+    KeyInitProtocol, KeyRefresh, KeyRefreshProtocol, PrehashedMessage,
 };
-
-#[cfg(feature = "bench-internals")]
-pub(crate) use protocols::{presigning, signing};

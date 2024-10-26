@@ -1,11 +1,10 @@
-use alloc::format;
-use alloc::string::String;
-use alloc::{vec, vec::Vec};
-use core::default::Default;
-use core::ops::{Add, Mul, Neg, Sub};
+use alloc::{format, string::String, vec, vec::Vec};
+use core::{
+    default::Default,
+    ops::{Add, Mul, Neg, Sub},
+};
 
 use digest::Digest;
-use k256::elliptic_curve::group::ff::PrimeField;
 use k256::elliptic_curve::{
     bigint::U256, // Note that this type is different from typenum::U256
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
@@ -20,6 +19,7 @@ use k256::elliptic_curve::{
 };
 use k256::{
     ecdsa::{SigningKey, VerifyingKey},
+    elliptic_curve::group::ff::PrimeField,
     Secp256k1,
 };
 use rand_core::CryptoRngCore;

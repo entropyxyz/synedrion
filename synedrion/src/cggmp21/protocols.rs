@@ -1,17 +1,12 @@
 pub(crate) mod aux_gen;
 pub(crate) mod interactive_signing;
-pub(crate) mod key_gen;
 pub(crate) mod key_init;
 pub(crate) mod key_refresh;
-pub(crate) mod presigning;
-pub(crate) mod signing;
 
-pub use aux_gen::{AuxGenError, AuxGenResult};
-pub use interactive_signing::{
-    InteractiveSigningError, InteractiveSigningProof, InteractiveSigningResult,
-};
-pub use key_gen::{KeyGenError, KeyGenProof, KeyGenResult};
-pub use key_init::{KeyInitError, KeyInitResult};
-pub use key_refresh::KeyRefreshResult;
-pub use presigning::{PresigningError, PresigningProof, PresigningResult};
-pub use signing::{SigningProof, SigningResult};
+#[cfg(test)]
+pub(crate) mod signing_malicious;
+
+pub use aux_gen::{AuxGen, AuxGenProtocol};
+pub use interactive_signing::{InteractiveSigning, InteractiveSigningProtocol, PrehashedMessage};
+pub use key_init::{KeyInit, KeyInitProtocol};
+pub use key_refresh::{KeyRefresh, KeyRefreshProtocol};

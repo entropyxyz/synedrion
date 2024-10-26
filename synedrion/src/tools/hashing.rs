@@ -1,13 +1,12 @@
+use crypto_bigint::{Encoding, Integer, NonZero};
 use digest::{Digest, ExtendableOutput, Update, XofReader};
+use hashing_serializer::HashingSerializer;
 use serde::{Deserialize, Serialize};
+use serde_encoded_bytes::{ArrayLike, Hex};
 use sha2::Sha256;
 use sha3::{Shake256, Shake256Reader};
 
-use hashing_serializer::HashingSerializer;
-use serde_encoded_bytes::{ArrayLike, Hex};
-
 use crate::curve::Scalar;
-use crypto_bigint::{Encoding, Integer, NonZero};
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {

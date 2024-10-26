@@ -1,6 +1,4 @@
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::String;
+use alloc::{boxed::Box, format, string::String};
 
 use secrecy::{CloneableSecret, SecretBox};
 use serde::{Deserialize, Serialize};

@@ -1,7 +1,7 @@
 [package]
 name = "synedrion"
 authors = ['Entropy Cryptography <engineering@entropy.xyz>']
-version = "0.2.0"
+version = "0.3.0-dev"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Threshold signing library based on Canetti-Gennaro-Goldfeder-Makriyannis-Peled '21 scheme"
@@ -10,6 +10,7 @@ readme = "README.md"
 categories = ["cryptography", "no-std"]
 
 [dependencies]
+manul = "0.1"
 signature = { version = "2", default-features = false, features = ["alloc"] }
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
 rand_core = { version = "0.6.4", default-features = false }
@@ -32,6 +33,7 @@ bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde
 displaydoc = { version = "0.2", default-features = false }
 
 [dev-dependencies]
+manul = { version = "0.1", features = ["dev"] }
 rand_chacha = "0.3"
 serde_assert = "0.8"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
@@ -41,12 +43,8 @@ k256 = {version = "0.13", default-features = false, features = ["ecdsa", "arithm
 impls = "1"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 
-[features]
-bench-internals = [] # makes some internal functions public to allow external benchmarks
-
 [[bench]]
 bench = true
 name = "bench"
 harness = false
-required-features = ["bench-internals"]
 path = "benches/bench.rs"
