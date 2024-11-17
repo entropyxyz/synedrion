@@ -387,12 +387,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let old_share_ids = payloads
             .values()
             .map(|payload| payload.old_share_id)
-            .collect::<Vec<_>>();
+            .collect::<BTreeSet<_>>();
         let vkey = payloads
             .values()
             .map(|payload| {
                 payload.public_polynomial.coeff0()
-                    * interpolation_coeff(old_share_ids.iter(), &payload.old_share_id)
+                    * interpolation_coeff(&old_share_ids, &payload.old_share_id)
             })
             .sum();
         if Point::from_verifying_key(&new_holder.inputs.verifying_key) != vkey {
@@ -409,7 +409,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             .iter()
             .map(|id| (payloads[id].old_share_id, payloads[id].subshare))
             .collect::<BTreeMap<_, _>>();
-        let secret_share = SecretBox::new(Box::new(shamir_join_scalars(subshares.iter())));
+        let secret_share = SecretBox::new(Box::new(shamir_join_scalars(&subshares)));
 
         // Generate the public shares of all the new holders.
         let public_shares = self
@@ -421,7 +421,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                     .values()
                     .map(|p| (p.old_share_id, p.public_polynomial.evaluate(&share_id)))
                     .collect::<BTreeMap<_, _>>();
-                let public_share = shamir_join_points(public_subshares.iter());
+                let public_share = shamir_join_points(&public_subshares);
                 (id.clone(), public_share)
             })
             .collect();

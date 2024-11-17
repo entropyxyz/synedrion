@@ -95,10 +95,12 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
 
     pub(crate) fn verifying_key_as_point(&self) -> Point {
         shamir_join_points(
-            self.share_ids
+            &self
+                .share_ids
                 .iter()
-                .map(|(party_idx, share_id)| (share_id, &self.public_shares[party_idx]))
-                .take(self.threshold as usize),
+                .map(|(party_idx, share_id)| (*share_id, self.public_shares[party_idx]))
+                .take(self.threshold as usize)
+                .collect(),
         )
     }
 
@@ -122,8 +124,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .map(|id| (id.clone(), self.share_ids[id]))
             .collect::<BTreeMap<_, _>>();
 
+        let share_ids_set = share_ids.values().cloned().collect();
         let secret_share = SecretBox::new(Box::new(
-            self.secret_share.expose_secret() * &interpolation_coeff(share_ids.values(), &share_id),
+            self.secret_share.expose_secret() * &interpolation_coeff(&share_ids_set, &share_id),
         ));
         let public_shares = ids
             .iter()
@@ -131,7 +134,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                 (
                     id.clone(),
                     self.public_shares[id]
-                        * interpolation_coeff(share_ids.values(), &self.share_ids[id]),
+                        * interpolation_coeff(&share_ids_set, &self.share_ids[id]),
                 )
             })
             .collect();
@@ -157,9 +160,10 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .zip((1..=num_parties).map(ShareId::new))
             .collect::<BTreeMap<_, _>>();
 
+        let share_ids_set = share_ids.values().cloned().collect();
         let secret_share = SecretBox::new(Box::new(
             key_share.secret_share.expose_secret()
-                * &interpolation_coeff(share_ids.values(), &share_ids[key_share.owner()])
+                * &interpolation_coeff(&share_ids_set, &share_ids[key_share.owner()])
                     .invert()
                     .expect("the interpolation coefficient is a non-zero scalar"),
         ));
@@ -168,7 +172,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .map(|id| {
                 let share_id = share_ids[id];
                 let public_share = key_share.public_shares[id]
-                    * interpolation_coeff(share_ids.values(), &share_id)
+                    * interpolation_coeff(&share_ids_set, &share_id)
                         .invert()
                         .expect("the interpolation coefficient is a non-zero scalar");
                 (id.clone(), public_share)
