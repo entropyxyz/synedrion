@@ -1,7 +1,7 @@
 [package]
 name = "synedrion"
 authors = ['Entropy Cryptography <engineering@entropy.xyz>']
-version = "0.2.0-pre.0"
+version = "0.2.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "Threshold signing library based on Canetti-Gennaro-Goldfeder-Makriyannis-Peled '21 scheme"
