@@ -14,7 +14,7 @@ use crate::{
 pub struct ShareId(Scalar);
 
 impl ShareId {
-    pub fn new(idx: usize) -> Self {
+    pub fn new(idx: u64) -> Self {
         Self(Scalar::from(idx))
     }
 }
@@ -22,7 +22,7 @@ impl ShareId {
 pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareId> {
     // For now we are hardcoding the points to be 1, 2, ..., n.
     // Potentially we can derive them from Session ID.
-    (1..=u32::try_from(num_shares).expect("The number of shares cannot be over 2^32-1"))
+    (1..=u64::try_from(num_shares).expect("no more than 2^64-1 shares needed"))
         .map(|idx| ShareId(Scalar::from(idx)))
         .collect()
 }

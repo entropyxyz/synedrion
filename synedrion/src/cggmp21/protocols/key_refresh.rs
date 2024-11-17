@@ -5,6 +5,7 @@
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
+    format,
     string::String,
     vec::Vec,
 };
@@ -431,10 +432,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         echo_broadcast.assert_is_none()?;
         direct_message.assert_is_none()?;
         let normal_broadcast = normal_broadcast.deserialize::<Round2Message<P>>(deserializer)?;
+        let cap_v = self
+            .others_cap_v
+            .get(from)
+            .ok_or_else(|| LocalError::new(format!("Missing `V` for {from:?}")))?;
 
-        if &normal_broadcast.data.hash(&self.context.sid_hash, from)
-            != self.others_cap_v.get(from).unwrap()
-        {
+        if &normal_broadcast.data.hash(&self.context.sid_hash, from) != cap_v {
             return Err(ReceiveError::protocol(KeyRefreshError(
                 KeyRefreshErrorEnum::Round2("Hash mismatch".into()),
             )));
@@ -592,14 +595,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
         let aux = (&self.context.sid_hash, &self.context.my_id, &self.rho);
 
-        let data = self.others_data.get(destination).unwrap();
+        let data = self
+            .others_data
+            .get(destination)
+            .ok_or_else(|| LocalError::new(format!("Missing data for {destination:?}")))?;
 
-        let phi = FacProof::new(
-            rng,
-            &self.context.paillier_sk,
-            &self.others_data.get(destination).unwrap().rp_params,
-            &aux,
-        );
+        let phi = FacProof::new(rng, &self.context.paillier_sk, &data.rp_params, &aux);
 
         let destination_idx = self.context.ids_ordering[destination];
 
@@ -641,7 +642,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         normal_broadcast.assert_is_none()?;
         let direct_message = direct_message.deserialize::<Round3Message<P>>(deserializer)?;
 
-        let sender_data = &self.others_data.get(from).unwrap();
+        let sender_data = &self
+            .others_data
+            .get(from)
+            .ok_or_else(|| LocalError::new(format!("Missing data for {from:?}")))?;
 
         let enc_x = direct_message
             .data2

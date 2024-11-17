@@ -92,7 +92,10 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             .into_inner()
             .to_montgomery(public_key.precomputed_modulus())
             .invert()
-            .expect("The modulus is pq. ϕ(pq) = (p-1)(q-1) is invertible mod pq because neither (p-1) nor (q-1) share factors with pq.");
+            .expect(concat![
+                "The modulus is pq. ϕ(pq) = (p-1)(q-1) is invertible mod pq because ",
+                "neither (p-1) nor (q-1) share factors with pq."
+            ]);
 
         let modulus: &P::Uint = public_key.modulus(); // pq
         let inv_modulus = Bounded::new(
@@ -180,10 +183,12 @@ where
         // so we return that for convenience.
         (
             SecretBox::new(Box::new(Signed::new_positive(self.sk.p.expose_secret().clone().into_wide(), P::PRIME_BITS as u32)
-                .expect("The primes in the `SecretKeyPaillier` are 'safe primes' and positive by construction; the bound is assumed to be configured correctly by the user.")
+                .expect(concat!["The primes in the `SecretKeyPaillier` are 'safe primes' ",
+                    "and positive by construction; the bound is assumed to be configured correctly by the user."])
         )),
         SecretBox::new(Box::new(Signed::new_positive(self.sk.q.expose_secret().clone().into_wide(), P::PRIME_BITS as u32)
-                .expect("The primes in the `SecretKeyPaillier` are 'safe primes' and positive by construction; the bound is assumed to be configured correctly by the user.")
+                .expect(concat!["The primes in the `SecretKeyPaillier` are 'safe primes' ",
+                    "and positive by construction; the bound is assumed to be configured correctly by the user."])
     )),
         )
     }
@@ -195,8 +200,11 @@ where
 
     /// Returns Euler's totient function (`φ(n)`) of the modulus as a [`NonZero`], wrapped in a [`SecretBox`].
     pub fn totient_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
-        let p = NonZero::new(self.totient.expose_secret().into_inner())
-            .expect("φ(n) is never zero for n >= 1; n is strictly greater than 1 because it is (p-1)(q-1) and given that both p and q are prime they are both strictly greater than 1");
+        let p = NonZero::new(self.totient.expose_secret().into_inner()).expect(concat![
+            "φ(n) is never zero for n >= 1; n is strictly greater than 1 ",
+            "because it is (p-1)(q-1) and given that both p and q are prime ",
+            "they are both strictly greater than 1"
+        ]);
         Box::new(p).into()
     }
 
@@ -225,12 +233,12 @@ where
     pub fn rns_split(&self, elem: &P::Uint) -> (P::HalfUintMod, P::HalfUintMod) {
         // May be some speed up potential here since we know p and q are small,
         // but it needs to be supported by `crypto-bigint`.
-        let mut p_rem =
-            *elem % NonZero::new(self.sk.p.expose_secret().clone().into_wide()).unwrap();
-        let mut q_rem =
-            *elem % NonZero::new(self.sk.q.expose_secret().clone().into_wide()).unwrap();
-        let p_rem_half = P::HalfUint::try_from_wide(p_rem).unwrap();
-        let q_rem_half = P::HalfUint::try_from_wide(q_rem).unwrap();
+        let mut p_rem = *elem
+            % NonZero::new(self.sk.p.expose_secret().clone().into_wide()).expect("`p` is non-zero");
+        let mut q_rem = *elem
+            % NonZero::new(self.sk.q.expose_secret().clone().into_wide()).expect("`q` is non-zero");
+        let p_rem_half = P::HalfUint::try_from_wide(p_rem).expect("`p` fits into `HalfUint`");
+        let q_rem_half = P::HalfUint::try_from_wide(q_rem).expect("`q` fits into `HalfUint`");
 
         let p_rem_mod = p_rem_half.to_montgomery(self.precomputed_mod_p());
         let q_rem_mod = q_rem_half.to_montgomery(self.precomputed_mod_q());
@@ -298,7 +306,10 @@ where
             P::Uint::random_mod(rng, self.totient_nonzero().expose_secret()),
             P::MODULUS_BITS as u32,
         )
-        .unwrap()
+        .expect(concat![
+            "the totient is smaller than the modulus, ",
+            "and thefore can be bounded by 2^MODULUS_BITS"
+        ])
     }
 
     /// Returns a random $w \in [0, N)$ such that $w$ is not a square modulo $N$,
@@ -381,11 +392,16 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
     }
 
     pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
-        Bounded::new(*self.pk.modulus(), P::MODULUS_BITS as u32).unwrap()
+        Bounded::new(*self.pk.modulus(), P::MODULUS_BITS as u32)
+            .expect("the modulus can be bounded by 2^MODULUS_BITS")
     }
 
     pub fn modulus_nonzero(&self) -> NonZero<P::Uint> {
-        NonZero::new(*self.modulus()).unwrap()
+        NonZero::new(*self.modulus()).expect("the modulus is non-zero")
+    }
+
+    pub fn modulus_wide_nonzero(&self) -> NonZero<P::WideUint> {
+        NonZero::new(self.pk.modulus().into_wide()).expect("the modulus is non-zero")
     }
 
     /// Returns precomputed parameters for integers modulo N

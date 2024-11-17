@@ -121,6 +121,10 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     /// The error bound for range checks (referred to in the paper as the slackness parameter).
     const EPS_BOUND: usize; // $\eps$, in paper $= 2 \ell$ (see Table 2)
     /// The parameters of the Paillier encryption.
+    ///
+    /// Note: `PaillierParams::Uint` must be able to contain the full range of `Scalar` values
+    /// plus one bit (so that any curve scalar still represents a positive value
+    /// when treated as a 2-complement signed integer).
     type Paillier: PaillierParams;
 
     /// Converts a curve scalar to the associated integer type.
@@ -137,20 +141,21 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     }
 
     /// Converts a curve scalar to the associated integer type, wrapped in `Bounded`.
-    fn bounded_from_scalar(
-        value: &Scalar,
-    ) -> Option<Bounded<<Self::Paillier as PaillierParams>::Uint>> {
-        Bounded::new(Self::uint_from_scalar(value), ORDER.bits_vartime() as u32)
+    fn bounded_from_scalar(value: &Scalar) -> Bounded<<Self::Paillier as PaillierParams>::Uint> {
+        Bounded::new(Self::uint_from_scalar(value), ORDER.bits_vartime() as u32).expect(concat![
+            "a curve scalar value is smaller than the curve order, ",
+            "and the curve order fits in `PaillierParams::Uint`"
+        ])
     }
 
     /// Converts a curve scalar to the associated integer type, wrapped in `Signed`.
-    /// Returns `None` if:
-    /// - the bound provided by [`ORDER_BITS`] is invalid for the associated integer type from [`PaillierParams`];
-    /// - the scalar value encodes a negative value
-    fn signed_from_scalar(
-        value: &Scalar,
-    ) -> Option<Signed<<Self::Paillier as PaillierParams>::Uint>> {
-        Self::bounded_from_scalar(value).and_then(Bounded::into_signed)
+    fn signed_from_scalar(value: &Scalar) -> Signed<<Self::Paillier as PaillierParams>::Uint> {
+        Self::bounded_from_scalar(value)
+            .into_signed()
+            .expect(concat![
+                "a curve scalar value is smaller than the half of `PaillierParams::Uint` range, ",
+                "so it is still positive when treated as a 2-complement signed value"
+            ])
     }
 
     /// Converts an integer to the associated curve scalar type.
@@ -162,7 +167,8 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
         let scalar_len = Scalar::repr_len();
 
         // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..]).unwrap()
+        Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..])
+            .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
     }
 
     /// Converts a `Signed`-wrapped integer to the associated curve scalar type.
@@ -180,7 +186,8 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
         let scalar_len = Scalar::repr_len();
 
         // Can unwrap here since the value is within the Scalar range
-        Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..]).unwrap()
+        Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..])
+            .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
     }
 
     /// Converts a `Signed`-wrapped wide integer to the associated curve scalar type.

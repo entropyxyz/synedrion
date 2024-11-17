@@ -146,7 +146,10 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
             .new_holders
             .iter()
             .enumerate()
-            .map(|(idx, id)| (id.clone(), ShareId::new(idx + 1)))
+            .map(|(idx, id)| {
+                let idx: u64 = idx.try_into().expect("no more than 2^64-1 shares needed");
+                (id.clone(), ShareId::new(idx + 1))
+            })
             .collect();
 
         if self.old_holder.is_none() && self.new_holder.is_none() {

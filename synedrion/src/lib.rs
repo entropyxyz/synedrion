@@ -4,8 +4,6 @@
 #![deny(unsafe_code)]
 #![warn(
     clippy::mod_module_files,
-    // TODO (#76): handle unwraps gracefully and enable this lint
-    // clippy::unwrap_used,
     missing_docs,
     missing_copy_implementations,
     rust_2018_idioms,
@@ -13,6 +11,7 @@
     trivial_numeric_casts,
     unused_qualifications
 )]
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
 extern crate alloc;
 

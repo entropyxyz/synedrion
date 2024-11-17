@@ -114,9 +114,15 @@ impl<P: SchemeParams> ModProof<P> {
                     }
                 }
 
-                let y_sqrt = y_sqrt.unwrap();
+                // If N is a Paillier-Blum modulus, that is N = pq where p, q are safe primes,
+                // and the commitment was sampled correctly (a non-square modulo N),
+                // these square roots will exist.
+                let y_sqrt =
+                    y_sqrt.expect("the square root exists if N is a Paillier-Blum modulus");
+                let y_4th_parts = sk
+                    .sqrt(&y_sqrt)
+                    .expect("the square root exists if N is a Paillier-Blum modulus");
 
-                let y_4th_parts = sk.sqrt(&y_sqrt).unwrap();
                 let y_4th = sk.rns_join(&y_4th_parts);
 
                 let y = challenge.0[i].to_montgomery(pk.precomputed_modulus());

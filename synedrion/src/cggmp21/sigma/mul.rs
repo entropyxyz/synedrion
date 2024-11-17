@@ -66,7 +66,7 @@ impl<P: SchemeParams> MulProof<P> {
             alpha_mod.retrieve(),
             <P::Paillier as PaillierParams>::MODULUS_BITS as u32,
         )
-        .unwrap();
+        .expect("the value is bounded by `MODULUS_BITS` by construction");
         let r = r_mod.retrieve();
         let s = s_mod.retrieve();
 
@@ -88,7 +88,11 @@ impl<P: SchemeParams> MulProof<P> {
         // Non-interactive challenge
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let z = alpha.into_wide().into_signed().unwrap() + e.mul_wide(x);
+        let z = alpha
+            .into_wide()
+            .into_signed()
+            .expect("conversion to `WideUint` provides enough space for a sign bit")
+            + e.mul_wide(x);
         let u = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
         let v = (s_mod * rho_x.pow_signed_vartime(&e)).retrieve();
 

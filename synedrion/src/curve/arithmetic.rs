@@ -242,15 +242,9 @@ impl<'de> Deserialize<'de> for Point {
     }
 }
 
-impl From<u32> for Scalar {
-    fn from(val: u32) -> Self {
+impl From<u64> for Scalar {
+    fn from(val: u64) -> Self {
         Self(BackendScalar::from(val))
-    }
-}
-
-impl From<usize> for Scalar {
-    fn from(val: usize) -> Self {
-        Self(BackendScalar::from(u64::try_from(val).unwrap()))
     }
 }
 

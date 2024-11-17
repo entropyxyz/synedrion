@@ -27,6 +27,8 @@ use crate::{
 /// is enough to perform signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
+    // TODO (#5): make this private to ensure invariants are held
+    // (mainly, that the verifying key is not an identity)
     pub(crate) owner: I,
     pub(crate) threshold: u32,
     pub(crate) secret_share: SecretBox<Scalar>,
@@ -102,9 +104,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
 
     /// Return the verifying key to which this set of shares corresponds.
     pub fn verifying_key(&self) -> VerifyingKey {
-        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
-        // (that is, the sum of public keys does not evaluate to the infinity point)
-        self.verifying_key_as_point().to_verifying_key().unwrap()
+        self.verifying_key_as_point()
+            .to_verifying_key()
+            .expect("the combined verrifying key is not an identity")
     }
 
     /// Converts a t-of-n key share into a t-of-t key share
@@ -145,17 +147,21 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
     /// Creates a t-of-t threshold keyshare that can be used in KeyResharing protocol.
     pub fn from_key_share(key_share: &KeyShare<P, I>) -> Self {
         let ids = key_share.all_parties();
+        let num_parties: u64 = ids
+            .len()
+            .try_into()
+            .expect("no more than 2^64-1 shares needed");
         let share_ids = ids
             .iter()
             .cloned()
-            .zip((1..=ids.len()).map(ShareId::new))
+            .zip((1..=num_parties).map(ShareId::new))
             .collect::<BTreeMap<_, _>>();
 
         let secret_share = SecretBox::new(Box::new(
             key_share.secret_share.expose_secret()
                 * &interpolation_coeff(share_ids.values(), &share_ids[key_share.owner()])
                     .invert()
-                    .unwrap(),
+                    .expect("the interpolation coefficient is a non-zero scalar"),
         ));
         let public_shares = ids
             .iter()
@@ -164,7 +170,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                 let public_share = key_share.public_shares[id]
                     * interpolation_coeff(share_ids.values(), &share_id)
                         .invert()
-                        .unwrap();
+                        .expect("the interpolation coefficient is a non-zero scalar");
                 (id.clone(), public_share)
             })
             .collect();
