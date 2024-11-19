@@ -5,19 +5,21 @@
 
 use alloc::{vec, vec::Vec};
 
+use crypto_bigint::PowBoundedExp;
 use digest::XofReader;
 use rand_core::CryptoRngCore;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPrecomputed};
-use crate::tools::hashing::{Chain, Hashable, XofHasher};
-use crate::uint::{
-    subtle::{Choice, ConditionallySelectable},
-    Bounded, Retrieve, ToMontgomery,
+use crate::{
+    paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPrecomputed},
+    tools::hashing::{Chain, Hashable, XofHasher},
+    uint::{
+        subtle::{Choice, ConditionallySelectable},
+        Bounded, Retrieve, ToMontgomery,
+    },
 };
-use crypto_bigint::PowBoundedExp;
 
 const HASH_TAG: &[u8] = b"P_prm";
 
@@ -151,8 +153,10 @@ mod tests {
     use rand_core::OsRng;
 
     use super::PrmProof;
-    use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{RPParamsMod, RPSecret, SecretKeyPaillier};
+    use crate::{
+        cggmp21::{SchemeParams, TestParams},
+        paillier::{RPParamsMod, RPSecret, SecretKeyPaillier},
+    };
 
     #[test]
     fn prove_and_verify() {

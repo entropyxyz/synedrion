@@ -4,12 +4,14 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::paillier::{
-    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer,
-    RandomizerMod,
+use crate::{
+    paillier::{
+        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer,
+        RandomizerMod,
+    },
+    tools::hashing::{Chain, Hashable, XofHasher},
+    uint::{Bounded, Retrieve, Signed},
 };
-use crate::tools::hashing::{Chain, Hashable, XofHasher};
-use crate::uint::{Bounded, Retrieve, Signed};
 
 const HASH_TAG: &[u8] = b"P_mul";
 
@@ -155,9 +157,11 @@ mod tests {
     use rand_core::OsRng;
 
     use super::MulProof;
-    use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{CiphertextMod, RandomizerMod, SecretKeyPaillier};
-    use crate::uint::Signed;
+    use crate::{
+        cggmp21::{SchemeParams, TestParams},
+        paillier::{CiphertextMod, RandomizerMod, SecretKeyPaillier},
+        uint::Signed,
+    };
 
     #[test]
     fn prove_and_verify() {

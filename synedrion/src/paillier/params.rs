@@ -7,13 +7,12 @@ use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
+#[cfg(test)]
+use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
 use crate::{
     tools::hashing::Hashable,
     uint::{Exponentiable, HasWide, ToMontgomery},
 };
-
-#[cfg(test)]
-use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
 
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.

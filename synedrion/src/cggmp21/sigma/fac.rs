@@ -5,12 +5,14 @@ use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::paillier::{
-    PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-    SecretKeyPaillierPrecomputed,
+use crate::{
+    paillier::{
+        PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
+        SecretKeyPaillierPrecomputed,
+    },
+    tools::hashing::{Chain, Hashable, XofHasher},
+    uint::{Bounded, Integer, Signed},
 };
-use crate::tools::hashing::{Chain, Hashable, XofHasher};
-use crate::uint::{Bounded, Integer, Signed};
 
 const HASH_TAG: &[u8] = b"P_fac";
 
@@ -221,8 +223,10 @@ mod tests {
     use rand_core::OsRng;
 
     use super::FacProof;
-    use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{RPParamsMod, SecretKeyPaillier};
+    use crate::{
+        cggmp21::{SchemeParams, TestParams},
+        paillier::{RPParamsMod, SecretKeyPaillier},
+    };
 
     #[test]
     fn prove_and_verify() {

@@ -1,36 +1,83 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use rand_core::OsRng;
+use std::collections::BTreeSet;
 
-use synedrion::{
-    bench_internals::{
-        key_init, key_refresh, presigning, signing, PresigningInputs, SigningInputs,
-    },
-    TestParams,
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use manul::{
+    dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
+    session::signature::Keypair,
 };
+use rand_core::OsRng;
+use synedrion::{AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, TestParams};
 
 fn bench_happy_paths(c: &mut Criterion) {
     let mut group = c.benchmark_group("happy path");
 
-    type Params = TestParams;
+    type SessionParams = TestSessionParams<BinaryFormat>;
 
-    group.bench_function("KeyGen, 2 parties", |b| {
-        b.iter(|| key_init::<Params>(&mut OsRng, 2))
+    let signers = (0..2).map(TestSigner::new).collect::<Vec<_>>();
+    let all_ids = signers
+        .iter()
+        .map(|signer| signer.verifying_key())
+        .collect::<BTreeSet<_>>();
+
+    group.bench_function("KeyInit, 2 parties", |b| {
+        b.iter_batched(
+            || {
+                signers
+                    .iter()
+                    .map(|signer| {
+                        let entry_point =
+                            KeyInit::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
+                        (*signer, entry_point)
+                    })
+                    .collect::<Vec<_>>()
+            },
+            |entry_points| run_sync::<_, SessionParams>(&mut OsRng, entry_points).unwrap(),
+            BatchSize::SmallInput,
+        )
     });
 
-    let presigning_inputs = PresigningInputs::new(&mut OsRng, 2);
-    let signing_inputs = SigningInputs::new(&mut OsRng, &presigning_inputs);
-
-    group.bench_function("Signing, 2 parties", |b| {
-        b.iter(|| signing::<Params>(&mut OsRng, &presigning_inputs, &signing_inputs))
-    });
+    let key_shares = KeyShare::new_centralized(&mut OsRng, &all_ids, None);
+    let aux_infos = AuxInfo::new_centralized(&mut OsRng, &all_ids);
+    let message = [1u8; 32];
 
     group.sample_size(10);
-    group.bench_function("Presigning, 2 parties", |b| {
-        b.iter(|| presigning::<Params>(&mut OsRng, &presigning_inputs))
+    group.bench_function("InteractiveSigning, 2 parties", |b| {
+        b.iter_batched(
+            || {
+                signers
+                    .iter()
+                    .map(|signer| {
+                        let id = signer.verifying_key();
+                        let entry_point = InteractiveSigning::<TestParams, TestVerifier>::new(
+                            message,
+                            key_shares[&id].clone(),
+                            aux_infos[&id].clone(),
+                        );
+                        (*signer, entry_point)
+                    })
+                    .collect::<Vec<_>>()
+            },
+            |entry_points| run_sync::<_, SessionParams>(&mut OsRng, entry_points).unwrap(),
+            BatchSize::LargeInput,
+        )
     });
 
-    group.bench_function("KeyRefresh, 2 parties", |b| {
-        b.iter(|| key_refresh::<Params>(&mut OsRng, 2))
+    group.sample_size(20);
+    group.bench_function("AuxGen, 2 parties", |b| {
+        b.iter_batched(
+            || {
+                signers
+                    .iter()
+                    .map(|signer| {
+                        let entry_point =
+                            AuxGen::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
+                        (*signer, entry_point)
+                    })
+                    .collect::<Vec<_>>()
+            },
+            |entry_points| run_sync::<_, SessionParams>(&mut OsRng, entry_points).unwrap(),
+            BatchSize::SmallInput,
+        )
     });
 
     group.finish()

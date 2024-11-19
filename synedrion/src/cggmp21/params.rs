@@ -1,19 +1,21 @@
 use core::fmt::Debug;
 
-use crate::curve::{Curve, Scalar, ORDER};
-use crate::paillier::PaillierParams;
-use crate::tools::hashing::{Chain, HashableType};
-use crate::uint::{
-    subtle::ConditionallySelectable, Bounded, Encoding, NonZero, Signed, U1024Mod, U2048Mod,
-    U4096Mod, U512Mod, Uint, Zero, U1024, U2048, U4096, U512, U8192,
-};
 // We're depending on a pre-release `crypto-bigint` version,
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use k256::elliptic_curve::bigint::Uint as K256Uint;
-
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    curve::{Curve, Scalar, ORDER},
+    paillier::PaillierParams,
+    tools::hashing::{Chain, HashableType},
+    uint::{
+        subtle::ConditionallySelectable, Bounded, Encoding, NonZero, Signed, U1024Mod, U2048Mod,
+        U4096Mod, U512Mod, Uint, Zero, U1024, U2048, U4096, U512, U8192,
+    },
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaillierTest;

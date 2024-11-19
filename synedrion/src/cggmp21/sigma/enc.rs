@@ -4,12 +4,14 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::paillier::{
-    Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
-    RPParamsMod, Randomizer, RandomizerMod,
+use crate::{
+    paillier::{
+        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
+        RPParamsMod, Randomizer, RandomizerMod,
+    },
+    tools::hashing::{Chain, Hashable, XofHasher},
+    uint::Signed,
 };
-use crate::tools::hashing::{Chain, Hashable, XofHasher};
-use crate::uint::Signed;
 
 const HASH_TAG: &[u8] = b"P_enc";
 
@@ -148,9 +150,11 @@ mod tests {
     use rand_core::OsRng;
 
     use super::EncProof;
-    use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::{CiphertextMod, RPParamsMod, RandomizerMod, SecretKeyPaillier};
-    use crate::uint::Signed;
+    use crate::{
+        cggmp21::{SchemeParams, TestParams},
+        paillier::{CiphertextMod, RPParamsMod, RandomizerMod, SecretKeyPaillier},
+        uint::Signed,
+    };
 
     #[test]
     fn prove_and_verify() {

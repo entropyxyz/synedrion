@@ -1,5 +1,4 @@
-use alloc::boxed::Box;
-use alloc::vec;
+use alloc::{boxed::Box, vec};
 use core::ops::BitXorAssign;
 
 use rand_core::CryptoRngCore;

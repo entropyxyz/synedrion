@@ -5,22 +5,28 @@
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
 
-use crate::curve::{Point, Scalar};
-use crate::tools::hashing::{Chain, FofHasher, Hashable};
+use crate::{
+    curve::{Point, Scalar},
+    tools::{
+        hashing::{Chain, FofHasher, Hashable},
+        HideDebug,
+    },
+};
 
 const HASH_TAG: &[u8] = b"P_sch";
 
 /// Secret data the proof is based on (~ signing key)
-#[derive(Clone)]
+#[derive(Debug, Clone, ZeroizeOnDrop)]
 pub(crate) struct SchSecret(
     /// `\alpha`
-    Scalar,
+    HideDebug<Scalar>,
 );
 
 impl SchSecret {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        Self(Scalar::random(rng))
+        Self(Scalar::random(rng).into())
     }
 }
 
@@ -73,7 +79,7 @@ impl SchProof {
         aux: &impl Hashable,
     ) -> Self {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        let proof = proof_secret.0 + challenge.0 * x;
+        let proof = *proof_secret.0 + challenge.0 * x;
         Self { challenge, proof }
     }
 

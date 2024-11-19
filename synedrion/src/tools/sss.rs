@@ -1,11 +1,14 @@
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
+use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
 
-use crate::curve::{Point, Scalar};
+use crate::{
+    curve::{Point, Scalar},
+    tools::HideDebug,
+};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShareId(Scalar);
@@ -37,7 +40,8 @@ where
     res
 }
 
-pub(crate) struct Polynomial(Vec<Scalar>);
+#[derive(Debug, ZeroizeOnDrop)]
+pub(crate) struct Polynomial(HideDebug<Vec<Scalar>>);
 
 impl Polynomial {
     pub fn random(rng: &mut impl CryptoRngCore, coeff0: &Scalar, degree: usize) -> Self {
@@ -46,7 +50,7 @@ impl Polynomial {
         for _ in 1..degree {
             coeffs.push(Scalar::random_nonzero(rng));
         }
-        Self(coeffs)
+        Self(coeffs.into())
     }
 
     pub fn evaluate(&self, x: &ShareId) -> Scalar {

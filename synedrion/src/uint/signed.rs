@@ -1,5 +1,6 @@
 use alloc::{boxed::Box, string::String};
 use core::ops::{Add, Mul, Neg, Sub};
+
 #[cfg(test)]
 use crypto_bigint::Random;
 use digest::XofReader;
@@ -622,12 +623,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Signed;
-    use crate::uint::U1024;
+    use std::ops::Neg;
+
     use crypto_bigint::{CheckedSub, U128};
     use rand::SeedableRng;
     use rand_chacha::{self, ChaCha8Rng};
-    use std::ops::Neg;
+
+    use super::Signed;
+    use crate::uint::U1024;
     const SEED: u64 = 123;
 
     #[test]

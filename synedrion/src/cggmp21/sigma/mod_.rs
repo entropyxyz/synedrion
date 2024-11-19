@@ -2,14 +2,16 @@
 
 use alloc::vec::Vec;
 
+use crypto_bigint::{PowBoundedExp, Square};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
-use crate::paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher};
-use crate::uint::{RandomPrimeWithRng, Retrieve, ToMontgomery};
-use crypto_bigint::{PowBoundedExp, Square};
+use crate::{
+    paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed},
+    tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher},
+    uint::{RandomPrimeWithRng, Retrieve, ToMontgomery},
+};
 
 const HASH_TAG: &[u8] = b"P_mod";
 
@@ -191,8 +193,10 @@ mod tests {
     use rand_core::OsRng;
 
     use super::ModProof;
-    use crate::cggmp21::{SchemeParams, TestParams};
-    use crate::paillier::SecretKeyPaillier;
+    use crate::{
+        cggmp21::{SchemeParams, TestParams},
+        paillier::SecretKeyPaillier,
+    };
 
     #[test]
     fn prove_and_verify() {

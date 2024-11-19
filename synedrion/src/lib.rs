@@ -16,16 +16,9 @@
 
 extern crate alloc;
 
-// Expose interal entities for benchmarks
-#[cfg(feature = "bench-internals")]
-pub mod bench_internals;
-
 mod cggmp21;
-mod constructors;
 mod curve;
 mod paillier;
-mod rounds;
-pub mod sessions;
 mod tools;
 mod uint;
 mod www02;
@@ -37,18 +30,11 @@ pub use k256::ecdsa;
 pub use signature;
 
 pub use cggmp21::{
-    AuxGenError, AuxGenResult, AuxInfo, InteractiveSigningError, InteractiveSigningProof,
-    InteractiveSigningResult, KeyGenError, KeyGenProof, KeyGenResult, KeyInitError, KeyInitResult,
-    KeyRefreshResult, KeyShare, KeyShareChange, PresigningError, PresigningProof, PresigningResult,
-    ProductionParams, SchemeParams, SigningProof, SigningResult, TestParams,
-};
-pub use constructors::{
-    make_aux_gen_session, make_interactive_signing_session, make_key_gen_session,
-    make_key_init_session, make_key_refresh_session, make_key_resharing_session, PrehashedMessage,
+    AuxGen, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningProtocol, KeyInit,
+    KeyInitProtocol, KeyRefresh, KeyRefreshProtocol, KeyShare, PrehashedMessage, ProductionParams,
+    SchemeParams, TestParams,
 };
 pub use curve::RecoverableSignature;
-pub use rounds::ProtocolResult;
-pub use sessions::{FinalizeOutcome, MessageBundle, Session, SessionId};
 pub use www02::{
-    DeriveChildKey, KeyResharingInputs, KeyResharingResult, NewHolder, OldHolder, ThresholdKeyShare,
+    DeriveChildKey, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare,
 };
