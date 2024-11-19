@@ -61,12 +61,7 @@ impl Polynomial {
     }
 
     pub fn public(&self) -> PublicPolynomial {
-        PublicPolynomial(
-            self.0
-                .iter()
-                .map(|coeff| coeff.mul_by_generator())
-                .collect(),
-        )
+        PublicPolynomial(self.0.iter().map(|coeff| coeff.mul_by_generator()).collect())
     }
 }
 
@@ -90,10 +85,7 @@ pub(crate) fn shamir_split(
     indices: &[ShareId],
 ) -> BTreeMap<ShareId, Scalar> {
     let polynomial = Polynomial::random(rng, secret, threshold);
-    indices
-        .iter()
-        .map(|idx| (*idx, polynomial.evaluate(idx)))
-        .collect()
+    indices.iter().map(|idx| (*idx, polynomial.evaluate(idx))).collect()
 }
 
 pub(crate) fn interpolation_coeff(share_ids: &BTreeSet<ShareId>, share_id: &ShareId) -> Scalar {
@@ -134,9 +126,7 @@ mod tests {
     #[test]
     fn evaluate() {
         let x = Scalar::random(&mut OsRng);
-        let coeffs = (0..4)
-            .map(|_| Scalar::random(&mut OsRng))
-            .collect::<Vec<_>>();
+        let coeffs = (0..4).map(|_| Scalar::random(&mut OsRng)).collect::<Vec<_>>();
 
         let actual = evaluate_polynomial(&coeffs, &x);
         let expected = coeffs[0] + coeffs[1] * x + coeffs[2] * x * x + coeffs[3] * x * x * x;

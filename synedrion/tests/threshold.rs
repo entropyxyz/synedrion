@@ -7,18 +7,15 @@ use manul::{
 };
 use rand_core::OsRng;
 use synedrion::{
-    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder,
-    TestParams, ThresholdKeyShare,
+    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, TestParams,
+    ThresholdKeyShare,
 };
 
 fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
     let signers = (0..num_parties)
         .map(|idx| TestSigner::new(idx as u8))
         .collect::<Vec<_>>();
-    let verifiers = signers
-        .iter()
-        .map(|signer| signer.verifying_key())
-        .collect::<Vec<_>>();
+    let verifiers = signers.iter().map(|signer| signer.verifying_key()).collect::<Vec<_>>();
     (signers, verifiers)
 }
 
@@ -35,8 +32,7 @@ fn full_sequence() {
     let entry_points = signers[..t]
         .iter()
         .map(|signer| {
-            let entry_point =
-                KeyInit::<TestParams, TestVerifier>::new(old_holders.clone()).unwrap();
+            let entry_point = KeyInit::<TestParams, TestVerifier>::new(old_holders.clone()).unwrap();
             (*signer, entry_point)
         })
         .collect();
@@ -61,9 +57,7 @@ fn full_sequence() {
         .collect::<BTreeMap<_, _>>();
 
     // The full verifying key can be obtained both from the original key shares and child key shares
-    let child_vkey = t_key_shares[&verifiers[0]]
-        .derive_verifying_key_bip32(&path)
-        .unwrap();
+    let child_vkey = t_key_shares[&verifiers[0]].derive_verifying_key_bip32(&path).unwrap();
     assert_eq!(child_vkey, child_key_shares[&verifiers[0]].verifying_key());
 
     // Reshare to `n` nodes
@@ -93,12 +87,8 @@ fn full_sequence() {
     // New holders' sessions
     let new_holder_entry_points = (t..n)
         .map(|idx| {
-            let entry_point = KeyResharing::<TestParams, TestVerifier>::new(
-                None,
-                Some(new_holder.clone()),
-                all_verifiers.clone(),
-                t,
-            );
+            let entry_point =
+                KeyResharing::<TestParams, TestVerifier>::new(None, Some(new_holder.clone()), all_verifiers.clone(), t);
             (signers[idx], entry_point)
         })
         .collect::<Vec<_>>();
@@ -132,8 +122,7 @@ fn full_sequence() {
 
     let entry_points = (0..n)
         .map(|idx| {
-            let entry_point =
-                AuxGen::<TestParams, TestVerifier>::new(all_verifiers.clone()).unwrap();
+            let entry_point = AuxGen::<TestParams, TestVerifier>::new(all_verifiers.clone()).unwrap();
             (signers[idx], entry_point)
         })
         .collect::<Vec<_>>();

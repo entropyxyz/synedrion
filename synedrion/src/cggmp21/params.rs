@@ -12,8 +12,8 @@ use crate::{
     paillier::PaillierParams,
     tools::hashing::{Chain, HashableType},
     uint::{
-        subtle::ConditionallySelectable, Bounded, Encoding, NonZero, Signed, U1024Mod, U2048Mod,
-        U4096Mod, U512Mod, Uint, Zero, U1024, U2048, U4096, U512, U8192,
+        subtle::ConditionallySelectable, Bounded, Encoding, NonZero, Signed, U1024Mod, U2048Mod, U4096Mod, U512Mod,
+        Uint, Zero, U1024, U2048, U4096, U512, U8192,
     },
 };
 
@@ -21,10 +21,7 @@ use crate::{
 pub struct PaillierTest;
 
 const fn upcast_uint<const N1: usize, const N2: usize>(value: K256Uint<N1>) -> K256Uint<N2> {
-    assert!(
-        N2 >= N1,
-        "Upcast target must be bigger than the upcast candidate"
-    );
+    assert!(N2 >= N1, "Upcast target must be bigger than the upcast candidate");
     let mut result_words = [0; N2];
     let mut i = 0;
     while i < N1 {
@@ -150,12 +147,10 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
 
     /// Converts a curve scalar to the associated integer type, wrapped in `Signed`.
     fn signed_from_scalar(value: &Scalar) -> Signed<<Self::Paillier as PaillierParams>::Uint> {
-        Self::bounded_from_scalar(value)
-            .into_signed()
-            .expect(concat![
-                "a curve scalar value is smaller than the half of `PaillierParams::Uint` range, ",
-                "so it is still positive when treated as a 2-complement signed value"
-            ])
+        Self::bounded_from_scalar(value).into_signed().expect(concat![
+            "a curve scalar value is smaller than the half of `PaillierParams::Uint` range, ",
+            "so it is still positive when treated as a 2-complement signed value"
+        ])
     }
 
     /// Converts an integer to the associated curve scalar type.
@@ -191,9 +186,7 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     }
 
     /// Converts a `Signed`-wrapped wide integer to the associated curve scalar type.
-    fn scalar_from_wide_signed(
-        value: &Signed<<Self::Paillier as PaillierParams>::WideUint>,
-    ) -> Scalar {
+    fn scalar_from_wide_signed(value: &Signed<<Self::Paillier as PaillierParams>::WideUint>) -> Scalar {
         let abs_value = Self::scalar_from_wide_uint(&value.abs());
         Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
     }
@@ -224,14 +217,12 @@ impl SchemeParams for TestParams {
     const LP_BOUND: usize = 256;
     const EPS_BOUND: usize = 320;
     type Paillier = PaillierTest;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        convert_uint(upcast_uint(ORDER))
-            .to_nz()
-            .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        convert_uint(upcast_uint(ORDER))
-            .to_nz()
-            .expect("Correct by construction");
+    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
+        .to_nz()
+        .expect("Correct by construction");
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> = convert_uint(upcast_uint(ORDER))
+        .to_nz()
+        .expect("Correct by construction");
 }
 
 /// Production strength parameters.
@@ -244,14 +235,12 @@ impl SchemeParams for ProductionParams {
     const LP_BOUND: usize = Self::L_BOUND * 5;
     const EPS_BOUND: usize = Self::L_BOUND * 2;
     type Paillier = PaillierProduction;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        convert_uint(upcast_uint(ORDER))
-            .to_nz()
-            .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        convert_uint(upcast_uint(ORDER))
-            .to_nz()
-            .expect("Correct by construction");
+    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
+        .to_nz()
+        .expect("Correct by construction");
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> = convert_uint(upcast_uint(ORDER))
+        .to_nz()
+        .expect("Correct by construction");
 }
 
 #[cfg(test)]

@@ -5,8 +5,8 @@ use manul::{
     combinators::misbehave::{Misbehaving, MisbehavingEntryPoint},
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     protocol::{
-        BoxedRound, Deserializer, EntryPoint, LocalError, NormalBroadcast, PartyId,
-        ProtocolMessagePart, RoundId, Serializer,
+        BoxedRound, Deserializer, EntryPoint, LocalError, NormalBroadcast, PartyId, ProtocolMessagePart, RoundId,
+        Serializer,
     },
     session::signature::Keypair,
 };
@@ -60,14 +60,10 @@ type MaliciousSigning<P, Id> = MisbehavingEntryPoint<Id, Behavior, MaliciousSign
 #[test]
 fn execute_signing() {
     let signers = (0..3).map(TestSigner::new).collect::<Vec<_>>();
-    let ids = signers
-        .iter()
-        .map(|signer| signer.verifying_key())
-        .collect::<Vec<_>>();
+    let ids = signers.iter().map(|signer| signer.verifying_key()).collect::<Vec<_>>();
     let ids_set = BTreeSet::from_iter(ids.clone());
 
-    let key_shares =
-        KeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, None);
+    let key_shares = KeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, None);
     let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids_set);
 
     let mut message = [0u8; 32];
@@ -77,8 +73,7 @@ fn execute_signing() {
         .into_iter()
         .map(|signer| {
             let id = signer.verifying_key();
-            let signing =
-                InteractiveSigning::new(message, key_shares[&id].clone(), aux_infos[&id].clone());
+            let signing = InteractiveSigning::new(message, key_shares[&id].clone(), aux_infos[&id].clone());
             let behavior = if id == ids[0] {
                 Some(Behavior::InvalidSigma)
             } else {

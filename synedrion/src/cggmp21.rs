@@ -16,6 +16,6 @@ pub use entities::{AuxInfo, KeyShare, KeyShareChange};
 pub(crate) use entities::{PublicAuxInfo, SecretAuxInfo};
 pub use params::{ProductionParams, SchemeParams, TestParams};
 pub use protocols::{
-    AuxGen, AuxGenProtocol, InteractiveSigning, InteractiveSigningProtocol, KeyInit,
-    KeyInitProtocol, KeyRefresh, KeyRefreshProtocol, PrehashedMessage,
+    AuxGen, AuxGenProtocol, InteractiveSigning, InteractiveSigningProtocol, KeyInit, KeyInitProtocol, KeyRefresh,
+    KeyRefreshProtocol, PrehashedMessage,
 };

@@ -7,8 +7,8 @@ use super::super::SchemeParams;
 use crate::{
     curve::Point,
     paillier::{
-        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
-        RPParamsMod, Randomizer, RandomizerMod,
+        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod, Randomizer,
+        RandomizerMod,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::Signed,
@@ -66,8 +66,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(x, &mu).retrieve();
-        let cap_a =
-            CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
+        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
         let cap_y = g * &P::scalar_from_signed(&alpha);
         let cap_d = setup.commit(&alpha, &gamma).retrieve();
 
@@ -197,8 +196,7 @@ mod tests {
         let cap_c = CiphertextMod::new_with_randomizer_signed(pk, &x, &rho.retrieve());
         let cap_x = g * Params::scalar_from_signed(&x);
 
-        let proof =
-            LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &g, &cap_x, &setup, &aux);
+        let proof = LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &g, &cap_x, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &g, &cap_x, &setup, &aux));
     }
 }

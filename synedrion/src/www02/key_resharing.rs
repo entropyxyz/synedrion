@@ -15,10 +15,9 @@ use core::{fmt::Debug, marker::PhantomData};
 
 use k256::ecdsa::VerifyingKey;
 use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EchoRoundParticipation,
-    EntryPoint, FinalizeOutcome, LocalError, NormalBroadcast, PartyId, Payload, Protocol,
-    ProtocolError, ProtocolMessagePart, ProtocolValidationError, ReceiveError, Round, RoundId,
-    Serializer,
+    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EchoRoundParticipation, EntryPoint,
+    FinalizeOutcome, LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
+    ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
@@ -28,10 +27,7 @@ use super::ThresholdKeyShare;
 use crate::{
     curve::{Point, Scalar},
     tools::{
-        sss::{
-            interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial,
-            PublicPolynomial, ShareId,
-        },
+        sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},
         DowncastMap, Without,
     },
     SchemeParams,
@@ -153,9 +149,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
             .collect();
 
         if self.old_holder.is_none() && self.new_holder.is_none() {
-            return Err(LocalError::new(
-                "Either old holder or new holder data must be provided",
-            ));
+            return Err(LocalError::new("Either old holder or new holder data must be provided"));
         };
 
         let message_destinations = if self.old_holder.is_some() {
@@ -198,9 +192,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
             }
         });
 
-        let new_holder = self
-            .new_holder
-            .map(|new_holder| NewHolderData { inputs: new_holder });
+        let new_holder = self.new_holder.map(|new_holder| NewHolderData { inputs: new_holder });
 
         Ok(BoxedRound::new_dynamic(Round1 {
             old_holder,
@@ -306,9 +298,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         destination: &I,
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
         if let Some(old_holder) = self.old_holder.as_ref() {
-            let subshare = old_holder
-                .polynomial
-                .evaluate(&self.new_share_ids[destination]);
+            let subshare = old_holder.polynomial.evaluate(&self.new_share_ids[destination]);
             let dm = DirectMessage::new(serializer, Round1DirectMessage { subshare })?;
             Ok((dm, None))
         } else {
@@ -391,8 +381,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let vkey = payloads
             .values()
             .map(|payload| {
-                payload.public_polynomial.coeff0()
-                    * interpolation_coeff(&old_share_ids, &payload.old_share_id)
+                payload.public_polynomial.coeff0() * interpolation_coeff(&old_share_ids, &payload.old_share_id)
             })
             .sum();
         if Point::from_verifying_key(&new_holder.inputs.verifying_key) != vkey {
@@ -454,20 +443,13 @@ mod tests {
     #[test]
     fn execute_key_reshare() {
         let signers = (0..4).map(TestSigner::new).collect::<Vec<_>>();
-        let ids = signers
-            .iter()
-            .map(|signer| signer.verifying_key())
-            .collect::<Vec<_>>();
+        let ids = signers.iter().map(|signer| signer.verifying_key()).collect::<Vec<_>>();
 
         let old_holders = BTreeSet::from([ids[0], ids[1], ids[2]]);
         let new_holders = BTreeSet::from([ids[1], ids[2], ids[3]]);
 
-        let old_key_shares = ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(
-            &mut OsRng,
-            &old_holders,
-            2,
-            None,
-        );
+        let old_key_shares =
+            ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &old_holders, 2, None);
         let old_vkey = old_key_shares[&ids[0]].verifying_key();
         let new_threshold = 2;
 

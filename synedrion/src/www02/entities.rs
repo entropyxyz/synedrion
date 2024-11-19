@@ -16,10 +16,7 @@ use crate::{
     curve::{Point, Scalar},
     tools::{
         hashing::{Chain, FofHasher},
-        sss::{
-            interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split,
-            ShareId,
-        },
+        sss::{interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareId},
     },
 };
 
@@ -65,11 +62,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
 
         let share_ids = shamir_evaluation_points(ids.len());
         let secret_shares = shamir_split(rng, &secret, threshold, &share_ids);
-        let share_ids = ids
-            .iter()
-            .cloned()
-            .zip(share_ids)
-            .collect::<BTreeMap<_, _>>();
+        let share_ids = ids.iter().cloned().zip(share_ids).collect::<BTreeMap<_, _>>();
 
         let public_shares = share_ids
             .iter()
@@ -133,8 +126,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .map(|id| {
                 (
                     id.clone(),
-                    self.public_shares[id]
-                        * interpolation_coeff(&share_ids_set, &self.share_ids[id]),
+                    self.public_shares[id] * interpolation_coeff(&share_ids_set, &self.share_ids[id]),
                 )
             })
             .collect();
@@ -150,10 +142,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
     /// Creates a t-of-t threshold keyshare that can be used in KeyResharing protocol.
     pub fn from_key_share(key_share: &KeyShare<P, I>) -> Self {
         let ids = key_share.all_parties();
-        let num_parties: u64 = ids
-            .len()
-            .try_into()
-            .expect("no more than 2^64-1 shares needed");
+        let num_parties: u64 = ids.len().try_into().expect("no more than 2^64-1 shares needed");
         let share_ids = ids
             .iter()
             .cloned()
@@ -199,9 +188,10 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .expose_secret()
             .to_signing_key()
             .ok_or(bip32::Error::Crypto)?;
-        let secret_share = SecretBox::new(Box::new(Scalar::from_signing_key(
-            &apply_tweaks_private(secret_share, &tweaks)?,
-        )));
+        let secret_share = SecretBox::new(Box::new(Scalar::from_signing_key(&apply_tweaks_private(
+            secret_share,
+            &tweaks,
+        )?)));
 
         let public_shares = self
             .public_shares
@@ -228,19 +218,11 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
 /// Used for deriving child keys from a parent type.
 pub trait DeriveChildKey {
     /// Return a verifying key derived from the given type using the BIP-32 scheme.
-    fn derive_verifying_key_bip32(
-        &self,
-        derivation_path: &DerivationPath,
-    ) -> Result<VerifyingKey, bip32::Error>;
+    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey, bip32::Error>;
 }
 
-impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> DeriveChildKey
-    for ThresholdKeyShare<P, I>
-{
-    fn derive_verifying_key_bip32(
-        &self,
-        derivation_path: &DerivationPath,
-    ) -> Result<VerifyingKey, bip32::Error> {
+impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> DeriveChildKey for ThresholdKeyShare<P, I> {
+    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey, bip32::Error> {
         let public_key = self.verifying_key();
         let tweaks = derive_tweaks(public_key, derivation_path)?;
         apply_tweaks_public(public_key, &tweaks)
@@ -248,10 +230,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> DeriveChildKey
 }
 
 impl DeriveChildKey for VerifyingKey {
-    fn derive_verifying_key_bip32(
-        &self,
-        derivation_path: &DerivationPath,
-    ) -> Result<VerifyingKey, bip32::Error> {
+    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey, bip32::Error> {
         let tweaks = derive_tweaks(*self, derivation_path)?;
         apply_tweaks_public(*self, &tweaks)
     }
@@ -280,10 +259,7 @@ fn derive_tweaks(
     Ok(tweaks)
 }
 
-fn apply_tweaks_public(
-    public_key: VerifyingKey,
-    tweaks: &[PrivateKeyBytes],
-) -> Result<VerifyingKey, bip32::Error> {
+fn apply_tweaks_public(public_key: VerifyingKey, tweaks: &[PrivateKeyBytes]) -> Result<VerifyingKey, bip32::Error> {
     let mut public_key = public_key;
     for tweak in tweaks {
         public_key = public_key.derive_child(*tweak)?;
@@ -291,10 +267,7 @@ fn apply_tweaks_public(
     Ok(public_key)
 }
 
-fn apply_tweaks_private(
-    private_key: SigningKey,
-    tweaks: &[PrivateKeyBytes],
-) -> Result<SigningKey, bip32::Error> {
+fn apply_tweaks_private(private_key: SigningKey, tweaks: &[PrivateKeyBytes]) -> Result<SigningKey, bip32::Error> {
     let mut private_key = private_key;
     for tweak in tweaks {
         private_key = private_key.derive_child(*tweak)?;
@@ -322,18 +295,10 @@ mod tests {
         let sk = SigningKey::random(&mut OsRng);
 
         let signers = (0..3).map(TestSigner::new).collect::<Vec<_>>();
-        let ids = signers
-            .iter()
-            .map(|signer| signer.verifying_key())
-            .collect::<Vec<_>>();
+        let ids = signers.iter().map(|signer| signer.verifying_key()).collect::<Vec<_>>();
         let ids_set = ids.iter().cloned().collect::<BTreeSet<_>>();
 
-        let shares = ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(
-            &mut OsRng,
-            &ids_set,
-            2,
-            Some(&sk),
-        );
+        let shares = ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, 2, Some(&sk));
 
         assert_eq!(&shares[&ids[0]].verifying_key(), sk.verifying_key());
         assert_eq!(&shares[&ids[1]].verifying_key(), sk.verifying_key());

@@ -29,11 +29,8 @@ pub use k256::ecdsa;
 pub use signature;
 
 pub use cggmp21::{
-    AuxGen, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningProtocol, KeyInit,
-    KeyInitProtocol, KeyRefresh, KeyRefreshProtocol, KeyShare, PrehashedMessage, ProductionParams,
-    SchemeParams, TestParams,
+    AuxGen, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningProtocol, KeyInit, KeyInitProtocol,
+    KeyRefresh, KeyRefreshProtocol, KeyShare, PrehashedMessage, ProductionParams, SchemeParams, TestParams,
 };
 pub use curve::RecoverableSignature;
-pub use www02::{
-    DeriveChildKey, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare,
-};
+pub use www02::{DeriveChildKey, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};

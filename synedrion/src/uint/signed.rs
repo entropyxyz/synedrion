@@ -9,12 +9,8 @@ use zeroize::Zeroize;
 
 use super::{
     bounded::PackedBounded,
-    subtle::{
-        Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess,
-        CtOption,
-    },
-    Bounded, CheckedAdd, CheckedSub, Encoding, HasWide, Integer, NonZero, RandomMod, ShlVartime,
-    WrappingSub,
+    subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess, CtOption},
+    Bounded, CheckedAdd, CheckedSub, Encoding, HasWide, Integer, NonZero, RandomMod, ShlVartime, WrappingSub,
 };
 use crate::tools::hashing::uint_from_xof;
 
@@ -91,10 +87,7 @@ where
         // Cannot get overflow from adding values of different signs,
         // and if for two values of the same sign the sign of the result remains the same
         // it means there was no overflow.
-        CtOption::new(
-            result,
-            !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)) & in_range,
-        )
+        CtOption::new(result, !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)) & in_range)
     }
 
     /// Checks if a [`Signed`] is negative by checking the MSB: if it's `1` then the [`Signed`] is
@@ -179,9 +172,8 @@ where
     pub fn abs_bounded(&self) -> Bounded<T> {
         // Can unwrap here since the maximum bound on the positive Bounded
         // is always greater than the maximum bound on Signed
-        Bounded::new(self.abs(), self.bound).expect(
-            "Max bound for a positive Bounded is always greater than max bound for a Signed; qed",
-        )
+        Bounded::new(self.abs(), self.bound)
+            .expect("Max bound for a positive Bounded is always greater than max bound for a Signed; qed")
     }
 
     /// Creates a signed value from an unsigned one,
@@ -240,8 +232,7 @@ where
             .expect("does not overflow since we're adding 1 to an even number");
         let positive_result = uint_from_xof(
             rng,
-            &NonZero::new(positive_bound)
-                .expect("Guaranteed to be greater than zero because we added 1"),
+            &NonZero::new(positive_bound).expect("Guaranteed to be greater than zero because we added 1"),
         );
         Self::new_from_unsigned(positive_result.wrapping_sub(bound.as_ref()), bound_bits)
             .expect("Guaranteed to be Some because we checked the bounds just above")
@@ -290,8 +281,7 @@ where
             T::BITS - 1
         );
 
-        let bound =
-            NonZero::new(T::one() << bound_bits).expect("Checked bound_bits just above; qed");
+        let bound = NonZero::new(T::one() << bound_bits).expect("Checked bound_bits just above; qed");
         Self::random_bounded(rng, &bound)
     }
 }
@@ -477,11 +467,13 @@ where
             .expect(concat![
                 "`scaled_bound` is double the size of a T::Wide; we asserted that the `bound_bits` ",
                 "will not cause overflow in T::Wide ⇒ it's safe to left-shift 1 step ",
-                "(aka multiply by 2)."])
+                "(aka multiply by 2)."
+            ])
             .checked_add(&<T::Wide as HasWide>::Wide::one())
             .expect(concat![
                 "`scaled_bound` is double the size of a T::Wide; we asserted that the `bound_bits` ",
-                "will not cause overflow in T::Wide ⇒ it's safe to add 1."]);
+                "will not cause overflow in T::Wide ⇒ it's safe to add 1."
+            ]);
         let positive_result = <T::Wide as HasWide>::Wide::random_mod(
             rng,
             &NonZero::new(positive_bound)
@@ -642,21 +634,14 @@ mod tests {
         let p2 = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap();
 
         assert!(p1 < p2);
-        assert_eq!(
-            p1,
-            Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap()
-        );
+        assert_eq!(p1, Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap());
     }
 
     #[test]
     fn partial_ord_neg_vs_neg() {
         let bound = 114;
-        let n1 = Signed::new_from_unsigned(U128::from_u64(10), bound)
-            .unwrap()
-            .neg();
-        let n2 = Signed::new_from_unsigned(U128::from_u64(12), bound)
-            .unwrap()
-            .neg();
+        let n1 = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap().neg();
+        let n2 = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap().neg();
 
         assert!(n2 < n1);
         assert_eq!(
@@ -669,18 +654,14 @@ mod tests {
     fn partial_ord_pos_vs_neg() {
         let bound = 65;
         let p = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap();
-        let n = Signed::new_from_unsigned(U128::from_u64(12), bound)
-            .unwrap()
-            .neg();
+        let n = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap().neg();
         assert!(n < p);
     }
 
     #[test]
     fn partial_ord_neg_vs_pos() {
         let bound = 93;
-        let n = Signed::new_from_unsigned(U128::from_u64(10), bound)
-            .unwrap()
-            .neg();
+        let n = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap().neg();
         let p = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap();
         assert!(n < p);
     }
@@ -746,9 +727,7 @@ mod tests {
 
     #[test]
     fn checked_mul_handles_sign() {
-        let n = Signed::new_from_unsigned(U128::from_u8(5), 27)
-            .unwrap()
-            .neg();
+        let n = Signed::new_from_unsigned(U128::from_u8(5), 27).unwrap().neg();
         let p = Signed::new_from_unsigned(U128::from_u8(3), 17).unwrap();
         let neg_pos = n.checked_mul(&p).unwrap();
         let pos_neg = p.checked_mul(&n).unwrap();
@@ -812,12 +791,8 @@ mod tests {
 
     #[test]
     fn neg_u128() {
-        let n =
-            Signed::new_from_unsigned(U128::from_be_hex("fffffffffffffffffffffffffffffff0"), 127)
-                .unwrap();
-        let neg_n =
-            Signed::new_from_unsigned(U128::from_be_hex("00000000000000000000000000000010"), 127)
-                .unwrap();
+        let n = Signed::new_from_unsigned(U128::from_be_hex("fffffffffffffffffffffffffffffff0"), 127).unwrap();
+        let neg_n = Signed::new_from_unsigned(U128::from_be_hex("00000000000000000000000000000010"), 127).unwrap();
         assert!(bool::from(n.is_negative()));
         assert!(!bool::from(neg_n.is_negative()));
         assert_eq!(n.neg(), neg_n);
@@ -831,8 +806,7 @@ mod tests {
         use crypto_bigint::U128;
         let max_uint = U128::from_u128(u128::MAX >> 1);
         let one_signed = Signed::new_from_abs(U128::ONE, U128::BITS - 1, 0u8.into()).unwrap();
-        let min_signed = Signed::new_from_abs(max_uint, U128::BITS - 1, 1u8.into())
-            .expect("|2^127| is a valid Signed");
+        let min_signed = Signed::new_from_abs(max_uint, U128::BITS - 1, 1u8.into()).expect("|2^127| is a valid Signed");
         let _ = min_signed - one_signed;
     }
     #[test]
@@ -841,8 +815,8 @@ mod tests {
         // Biggest/smallest Signed<U1024> is |2^1023|:
         let max_uint = U1024::MAX >> 1;
         let one_signed = Signed::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
-        let min_signed = Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into())
-            .expect("|2^1023| is a valid Signed");
+        let min_signed =
+            Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into()).expect("|2^1023| is a valid Signed");
         let _ = min_signed - one_signed;
     }
 
@@ -851,8 +825,8 @@ mod tests {
         // Biggest/smallest Signed<U1024> is |2^1023|
         let max_uint = U1024::MAX >> 1;
         let one_signed = Signed::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
-        let min_signed = Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into())
-            .expect("|2^1023| is a valid Signed");
+        let min_signed =
+            Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into()).expect("|2^1023| is a valid Signed");
 
         let result = min_signed.checked_sub(&one_signed);
         assert!(bool::from(result.is_none()))

@@ -10,8 +10,8 @@ use zeroize::Zeroize;
 use super::params::PaillierParams;
 use crate::uint::{
     subtle::{Choice, ConditionallySelectable},
-    Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod,
-    RandomPrimeWithRng, Retrieve, Signed, ToMontgomery,
+    Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, RandomMod, RandomPrimeWithRng,
+    Retrieve, Signed, ToMontgomery,
 };
 
 #[derive(Debug, Deserialize)]
@@ -22,8 +22,7 @@ pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
 
 impl<P: PaillierParams> PartialEq for SecretKeyPaillier<P> {
     fn eq(&self, other: &Self) -> bool {
-        self.p.expose_secret() == other.p.expose_secret()
-            && self.q.expose_secret() == other.q.expose_secret()
+        self.p.expose_secret() == other.p.expose_secret() && self.q.expose_secret() == other.q.expose_secret()
     }
 }
 
@@ -75,12 +74,10 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
             .expect("The pre-configured bound set in `P::MODULUS_BITS` is assumed to be valid");
 
         let precomputed_mod_p = P::HalfUintMod::new_params_vartime(
-            Odd::new(self.p.expose_secret().clone())
-                .expect("`p` is assumed to be a prime greater than 2"),
+            Odd::new(self.p.expose_secret().clone()).expect("`p` is assumed to be a prime greater than 2"),
         );
         let precomputed_mod_q = P::HalfUintMod::new_params_vartime(
-            Odd::new(self.q.expose_secret().clone())
-                .expect("`q` is assumed to be a prime greater than 2"),
+            Odd::new(self.q.expose_secret().clone()).expect("`q` is assumed to be a prime greater than 2"),
         );
 
         let public_key = PublicKeyPaillier {
@@ -125,9 +122,8 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
         // Calculate $u$ such that $u = 1 \mod p$ and $u = -1 \mod q$.
         // Using step of Garner's algorithm:
         // $u = q - 1 + q (2 q^{-1} - 1 \mod p)$
-        let t = (inv_q_mod_p.clone() + inv_q_mod_p.clone()
-            - <P::HalfUintMod as Monty>::one(precomputed_mod_p.clone()))
-        .retrieve();
+        let t = (inv_q_mod_p.clone() + inv_q_mod_p.clone() - <P::HalfUintMod as Monty>::one(precomputed_mod_p.clone()))
+            .retrieve();
         // Note that the wrapping add/sub won't overflow by construction.
         let nonsquare_sampling_constant = t
             .mul_wide(self.q.expose_secret())
@@ -182,14 +178,22 @@ where
         // The primes are positive, but where this method is used Signed is needed,
         // so we return that for convenience.
         (
-            SecretBox::new(Box::new(Signed::new_positive(self.sk.p.expose_secret().clone().into_wide(), P::PRIME_BITS as u32)
-                .expect(concat!["The primes in the `SecretKeyPaillier` are 'safe primes' ",
-                    "and positive by construction; the bound is assumed to be configured correctly by the user."])
-        )),
-        SecretBox::new(Box::new(Signed::new_positive(self.sk.q.expose_secret().clone().into_wide(), P::PRIME_BITS as u32)
-                .expect(concat!["The primes in the `SecretKeyPaillier` are 'safe primes' ",
-                    "and positive by construction; the bound is assumed to be configured correctly by the user."])
-    )),
+            SecretBox::new(Box::new(
+                Signed::new_positive(self.sk.p.expose_secret().clone().into_wide(), P::PRIME_BITS as u32).expect(
+                    concat![
+                        "The primes in the `SecretKeyPaillier` are 'safe primes' ",
+                        "and positive by construction; the bound is assumed to be configured correctly by the user."
+                    ],
+                ),
+            )),
+            SecretBox::new(Box::new(
+                Signed::new_positive(self.sk.q.expose_secret().clone().into_wide(), P::PRIME_BITS as u32).expect(
+                    concat![
+                        "The primes in the `SecretKeyPaillier` are 'safe primes' ",
+                        "and positive by construction; the bound is assumed to be configured correctly by the user."
+                    ],
+                ),
+            )),
         )
     }
 
@@ -233,10 +237,8 @@ where
     pub fn rns_split(&self, elem: &P::Uint) -> (P::HalfUintMod, P::HalfUintMod) {
         // May be some speed up potential here since we know p and q are small,
         // but it needs to be supported by `crypto-bigint`.
-        let mut p_rem = *elem
-            % NonZero::new(self.sk.p.expose_secret().clone().into_wide()).expect("`p` is non-zero");
-        let mut q_rem = *elem
-            % NonZero::new(self.sk.q.expose_secret().clone().into_wide()).expect("`q` is non-zero");
+        let mut p_rem = *elem % NonZero::new(self.sk.p.expose_secret().clone().into_wide()).expect("`p` is non-zero");
+        let mut q_rem = *elem % NonZero::new(self.sk.q.expose_secret().clone().into_wide()).expect("`q` is non-zero");
         let p_rem_half = P::HalfUint::try_from_wide(p_rem).expect("`p` fits into `HalfUint`");
         let q_rem_half = P::HalfUint::try_from_wide(q_rem).expect("`q` fits into `HalfUint`");
 
@@ -269,10 +271,7 @@ where
         }
     }
 
-    pub fn sqrt(
-        &self,
-        rns: &(P::HalfUintMod, P::HalfUintMod),
-    ) -> Option<(P::HalfUintMod, P::HalfUintMod)> {
+    pub fn sqrt(&self, rns: &(P::HalfUintMod, P::HalfUintMod)) -> Option<(P::HalfUintMod, P::HalfUintMod)> {
         // TODO (#73): when we can extract the modulus from `HalfUintMod`, this can be moved there.
         // For now we have to keep this a method of SecretKey to have access to `p` and `q`.
         let (p_part, q_part) = rns;
@@ -392,8 +391,7 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
     }
 
     pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
-        Bounded::new(*self.pk.modulus(), P::MODULUS_BITS as u32)
-            .expect("the modulus can be bounded by 2^MODULUS_BITS")
+        Bounded::new(*self.pk.modulus(), P::MODULUS_BITS as u32).expect("the modulus can be bounded by 2^MODULUS_BITS")
     }
 
     pub fn modulus_nonzero(&self) -> NonZero<P::Uint> {

@@ -19,10 +19,7 @@ const HASH_TAG: &[u8] = b"P_mod";
 struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 
 impl<P: SchemeParams> ModCommitment<P> {
-    fn random(
-        rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-    ) -> Self {
+    fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P::Paillier>) -> Self {
         Self(sk.random_nonsquare(rng))
     }
 }
@@ -31,11 +28,7 @@ impl<P: SchemeParams> ModCommitment<P> {
 struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> ModChallenge<P> {
-    fn new(
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        commitment: &ModCommitment<P>,
-        aux: &impl Hashable,
-    ) -> Self {
+    fn new(pk: &PublicKeyPaillierPrecomputed<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Hashable) -> Self {
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             .chain(pk.as_minimal())
             .chain(commitment)
@@ -117,8 +110,7 @@ impl<P: SchemeParams> ModProof<P> {
                 // If N is a Paillier-Blum modulus, that is N = pq where p, q are safe primes,
                 // and the commitment was sampled correctly (a non-square modulo N),
                 // these square roots will exist.
-                let y_sqrt =
-                    y_sqrt.expect("the square root exists if N is a Paillier-Blum modulus");
+                let y_sqrt = y_sqrt.expect("the square root exists if N is a Paillier-Blum modulus");
                 let y_4th_parts = sk
                     .sqrt(&y_sqrt)
                     .expect("the square root exists if N is a Paillier-Blum modulus");

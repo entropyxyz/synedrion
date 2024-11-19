@@ -13,9 +13,9 @@ use core::{fmt::Debug, marker::PhantomData};
 
 use crypto_bigint::BitOps;
 use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome,
-    LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
-    ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
+    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
+    NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart, ProtocolValidationError,
+    ReceiveError, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
 use secrecy::SecretBox;
@@ -28,8 +28,8 @@ use super::super::{
 use crate::{
     curve::{Point, Scalar},
     paillier::{
-        Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
-        RPParamsMod, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+        Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod, RPSecret,
+        Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
     },
     tools::{
         bitvec::BitVec,
@@ -134,9 +134,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
         id: &I,
     ) -> Result<BoxedRound<I, Self::Protocol>, LocalError> {
         if !self.all_ids.contains(id) {
-            return Err(LocalError::new(
-                "The given node IDs must contain this node's ID",
-            ));
+            return Err(LocalError::new("The given node IDs must contain this node's ID"));
         }
 
         let other_ids = self.all_ids.clone().without(id);
@@ -242,7 +240,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
         PrmProof<P>: for<'x> Deserialize<'x>,
     "))]
 struct PublicData1<P: SchemeParams> {
-    cap_x_to_send: Vec<Point>, // $X_i^j$ where $i$ is this party's index
+    cap_x_to_send: Vec<Point>,         // $X_i^j$ where $i$ is this party's index
     cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
     cap_y: Point,
     cap_b: SchCommitment,
@@ -358,16 +356,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         _artifacts: BTreeMap<I, Artifact>,
     ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
         let payloads = payloads.downcast_all::<Round1Payload>()?;
-        let others_cap_v = payloads
-            .into_iter()
-            .map(|(id, payload)| (id, payload.cap_v))
-            .collect();
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-            Round2 {
-                context: self.context,
-                others_cap_v,
-            },
-        )))
+        let others_cap_v = payloads.into_iter().map(|(id, payload)| (id, payload.cap_v)).collect();
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round2 {
+            context: self.context,
+            others_cap_v,
+        })))
     }
 }
 
@@ -438,32 +431,32 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             .ok_or_else(|| LocalError::new(format!("Missing `V` for {from:?}")))?;
 
         if &normal_broadcast.data.hash(&self.context.sid_hash, from) != cap_v {
-            return Err(ReceiveError::protocol(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("Hash mismatch".into()),
-            )));
+            return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+                "Hash mismatch".into(),
+            ))));
         }
 
         let paillier_pk = normal_broadcast.data.paillier_pk.to_precomputed();
 
         if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
-            return Err(ReceiveError::protocol(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("Paillier modulus is too small".into()),
-            )));
+            return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+                "Paillier modulus is too small".into(),
+            ))));
         }
 
         if normal_broadcast.data.cap_x_to_send.iter().sum::<Point>() != Point::IDENTITY {
-            return Err(ReceiveError::protocol(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("Sum of X points is not identity".into()),
-            )));
+            return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+                "Sum of X points is not identity".into(),
+            ))));
         }
 
         let aux = (&self.context.sid_hash, &from);
 
         let rp_params = normal_broadcast.data.rp_params.to_mod(&paillier_pk);
         if !normal_broadcast.data.hat_psi.verify(&rp_params, &aux) {
-            return Err(ReceiveError::protocol(KeyRefreshError(
-                KeyRefreshErrorEnum::Round2("PRM verification failed".into()),
-            )));
+            return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round2(
+                "PRM verification failed".into(),
+            ))));
         }
 
         Ok(Payload::new(Round2Payload {
@@ -491,9 +484,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             rho ^= &data.data.rho;
         }
 
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-            Round3::new(rng, self.context, others_data, rho),
-        )))
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round3::new(
+            rng,
+            self.context,
+            others_data,
+            rho,
+        ))))
     }
 }
 
@@ -606,8 +602,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let x_secret = self.context.x_to_send[destination];
         let x_public = self.context.data_precomp.data.cap_x_to_send[destination_idx];
-        let ciphertext =
-            CiphertextMod::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
+        let ciphertext = CiphertextMod::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
 
         let psi_sch = SchProof::new(
             &self.context.tau_x[destination],
@@ -669,24 +664,20 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let aux = (&self.context.sid_hash, &from, &self.rho);
 
-        if !direct_message
-            .data2
-            .psi_mod
-            .verify(rng, &sender_data.paillier_pk, &aux)
-        {
-            return Err(ReceiveError::protocol(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Mod proof verification failed".into()),
-            )));
+        if !direct_message.data2.psi_mod.verify(rng, &sender_data.paillier_pk, &aux) {
+            return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+                "Mod proof verification failed".into(),
+            ))));
         }
 
-        if !direct_message.data2.phi.verify(
-            &sender_data.paillier_pk,
-            &self.context.data_precomp.rp_params,
-            &aux,
-        ) {
-            return Err(ReceiveError::protocol(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Fac proof verification failed".into()),
-            )));
+        if !direct_message
+            .data2
+            .phi
+            .verify(&sender_data.paillier_pk, &self.context.data_precomp.rp_params, &aux)
+        {
+            return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+                "Fac proof verification failed".into(),
+            ))));
         }
 
         if !direct_message
@@ -694,9 +685,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .pi
             .verify(&sender_data.data.cap_b, &sender_data.data.cap_y, &aux)
         {
-            return Err(ReceiveError::protocol(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Sch proof verification (Y) failed".into()),
-            )));
+            return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+                "Sch proof verification (Y) failed".into(),
+            ))));
         }
 
         if !direct_message.data2.psi_sch.verify(
@@ -704,9 +695,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             &sender_data.data.cap_x_to_send[my_idx],
             &aux,
         ) {
-            return Err(ReceiveError::protocol(KeyRefreshError(
-                KeyRefreshErrorEnum::Round3("Sch proof verification (X) failed".into()),
-            )));
+            return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round3(
+                "Sch proof verification (X) failed".into(),
+            ))));
         }
 
         Ok(Payload::new(Round3Payload { x }))
@@ -725,8 +716,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .collect::<BTreeMap<_, _>>();
 
         // The combined secret share change
-        let x_star =
-            others_x.values().sum::<Scalar>() + self.context.x_to_send[&self.context.my_id];
+        let x_star = others_x.values().sum::<Scalar>() + self.context.x_to_send[&self.context.my_id];
 
         let my_id = self.context.my_id.clone();
         let mut all_ids = self.context.other_ids;
@@ -742,10 +732,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .map(|(idx, id)| {
                 (
                     id.clone(),
-                    all_data
-                        .values()
-                        .map(|data| data.data.cap_x_to_send[idx])
-                        .sum(),
+                    all_data.values().map(|data| data.data.cap_x_to_send[idx]).sum(),
                 )
             })
             .collect();
@@ -812,8 +799,7 @@ mod tests {
         let entry_points = signers
             .into_iter()
             .map(|signer| {
-                let entry_point =
-                    KeyRefresh::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
+                let entry_point = KeyRefresh::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
                 (signer, entry_point)
             })
             .collect::<Vec<_>>();
@@ -832,10 +818,7 @@ mod tests {
         for (id, change) in changes.iter() {
             for other_change in changes.values() {
                 assert_eq!(
-                    change
-                        .secret_share_change
-                        .expose_secret()
-                        .mul_by_generator(),
+                    change.secret_share_change.expose_secret().mul_by_generator(),
                     other_change.public_share_changes[id]
                 );
             }
@@ -844,11 +827,7 @@ mod tests {
         for (id, aux_info) in aux_infos.iter() {
             for other_aux_info in aux_infos.values() {
                 assert_eq!(
-                    aux_info
-                        .secret_aux
-                        .el_gamal_sk
-                        .expose_secret()
-                        .mul_by_generator(),
+                    aux_info.secret_aux.el_gamal_sk.expose_secret().mul_by_generator(),
                     other_aux_info.public_aux[id].el_gamal_pk
                 );
             }

@@ -141,8 +141,7 @@ impl<T: Serialize> Hashable for T {
         // The only way it can return an error is if there is
         // some non-serializable element encountered, which is 100% reproducible
         // and will be caught in tests.
-        self.serialize(serializer)
-            .expect("The type is serializable");
+        self.serialize(serializer).expect("The type is serializable");
 
         digest
     }

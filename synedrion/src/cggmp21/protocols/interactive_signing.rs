@@ -11,9 +11,9 @@ use alloc::{
 use core::{fmt::Debug, marker::PhantomData};
 
 use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome,
-    LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
-    ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
+    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
+    NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart, ProtocolValidationError,
+    ReceiveError, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
@@ -104,11 +104,7 @@ pub struct InteractiveSigning<P: SchemeParams, I: Ord> {
 
 impl<P: SchemeParams, I: Ord> InteractiveSigning<P, I> {
     /// Creates a new entry point given a share of the secret key.
-    pub fn new(
-        prehashed_message: PrehashedMessage,
-        key_share: KeyShare<P, I>,
-        aux_info: AuxInfo<P, I>,
-    ) -> Self {
+    pub fn new(prehashed_message: PrehashedMessage, key_share: KeyShare<P, I>, aux_info: AuxInfo<P, I>) -> Self {
         // TODO: check that both are consistent
         Self {
             prehashed_message,
@@ -165,12 +161,10 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         let pk = aux_info.secret_aux.paillier_sk.public_key();
 
         let nu = RandomizerMod::<P::Paillier>::random(rng, pk);
-        let cap_g =
-            CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), &nu.retrieve());
+        let cap_g = CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), &nu.retrieve());
 
         let rho = RandomizerMod::<P::Paillier>::random(rng, pk);
-        let cap_k =
-            CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&k), &rho.retrieve());
+        let cap_k = CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&k), &rho.retrieve());
 
         Ok(BoxedRound::new_dynamic(Round1 {
             context: Context {
@@ -282,10 +276,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             &aux,
         );
 
-        Ok((
-            DirectMessage::new(serializer, Round1DirectMessage::<P> { psi0 })?,
-            None,
-        ))
+        Ok((DirectMessage::new(serializer, Round1DirectMessage::<P> { psi0 })?, None))
     }
 
     fn receive_message(
@@ -300,8 +291,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         normal_broadcast.assert_is_none()?;
 
         let direct_message = direct_message.deserialize::<Round1DirectMessage<P>>(deserializer)?;
-        let echo_broadcast =
-            echo_broadcast.deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
+        let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
 
         let aux = (&self.context.ssid_hash, &self.context.my_id);
 
@@ -344,8 +334,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let mut all_cap_k = others_cap_k
             .into_iter()
             .map(|(id, ciphertext)| {
-                let ciphertext_mod =
-                    ciphertext.to_mod(&self.context.aux_info.public_aux[&id].paillier_pk);
+                let ciphertext_mod = ciphertext.to_mod(&self.context.aux_info.public_aux[&id].paillier_pk);
                 (id, ciphertext_mod)
             })
             .collect::<BTreeMap<_, _>>();
@@ -354,20 +343,17 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let mut all_cap_g = others_cap_g
             .into_iter()
             .map(|(id, ciphertext)| {
-                let ciphertext_mod =
-                    ciphertext.to_mod(&self.context.aux_info.public_aux[&id].paillier_pk);
+                let ciphertext_mod = ciphertext.to_mod(&self.context.aux_info.public_aux[&id].paillier_pk);
                 (id, ciphertext_mod)
             })
             .collect::<BTreeMap<_, _>>();
         all_cap_g.insert(my_id, self.cap_g);
 
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-            Round2 {
-                context: self.context,
-                all_cap_k,
-                all_cap_g,
-            },
-        )))
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round2 {
+            context: self.context,
+            all_cap_k,
+            all_cap_g,
+        })))
     }
 }
 
@@ -461,27 +447,14 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let hat_r = RandomizerMod::random(rng, pk);
         let hat_s = RandomizerMod::random(rng, target_pk);
 
-        let cap_f =
-            CiphertextMod::new_with_randomizer_signed(pk, beta.expose_secret(), &r.retrieve());
+        let cap_f = CiphertextMod::new_with_randomizer_signed(pk, beta.expose_secret(), &r.retrieve());
         let cap_d = &self.all_cap_k[destination] * P::signed_from_scalar(&self.context.gamma)
-            + CiphertextMod::new_with_randomizer_signed(
-                target_pk,
-                &-beta.expose_secret(),
-                &s.retrieve(),
-            );
+            + CiphertextMod::new_with_randomizer_signed(target_pk, &-beta.expose_secret(), &s.retrieve());
 
-        let hat_cap_f = CiphertextMod::new_with_randomizer_signed(
-            pk,
-            hat_beta.expose_secret(),
-            &hat_r.retrieve(),
-        );
+        let hat_cap_f = CiphertextMod::new_with_randomizer_signed(pk, hat_beta.expose_secret(), &hat_r.retrieve());
         let hat_cap_d = &self.all_cap_k[destination]
             * P::signed_from_scalar(self.context.key_share.secret_share.expose_secret())
-            + CiphertextMod::new_with_randomizer_signed(
-                target_pk,
-                &-hat_beta.expose_secret(),
-                &hat_s.retrieve(),
-            );
+            + CiphertextMod::new_with_randomizer_signed(target_pk, &-hat_beta.expose_secret(), &hat_s.retrieve());
 
         let public_aux = &self.context.aux_info.public_aux[destination];
         let rp = &public_aux.rp_params;
@@ -659,20 +632,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let payloads = payloads.downcast_all::<Round2Payload<P>>()?;
         let artifacts = artifacts.downcast_all::<Round2Artifact<P>>()?;
 
-        let cap_gamma = payloads
-            .values()
-            .map(|payload| payload.cap_gamma)
-            .sum::<Point>()
-            + self.context.gamma.mul_by_generator();
+        let cap_gamma =
+            payloads.values().map(|payload| payload.cap_gamma).sum::<Point>() + self.context.gamma.mul_by_generator();
 
         let cap_delta = cap_gamma * self.context.k;
 
         let alpha_sum: Signed<_> = payloads.values().map(|p| p.alpha).sum();
         let beta_sum: Signed<_> = artifacts.values().map(|p| p.beta.expose_secret()).sum();
-        let delta = P::signed_from_scalar(&self.context.gamma)
-            * P::signed_from_scalar(&self.context.k)
-            + alpha_sum
-            + beta_sum;
+        let delta =
+            P::signed_from_scalar(&self.context.gamma) * P::signed_from_scalar(&self.context.k) + alpha_sum + beta_sum;
 
         let hat_alpha_sum: Signed<_> = payloads.values().map(|payload| payload.hat_alpha).sum();
         let hat_beta_sum: Signed<_> = artifacts
@@ -689,20 +657,18 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             .map(|(id, payload)| ((id.clone(), payload.cap_d), (id, payload.hat_cap_d)))
             .unzip();
 
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-            Round3 {
-                context: self.context,
-                delta,
-                chi,
-                cap_delta,
-                cap_gamma,
-                all_cap_k: self.all_cap_k,
-                all_cap_g: self.all_cap_g,
-                cap_ds,
-                hat_cap_ds,
-                round2_artifacts: artifacts,
-            },
-        )))
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round3 {
+            context: self.context,
+            delta,
+            chi,
+            cap_delta,
+            cap_gamma,
+            all_cap_k: self.all_cap_k,
+            all_cap_g: self.all_cap_g,
+            cap_ds,
+            hat_cap_ds,
+            round2_artifacts: artifacts,
+        })))
     }
 }
 
@@ -880,9 +846,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                 values,
             };
 
-            return Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-                Round4::new(self.context, presigning_data),
-            )));
+            return Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round4::new(
+                self.context,
+                presigning_data,
+            ))));
         }
 
         // Construct the correctness proofs
@@ -943,9 +910,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         // Mul proof
 
         let rho = RandomizerMod::random(rng, pk);
-        let cap_h = (&self.all_cap_g[&self.context.my_id]
-            * P::bounded_from_scalar(&self.context.k))
-        .mul_randomizer(&rho.retrieve());
+        let cap_h = (&self.all_cap_g[&self.context.my_id] * P::bounded_from_scalar(&self.context.k))
+            .mul_randomizer(&rho.retrieve());
 
         let p_mul = MulProof::<P>::new(
             rng,
@@ -1102,11 +1068,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
     ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
         let payloads = payloads.downcast_all::<Round4Payload>()?;
 
-        let assembled_sigma = payloads
-            .values()
-            .map(|payload| payload.sigma)
-            .sum::<Scalar>()
-            + self.sigma;
+        let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar>() + self.sigma;
 
         let signature = RecoverableSignature::from_scalars(
             &self.r,
@@ -1134,9 +1096,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                 let target_pk = &self.context.aux_info.public_aux[id_j].paillier_pk;
                 let rp = &self.context.aux_info.public_aux[id_l].rp_params;
 
-                let values = self.presigning.values.get(id_j).ok_or_else(|| {
-                    LocalError::new(format!("Missing presigning values for {id_j:?}"))
-                })?;
+                let values = self
+                    .presigning
+                    .values
+                    .get(id_j)
+                    .ok_or_else(|| LocalError::new(format!("Missing presigning values for {id_j:?}")))?;
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
@@ -1175,8 +1139,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let cap_x = self.context.key_share.public_shares[&my_id];
 
         let rho = RandomizerMod::random(rng, pk);
-        let hat_cap_h = (&self.presigning.cap_k * P::bounded_from_scalar(x.expose_secret()))
-            .mul_randomizer(&rho.retrieve());
+        let hat_cap_h =
+            (&self.presigning.cap_k * P::bounded_from_scalar(x.expose_secret())).mul_randomizer(&rho.retrieve());
 
         let aux = (&self.context.ssid_hash, &my_id);
 
@@ -1211,9 +1175,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 
         let mut ciphertext = hat_cap_h.clone();
         for id_j in self.context.other_ids.iter() {
-            let values = &self.presigning.values.get(id_j).ok_or_else(|| {
-                LocalError::new(format!("Missing presigning values for {id_j:?}"))
-            })?;
+            let values = &self
+                .presigning
+                .values
+                .get(id_j)
+                .ok_or_else(|| LocalError::new(format!("Missing presigning values for {id_j:?}")))?;
             ciphertext = ciphertext + &values.hat_cap_d_received + &values.hat_cap_f;
         }
 
@@ -1225,10 +1191,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let rho = ciphertext.derive_randomizer(sk);
         // This is the same as `s_part` but if all the calculations were performed
         // without reducing modulo curve order.
-        let s_part_nonreduced =
-            P::signed_from_scalar(self.presigning.ephemeral_scalar_share.expose_secret())
-                * P::signed_from_scalar(&self.context.message)
-                + self.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
+        let s_part_nonreduced = P::signed_from_scalar(self.presigning.ephemeral_scalar_share.expose_secret())
+            * P::signed_from_scalar(&self.context.message)
+            + self.presigning.product_share_nonreduced * P::signed_from_scalar(&r);
 
         let mut dec_proofs = Vec::new();
         for id_l in self.context.other_ids.iter() {
@@ -1253,9 +1218,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         }
 
         Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-            SigningErrorRound {
-                context: self.context,
-            },
+            SigningErrorRound { context: self.context },
         )))
     }
 }
@@ -1306,11 +1269,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for SigningErrorRound<P, I> {
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
         normal_broadcast.assert_is_none()?;
         direct_message.assert_is_none()?;
-        let _echo_broadcast =
-            echo_broadcast.deserialize::<SigningErrorMessage<P, I>>(deserializer)?;
-        Err(ReceiveError::protocol(
-            InteractiveSigningError::SigningError("Signing error stub".into()),
-        ))
+        let _echo_broadcast = echo_broadcast.deserialize::<SigningErrorMessage<P, I>>(deserializer)?;
+        Err(ReceiveError::protocol(InteractiveSigningError::SigningError(
+            "Signing error stub".into(),
+        )))
     }
 
     fn finalize(
@@ -1342,14 +1304,10 @@ mod tests {
     #[test]
     fn execute_interactive_signing() {
         let signers = (0..3).map(TestSigner::new).collect::<Vec<_>>();
-        let ids = signers
-            .iter()
-            .map(|signer| signer.verifying_key())
-            .collect::<Vec<_>>();
+        let ids = signers.iter().map(|signer| signer.verifying_key()).collect::<Vec<_>>();
         let ids_set = BTreeSet::from_iter(ids.clone());
 
-        let key_shares =
-            KeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, None);
+        let key_shares = KeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, None);
         let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids_set);
 
         let mut message = [0u8; 32];
@@ -1359,11 +1317,7 @@ mod tests {
             .into_iter()
             .map(|signer| {
                 let id = signer.verifying_key();
-                let entry_point = InteractiveSigning::new(
-                    message,
-                    key_shares[&id].clone(),
-                    aux_infos[&id].clone(),
-                );
+                let entry_point = InteractiveSigning::new(message, key_shares[&id].clone(), aux_infos[&id].clone());
                 (signer, entry_point)
             })
             .collect();

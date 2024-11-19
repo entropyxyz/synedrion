@@ -7,8 +7,8 @@ use super::super::SchemeParams;
 use crate::{
     curve::Point,
     paillier::{
-        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
-        RPParamsMod, Randomizer, RandomizerMod,
+        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod, Randomizer,
+        RandomizerMod,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::Signed,
@@ -161,9 +161,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
 
         // g^{z_1} == B_x X^e
-        if P::scalar_from_signed(&self.z1).mul_by_generator()
-            != self.cap_b_x + cap_x * &P::scalar_from_signed(&e)
-        {
+        if P::scalar_from_signed(&self.z1).mul_by_generator() != self.cap_b_x + cap_x * &P::scalar_from_signed(&e) {
             return false;
         }
 
@@ -209,9 +207,7 @@ mod tests {
         let cap_d = (&cap_c * x).mul_randomizer(&rho.retrieve());
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
-        let proof = MulStarProof::<Params>::new(
-            &mut OsRng, &x, &rho, pk, &cap_c, &cap_d, &cap_x, &setup, &aux,
-        );
+        let proof = MulStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &cap_d, &cap_x, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &setup, &aux));
     }
 }

@@ -6,10 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
-    paillier::{
-        PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod,
-        SecretKeyPaillierPrecomputed,
-    },
+    paillier::{PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod, SecretKeyPaillierPrecomputed},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{Bounded, Integer, Signed},
 };
@@ -60,8 +57,7 @@ impl<P: SchemeParams> FacProof<P> {
         // Note that it has to be matched when we check the range of
         // `z1` and `z2` during verification.
         let sqrt_cap_n = Bounded::new(
-            <P::Paillier as PaillierParams>::Uint::one()
-                << (<P::Paillier as PaillierParams>::PRIME_BITS - 2),
+            <P::Paillier as PaillierParams>::Uint::one() << (<P::Paillier as PaillierParams>::PRIME_BITS - 2),
             <P::Paillier as PaillierParams>::PRIME_BITS as u32,
         )
         .expect("the value is bounded by `2^PRIME_BITS` by construction");
@@ -75,11 +71,7 @@ impl<P: SchemeParams> FacProof<P> {
         let scale = pk0.modulus_bounded().mul_wide(hat_cap_n);
 
         let sigma =
-            Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
-                rng,
-                P::L_BOUND,
-                &scale,
-            );
+            Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(rng, P::L_BOUND, &scale);
         let r = Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
             rng,
             P::L_BOUND + P::EPS_BOUND,
@@ -173,18 +165,14 @@ impl<P: SchemeParams> FacProof<P> {
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a_mod = self.cap_a.to_mod(aux_pk);
         let cap_p_mod = self.cap_p.to_mod(aux_pk);
-        if setup.commit_wide(&self.z1, &self.omega1)
-            != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e)
-        {
+        if setup.commit_wide(&self.z1, &self.omega1) != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
         let cap_b_mod = self.cap_b.to_mod(aux_pk);
         let cap_q_mod = self.cap_q.to_mod(aux_pk);
-        if setup.commit_wide(&self.z2, &self.omega2)
-            != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e)
-        {
+        if setup.commit_wide(&self.z2, &self.omega2) != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e) {
             return false;
         }
 
@@ -201,16 +189,18 @@ impl<P: SchemeParams> FacProof<P> {
         // this is the bound we are using here as well.
 
         // z1 \in \pm \sqrt{N_0} 2^{\ell + \eps}
-        if !self.z1.in_range_bits(
-            P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2,
-        ) {
+        if !self
+            .z1
+            .in_range_bits(P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2)
+        {
             return false;
         }
 
         // z2 \in \pm \sqrt{N_0} 2^{\ell + \eps}
-        if !self.z2.in_range_bits(
-            P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2,
-        ) {
+        if !self
+            .z2
+            .in_range_bits(P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2)
+        {
             return false;
         }
 

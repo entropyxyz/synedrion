@@ -2,8 +2,7 @@ use crypto_bigint::{
     modular::MontyForm,
     nlimbs,
     subtle::{ConditionallySelectable, CtOption},
-    Bounded, Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Zero, U1024, U2048,
-    U4096, U512, U8192,
+    Bounded, Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Zero, U1024, U2048, U4096, U512, U8192,
 };
 
 use crate::uint::Signed;
@@ -20,11 +19,7 @@ pub trait ToMontgomery: Integer {
 /// Exponentiation functions for generic integers (in our case used for integers in Montgomery form
 /// with `Signed` exponents).
 pub trait Exponentiable<T>:
-    PowBoundedExp<T>
-    + Invert<Output = CtOption<Self>>
-    + ConditionallySelectable
-    + Square
-    + core::ops::Mul<Output = Self>
+    PowBoundedExp<T> + Invert<Output = CtOption<Self>> + ConditionallySelectable + Square + core::ops::Mul<Output = Self>
 where
     T: Integer + Bounded + Encoding + ConditionallySelectable,
 {
@@ -36,9 +31,7 @@ where
     fn pow_signed(&self, exponent: &Signed<T>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
-        let inv_result = abs_result
-            .invert()
-            .expect("`self` is assumed to be invertible");
+        let inv_result = abs_result.invert().expect("`self` is assumed to be invertible");
         Self::conditional_select(&abs_result, &inv_result, exponent.is_negative())
     }
 

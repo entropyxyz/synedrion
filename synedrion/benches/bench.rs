@@ -25,8 +25,7 @@ fn bench_happy_paths(c: &mut Criterion) {
                 signers
                     .iter()
                     .map(|signer| {
-                        let entry_point =
-                            KeyInit::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
+                        let entry_point = KeyInit::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
                         (*signer, entry_point)
                     })
                     .collect::<Vec<_>>()
@@ -69,8 +68,7 @@ fn bench_happy_paths(c: &mut Criterion) {
                 signers
                     .iter()
                     .map(|signer| {
-                        let entry_point =
-                            AuxGen::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
+                        let entry_point = AuxGen::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
                         (*signer, entry_point)
                     })
                     .collect::<Vec<_>>()
