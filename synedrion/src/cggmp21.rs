@@ -7,15 +7,20 @@
 //! The equation and figure numbers in the comments, and the notation used
 //! refers to the version of the paper published at <https://eprint.iacr.org/2021/060.pdf>
 
+mod aux_gen;
 mod entities;
+mod interactive_signing;
+mod key_init;
+mod key_refresh;
 mod params;
-mod protocols;
 mod sigma;
 
+#[cfg(test)]
+mod signing_malicious;
+
+pub use aux_gen::{AuxGen, AuxGenProtocol};
 pub use entities::{AuxInfo, KeyShare, KeyShareChange};
-pub(crate) use entities::{PublicAuxInfo, SecretAuxInfo};
+pub use interactive_signing::{InteractiveSigning, InteractiveSigningProtocol, PrehashedMessage};
+pub use key_init::{KeyInit, KeyInitProtocol};
+pub use key_refresh::{KeyRefresh, KeyRefreshProtocol};
 pub use params::{ProductionParams, SchemeParams, TestParams};
-pub use protocols::{
-    AuxGen, AuxGenProtocol, InteractiveSigning, InteractiveSigningProtocol, KeyInit,
-    KeyInitProtocol, KeyRefresh, KeyRefreshProtocol, PrehashedMessage,
-};

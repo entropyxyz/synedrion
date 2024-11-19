@@ -1,4 +1,3 @@
-target/
-synedrion-wasm/pkg/
-node_modules
-Cargo.lock
+/target
+*.sublime-project
+*.sublime-workspace

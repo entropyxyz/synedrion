@@ -33,8 +33,7 @@ use crate::tools::hashing::{Chain, HashableType};
 pub(crate) type Curve = Secp256k1;
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
-pub(crate) type CompressedPointSize =
-    <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
+pub(crate) type CompressedPointSize = <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
 
 pub(crate) const ORDER: U256 = Secp256k1::ORDER;
 
@@ -118,9 +117,8 @@ impl Scalar {
     }
 
     pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let arr =
-            GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
-                .ok_or("Invalid length of a curve scalar")?;
+        let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
+            .ok_or("Invalid length of a curve scalar")?;
 
         BackendScalar::from_repr_vartime(arr)
             .map(Self)
@@ -133,9 +131,7 @@ impl Scalar {
             return vec![*self];
         }
 
-        let mut parts = (0..(num - 1))
-            .map(|_| Scalar::random(rng))
-            .collect::<Vec<_>>();
+        let mut parts = (0..(num - 1)).map(|_| Scalar::random(rng)).collect::<Vec<_>>();
         let partial_sum: Scalar = parts.iter().sum();
         parts.push(self - &partial_sum);
         parts

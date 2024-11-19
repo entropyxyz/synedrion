@@ -12,17 +12,18 @@ use alloc::{
 use core::{fmt::Debug, marker::PhantomData};
 
 use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome,
-    LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
-    ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
+    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
+    NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart, ProtocolValidationError,
+    ReceiveError, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
 use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
-use super::super::{
+use super::{
+    entities::KeyShare,
+    params::SchemeParams,
     sigma::{SchCommitment, SchProof, SchSecret},
-    KeyShare, SchemeParams,
 };
 use crate::{
     curve::{Point, Scalar},
@@ -130,9 +131,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
         id: &I,
     ) -> Result<BoxedRound<I, Self::Protocol>, LocalError> {
         if !self.all_ids.contains(id) {
-            return Err(LocalError::new(
-                "The given node IDs must contain this node's ID",
-            ));
+            return Err(LocalError::new("The given node IDs must contain this node's ID"));
         }
 
         let other_ids = self.all_ids.clone().without(id);
@@ -252,13 +251,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
         let payloads = payloads.downcast_all::<Round1Payload>()?;
         let others_cap_v = payloads.into_iter().map(|(k, v)| (k, v.cap_v)).collect();
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-            Round2 {
-                others_cap_v,
-                context: self.context,
-                phantom: PhantomData,
-            },
-        )))
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round2 {
+            others_cap_v,
+            context: self.context,
+            phantom: PhantomData,
+        })))
     }
 }
 
@@ -352,14 +349,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let others_data = payloads.into_iter().map(|(k, v)| (k, v.data)).collect();
 
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-            Round3 {
-                context: self.context,
-                others_data,
-                rid,
-                phantom: PhantomData,
-            },
-        )))
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round3 {
+            context: self.context,
+            others_data,
+            rid,
+            phantom: PhantomData,
+        })))
     }
 }
 
@@ -489,8 +484,7 @@ mod tests {
         let entry_points = signers
             .into_iter()
             .map(|signer| {
-                let entry_point =
-                    KeyInit::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
+                let entry_point = KeyInit::<TestParams, TestVerifier>::new(all_ids.clone()).unwrap();
                 (signer, entry_point)
             })
             .collect::<Vec<_>>();

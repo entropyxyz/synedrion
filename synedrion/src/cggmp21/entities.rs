@@ -14,8 +14,8 @@ use crate::{
     cggmp21::SchemeParams,
     curve::{Point, Scalar},
     paillier::{
-        CiphertextMod, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams,
-        RPParamsMod, Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+        CiphertextMod, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod,
+        Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
     },
     uint::Signed,
 };
@@ -294,8 +294,7 @@ mod tests {
             .map(|_| *SigningKey::random(&mut OsRng).verifying_key())
             .collect::<BTreeSet<_>>();
 
-        let shares =
-            KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &ids, Some(&sk));
+        let shares = KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &ids, Some(&sk));
         assert!(shares
             .values()
             .all(|share| &share.verifying_key().unwrap() == sk.verifying_key()));

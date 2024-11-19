@@ -10,12 +10,7 @@ pub struct RecoverableSignature {
 }
 
 impl RecoverableSignature {
-    pub(crate) fn from_scalars(
-        r: &Scalar,
-        s: &Scalar,
-        vkey: &Point,
-        message: &Scalar,
-    ) -> Option<Self> {
+    pub(crate) fn from_scalars(r: &Scalar, s: &Scalar, vkey: &Point, message: &Scalar) -> Option<Self> {
         let signature = BackendSignature::from_scalars(r.to_backend(), s.to_backend()).ok()?;
 
         // Normalize the `s` component.
@@ -31,10 +26,7 @@ impl RecoverableSignature {
         )
         .ok()?;
 
-        Some(Self {
-            signature,
-            recovery_id,
-        })
+        Some(Self { signature, recovery_id })
     }
 
     /// Unwraps into the signature and recovery info objects from the backend crate.

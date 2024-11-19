@@ -68,20 +68,12 @@ impl<P: PaillierParams> RPParamsMod<P> {
     // TODO (#81): swap randomizer and secret?
     // - this will match the order for Ciphertext,
     // - this will match the order in the paper
-    pub fn commit(
-        &self,
-        secret: &Signed<P::Uint>,
-        randomizer: &Signed<P::WideUint>,
-    ) -> RPCommitmentMod<P> {
+    pub fn commit(&self, secret: &Signed<P::Uint>, randomizer: &Signed<P::WideUint>) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed(secret))
     }
 
-    pub fn commit_wide(
-        &self,
-        secret: &Signed<P::WideUint>,
-        randomizer: &Signed<P::WideUint>,
-    ) -> RPCommitmentMod<P> {
+    pub fn commit_wide(&self, secret: &Signed<P::WideUint>, randomizer: &Signed<P::WideUint>) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(self.base.pow_signed_wide(randomizer) * self.power.pow_signed_wide(secret))
     }
@@ -94,10 +86,9 @@ impl<P: PaillierParams> RPParamsMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
         RPCommitmentMod(
             self.base.pow_signed_extra_wide(randomizer)
-                * self.power.pow_bounded_exp(
-                    secret.expose_secret().as_ref(),
-                    secret.expose_secret().bound(),
-                ),
+                * self
+                    .power
+                    .pow_bounded_exp(secret.expose_secret().as_ref(), secret.expose_secret().bound()),
         )
     }
 

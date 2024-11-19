@@ -8,8 +8,8 @@ use super::super::SchemeParams;
 use crate::{
     curve::Point,
     paillier::{
-        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
-        RPParamsMod, Randomizer, RandomizerMod,
+        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod, Randomizer,
+        RandomizerMod,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::Signed,
@@ -93,12 +93,10 @@ impl<P: SchemeParams> AffGProof<P> {
         let delta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        let cap_a = (cap_c * alpha
-            + CiphertextMod::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve()))
-        .retrieve();
+        let cap_a =
+            (cap_c * alpha + CiphertextMod::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve())).retrieve();
         let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
-        let cap_b_y =
-            CiphertextMod::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve()).retrieve();
+        let cap_b_y = CiphertextMod::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve()).retrieve();
         let cap_e = setup.commit(&alpha, &gamma).retrieve();
         let cap_s = setup.commit(x, &m).retrieve();
         let cap_f = setup.commit(&beta, &delta).retrieve();
@@ -232,9 +230,7 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // g^{z_1} = B_x X^e
-        if P::scalar_from_signed(&self.z1).mul_by_generator()
-            != self.cap_b_x + cap_x * &P::scalar_from_signed(&e)
-        {
+        if P::scalar_from_signed(&self.z1).mul_by_generator() != self.cap_b_x + cap_x * &P::scalar_from_signed(&e) {
             return false;
         }
 
@@ -296,20 +292,15 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let y = SecretBox::new(Box::new(Signed::random_bounded_bits(
-            &mut OsRng,
-            Params::LP_BOUND,
-        )));
+        let y = SecretBox::new(Box::new(Signed::random_bounded_bits(&mut OsRng, Params::LP_BOUND)));
 
         let rho = RandomizerMod::random(&mut OsRng, pk0);
         let rho_y = RandomizerMod::random(&mut OsRng, pk1);
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let cap_c = CiphertextMod::new_signed(&mut OsRng, pk0, &secret);
 
-        let cap_d = &cap_c * x
-            + CiphertextMod::new_with_randomizer_signed(pk0, &-y.expose_secret(), &rho.retrieve());
-        let cap_y =
-            CiphertextMod::new_with_randomizer_signed(pk1, y.expose_secret(), &rho_y.retrieve());
+        let cap_d = &cap_c * x + CiphertextMod::new_with_randomizer_signed(pk0, &-y.expose_secret(), &rho.retrieve());
+        let cap_y = CiphertextMod::new_with_randomizer_signed(pk1, y.expose_secret(), &rho_y.retrieve());
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(

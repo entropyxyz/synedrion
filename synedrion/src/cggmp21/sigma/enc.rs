@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::{
     paillier::{
-        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment,
-        RPParamsMod, Randomizer, RandomizerMod,
+        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod, Randomizer,
+        RandomizerMod,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::Signed,
@@ -61,8 +61,7 @@ impl<P: SchemeParams> EncProof<P> {
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(k, &mu).retrieve();
-        let cap_a =
-            CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
+        let cap_a = CiphertextMod::new_with_randomizer_signed(pk0, &alpha, &r.retrieve()).retrieve();
         let cap_c = setup.commit(&alpha, &gamma).retrieve();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -171,18 +170,9 @@ mod tests {
 
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let randomizer = RandomizerMod::random(&mut OsRng, pk);
-        let ciphertext =
-            CiphertextMod::new_with_randomizer_signed(pk, &secret, &randomizer.retrieve());
+        let ciphertext = CiphertextMod::new_with_randomizer_signed(pk, &secret, &randomizer.retrieve());
 
-        let proof = EncProof::<Params>::new(
-            &mut OsRng,
-            &secret,
-            &randomizer,
-            pk,
-            &ciphertext,
-            &setup,
-            &aux,
-        );
+        let proof = EncProof::<Params>::new(&mut OsRng, &secret, &randomizer, pk, &ciphertext, &setup, &aux);
         assert!(proof.verify(pk, &ciphertext, &setup, &aux));
     }
 }

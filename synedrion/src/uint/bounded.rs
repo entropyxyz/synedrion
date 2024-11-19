@@ -55,8 +55,7 @@ where
         repr.as_mut()[(repr_len - bytes_len)..].copy_from_slice(&val.bytes);
         let abs_value = T::from_be_bytes(repr);
 
-        Self::new(abs_value, val.bound)
-            .ok_or_else(|| "Invalid values for the signed integer".into())
+        Self::new(abs_value, val.bound).ok_or_else(|| "Invalid values for the signed integer".into())
     }
 }
 

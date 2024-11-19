@@ -1,9 +1,9 @@
 # Synedrion
 
-
 [![crate][crate-image]][crate-link]
 [![Docs][docs-image]][docs-link]
 ![License][license-image]
+[![Build Status][build-image]][build-link]
 [![Coverage][coverage-image]][coverage-link]
 
 [crate-image]: https://img.shields.io/crates/v/synedrion.svg
@@ -11,8 +11,11 @@
 [docs-image]: https://docs.rs/synedrion/badge.svg
 [docs-link]: https://docs.rs/synedrion/
 [license-image]: https://img.shields.io/crates/l/synedrion
+[build-image]: https://github.com/entropyxyz/synedrion/actions/workflows/ci.yml/badge.svg?branch=master&event=push
+[build-link]: https://github.com/entropyxyz/synedrion/actions?query=workflow%3Aci
 [coverage-image]: https://codecov.io/gh/entropyxyz/synedrion/branch/master/graph/badge.svg
 [coverage-link]: https://codecov.io/gh/entropyxyz/synedrion
+
 
 ### A threshold signing library based on the CGGMP'21 scheme.
 

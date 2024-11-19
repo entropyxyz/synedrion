@@ -28,13 +28,8 @@ const HASH_TAG: &[u8] = b"P_prm";
 struct PrmSecret<P: SchemeParams>(Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmSecret<P> {
-    fn random(
-        rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-    ) -> Self {
-        let secret = (0..P::SECURITY_PARAMETER)
-            .map(|_| sk.random_field_elem(rng))
-            .collect();
+    fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P::Paillier>) -> Self {
+        let secret = (0..P::SECURITY_PARAMETER).map(|_| sk.random_field_elem(rng)).collect();
         Self(secret)
     }
 }

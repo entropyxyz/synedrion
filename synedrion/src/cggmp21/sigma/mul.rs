@@ -5,10 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
-    paillier::{
-        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer,
-        RandomizerMod,
-    },
+    paillier::{Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer, RandomizerMod},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{Bounded, Retrieve, Signed},
 };
@@ -138,17 +135,13 @@ impl<P: SchemeParams> MulProof<P> {
         }
 
         // Y^z u^N = A * C^e \mod N^2
-        if cap_y.homomorphic_mul_wide(&self.z).mul_randomizer(&self.u)
-            != self.cap_a.to_mod(pk) + cap_c * e
-        {
+        if cap_y.homomorphic_mul_wide(&self.z).mul_randomizer(&self.u) != self.cap_a.to_mod(pk) + cap_c * e {
             return false;
         }
 
         // enc(z, v) == B * X^e \mod N^2
         // (Note: typo in the paper, it uses `c` and not `v` here)
-        if CiphertextMod::new_with_randomizer_wide(pk, &self.z, &self.v)
-            != self.cap_b.to_mod(pk) + cap_x * e
-        {
+        if CiphertextMod::new_with_randomizer_wide(pk, &self.z, &self.v) != self.cap_b.to_mod(pk) + cap_x * e {
             return false;
         }
 
@@ -186,9 +179,7 @@ mod tests {
         let cap_y = CiphertextMod::new_signed(&mut OsRng, pk, &y);
         let cap_c = (&cap_y * x).mul_randomizer(&rho.retrieve());
 
-        let proof = MulProof::<Params>::new(
-            &mut OsRng, &x, &rho_x, &rho, pk, &cap_x, &cap_y, &cap_c, &aux,
-        );
+        let proof = MulProof::<Params>::new(&mut OsRng, &x, &rho_x, &rho, pk, &cap_x, &cap_y, &cap_c, &aux);
         assert!(proof.verify(pk, &cap_x, &cap_y, &cap_c, &aux));
     }
 }
