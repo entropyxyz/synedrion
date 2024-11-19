@@ -19,10 +19,10 @@ use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
-use super::super::{
-    entities::{AuxInfoPrecomputed, PresigningData, PresigningValues},
+use super::{
+    entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues},
+    params::SchemeParams,
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof, MulStarProof},
-    AuxInfo, KeyShare, SchemeParams,
 };
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},

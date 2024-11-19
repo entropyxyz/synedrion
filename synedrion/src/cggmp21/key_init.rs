@@ -20,9 +20,10 @@ use rand_core::CryptoRngCore;
 use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
-use super::super::{
+use super::{
+    entities::KeyShare,
+    params::SchemeParams,
     sigma::{SchCommitment, SchProof, SchSecret},
-    KeyShare, SchemeParams,
 };
 use crate::{
     curve::{Point, Scalar},

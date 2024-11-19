@@ -13,8 +13,8 @@ use manul::{
 use rand_core::{CryptoRngCore, OsRng, RngCore};
 
 use super::{
-    super::SchemeParams,
     interactive_signing::{InteractiveSigning, Round4Message},
+    params::SchemeParams,
 };
 use crate::{
     cggmp21::{AuxInfo, KeyShare, TestParams},
