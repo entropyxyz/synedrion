@@ -5,6 +5,7 @@
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
+    format,
     string::String,
     vec::Vec,
 };
@@ -323,8 +324,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         normal_broadcast.assert_is_none()?;
         direct_message.assert_is_none()?;
         let echo = echo_broadcast.deserialize::<Round2Message<P>>(deserializer)?;
+        let cap_v = self
+            .others_cap_v
+            .get(from)
+            .ok_or_else(|| LocalError::new(format!("Missing `V` for {from:?}")))?;
 
-        if &echo.data.hash(&self.context.sid_hash, from) != self.others_cap_v.get(from).unwrap() {
+        if &echo.data.hash(&self.context.sid_hash, from) != cap_v {
             return Err(ReceiveError::protocol(KeyInitError::R2HashMismatch));
         }
 
@@ -424,7 +429,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let bc = normal_broadcast.deserialize::<Round3Message>(deserializer)?;
 
-        let data = self.others_data.get(from).unwrap();
+        let data = self
+            .others_data
+            .get(from)
+            .ok_or_else(|| LocalError::new(format!("Missing data for {from:?}")))?;
 
         let aux = (&self.context.sid_hash, from, &self.rid);
         if !bc.psi.verify(&data.cap_a, &data.cap_x, &aux) {

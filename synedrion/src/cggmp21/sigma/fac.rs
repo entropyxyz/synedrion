@@ -64,7 +64,7 @@ impl<P: SchemeParams> FacProof<P> {
                 << (<P::Paillier as PaillierParams>::PRIME_BITS - 2),
             <P::Paillier as PaillierParams>::PRIME_BITS as u32,
         )
-        .unwrap();
+        .expect("the value is bounded by `2^PRIME_BITS` by construction");
 
         let alpha = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
         let beta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);

@@ -303,7 +303,7 @@ mod tests {
 
         let rho = RandomizerMod::random(&mut OsRng, pk0);
         let rho_y = RandomizerMod::random(&mut OsRng, pk1);
-        let secret = Signed::random(&mut OsRng);
+        let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let cap_c = CiphertextMod::new_signed(&mut OsRng, pk0, &secret);
 
         let cap_d = &cap_c * x

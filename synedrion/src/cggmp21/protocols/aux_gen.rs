@@ -4,6 +4,7 @@
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
+    format,
     string::String,
     vec::Vec,
 };
@@ -375,9 +376,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         direct_message.assert_is_none()?;
         let normal_broadcast = normal_broadcast.deserialize::<Round2Message<P>>(deserializer)?;
 
-        if &normal_broadcast.data.hash(&self.context.sid_hash, from)
-            != self.others_cap_v.get(from).unwrap()
-        {
+        let cap_v = self
+            .others_cap_v
+            .get(from)
+            .ok_or_else(|| LocalError::new(format!("Missing `V` for {from:?}")))?;
+        if &normal_broadcast.data.hash(&self.context.sid_hash, from) != cap_v {
             return Err(ReceiveError::protocol(AuxGenError(
                 AuxGenErrorEnum::Round2("Hash mismatch".into()),
             )));
@@ -521,12 +524,11 @@ impl<P: SchemeParams, I: PartyId + Serialize> Round<I> for Round3<P, I> {
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
         let aux = (&self.context.sid_hash, &self.context.my_id, &self.rho);
 
-        let phi = FacProof::new(
-            rng,
-            &self.context.paillier_sk,
-            &self.others_data.get(destination).unwrap().rp_params,
-            &aux,
-        );
+        let dest_data = self
+            .others_data
+            .get(destination)
+            .ok_or_else(|| LocalError::new(format!("Missing data for {destination:?}")))?;
+        let phi = FacProof::new(rng, &self.context.paillier_sk, &dest_data.rp_params, &aux);
 
         let data2 = PublicData2 {
             psi_mod: self.psi_mod.clone(),
@@ -552,7 +554,10 @@ impl<P: SchemeParams, I: PartyId + Serialize> Round<I> for Round3<P, I> {
         normal_broadcast.assert_is_none()?;
         let direct_message = direct_message.deserialize::<Round3Message<P>>(deserializer)?;
 
-        let sender_data = &self.others_data.get(from).unwrap();
+        let sender_data = &self
+            .others_data
+            .get(from)
+            .ok_or_else(|| LocalError::new(format!("Missing data for {from:?}")))?;
 
         let aux = (&self.context.sid_hash, &from, &self.rho);
 

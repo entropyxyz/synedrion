@@ -1,4 +1,7 @@
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{
+    collections::{BTreeMap, BTreeSet},
+    vec::Vec,
+};
 use core::ops::{Add, Mul};
 
 use rand_core::CryptoRngCore;
@@ -14,7 +17,7 @@ use crate::{
 pub struct ShareId(Scalar);
 
 impl ShareId {
-    pub fn new(idx: usize) -> Self {
+    pub fn new(idx: u64) -> Self {
         Self(Scalar::from(idx))
     }
 }
@@ -22,7 +25,7 @@ impl ShareId {
 pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareId> {
     // For now we are hardcoding the points to be 1, 2, ..., n.
     // Potentially we can derive them from Session ID.
-    (1..=u32::try_from(num_shares).expect("The number of shares cannot be over 2^32-1"))
+    (1..=u64::try_from(num_shares).expect("no more than 2^64-1 shares needed"))
         .map(|idx| ShareId(Scalar::from(idx)))
         .collect()
 }
@@ -93,35 +96,31 @@ pub(crate) fn shamir_split(
         .collect()
 }
 
-pub(crate) fn interpolation_coeff<'a>(
-    share_ids: impl Iterator<Item = &'a ShareId>,
-    share_id: &ShareId,
-) -> Scalar {
+pub(crate) fn interpolation_coeff(share_ids: &BTreeSet<ShareId>, share_id: &ShareId) -> Scalar {
     share_ids
+        .iter()
         .filter(|id| id != &share_id)
-        .map(|id| id.0 * (id.0 - share_id.0).invert().unwrap())
+        .map(|id| {
+            id.0 * (id.0 - share_id.0)
+                .invert()
+                .expect("all share IDs are distinct as enforced by BTreeSet")
+        })
         .product()
 }
 
-pub(crate) fn shamir_join_scalars<'a>(
-    pairs: impl Iterator<Item = (&'a ShareId, &'a Scalar)>,
-) -> Scalar {
-    let (share_ids, values): (Vec<_>, Vec<_>) = pairs.map(|(k, v)| (*k, *v)).unzip();
-    values
+pub(crate) fn shamir_join_scalars(pairs: &BTreeMap<ShareId, Scalar>) -> Scalar {
+    let share_ids = pairs.keys().cloned().collect::<BTreeSet<_>>();
+    pairs
         .iter()
-        .enumerate()
-        .map(|(i, val)| val * &interpolation_coeff(share_ids.iter(), &share_ids[i]))
+        .map(|(share_id, val)| val * &interpolation_coeff(&share_ids, share_id))
         .sum()
 }
 
-pub(crate) fn shamir_join_points<'a>(
-    pairs: impl Iterator<Item = (&'a ShareId, &'a Point)>,
-) -> Point {
-    let (share_ids, values): (Vec<_>, Vec<_>) = pairs.map(|(k, v)| (*k, *v)).unzip();
-    values
+pub(crate) fn shamir_join_points(pairs: &BTreeMap<ShareId, Point>) -> Point {
+    let share_ids = pairs.keys().cloned().collect::<BTreeSet<_>>();
+    pairs
         .iter()
-        .enumerate()
-        .map(|(i, val)| val * &interpolation_coeff(share_ids.iter(), &share_ids[i]))
+        .map(|(share_id, val)| val * &interpolation_coeff(&share_ids, share_id))
         .sum()
 }
 
@@ -156,7 +155,7 @@ mod tests {
         shares.remove(&points[0]);
         shares.remove(&points[3]);
 
-        let recovered_secret = shamir_join_scalars(shares.iter());
+        let recovered_secret = shamir_join_scalars(&shares);
         assert_eq!(recovered_secret, secret);
     }
 }
