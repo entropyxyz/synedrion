@@ -181,7 +181,7 @@ where
             SecretBox::new(Box::new(
                 Signed::new_positive(self.sk.p.expose_secret().clone().into_wide(), P::PRIME_BITS as u32).expect(
                     concat![
-                        "The primes in the `SecretKeyPaillier` are 'safe primes' ",
+                        "The prime p in the `SecretKeyPaillier` are 'safe primes' ",
                         "and positive by construction; the bound is assumed to be configured correctly by the user."
                     ],
                 ),
@@ -189,7 +189,7 @@ where
             SecretBox::new(Box::new(
                 Signed::new_positive(self.sk.q.expose_secret().clone().into_wide(), P::PRIME_BITS as u32).expect(
                     concat![
-                        "The primes in the `SecretKeyPaillier` are 'safe primes' ",
+                        "The prime q in the `SecretKeyPaillier` are 'safe primes' ",
                         "and positive by construction; the bound is assumed to be configured correctly by the user."
                     ],
                 ),
@@ -435,23 +435,40 @@ impl<P: PaillierParams> PartialEq for PublicKeyPaillierPrecomputed<P> {
 impl<P: PaillierParams> Eq for PublicKeyPaillierPrecomputed<P> {}
 
 #[cfg(test)]
+pub fn make_broken_paillier_key<P>(rng: &mut impl CryptoRngCore, p: u64) -> SecretKeyPaillier<P>
+where
+    P: PaillierParams,
+{
+    use secrecy::SecretBox;
+
+    let p = P::HalfUint::from(p);
+    let q = P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS as u32);
+    SecretKeyPaillier {
+        p: SecretBox::new(Box::new(p)),
+        q: SecretBox::new(Box::new(q)),
+    }
+}
+#[cfg(test)]
 mod tests {
+    use super::SecretKeyPaillier;
+    use crate::cggmp21::{PaillierProduction, PaillierTest2};
+    use crate::paillier::params::PaillierTest;
+    use crate::paillier::{CiphertextMod, PaillierParams};
+
     use rand::SeedableRng;
     use rand_core::OsRng;
     use serde::Serialize;
     use serde_assert::Token;
 
-    use super::{super::params::PaillierTest, SecretKeyPaillier};
-
     #[test]
     fn basics() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<PaillierTest2>::random(&mut OsRng).to_precomputed();
         let _pk = sk.public_key();
     }
 
     #[test]
     fn debug_redacts_secrets() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
+        let sk = SecretKeyPaillier::<PaillierTest2>::random(&mut OsRng);
 
         let debug_output = format!("Sikrit {:?}", sk);
         assert_eq!(
@@ -494,5 +511,25 @@ mod tests {
         // Clone works
         let clone = sk.clone();
         assert_eq!(sk, clone);
+    }
+
+    #[test_log::test]
+    fn malicious_paillier_key() {
+        type Uint = <PaillierProduction as PaillierParams>::Uint;
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(123456);
+        let sk = super::make_broken_paillier_key::<PaillierProduction>(&mut rng, 23);
+        let sikrit = {
+            let s = "attack at dawn!".as_bytes();
+            let mut buf = [0u8; Uint::BYTES];
+            buf[Uint::BYTES - s.len()..].copy_from_slice(s);
+            buf
+        };
+
+        let sikrit_uint = Uint::from_be_slice(&sikrit);
+        let sk_precomp = sk.to_precomputed();
+        let ciphertext = CiphertextMod::new(&mut rng, sk_precomp.public_key(), &sikrit_uint);
+
+        let decrypted = ciphertext.decrypt(&sk_precomp);
+        assert_eq!(decrypted, sikrit_uint);
     }
 }

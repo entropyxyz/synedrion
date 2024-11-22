@@ -3,6 +3,7 @@
 use rand_core::CryptoRngCore;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 use super::super::SchemeParams;
 use crate::{
@@ -214,8 +215,9 @@ mod tests {
 
     use super::FacProof;
     use crate::{
-        cggmp21::{SchemeParams, TestParams},
-        paillier::{RPParamsMod, SecretKeyPaillier},
+        cggmp21::{params::PaillierTest2, PaillierProduction, SchemeParams, TestParams},
+        paillier::{make_broken_paillier_key, RPParamsMod, SecretKeyPaillier},
+        ProductionParams,
     };
 
     #[test]
@@ -233,5 +235,34 @@ mod tests {
 
         let proof = FacProof::<Params>::new(&mut OsRng, &sk, &setup, &aux);
         assert!(proof.verify(pk, &setup, &aux));
+    }
+
+    #[test_log::test]
+    fn malicious_prover_with_production_params() {
+        type SKP = SecretKeyPaillier<PaillierProduction>;
+        let sk = make_broken_paillier_key(&mut OsRng, 23);
+        let sk_precomp = sk.to_precomputed();
+
+        let aux_sk = SKP::random(&mut OsRng).to_precomputed();
+        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let aux: &[u8] = b"dontforgetthemilk";
+
+        let proof = FacProof::<ProductionParams>::new(&mut OsRng, &sk_precomp, &setup, &aux);
+
+        assert!(!proof.verify(sk_precomp.public_key(), &setup, &aux));
+    }
+    #[test_log::test]
+    fn malicious_prover_with_test_params() {
+        type SKP = SecretKeyPaillier<PaillierTest2>;
+        let sk = make_broken_paillier_key(&mut OsRng, 7);
+        let sk_precomp = sk.to_precomputed();
+
+        let aux_sk = SKP::random(&mut OsRng).to_precomputed();
+        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let aux: &[u8] = b"dontforgetthemilk";
+
+        let proof = FacProof::<TestParams>::new(&mut OsRng, &sk_precomp, &setup, &aux);
+
+        assert!(!proof.verify(sk_precomp.public_key(), &setup, &aux));
     }
 }

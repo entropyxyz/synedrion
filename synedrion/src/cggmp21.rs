@@ -23,4 +23,6 @@ pub use entities::{AuxInfo, KeyShare, KeyShareChange};
 pub use interactive_signing::{InteractiveSigning, InteractiveSigningProtocol, PrehashedMessage};
 pub use key_init::{KeyInit, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshProtocol};
+#[cfg(test)]
+pub use params::{PaillierProduction, PaillierTest2};
 pub use params::{ProductionParams, SchemeParams, TestParams};

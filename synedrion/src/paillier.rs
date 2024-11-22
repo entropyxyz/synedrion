@@ -9,3 +9,6 @@ pub(crate) use keys::{
 };
 pub(crate) use params::PaillierParams;
 pub(crate) use ring_pedersen::{RPCommitment, RPParams, RPParamsMod, RPSecret};
+
+#[cfg(test)]
+pub use keys::make_broken_paillier_key;
