@@ -17,15 +17,21 @@ k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arith
 rand_core = { version = "0.6.4", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
-digest = { version = "0.10", default-features = false, features = ["alloc"]}
+digest = { version = "0.10", default-features = false, features = ["alloc"] }
 hashing-serializer = { version = "0.1", default-features = false }
 secrecy = { version = "0.10", default-features = false, features = ["serde"] }
 zeroize = { version = "1.8", default-features = false, features = ["alloc", "zeroize_derive"] }
 bip32 = { version = "0.5", default-features = false, features = ["alloc", "secp256k1", "k256"] }
+tracing = { version = "0.1", default-features = false }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
-crypto-bigint = { version = "0.6.0-rc.6", default-features = false, features = ["serde", "alloc", "rand_core", "zeroize"] }
+crypto-bigint = { version = "0.6.0-rc.6", default-features = false, features = [
+	"serde",
+	"alloc",
+	"rand_core",
+	"zeroize",
+] }
 crypto-primes = { version = "0.6.0-pre.2", default-features = false }
 
 serde = { version = "1", default-features = false, features = ["derive"] }
@@ -40,9 +46,10 @@ serde_assert = "0.8"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = "0.8"
 criterion = "0.5"
-k256 = {version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "pem", "serde"]}
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "pem", "serde"] }
 impls = "1"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
+test-log = { version = "0.2.16", default-features = false, features = ["trace", "color"] }
 
 [[bench]]
 bench = true

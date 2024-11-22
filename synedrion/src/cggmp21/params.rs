@@ -18,7 +18,7 @@ use crate::{
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PaillierTest;
+pub struct PaillierTest2;
 
 const fn upcast_uint<const N1: usize, const N2: usize>(value: K256Uint<N1>) -> K256Uint<N2> {
     assert!(N2 >= N1, "Upcast target must be bigger than the upcast candidate");
@@ -35,7 +35,7 @@ const fn convert_uint<const N: usize>(value: K256Uint<N>) -> Uint<N> {
     Uint::from_words(value.to_words())
 }
 
-impl PaillierParams for PaillierTest {
+impl PaillierParams for PaillierTest2 {
     /*
     The prime size is chosen to be minimal for which the `TestSchemeParams` still work.
     In the presigning, we are effectively constructing a ciphertext of
@@ -216,7 +216,7 @@ impl SchemeParams for TestParams {
     const L_BOUND: usize = 256;
     const LP_BOUND: usize = 256;
     const EPS_BOUND: usize = 320;
-    type Paillier = PaillierTest;
+    type Paillier = PaillierTest2;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
         .to_nz()
         .expect("Correct by construction");
