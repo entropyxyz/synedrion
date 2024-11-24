@@ -66,7 +66,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         assert_eq!(cap_c.public_key(), pk0);
         assert_eq!(cap_d.public_key(), pk0);
 
-        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
 
         let r = RandomizerMod::random(rng, pk0);
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
@@ -148,8 +148,6 @@ impl<P: SchemeParams> MulStarProof<P> {
             return false;
         }
 
-        let aux_pk = setup.public_key();
-
         // Range check
         if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {
             return false;
@@ -166,8 +164,8 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
 
         // s^{z_1} t^{z_2} == E S^e
-        let cap_e_mod = self.cap_e.to_mod(aux_pk);
-        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        let cap_e_mod = self.cap_e.to_mod(setup);
+        let cap_s_mod = self.cap_s.to_mod(setup);
         if setup.commit(&self.z1, &self.z2) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
@@ -192,11 +190,10 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let setup = RPParamsMod::random(&mut OsRng);
 
         let aux: &[u8] = b"abcde";
 

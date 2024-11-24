@@ -224,13 +224,12 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
             .iter()
             .zip(secret_aux.iter())
             .map(|(id, secret)| {
-                let sk = secret.paillier_sk.to_precomputed();
                 (
                     id.clone(),
                     PublicAuxInfo {
-                        paillier_pk: sk.public_key().to_minimal(),
+                        paillier_pk: secret.paillier_sk.public_key(),
                         el_gamal_pk: secret.el_gamal_sk.expose_secret().mul_by_generator(),
-                        rp_params: RPParamsMod::random(rng, &sk).retrieve(),
+                        rp_params: RPParamsMod::random(rng).retrieve(),
                     },
                 )
             })
@@ -251,23 +250,23 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
             .collect()
     }
 
-    pub(crate) fn to_precomputed(&self) -> AuxInfoPrecomputed<P, I> {
+    pub(crate) fn into_precomputed(self) -> AuxInfoPrecomputed<P, I> {
         AuxInfoPrecomputed {
             secret_aux: SecretAuxInfoPrecomputed {
-                paillier_sk: self.secret_aux.paillier_sk.to_precomputed(),
+                paillier_sk: self.secret_aux.paillier_sk.clone().into_precomputed(),
                 el_gamal_sk: self.secret_aux.el_gamal_sk.clone(),
             },
             public_aux: self
                 .public_aux
                 .iter()
                 .map(|(id, public_aux)| {
-                    let paillier_pk = public_aux.paillier_pk.to_precomputed();
+                    let paillier_pk = public_aux.paillier_pk.clone().into_precomputed();
                     (
                         id.clone(),
                         PublicAuxInfoPrecomputed {
                             el_gamal_pk: public_aux.el_gamal_pk,
                             paillier_pk: paillier_pk.clone(),
-                            rp_params: public_aux.rp_params.to_mod(&paillier_pk),
+                            rp_params: public_aux.rp_params.to_mod(),
                         },
                     )
                 })

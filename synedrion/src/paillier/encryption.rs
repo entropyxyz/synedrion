@@ -7,7 +7,7 @@ use crypto_bigint::{Invert, Monty, PowBoundedExp, ShrVartime, WrappingSub};
 use rand_core::CryptoRngCore;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::ZeroizeOnDrop;
 
 use super::{
     keys::{PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed},
@@ -19,7 +19,7 @@ use crate::uint::{
 };
 
 // A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
-#[derive(Debug, Clone, Serialize, Deserialize, ZeroizeOnDrop, Default, Zeroize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZeroizeOnDrop)]
 pub(crate) struct Randomizer<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> Randomizer<P> {
@@ -28,7 +28,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RandomizerMod<P> {
-        RandomizerMod(self.0.to_montgomery(pk.precomputed_modulus()))
+        RandomizerMod(self.0.to_montgomery(pk.monty_params_mod_n()))
     }
 }
 
@@ -115,7 +115,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> CiphertextMod<P> {
         CiphertextMod {
             pk: pk.clone(),
-            ciphertext: self.ciphertext.to_montgomery(pk.precomputed_modulus_squared()),
+            ciphertext: self.ciphertext.to_montgomery(pk.monty_params_mod_n_squared()),
         }
     }
 }
@@ -157,15 +157,15 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // Since `m` can be negative, we calculate `m * N +- 1` (never overflows since `m < N`),
         // then conditionally negate modulo N^2
         let prod = abs_plaintext.mul_wide(pk.modulus());
-        let mut prod_mod = prod.to_montgomery(pk.precomputed_modulus_squared());
+        let mut prod_mod = prod.to_montgomery(pk.monty_params_mod_n_squared());
         prod_mod.conditional_negate(plaintext_is_negative);
 
-        let factor1 = prod_mod + P::WideUintMod::one(pk.precomputed_modulus_squared().clone());
+        let factor1 = prod_mod + P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
 
         let randomizer = randomizer.0.into_wide();
         let pk_mod_bound = pk.modulus_bounded().into_wide();
         let factor2 = randomizer
-            .to_montgomery(pk.precomputed_modulus_squared())
+            .to_montgomery(pk.monty_params_mod_n_squared())
             .pow_bounded_exp(pk_mod_bound.as_ref(), pk_mod_bound.bound());
 
         let ciphertext = factor1 * factor2;
@@ -222,7 +222,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         assert_eq!(sk.public_key(), &self.pk);
 
         let pk = sk.public_key();
-        let totient_wide = sk.totient().expose_secret().into_wide();
+        let totient_wide = sk.totient_wide_bounded();
 
         // Calculate the plaintext `m = ((C^phi mod N^2 - 1) / N) * mu mod N`,
         // where `m` is the plaintext, `C` is the ciphertext,
@@ -233,16 +233,16 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // Note that `C^phi mod N^2 / N < N`, so we can unwrap when converting to `Uint`
         // (because `N` itself fits into `Uint`).
         let x = P::Uint::try_from_wide(
-            (self
-                .ciphertext
-                .pow_bounded_exp(totient_wide.as_ref(), totient_wide.bound())
-                - P::WideUintMod::one(pk.precomputed_modulus_squared().clone()))
+            (self.ciphertext.pow_bounded_exp(
+                totient_wide.expose_secret().as_ref(),
+                totient_wide.expose_secret().bound(),
+            ) - P::WideUintMod::one(pk.monty_params_mod_n_squared().clone()))
             .retrieve()
                 / pk.modulus_wide_nonzero(),
         )
         .expect("the value is within `Uint` limtis by construction");
 
-        let x_mod = x.to_montgomery(pk.precomputed_modulus());
+        let x_mod = x.to_montgomery(pk.monty_params_mod_n());
 
         (x_mod * sk.inv_totient().expose_secret()).retrieve()
     }
@@ -282,12 +282,15 @@ impl<P: PaillierParams> CiphertextMod<P> {
         // Therefore `C mod N = rho^N mod N`.
         let ciphertext_mod_n = P::Uint::try_from_wide(self.ciphertext.retrieve() % pk.modulus_wide_nonzero())
             .expect("a value reduced modulo N fits into `Uint`");
-        let ciphertext_mod_n = ciphertext_mod_n.to_montgomery(pk.precomputed_modulus());
+        let ciphertext_mod_n = ciphertext_mod_n.to_montgomery(pk.monty_params_mod_n());
 
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
         let sk_inv_modulus = sk.inv_modulus();
-        RandomizerMod(ciphertext_mod_n.pow_bounded_exp(sk_inv_modulus.as_ref(), sk_inv_modulus.bound()))
+        RandomizerMod(ciphertext_mod_n.pow_bounded_exp(
+            sk_inv_modulus.expose_secret().as_ref(),
+            sk_inv_modulus.expose_secret().bound(),
+        ))
     }
 
     // Note: while it is true that `enc(x) (*) rhs == enc((x * rhs) mod N)`,
@@ -347,7 +350,7 @@ impl<P: PaillierParams> CiphertextMod<P> {
         let randomizer_mod = randomizer
             .0
             .into_wide()
-            .to_montgomery(self.pk.precomputed_modulus_squared());
+            .to_montgomery(self.pk.monty_params_mod_n_squared());
         let pk_modulus_wide = self.pk.modulus_bounded().into_wide();
         let ciphertext =
             self.ciphertext * randomizer_mod.pow_bounded_exp(pk_modulus_wide.as_ref(), pk_modulus_wide.bound());
@@ -454,7 +457,7 @@ mod tests {
 
     #[test]
     fn roundtrip() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
         let plaintext = <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero());
         let ciphertext = CiphertextMod::<PaillierTest>::new(&mut OsRng, pk, &plaintext);
@@ -468,7 +471,7 @@ mod tests {
 
     #[test]
     fn signed_roundtrip() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
         let plaintext =
             Signed::random_bounded_bits(&mut OsRng, <PaillierTest as PaillierParams>::Uint::BITS as usize - 2);
@@ -480,7 +483,7 @@ mod tests {
 
     #[test]
     fn derive_randomizer() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
         let plaintext = <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero());
         let randomizer = RandomizerMod::random(&mut OsRng, pk);
@@ -491,7 +494,7 @@ mod tests {
 
     #[test]
     fn homomorphic_mul() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
         let plaintext = <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero());
         let ciphertext = CiphertextMod::<PaillierTest>::new(&mut OsRng, pk, &plaintext);
@@ -505,7 +508,7 @@ mod tests {
 
     #[test]
     fn homomorphic_add() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
         let plaintext1 = <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero());
@@ -522,7 +525,7 @@ mod tests {
 
     #[test]
     fn affine_transform() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
         let plaintext1 = <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero());

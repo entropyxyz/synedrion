@@ -48,7 +48,7 @@ impl<P: SchemeParams> FacProof<P> {
     ) -> Self {
         let pk0 = sk0.public_key();
 
-        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
 
         // NOTE: using `2^(Paillier::PRIME_BITS - 2)` as $\sqrt{N_0}$ (which is its lower bound)
         // According to the authors of the paper, it is acceptable.
@@ -80,7 +80,8 @@ impl<P: SchemeParams> FacProof<P> {
         let x = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        let (p, q) = sk0.primes();
+        let p = sk0.p_signed();
+        let q = sk0.q_signed();
 
         let cap_p = setup.commit(p.expose_secret(), &mu).retrieve();
         let cap_q = setup.commit(q.expose_secret(), &nu);
@@ -107,7 +108,9 @@ impl<P: SchemeParams> FacProof<P> {
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.into_wide();
 
-        let hat_sigma = sigma - (nu * p.expose_secret().into_wide()).into_wide();
+        let p_wide = sk0.p_wide_signed();
+
+        let hat_sigma = sigma - (nu * p_wide.expose_secret()).into_wide();
         let z1 = alpha + (e * p.expose_secret()).into_wide();
         let z2 = beta + (e * q.expose_secret()).into_wide();
         let omega1 = x + e_wide * mu;
@@ -157,27 +160,25 @@ impl<P: SchemeParams> FacProof<P> {
             return false;
         }
 
-        let aux_pk = setup.public_key();
-
         // R = s^{N_0} t^\sigma
         let cap_r = &setup.commit_xwide(&pk0.modulus_bounded().into(), &self.sigma);
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
-        let cap_a_mod = self.cap_a.to_mod(aux_pk);
-        let cap_p_mod = self.cap_p.to_mod(aux_pk);
+        let cap_a_mod = self.cap_a.to_mod(setup);
+        let cap_p_mod = self.cap_p.to_mod(setup);
         if setup.commit_wide(&self.z1, &self.omega1) != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
-        let cap_b_mod = self.cap_b.to_mod(aux_pk);
-        let cap_q_mod = self.cap_q.to_mod(aux_pk);
+        let cap_b_mod = self.cap_b.to_mod(setup);
+        let cap_q_mod = self.cap_q.to_mod(setup);
         if setup.commit_wide(&self.z2, &self.omega2) != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
-        let cap_t_mod = self.cap_t.to_mod(aux_pk);
+        let cap_t_mod = self.cap_t.to_mod(setup);
         if &cap_q_mod.pow_signed_wide(&self.z1) * &setup.commit_base_xwide(&self.v)
             != &cap_t_mod * &cap_r.pow_signed_vartime(&e)
         {
@@ -223,11 +224,10 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let setup = RPParamsMod::random(&mut OsRng);
 
         let aux: &[u8] = b"abcde";
 

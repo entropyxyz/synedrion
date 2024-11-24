@@ -58,7 +58,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         x.assert_bound(P::L_BOUND);
         assert_eq!(cap_c.public_key(), pk0);
 
-        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
@@ -155,8 +155,8 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // s^{z_1} t^{z_3} == D S^e \mod \hat{N}
-        let cap_d_mod = self.cap_d.to_mod(setup.public_key());
-        let cap_s_mod = self.cap_s.to_mod(setup.public_key());
+        let cap_d_mod = self.cap_d.to_mod(setup);
+        let cap_s_mod = self.cap_s.to_mod(setup);
         if setup.commit(&self.z1, &self.z3) != &cap_d_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
@@ -182,11 +182,10 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let setup = RPParamsMod::random(&mut OsRng);
 
         let aux: &[u8] = b"abcde";
 

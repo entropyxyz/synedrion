@@ -5,7 +5,7 @@ use crypto_bigint::{
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
+use zeroize::{DefaultIsZeroes, Zeroize};
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
@@ -28,7 +28,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + for<'de> Deserialize<'de>
         + HasWide<Wide = Self::Uint>
         + ToMontgomery
-        + Zeroize;
+        + Zeroize
+        + DefaultIsZeroes;
 
     /// A modulo-residue counterpart of `HalfUint`.
     type HalfUintMod: Monty<Integer = Self::HalfUint>

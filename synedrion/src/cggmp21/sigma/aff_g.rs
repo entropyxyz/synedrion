@@ -80,7 +80,7 @@ impl<P: SchemeParams> AffGProof<P> {
         assert!(cap_d.public_key() == pk0);
         assert!(cap_y.public_key() == pk1);
 
-        let hat_cap_n = &setup.public_key().modulus_bounded();
+        let hat_cap_n = &setup.modulus_bounded();
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND + P::EPS_BOUND);
@@ -209,8 +209,6 @@ impl<P: SchemeParams> AffGProof<P> {
             return false;
         }
 
-        let aux_pk = setup.public_key();
-
         // Range checks
 
         if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {
@@ -246,15 +244,15 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
-        let cap_e_mod = self.cap_e.to_mod(aux_pk);
-        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        let cap_e_mod = self.cap_e.to_mod(setup);
+        let cap_s_mod = self.cap_s.to_mod(setup);
         if setup.commit(&self.z1, &self.z3) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
-        let cap_f_mod = self.cap_f.to_mod(aux_pk);
-        let cap_t_mod = self.cap_t.to_mod(aux_pk);
+        let cap_f_mod = self.cap_f.to_mod(setup);
+        let cap_t_mod = self.cap_t.to_mod(setup);
         if setup.commit(&self.z2, &self.z4) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e) {
             return false;
         }
@@ -280,14 +278,13 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk0 = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk0 = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk0 = sk0.public_key();
 
-        let sk1 = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk1 = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk1 = sk1.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let rp_params = RPParamsMod::random(&mut OsRng);
 
         let aux: &[u8] = b"abcde";
 
@@ -304,8 +301,8 @@ mod tests {
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(
-            &mut OsRng, &x, &y, rho, rho_y, pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux,
+            &mut OsRng, &x, &y, rho, rho_y, pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &rp_params, &aux,
         );
-        assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux));
+        assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &rp_params, &aux));
     }
 }

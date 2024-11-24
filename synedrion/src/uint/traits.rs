@@ -10,9 +10,9 @@ use crate::uint::Signed;
 pub trait ToMontgomery: Integer {
     fn to_montgomery(
         self,
-        precomputed: &<<Self as Integer>::Monty as crypto_bigint::Monty>::Params,
+        params: &<<Self as Integer>::Monty as crypto_bigint::Monty>::Params,
     ) -> <Self as Integer>::Monty {
-        <<Self as Integer>::Monty as crypto_bigint::Monty>::new(self, precomputed.clone())
+        <<Self as Integer>::Monty as crypto_bigint::Monty>::new(self, params.clone())
     }
 }
 

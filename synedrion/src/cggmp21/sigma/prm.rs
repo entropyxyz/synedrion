@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
-    paillier::{PaillierParams, RPParamsMod, RPSecret, SecretKeyPaillierPrecomputed},
+    paillier::{PaillierParams, RPParamsMod, RPSecret},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{
         subtle::{Choice, ConditionallySelectable},
@@ -28,8 +28,10 @@ const HASH_TAG: &[u8] = b"P_prm";
 struct PrmSecret<P: SchemeParams>(Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmSecret<P> {
-    fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P::Paillier>) -> Self {
-        let secret = (0..P::SECURITY_PARAMETER).map(|_| sk.random_field_elem(rng)).collect();
+    fn random(rng: &mut impl CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
+        let secret = (0..P::SECURITY_PARAMETER)
+            .map(|_| secret.random_field_elem(rng))
+            .collect();
         Self(secret)
     }
 }
@@ -93,22 +95,22 @@ impl<P: SchemeParams> PrmProof<P> {
     /// (the power that was used to create RP parameters).
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        lambda: &RPSecret<P::Paillier>,
+        secret: &RPSecret<P::Paillier>,
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        let proof_secret = PrmSecret::<P>::random(rng, sk);
-        let commitment = PrmCommitment::new(&proof_secret, &setup.base);
+        // TODO: check that secret.public_modulus == setup.public_modulus?
+        let proof_secret = PrmSecret::<P>::random(rng, secret);
+        let commitment = PrmCommitment::new(&proof_secret, setup.base());
 
-        let totient = sk.totient_nonzero();
+        let totient = secret.totient_nonzero();
         let challenge = PrmChallenge::new(&commitment, setup, aux);
         let proof = proof_secret
             .0
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| {
-                let x = a.add_mod(lambda.as_ref(), totient.expose_secret());
+                let x = a.add_mod(secret.lambda().expose_secret(), totient.expose_secret());
                 let choice = Choice::from(*e as u8);
                 Bounded::conditional_select(a, &x, choice)
             })
@@ -122,7 +124,7 @@ impl<P: SchemeParams> PrmProof<P> {
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
     pub fn verify(&self, setup: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
-        let precomputed = setup.public_key().precomputed_modulus();
+        let monty_params = setup.monty_params_mod_n();
 
         let challenge = PrmChallenge::new(&self.commitment, setup, aux);
         if challenge != self.challenge {
@@ -132,9 +134,9 @@ impl<P: SchemeParams> PrmProof<P> {
         for i in 0..challenge.0.len() {
             let z = self.proof[i];
             let e = challenge.0[i];
-            let a = self.commitment.0[i].to_montgomery(precomputed);
-            let pwr = setup.base.pow_bounded_exp(z.as_ref(), z.bound());
-            let test = if e { pwr == a * setup.power } else { pwr == a };
+            let a = self.commitment.0[i].to_montgomery(monty_params);
+            let pwr = setup.base().pow_bounded_exp(z.as_ref(), z.bound());
+            let test = if e { pwr == a * setup.power() } else { pwr == a };
             if !test {
                 return false;
             }
@@ -149,24 +151,20 @@ mod tests {
 
     use super::PrmProof;
     use crate::{
-        cggmp21::{SchemeParams, TestParams},
-        paillier::{RPParamsMod, RPSecret, SecretKeyPaillier},
+        cggmp21::TestParams,
+        paillier::{RPParamsMod, RPSecret},
     };
 
     #[test]
     fn prove_and_verify() {
         type Params = TestParams;
-        type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let pk = sk.public_key();
-
-        let lambda = RPSecret::random(&mut OsRng, &sk);
-        let setup = RPParamsMod::random_with_secret(&mut OsRng, &lambda, pk);
+        let secret = RPSecret::random(&mut OsRng);
+        let setup = RPParamsMod::random_with_secret(&mut OsRng, &secret);
 
         let aux: &[u8] = b"abcde";
 
-        let proof = PrmProof::<Params>::new(&mut OsRng, &sk, &lambda, &setup, &aux);
+        let proof = PrmProof::<Params>::new(&mut OsRng, &secret, &setup, &aux);
         assert!(proof.verify(&setup, &aux));
     }
 }

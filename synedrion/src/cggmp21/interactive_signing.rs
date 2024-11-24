@@ -149,7 +149,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
             .chain(&aux_info.public_aux)
             .finalize();
 
-        let aux_info = aux_info.to_precomputed();
+        let aux_info = aux_info.into_precomputed();
 
         // TODO (#68): check that KeyShare is consistent with AuxInfo
 

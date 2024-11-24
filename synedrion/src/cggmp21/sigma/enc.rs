@@ -51,7 +51,7 @@ impl<P: SchemeParams> EncProof<P> {
         k.assert_bound(P::L_BOUND);
         assert_eq!(cap_k.public_key(), pk0);
 
-        let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
 
         // TODO (#86): should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
         // This will ensure that the range check on the prover side will pass.
@@ -134,8 +134,8 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // s^{z_1} t^{z_3} == C S^e \mod \hat{N}
-        let cap_c_mod = self.cap_c.to_mod(setup.public_key());
-        let cap_s_mod = self.cap_s.to_mod(setup.public_key());
+        let cap_c_mod = self.cap_c.to_mod(setup);
+        let cap_s_mod = self.cap_s.to_mod(setup);
         if setup.commit(&self.z1, &self.z3) != &cap_c_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
@@ -160,11 +160,10 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let setup = RPParamsMod::random(&mut OsRng);
 
         let aux: &[u8] = b"abcde";
 

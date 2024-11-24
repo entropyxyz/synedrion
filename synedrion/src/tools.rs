@@ -5,7 +5,7 @@ pub(crate) mod hashing;
 mod hide_debug;
 pub(crate) mod sss;
 
-pub(crate) use hide_debug::HideDebug;
+pub(crate) use hide_debug::{HideDebug, Secret};
 
 use manul::protocol::{Artifact, LocalError, Payload};
 

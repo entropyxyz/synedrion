@@ -165,7 +165,7 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
         let aux: &[u8] = b"abcde";

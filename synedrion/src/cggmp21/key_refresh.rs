@@ -155,7 +155,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
             .finalize();
 
         // $p_i$, $q_i$
-        let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
+        let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng);
         // $N_i$
         let paillier_pk = paillier_sk.public_key();
 
@@ -178,12 +178,12 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
         // Public counterparts of secret share updates ($X_i^j$ where $i$ is this party's index).
         let cap_x_to_send = x_to_send.values().map(|x| x.mul_by_generator()).collect();
 
-        let lambda = RPSecret::random(rng, &paillier_sk);
+        let rp_secret = RPSecret::random(rng);
         // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
-        let rp_params = RPParamsMod::random_with_secret(rng, &lambda, paillier_pk);
+        let rp_params = RPParamsMod::random_with_secret(rng, &rp_secret);
 
         let aux = (&sid_hash, id);
-        let hat_psi = PrmProof::<P>::new(rng, &paillier_sk, &lambda, &rp_params, &aux);
+        let hat_psi = PrmProof::<P>::new(rng, &rp_secret, &rp_params, &aux);
 
         // The secrets share changes ($\tau_j$, not to be confused with $\tau$)
         let tau_x = self
@@ -203,7 +203,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
             cap_a_to_send,
             cap_y,
             cap_b,
-            paillier_pk: paillier_pk.to_minimal(),
+            paillier_pk: paillier_pk.clone(),
             rp_params: rp_params.retrieve(),
             hat_psi,
             rho,
@@ -212,12 +212,12 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
 
         let data_precomp = PublicData1Precomp {
             data,
-            paillier_pk: paillier_pk.clone(),
+            paillier_pk: paillier_pk.into_precomputed(),
             rp_params,
         };
 
         let context = Context {
-            paillier_sk,
+            paillier_sk: paillier_sk.into_precomputed(),
             y,
             x_to_send,
             tau_x,
@@ -437,7 +437,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             ))));
         }
 
-        let paillier_pk = normal_broadcast.data.paillier_pk.to_precomputed();
+        let paillier_pk = normal_broadcast.data.paillier_pk.clone().into_precomputed();
 
         if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
             return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round2(
@@ -453,7 +453,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let aux = (&self.context.sid_hash, &from);
 
-        let rp_params = normal_broadcast.data.rp_params.to_mod(&paillier_pk);
+        let rp_params = normal_broadcast.data.rp_params.to_mod();
         if !normal_broadcast.data.hat_psi.verify(&rp_params, &aux) {
             return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round2(
                 "PRM verification failed".into(),
@@ -646,7 +646,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         let enc_x = direct_message
             .data2
             .paillier_enc_x
-            .to_mod(self.context.paillier_sk.public_key());
+            .to_mod(&self.context.data_precomp.paillier_pk);
 
         let x = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
 
@@ -745,7 +745,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                     id,
                     PublicAuxInfo {
                         el_gamal_pk: data.data.cap_y,
-                        paillier_pk: data.paillier_pk.to_minimal(),
+                        paillier_pk: data.paillier_pk.into_minimal(),
                         rp_params: data.rp_params.retrieve(),
                     },
                 )
@@ -753,7 +753,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .collect();
 
         let secret_aux = SecretAuxInfo {
-            paillier_sk: self.context.paillier_sk.to_minimal(),
+            paillier_sk: self.context.paillier_sk.into_minimal(),
             el_gamal_sk: SecretBox::new(Box::new(self.context.y)),
         };
 

@@ -1,64 +1,110 @@
+/// Implements the Definition 3.3 from the CGGMP'21 paper and related operations.
 use core::ops::Mul;
 
-use crypto_bigint::{PowBoundedExp, Square};
+use crypto_bigint::{Monty, NonZero, PowBoundedExp, RandomMod, ShrVartime, Square};
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
-use super::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed};
-use crate::uint::{Bounded, Exponentiable, Retrieve, Signed, ToMontgomery};
+use super::{
+    rsa::{PublicModulus, PublicModulusPrecomputed, SecretPrimes, SecretPrimesPrecomputed},
+    PaillierParams,
+};
+use crate::{
+    tools::Secret,
+    uint::{Bounded, Exponentiable, Retrieve, Signed, ToMontgomery},
+};
 
-pub(crate) struct RPSecret<P: PaillierParams>(Bounded<P::Uint>);
+#[derive(Debug, Clone)]
+pub(crate) struct RPSecret<P: PaillierParams> {
+    primes: SecretPrimesPrecomputed<P>,
+    lambda: Secret<Bounded<P::Uint>>,
+}
 
 impl<P: PaillierParams> RPSecret<P> {
-    pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P>) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
+        let primes = SecretPrimes::<P>::random_safe(rng).into_precomputed();
+
         // The random value will be reduced modulo `phi(N)` implicitly
         // when used as an exponent modulo N later.
         // So we are sampling it from this range to begin with.
-        Self(sk.random_field_elem(rng))
-    }
-}
 
-impl<P: PaillierParams> AsRef<Bounded<P::Uint>> for RPSecret<P> {
-    fn as_ref(&self) -> &Bounded<P::Uint> {
-        &self.0
+        let bound = SecretBox::init_with(|| {
+            NonZero::new(primes.totient().expose_secret().wrapping_shr_vartime(2))
+                .expect("totient / 4 is still non-zero because p, q >= 5")
+        });
+        let lambda = SecretBox::init_with(|| {
+            Bounded::new(
+                P::Uint::random_mod(rng, bound.expose_secret()),
+                P::MODULUS_BITS as u32 - 2,
+            )
+            .expect("totient < N < 2^MODULUS_BITS, so totient / 4 < 2^(MODULUS_BITS - 2)")
+        })
+        .into();
+
+        Self { primes, lambda }
+    }
+
+    pub fn lambda(&self) -> &SecretBox<Bounded<P::Uint>> {
+        &self.lambda
+    }
+
+    pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
+        self.primes.random_field_elem(rng)
+    }
+
+    pub fn totient_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
+        self.primes.totient_nonzero()
     }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct RPParamsMod<P: PaillierParams> {
-    pub(crate) pk: PublicKeyPaillierPrecomputed<P>,
+    /// The public modulus $\hat{N}$
+    precomputed_modulus: PublicModulusPrecomputed<P>,
     /// The ring-Pedersen base.
-    pub(crate) base: P::UintMod, // $t$
+    base: P::UintMod, // $t$
     /// The ring-Pedersen power (a number belonging to the group produced by the base).
-    pub(crate) power: P::UintMod, // $s$
+    power: P::UintMod, // $s = t^\lambda$, where $\lambda$ is the secret
 }
 
 impl<P: PaillierParams> RPParamsMod<P> {
-    pub fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P>) -> Self {
-        let secret = RPSecret::random(rng, sk);
-        Self::random_with_secret(rng, &secret, sk.public_key())
+    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
+        let secret = RPSecret::random(rng);
+        Self::random_with_secret(rng, &secret)
     }
 
-    pub fn public_key(&self) -> &PublicKeyPaillierPrecomputed<P> {
-        &self.pk
-    }
-
-    pub fn random_with_secret(
-        rng: &mut impl CryptoRngCore,
-        secret: &RPSecret<P>,
-        pk: &PublicKeyPaillierPrecomputed<P>,
-    ) -> Self {
-        let r = pk.random_invertible_group_elem(rng);
+    pub fn random_with_secret(rng: &mut impl CryptoRngCore, secret: &RPSecret<P>) -> Self {
+        let precomputed_modulus = secret.primes.modulus().into_precomputed();
+        let r = precomputed_modulus.random_invertible_group_elem(rng);
 
         let base = r.square();
-        let power = base.pow_bounded_exp(secret.0.as_ref(), secret.0.bound());
+        let power = base.pow_bounded_exp(
+            secret.lambda.expose_secret().as_ref(),
+            secret.lambda.expose_secret().bound(),
+        );
 
         Self {
-            pk: pk.clone(),
+            precomputed_modulus,
             base,
             power,
         }
+    }
+
+    pub fn base(&self) -> &P::UintMod {
+        &self.base
+    }
+
+    pub fn power(&self) -> &P::UintMod {
+        &self.power
+    }
+
+    pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
+        self.precomputed_modulus.modulus_bounded()
+    }
+
+    pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
+        self.precomputed_modulus.monty_params_mod_n()
     }
 
     /// Creates a commitment for `secret` with the randomizer `randomizer`.
@@ -99,6 +145,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn retrieve(&self) -> RPParams<P> {
         RPParams {
+            modulus: self.precomputed_modulus.modulus().clone(),
             base: self.base.retrieve(),
             power: self.power.retrieve(),
         }
@@ -106,19 +153,26 @@ impl<P: PaillierParams> RPParamsMod<P> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "PublicModulus<P>: Serialize"))]
+#[serde(bound(deserialize = "for<'x> PublicModulus<P>: Deserialize<'x>"))]
 pub(crate) struct RPParams<P: PaillierParams> {
+    /// The public modulus $\hat{N}$
+    modulus: PublicModulus<P>,
     /// The ring-Pedersen base.
-    pub(crate) base: P::Uint, // $t$
+    base: P::Uint, // $t$
     /// The ring-Pedersen power (a number belonging to the group produced by the base).
-    pub(crate) power: P::Uint, // $s$
+    power: P::Uint, // $s$
 }
 
 impl<P: PaillierParams> RPParams<P> {
-    pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPParamsMod<P> {
+    pub fn to_mod(&self) -> RPParamsMod<P> {
+        let precomputed_modulus = self.modulus.clone().into_precomputed();
+        let base = self.base.to_montgomery(precomputed_modulus.monty_params_mod_n());
+        let power = self.power.to_montgomery(precomputed_modulus.monty_params_mod_n());
         RPParamsMod {
-            pk: pk.clone(),
-            base: self.base.to_montgomery(pk.precomputed_modulus()),
-            power: self.power.to_montgomery(pk.precomputed_modulus()),
+            precomputed_modulus,
+            base,
+            power,
         }
     }
 }
@@ -155,7 +209,7 @@ impl<'a, P: PaillierParams> Mul<&'a RPCommitmentMod<P>> for &'a RPCommitmentMod<
 pub(crate) struct RPCommitment<P: PaillierParams>(P::Uint);
 
 impl<P: PaillierParams> RPCommitment<P> {
-    pub fn to_mod(&self, pk: &PublicKeyPaillierPrecomputed<P>) -> RPCommitmentMod<P> {
-        RPCommitmentMod(self.0.to_montgomery(pk.precomputed_modulus()))
+    pub fn to_mod(&self, params: &RPParamsMod<P>) -> RPCommitmentMod<P> {
+        RPCommitmentMod(self.0.to_montgomery(params.precomputed_modulus.monty_params_mod_n()))
     }
 }
