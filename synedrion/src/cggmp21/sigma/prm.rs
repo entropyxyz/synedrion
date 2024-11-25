@@ -5,7 +5,6 @@
 
 use alloc::{vec, vec::Vec};
 
-use crypto_bigint::PowBoundedExp;
 use digest::XofReader;
 use rand_core::CryptoRngCore;
 use secrecy::ExposeSecret;
@@ -17,7 +16,7 @@ use crate::{
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{
         subtle::{Choice, ConditionallySelectable},
-        Bounded, Retrieve, ToMontgomery,
+        Bounded, Exponentiable, Retrieve, ToMontgomery,
     },
 };
 
@@ -41,11 +40,7 @@ struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>
 
 impl<P: SchemeParams> PrmCommitment<P> {
     fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
-        let commitment = secret
-            .0
-            .iter()
-            .map(|a| base.pow_bounded_exp(a.as_ref(), a.bound()).retrieve())
-            .collect();
+        let commitment = secret.0.iter().map(|a| base.pow_bounded(a).retrieve()).collect();
         Self(commitment)
     }
 }
@@ -135,7 +130,7 @@ impl<P: SchemeParams> PrmProof<P> {
             let z = self.proof[i];
             let e = challenge.0[i];
             let a = self.commitment.0[i].to_montgomery(monty_params);
-            let pwr = setup.base().pow_bounded_exp(z.as_ref(), z.bound());
+            let pwr = setup.base().pow_bounded(&z);
             let test = if e { pwr == a * setup.power() } else { pwr == a };
             if !test {
                 return false;

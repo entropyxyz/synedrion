@@ -1,7 +1,7 @@
 /// Implements the Definition 3.3 from the CGGMP'21 paper and related operations.
 use core::ops::Mul;
 
-use crypto_bigint::{Monty, NonZero, PowBoundedExp, RandomMod, ShrVartime, Square};
+use crypto_bigint::{Monty, NonZero, RandomMod, ShrVartime, Square};
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
@@ -79,10 +79,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
         let r = precomputed_modulus.random_invertible_group_elem(rng);
 
         let base = r.square();
-        let power = base.pow_bounded_exp(
-            secret.lambda.expose_secret().as_ref(),
-            secret.lambda.expose_secret().bound(),
-        );
+        let power = base.pow_bounded(secret.lambda.expose_secret());
 
         Self {
             precomputed_modulus,
@@ -130,12 +127,7 @@ impl<P: PaillierParams> RPParamsMod<P> {
         randomizer: &Signed<P::ExtraWideUint>,
     ) -> RPCommitmentMod<P> {
         // $t^\rho * s^m mod N$ where $\rho$ is the randomizer and $m$ is the secret.
-        RPCommitmentMod(
-            self.base.pow_signed_extra_wide(randomizer)
-                * self
-                    .power
-                    .pow_bounded_exp(secret.expose_secret().as_ref(), secret.expose_secret().bound()),
-        )
+        RPCommitmentMod(self.base.pow_signed_extra_wide(randomizer) * self.power.pow_bounded(secret.expose_secret()))
     }
 
     pub fn commit_base_xwide(&self, randomizer: &Signed<P::ExtraWideUint>) -> RPCommitmentMod<P> {

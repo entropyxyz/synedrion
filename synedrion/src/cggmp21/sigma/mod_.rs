@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use crypto_bigint::{PowBoundedExp, Square};
+use crypto_bigint::Square;
 use rand_core::CryptoRngCore;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed},
     tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher},
-    uint::{RandomPrimeWithRng, Retrieve, ToMontgomery},
+    uint::{Exponentiable, RandomPrimeWithRng, Retrieve, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_mod";
@@ -120,10 +120,7 @@ impl<P: SchemeParams> ModProof<P> {
 
                 let y = challenge.0[i].to_montgomery(pk.monty_params_mod_n());
                 let sk_inv_modulus = sk.inv_modulus();
-                let z = y.pow_bounded_exp(
-                    sk_inv_modulus.expose_secret().as_ref(),
-                    sk_inv_modulus.expose_secret().bound(),
-                );
+                let z = y.pow_bounded(sk_inv_modulus.expose_secret());
 
                 ModProofElem {
                     x: y_4th,
@@ -170,7 +167,7 @@ impl<P: SchemeParams> ModProof<P> {
             let z_m = elem.z.to_montgomery(monty_params);
             let mut y_m = y.to_montgomery(monty_params);
             let pk_modulus_bounded = pk.modulus_bounded();
-            if z_m.pow_bounded_exp(pk_modulus_bounded.as_ref(), pk_modulus_bounded.bound()) != y_m {
+            if z_m.pow_bounded(&pk_modulus_bounded) != y_m {
                 return false;
             }
 
