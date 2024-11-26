@@ -5,7 +5,6 @@ use core::{
 
 use crypto_bigint::{InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd};
 use rand_core::CryptoRngCore;
-use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -74,10 +73,10 @@ where
         let primes = secret_key.primes.into_precomputed();
         let modulus = primes.modulus_wire().into_precomputed();
 
-        let monty_params_mod_p = P::HalfUintMod::new_params_vartime(*primes.p_half_odd().expose_secret());
-        let monty_params_mod_q = P::HalfUintMod::new_params_vartime(*primes.q_half_odd().expose_secret());
+        let monty_params_mod_p = P::HalfUintMod::new_params_vartime(primes.p_half_odd().expose_secret().clone());
+        let monty_params_mod_q = P::HalfUintMod::new_params_vartime(primes.q_half_odd().expose_secret().clone());
 
-        let inv_totient = SecretBox::init_with(|| {
+        let inv_totient = Secret::init_with(|| {
             primes
                 .totient()
                 .expose_secret()
@@ -87,10 +86,9 @@ where
                     "The modulus is pq. ϕ(pq) = (p-1)(q-1) is invertible mod pq because ",
                     "neither (p-1) nor (q-1) share factors with pq."
                 ])
-        })
-        .into();
+        });
 
-        let inv_modulus = SecretBox::init_with(|| {
+        let inv_modulus = Secret::init_with(|| {
             Bounded::new(
                 (*modulus.modulus())
                     .inv_mod(primes.totient().expose_secret())
@@ -98,19 +96,19 @@ where
                 P::MODULUS_BITS,
             )
             .expect("We assume `P::MODULUS_BITS` is properly configured")
-        })
-        .into();
+        });
 
-        let inv_p_mod_q = Secret::from(SecretBox::init_with(|| {
+        let inv_p_mod_q = Secret::init_with(|| {
             primes
                 .p_half()
                 .expose_secret()
+                .clone()
                 // NOTE: `monty_params_mod_q` is cloned here and can remain on the stack.
                 // See https://github.com/RustCrypto/crypto-bigint/issues/704
                 .to_montgomery(&monty_params_mod_q)
                 .invert()
                 .expect("All non-zero integers mod a prime have a multiplicative inverse")
-        }));
+        });
 
         // Calculate $u$ such that $u = -1 \mod p$ and $u = 1 \mod q$.
         // Using one step of Garner's algorithm:
@@ -118,7 +116,7 @@ where
 
         // Calculate $t = 2 p^{-1} - 1 \mod q$
 
-        let one = SecretBox::init_with(|| {
+        let one = Secret::init_with(|| {
             // NOTE: `monty_params_mod_q` is cloned here and can remain on the stack.
             // See https://github.com/RustCrypto/crypto-bigint/issues/704
             P::HalfUintMod::one(monty_params_mod_q.clone())
@@ -126,25 +124,25 @@ where
         let mut t_mod = inv_p_mod_q.clone();
         t_mod.expose_secret_mut().add_assign(inv_p_mod_q.expose_secret());
         t_mod.expose_secret_mut().sub_assign(one.expose_secret());
-        let t = SecretBox::init_with(|| t_mod.expose_secret().retrieve());
+        let t = Secret::init_with(|| t_mod.expose_secret().retrieve());
 
         // Calculate $u$
         // I am not entirely sure if it can be used to learn something about `p` and `q`,
         // so just to be on the safe side it lives in the secret key.
 
-        let u = SecretBox::init_with(|| t.expose_secret().mul_wide(primes.p_half().expose_secret()));
-        let u = SecretBox::init_with(|| {
+        let u = Secret::init_with(|| t.expose_secret().mul_wide(primes.p_half().expose_secret()));
+        let u = Secret::init_with(|| {
             u.expose_secret()
                 .checked_add(primes.p().expose_secret())
                 .expect("does not overflow by construction")
         });
-        let u = SecretBox::init_with(|| {
+        let u = Secret::init_with(|| {
             u.expose_secret()
                 .checked_sub(&<P::Uint as Integer>::one())
                 .expect("does not overflow by construction")
         });
         let nonsquare_sampling_constant =
-            SecretBox::init_with(|| P::UintMod::new(*u.expose_secret(), modulus.monty_params_mod_n().clone())).into();
+            Secret::init_with(|| P::UintMod::new(*u.expose_secret(), modulus.monty_params_mod_n().clone()));
 
         let public_key = PublicKeyPaillier::new(modulus);
 
@@ -166,30 +164,30 @@ where
         }
     }
 
-    pub fn p_signed(&self) -> SecretBox<Signed<P::Uint>> {
+    pub fn p_signed(&self) -> Secret<Signed<P::Uint>> {
         self.primes.p_signed()
     }
 
-    pub fn q_signed(&self) -> SecretBox<Signed<P::Uint>> {
+    pub fn q_signed(&self) -> Secret<Signed<P::Uint>> {
         self.primes.q_signed()
     }
 
-    pub fn p_wide_signed(&self) -> SecretBox<Signed<P::WideUint>> {
+    pub fn p_wide_signed(&self) -> Secret<Signed<P::WideUint>> {
         self.primes.p_wide_signed()
     }
 
-    /// Returns Euler's totient function (`φ(n)`) of the modulus, wrapped in a [`SecretBox`].
-    pub fn totient_wide_bounded(&self) -> SecretBox<Bounded<P::WideUint>> {
+    /// Returns Euler's totient function (`φ(n)`) of the modulus, wrapped in a [`Secret`].
+    pub fn totient_wide_bounded(&self) -> Secret<Bounded<P::WideUint>> {
         self.primes.totient_wide_bounded()
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
-    pub fn inv_totient(&self) -> &SecretBox<P::UintMod> {
+    pub fn inv_totient(&self) -> &Secret<P::UintMod> {
         &self.inv_totient
     }
 
     /// Returns $N^{-1} \mod \phi(N)$
-    pub fn inv_modulus(&self) -> &SecretBox<Bounded<P::Uint>> {
+    pub fn inv_modulus(&self) -> &Secret<Bounded<P::Uint>> {
         &self.inv_modulus
     }
 
@@ -202,8 +200,8 @@ where
         // but it needs to be supported by `crypto-bigint`.
         let p_rem = *elem % self.primes.p_nonzero().expose_secret();
         let q_rem = *elem % self.primes.q_nonzero().expose_secret();
-        let p_rem_half = P::HalfUint::try_from_wide(p_rem).expect("`p` fits into `HalfUint`");
-        let q_rem_half = P::HalfUint::try_from_wide(q_rem).expect("`q` fits into `HalfUint`");
+        let p_rem_half = P::HalfUint::try_from_wide(&p_rem).expect("`p` fits into `HalfUint`");
+        let q_rem_half = P::HalfUint::try_from_wide(&q_rem).expect("`q` fits into `HalfUint`");
 
         // NOTE: `monty_params_mod_q` is cloned here and can remain on the stack.
         // See https://github.com/RustCrypto/crypto-bigint/issues/704
@@ -213,12 +211,12 @@ where
         (p_rem_mod, q_rem_mod)
     }
 
-    fn sqrt_part(&self, x: &P::HalfUintMod, modulus: &SecretBox<P::HalfUint>) -> Option<P::HalfUintMod> {
+    fn sqrt_part(&self, x: &P::HalfUintMod, modulus: &Secret<P::HalfUint>) -> Option<P::HalfUintMod> {
         // Both `p` and `q` are safe primes, so they're 3 mod 4.
         // This means that if square root exists, it must be of the form `+/- x^((modulus+1)/4)`.
         // Also it means that `(modulus+1)/4 == modulus/4+1`
         // (this will help avoid a possible overflow).
-        let power = SecretBox::init_with(|| {
+        let power = Secret::init_with(|| {
             modulus
                 .expose_secret()
                 .wrapping_shr_vartime(2)
@@ -252,9 +250,9 @@ where
         let (a_mod_p, b_mod_q) = rns;
 
         let a_half = a_mod_p.retrieve();
-        let a_mod_q = a_half.to_montgomery(&self.monty_params_mod_q);
+        let a_mod_q = a_half.clone().to_montgomery(&self.monty_params_mod_q);
         let x = ((b_mod_q.clone() - a_mod_q) * self.inv_p_mod_q.expose_secret()).retrieve();
-        let a = a_half.into_wide();
+        let a = a_half.to_wide();
 
         // Will not overflow since 0 <= x < q, and 0 <= a < p.
         a.checked_add(&self.primes.p_half().expose_secret().mul_wide(&x))
@@ -356,7 +354,7 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     }
 
     pub fn modulus_wide_nonzero(&self) -> NonZero<P::WideUint> {
-        NonZero::new(self.modulus.modulus().into_wide()).expect("the modulus is non-zero")
+        NonZero::new(self.modulus.modulus().to_wide()).expect("the modulus is non-zero")
     }
 
     /// Returns precomputed parameters for integers modulo N
@@ -371,7 +369,7 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
 
     /// Finds an invertible group element via rejection sampling. Returns the
     /// element in Montgomery form.
-    pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
+    pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
         self.modulus.random_invertible_residue(rng)
     }
 }

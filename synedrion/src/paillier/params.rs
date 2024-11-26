@@ -1,11 +1,13 @@
+use core::ops::RemAssign;
+
 use crypto_bigint::{
     modular::Retrieve,
-    subtle::{ConditionallyNegatable, ConditionallySelectable, CtOption},
-    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, RandomMod,
+    subtle::{ConditionallyNegatable, ConditionallySelectable, ConstantTimeGreater, CtOption},
+    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, NonZero, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
-use zeroize::{DefaultIsZeroes, Zeroize};
+use zeroize::Zeroize;
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
@@ -17,8 +19,10 @@ use crate::{
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.
     const PRIME_BITS: u32;
+
     /// The size of the RSA modulus (a product of two primes).
     const MODULUS_BITS: u32 = Self::PRIME_BITS * 2;
+
     /// An integer that fits a single RSA prime.
     type HalfUint: Integer<Monty = Self::HalfUintMod>
         + Bounded
@@ -28,8 +32,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + for<'de> Deserialize<'de>
         + HasWide<Wide = Self::Uint>
         + ToMontgomery
-        + Zeroize
-        + DefaultIsZeroes;
+        + Zeroize;
 
     /// A modulo-residue counterpart of `HalfUint`.
     type HalfUintMod: Monty<Integer = Self::HalfUint>
@@ -42,9 +45,12 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Bounded
         + Gcd<Output = Self::Uint>
         + ConditionallySelectable
-        + Encoding
+        + ConstantTimeGreater
+        + Encoding<Repr: Zeroize>
         + Hashable
         + HasWide<Wide = Self::WideUint>
+        // TODO: remove when https://github.com/RustCrypto/crypto-bigint/pull/709 is merged
+        + for<'a> RemAssign<&'a NonZero<Self::Uint>>
         + InvMod
         + RandomMod
         + RandomPrimeWithRng
@@ -52,6 +58,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + for<'de> Deserialize<'de>
         + ToMontgomery
         + Zeroize;
+
     /// A modulo-residue counterpart of `Uint`.
     type UintMod: ConditionallySelectable
         + Exponentiable<Self::Uint>
@@ -80,7 +87,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + ConditionallyNegatable
         + ConditionallySelectable
         + Invert<Output = CtOption<Self::WideUintMod>>
-        + Retrieve<Output = Self::WideUint>;
+        + Retrieve<Output = Self::WideUint>
+        + Zeroize;
 
     /// An integer that fits the squared RSA modulus times a small factor.
     /// Used in some ZK proofs.
@@ -94,7 +102,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Integer
         + RandomMod
         + Serialize
-        + for<'de> Deserialize<'de>;
+        + for<'de> Deserialize<'de>
+        + Zeroize;
 }
 
 /// Paillier parameters for unit tests in this submodule.
