@@ -14,8 +14,8 @@ use crate::{
     cggmp21::SchemeParams,
     curve::{Point, Scalar},
     paillier::{
-        CiphertextMod, PaillierParams, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod,
-        Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+        Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RandomizerWire,
+        SecretKeyPaillier, SecretKeyPaillierWire,
     },
     uint::Signed,
 };
@@ -40,22 +40,22 @@ pub struct AuxInfo<P: SchemeParams, I: Ord> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "SecretKeyPaillier<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "SecretKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "SecretKeyPaillierWire<P::Paillier>: Serialize"))]
+#[serde(bound(deserialize = "SecretKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct SecretAuxInfo<P: SchemeParams> {
-    pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
+    pub(crate) paillier_sk: SecretKeyPaillierWire<P::Paillier>,
     pub(crate) el_gamal_sk: SecretBox<Scalar>, // `y_i`
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicKeyPaillier<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "PublicKeyPaillier<P::Paillier>: for <'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "PublicKeyPaillierWire<P::Paillier>: Serialize"))]
+#[serde(bound(deserialize = "PublicKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct PublicAuxInfo<P: SchemeParams> {
     pub(crate) el_gamal_pk: Point, // `Y_i`
     /// The Paillier public key.
-    pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
+    pub(crate) paillier_pk: PublicKeyPaillierWire<P::Paillier>,
     /// The ring-Pedersen parameters.
-    pub(crate) rp_params: RPParams<P::Paillier>, // `s_i` and `t_i`
+    pub(crate) rp_params: RPParamsWire<P::Paillier>, // `s_i` and `t_i`
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +66,7 @@ pub(crate) struct AuxInfoPrecomputed<P: SchemeParams, I> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
-    pub(crate) paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
+    pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
     #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
     pub(crate) el_gamal_sk: SecretBox<Scalar>, // `y_i`
 }
@@ -75,8 +75,8 @@ pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
 pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
     #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
     pub(crate) el_gamal_pk: Point,
-    pub(crate) paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
-    pub(crate) rp_params: RPParamsMod<P::Paillier>,
+    pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
+    pub(crate) rp_params: RPParams<P::Paillier>,
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
@@ -105,7 +105,7 @@ pub(crate) struct PresigningData<P: SchemeParams, I> {
     pub(crate) product_share_nonreduced: Signed<<P::Paillier as PaillierParams>::Uint>,
 
     // $K_i$.
-    pub(crate) cap_k: CiphertextMod<P::Paillier>,
+    pub(crate) cap_k: Ciphertext<P::Paillier>,
 
     // The values for $j$, $j != i$.
     pub(crate) values: BTreeMap<I, PresigningValues<P>>,
@@ -114,14 +114,14 @@ pub(crate) struct PresigningData<P: SchemeParams, I> {
 #[derive(Debug, Clone)]
 pub(crate) struct PresigningValues<P: SchemeParams> {
     pub(crate) hat_beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
-    pub(crate) hat_r: Randomizer<P::Paillier>,
-    pub(crate) hat_s: Randomizer<P::Paillier>,
-    pub(crate) cap_k: CiphertextMod<P::Paillier>,
+    pub(crate) hat_r: RandomizerWire<P::Paillier>,
+    pub(crate) hat_s: RandomizerWire<P::Paillier>,
+    pub(crate) cap_k: Ciphertext<P::Paillier>,
     /// Received $\hat{D}_{i,j}$.
-    pub(crate) hat_cap_d_received: CiphertextMod<P::Paillier>,
+    pub(crate) hat_cap_d_received: Ciphertext<P::Paillier>,
     /// Sent $\hat{D}_{j,i}$.
-    pub(crate) hat_cap_d: CiphertextMod<P::Paillier>,
-    pub(crate) hat_cap_f: CiphertextMod<P::Paillier>,
+    pub(crate) hat_cap_d: Ciphertext<P::Paillier>,
+    pub(crate) hat_cap_f: Ciphertext<P::Paillier>,
 }
 
 impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
@@ -215,7 +215,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
     pub fn new_centralized(rng: &mut impl CryptoRngCore, ids: &BTreeSet<I>) -> BTreeMap<I, Self> {
         let secret_aux = (0..ids.len())
             .map(|_| SecretAuxInfo {
-                paillier_sk: SecretKeyPaillier::<P::Paillier>::random(rng),
+                paillier_sk: SecretKeyPaillierWire::<P::Paillier>::random(rng),
                 el_gamal_sk: SecretBox::new(Box::new(Scalar::random(rng))),
             })
             .collect::<Vec<_>>();
@@ -229,7 +229,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
                     PublicAuxInfo {
                         paillier_pk: secret.paillier_sk.public_key(),
                         el_gamal_pk: secret.el_gamal_sk.expose_secret().mul_by_generator(),
-                        rp_params: RPParamsMod::random(rng).retrieve(),
+                        rp_params: RPParams::random(rng).to_wire(),
                     },
                 )
             })
@@ -266,7 +266,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
                         PublicAuxInfoPrecomputed {
                             el_gamal_pk: public_aux.el_gamal_pk,
                             paillier_pk: paillier_pk.clone(),
-                            rp_params: public_aux.rp_params.to_mod(),
+                            rp_params: public_aux.rp_params.to_precomputed(),
                         },
                     )
                 })

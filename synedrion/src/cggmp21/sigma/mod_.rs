@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
-    paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed},
+    paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher},
     uint::{Exponentiable, RandomPrimeWithRng, Retrieve, ToMontgomery},
 };
@@ -20,7 +20,7 @@ const HASH_TAG: &[u8] = b"P_mod";
 struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 
 impl<P: SchemeParams> ModCommitment<P> {
-    fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P::Paillier>) -> Self {
+    fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>) -> Self {
         Self(sk.random_nonsquare_group_elem(rng))
     }
 }
@@ -29,9 +29,9 @@ impl<P: SchemeParams> ModCommitment<P> {
 struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> ModChallenge<P> {
-    fn new(pk: &PublicKeyPaillierPrecomputed<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Hashable) -> Self {
+    fn new(pk: &PublicKeyPaillier<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Hashable) -> Self {
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
-            .chain(pk.as_minimal())
+            .chain(pk.as_wire())
             .chain(commitment)
             .chain(aux)
             .finalize_to_reader();
@@ -73,11 +73,7 @@ pub(crate) struct ModProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> ModProof<P> {
-    pub fn new(
-        rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        aux: &impl Hashable,
-    ) -> Self {
+    pub fn new(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>, aux: &impl Hashable) -> Self {
         let pk = sk.public_key();
         let commitment = ModCommitment::<P>::random(rng, sk);
         let challenge = ModChallenge::<P>::new(pk, &commitment, aux);
@@ -141,7 +137,7 @@ impl<P: SchemeParams> ModProof<P> {
     pub fn verify(
         &self,
         rng: &mut impl CryptoRngCore,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        pk: &PublicKeyPaillier<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let challenge = ModChallenge::new(pk, &self.commitment, aux);
@@ -150,7 +146,7 @@ impl<P: SchemeParams> ModProof<P> {
         }
 
         // The paper requires checking that `N` is odd here,
-        // but it is already an invariant of `PublicKeyPaillierPrecomputed`.
+        // but it is already an invariant of `PublicKeyPaillier`.
 
         // Note: I think we can get away with using the default RNG here
         // since the result is RNG-independent (or at least supposed to be).
@@ -194,7 +190,7 @@ mod tests {
     use super::ModProof;
     use crate::{
         cggmp21::{SchemeParams, TestParams},
-        paillier::SecretKeyPaillier,
+        paillier::SecretKeyPaillierWire,
     };
 
     #[test]
@@ -202,7 +198,7 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
+        let sk = SecretKeyPaillierWire::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
         let aux: &[u8] = b"abcde";

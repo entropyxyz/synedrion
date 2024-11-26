@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     params::PaillierParams,
-    rsa::{PublicModulus, PublicModulusPrecomputed, SecretPrimes, SecretPrimesPrecomputed},
+    rsa::{PublicModulus, PublicModulusWire, SecretPrimes, SecretPrimesWire},
 };
 use crate::{
     tools::Secret,
@@ -22,32 +22,32 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "SecretPrimes<P>: Serialize"))]
-#[serde(bound(deserialize = "for<'x> SecretPrimes<P>: Deserialize<'x>"))]
-pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
-    primes: SecretPrimes<P>,
+#[serde(bound(serialize = "SecretPrimesWire<P>: Serialize"))]
+#[serde(bound(deserialize = "for<'x> SecretPrimesWire<P>: Deserialize<'x>"))]
+pub(crate) struct SecretKeyPaillierWire<P: PaillierParams> {
+    primes: SecretPrimesWire<P>,
 }
 
-impl<P: PaillierParams> SecretKeyPaillier<P> {
+impl<P: PaillierParams> SecretKeyPaillierWire<P> {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self {
-            primes: SecretPrimes::<P>::random_paillier_blum(rng),
+            primes: SecretPrimesWire::<P>::random_paillier_blum(rng),
         }
     }
 
-    pub fn into_precomputed(self) -> SecretKeyPaillierPrecomputed<P> {
-        SecretKeyPaillierPrecomputed::new(self)
+    pub fn into_precomputed(self) -> SecretKeyPaillier<P> {
+        SecretKeyPaillier::new(self)
     }
 
-    pub fn public_key(&self) -> PublicKeyPaillier<P> {
-        PublicKeyPaillier::new(&self.primes)
+    pub fn public_key(&self) -> PublicKeyPaillierWire<P> {
+        PublicKeyPaillierWire::new(&self.primes)
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
+pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     /// The secret primes with some precomputed constants,
-    primes: SecretPrimesPrecomputed<P>,
+    primes: SecretPrimes<P>,
     /// The inverse of the totient modulo the modulus ($\phi(N)^{-1} \mod N$).
     inv_totient: Secret<P::UintMod>,
     /// The inverse of the modulus modulo the totient ($N^{-1} \mod \phi(N)$).
@@ -56,23 +56,23 @@ pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     inv_p_mod_q: Secret<P::HalfUintMod>,
     // $u$ such that $u = -1 \mod p$ and $u = 1 \mod q$. Used for sampling of non-square residues.
     nonsquare_sampling_constant: Secret<P::UintMod>,
-    // TODO: these should be secret, but they are not zeroizable.
+    // TODO (#162): these should be secret, but they are not zeroizable.
     // See https://github.com/RustCrypto/crypto-bigint/issues/704
     /// Montgomery parameters for operations modulo $p$.
     monty_params_mod_p: <P::HalfUintMod as Monty>::Params,
     /// Montgomery parameters for operations modulo $q$.
     monty_params_mod_q: <P::HalfUintMod as Monty>::Params,
     /// The precomputed public key
-    public_key: PublicKeyPaillierPrecomputed<P>,
+    public_key: PublicKeyPaillier<P>,
 }
 
-impl<P> SecretKeyPaillierPrecomputed<P>
+impl<P> SecretKeyPaillier<P>
 where
     P: PaillierParams,
 {
-    pub fn new(secret_key: SecretKeyPaillier<P>) -> Self {
+    fn new(secret_key: SecretKeyPaillierWire<P>) -> Self {
         let primes = secret_key.primes.into_precomputed();
-        let modulus = primes.modulus().into_precomputed();
+        let modulus = primes.modulus_wire().into_precomputed();
 
         let monty_params_mod_p = P::HalfUintMod::new_params_vartime(*primes.p_half_odd().expose_secret());
         let monty_params_mod_q = P::HalfUintMod::new_params_vartime(*primes.q_half_odd().expose_secret());
@@ -146,7 +146,7 @@ where
         let nonsquare_sampling_constant =
             SecretBox::init_with(|| P::UintMod::new(*u.expose_secret(), modulus.monty_params_mod_n().clone())).into();
 
-        let public_key = PublicKeyPaillierPrecomputed::new(modulus);
+        let public_key = PublicKeyPaillier::new(modulus);
 
         Self {
             primes,
@@ -160,9 +160,9 @@ where
         }
     }
 
-    pub fn into_minimal(self) -> SecretKeyPaillier<P> {
-        SecretKeyPaillier {
-            primes: self.primes.into_minimal(),
+    pub fn into_wire(self) -> SecretKeyPaillierWire<P> {
+        SecretKeyPaillierWire {
+            primes: self.primes.into_wire(),
         }
     }
 
@@ -193,7 +193,7 @@ where
         &self.inv_modulus
     }
 
-    pub fn public_key(&self) -> &PublicKeyPaillierPrecomputed<P> {
+    pub fn public_key(&self) -> &PublicKeyPaillier<P> {
         &self.public_key
     }
 
@@ -292,55 +292,55 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicModulus<P>: Serialize"))]
-#[serde(bound(deserialize = "for<'x> PublicModulus<P>: Deserialize<'x>"))]
-pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
-    modulus: PublicModulus<P>,
+#[serde(bound(serialize = "PublicModulusWire<P>: Serialize"))]
+#[serde(bound(deserialize = "for<'x> PublicModulusWire<P>: Deserialize<'x>"))]
+pub(crate) struct PublicKeyPaillierWire<P: PaillierParams> {
+    modulus: PublicModulusWire<P>,
 }
 
-impl<P: PaillierParams> PublicKeyPaillier<P> {
-    fn new(primes: &SecretPrimes<P>) -> Self {
+impl<P: PaillierParams> PublicKeyPaillierWire<P> {
+    fn new(primes: &SecretPrimesWire<P>) -> Self {
         Self {
             modulus: primes.modulus(),
         }
     }
 
-    pub fn into_precomputed(self) -> PublicKeyPaillierPrecomputed<P> {
-        PublicKeyPaillierPrecomputed::new(self.modulus.into_precomputed())
+    pub fn into_precomputed(self) -> PublicKeyPaillier<P> {
+        PublicKeyPaillier::new(self.modulus.into_precomputed())
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct PublicKeyPaillierPrecomputed<P: PaillierParams> {
-    modulus: PublicModulusPrecomputed<P>,
+pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
+    modulus: PublicModulus<P>,
     monty_params_mod_n_squared: <P::WideUintMod as Monty>::Params,
     /// The minimal public key (for hashing purposes)
-    public_key_minimal: PublicKeyPaillier<P>,
+    public_key_wire: PublicKeyPaillierWire<P>,
 }
 
-impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
-    fn new(modulus: PublicModulusPrecomputed<P>) -> Self {
+impl<P: PaillierParams> PublicKeyPaillier<P> {
+    fn new(modulus: PublicModulus<P>) -> Self {
         let monty_params_mod_n_squared = P::WideUintMod::new_params_vartime(
             Odd::new(modulus.modulus().square_wide()).expect("Square of odd number is odd"),
         );
 
-        let public_key_minimal = PublicKeyPaillier {
-            modulus: modulus.clone().into_minimal(),
+        let public_key_wire = PublicKeyPaillierWire {
+            modulus: modulus.to_wire(),
         };
 
-        PublicKeyPaillierPrecomputed {
+        PublicKeyPaillier {
             modulus,
             monty_params_mod_n_squared,
-            public_key_minimal,
+            public_key_wire,
         }
     }
 
-    pub fn as_minimal(&self) -> &PublicKeyPaillier<P> {
-        &self.public_key_minimal
+    pub fn as_wire(&self) -> &PublicKeyPaillierWire<P> {
+        &self.public_key_wire
     }
 
-    pub fn into_minimal(self) -> PublicKeyPaillier<P> {
-        self.public_key_minimal.clone()
+    pub fn into_wire(self) -> PublicKeyPaillierWire<P> {
+        self.public_key_wire.clone()
     }
 
     pub fn modulus(&self) -> &P::Uint {
@@ -376,13 +376,13 @@ impl<P: PaillierParams> PublicKeyPaillierPrecomputed<P> {
     }
 }
 
-impl<P: PaillierParams> PartialEq for PublicKeyPaillierPrecomputed<P> {
+impl<P: PaillierParams> PartialEq for PublicKeyPaillier<P> {
     fn eq(&self, other: &Self) -> bool {
         self.modulus.eq(&other.modulus)
     }
 }
 
-impl<P: PaillierParams> Eq for PublicKeyPaillierPrecomputed<P> {}
+impl<P: PaillierParams> Eq for PublicKeyPaillier<P> {}
 
 #[cfg(test)]
 mod tests {
@@ -391,24 +391,24 @@ mod tests {
     use serde::Serialize;
     use serde_assert::Token;
 
-    use super::{super::params::PaillierTest, SecretKeyPaillier};
+    use super::{super::params::PaillierTest, SecretKeyPaillierWire};
 
     #[test]
     fn basics() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng).into_precomputed();
+        let sk = SecretKeyPaillierWire::<PaillierTest>::random(&mut OsRng).into_precomputed();
         let _pk = sk.public_key();
     }
 
     #[test]
     fn debug_redacts_secrets() {
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut OsRng);
+        let sk = SecretKeyPaillierWire::<PaillierTest>::random(&mut OsRng);
 
         let debug_output = format!("Sikrit {:?}", sk);
         assert_eq!(
             debug_output,
             concat![
-                "Sikrit SecretKeyPaillier ",
-                "{ primes: SecretPrimes { p: Secret<crypto_bigint::uint::Uint<8>>(...), ",
+                "Sikrit SecretKeyPaillierWire ",
+                "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<8>>(...), ",
                 "q: Secret<crypto_bigint::uint::Uint<8>>(...) } }",
             ]
         );
@@ -417,18 +417,18 @@ mod tests {
     #[test]
     fn serialization_and_clone_works() {
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(123456);
-        let sk = SecretKeyPaillier::<PaillierTest>::random(&mut rng);
+        let sk = SecretKeyPaillierWire::<PaillierTest>::random(&mut rng);
 
         let serializer = serde_assert::Serializer::builder().build();
         let sk_ser = sk.serialize(&serializer).unwrap();
         let expected_tokens = [
             Token::Struct {
-                name: "SecretKeyPaillier",
+                name: "SecretKeyPaillierWire",
                 len: 1,
             },
             Token::Field("primes"),
             Token::Struct {
-                name: "SecretPrimes",
+                name: "SecretPrimesWire",
                 len: 2,
             },
             Token::Field("p"),

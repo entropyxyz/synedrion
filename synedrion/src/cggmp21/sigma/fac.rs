@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
-    paillier::{PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod, SecretKeyPaillierPrecomputed},
+    paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{Bounded, Integer, Signed},
 };
@@ -26,11 +26,11 @@ Public inputs:
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
-    cap_p: RPCommitment<P::Paillier>,
-    cap_q: RPCommitment<P::Paillier>,
-    cap_a: RPCommitment<P::Paillier>,
-    cap_b: RPCommitment<P::Paillier>,
-    cap_t: RPCommitment<P::Paillier>,
+    cap_p: RPCommitmentWire<P::Paillier>,
+    cap_q: RPCommitmentWire<P::Paillier>,
+    cap_a: RPCommitmentWire<P::Paillier>,
+    cap_b: RPCommitmentWire<P::Paillier>,
+    cap_t: RPCommitmentWire<P::Paillier>,
     sigma: Signed<<P::Paillier as PaillierParams>::ExtraWideUint>,
     z1: Signed<<P::Paillier as PaillierParams>::WideUint>,
     z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
@@ -42,8 +42,8 @@ pub(crate) struct FacProof<P: SchemeParams> {
 impl<P: SchemeParams> FacProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        sk0: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>,
+        sk0: &SecretKeyPaillier<P::Paillier>,
+        setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         let pk0 = sk0.public_key();
@@ -83,12 +83,12 @@ impl<P: SchemeParams> FacProof<P> {
         let p = sk0.p_signed();
         let q = sk0.q_signed();
 
-        let cap_p = setup.commit(p.expose_secret(), &mu).retrieve();
+        let cap_p = setup.commit(p.expose_secret(), &mu).to_wire();
         let cap_q = setup.commit(q.expose_secret(), &nu);
-        let cap_a = setup.commit_wide(&alpha, &x).retrieve();
-        let cap_b = setup.commit_wide(&beta, &y).retrieve();
-        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_base_xwide(&r)).retrieve();
-        let cap_q = cap_q.retrieve();
+        let cap_a = setup.commit_wide(&alpha, &x).to_wire();
+        let cap_b = setup.commit_wide(&beta, &y).to_wire();
+        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_base_xwide(&r)).to_wire();
+        let cap_q = cap_q.to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -99,8 +99,8 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&cap_t)
             .chain(&sigma)
             // public parameters
-            .chain(pk0.as_minimal())
-            .chain(&setup.retrieve())
+            .chain(pk0.as_wire())
+            .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
@@ -135,8 +135,8 @@ impl<P: SchemeParams> FacProof<P> {
 
     pub fn verify(
         &self,
-        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>,
+        pk0: &PublicKeyPaillier<P::Paillier>,
+        setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -148,8 +148,8 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&self.cap_t)
             .chain(&self.sigma)
             // public parameters
-            .chain(pk0.as_minimal())
-            .chain(&setup.retrieve())
+            .chain(pk0.as_wire())
+            .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
@@ -164,21 +164,21 @@ impl<P: SchemeParams> FacProof<P> {
         let cap_r = &setup.commit_xwide(&pk0.modulus_bounded().into(), &self.sigma);
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
-        let cap_a_mod = self.cap_a.to_mod(setup);
-        let cap_p_mod = self.cap_p.to_mod(setup);
+        let cap_a_mod = self.cap_a.to_precomputed(setup);
+        let cap_p_mod = self.cap_p.to_precomputed(setup);
         if setup.commit_wide(&self.z1, &self.omega1) != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
-        let cap_b_mod = self.cap_b.to_mod(setup);
-        let cap_q_mod = self.cap_q.to_mod(setup);
+        let cap_b_mod = self.cap_b.to_precomputed(setup);
+        let cap_q_mod = self.cap_q.to_precomputed(setup);
         if setup.commit_wide(&self.z2, &self.omega2) != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
-        let cap_t_mod = self.cap_t.to_mod(setup);
+        let cap_t_mod = self.cap_t.to_precomputed(setup);
         if &cap_q_mod.pow_signed_wide(&self.z1) * &setup.commit_base_xwide(&self.v)
             != &cap_t_mod * &cap_r.pow_signed_vartime(&e)
         {
@@ -216,7 +216,7 @@ mod tests {
     use super::FacProof;
     use crate::{
         cggmp21::{SchemeParams, TestParams},
-        paillier::{RPParamsMod, SecretKeyPaillier},
+        paillier::{RPParams, SecretKeyPaillierWire},
     };
 
     #[test]
@@ -224,10 +224,10 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).into_precomputed();
+        let sk = SecretKeyPaillierWire::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
-        let setup = RPParamsMod::random(&mut OsRng);
+        let setup = RPParams::random(&mut OsRng);
 
         let aux: &[u8] = b"abcde";
 

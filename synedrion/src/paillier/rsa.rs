@@ -1,6 +1,4 @@
-use core::ops::Deref;
-
-use crypto_bigint::{Monty, NonZero, Odd, RandomMod, Square};
+use crypto_bigint::{CheckedSub, Integer, Invert, Monty, NonZero, Odd, RandomMod, Square};
 use crypto_primes::RandomPrimeWithRng;
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
@@ -10,7 +8,7 @@ use zeroize::Zeroize;
 use super::params::PaillierParams;
 use crate::{
     tools::Secret,
-    uint::{Bounded, CheckedSub, HasWide, Integer, Invert, Signed},
+    uint::{Bounded, HasWide, Signed},
 };
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
@@ -22,50 +20,62 @@ fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -
     }
 }
 
+/// The minimized structure containing RSA primes.
+///
+/// Both primes are 3 mod 4 (but are not necessarily safe primes).
+///
+/// Suitable for serialization or transmission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SecretPrimes<P: PaillierParams> {
+pub(crate) struct SecretPrimesWire<P: PaillierParams> {
     p: Secret<P::HalfUint>,
     q: Secret<P::HalfUint>,
 }
 
-impl<P: PaillierParams> SecretPrimes<P> {
+impl<P: PaillierParams> SecretPrimesWire<P> {
+    /// A single constructor to check the invariants
+    fn new(p: Secret<P::HalfUint>, q: Secret<P::HalfUint>) -> Self {
+        debug_assert!(p.expose_secret().as_ref()[0].0 & 3 == 3);
+        debug_assert!(q.expose_secret().as_ref()[0].0 & 3 == 3);
+        Self { p, q }
+    }
+
     /// Creates the primes for a Paillier-Blum modulus,
     /// that is `p` and `q` are regular primes with an additional condition `p, q mod 3 = 4`.
     pub fn random_paillier_blum(rng: &mut impl CryptoRngCore) -> Self {
-        Self {
-            p: SecretBox::init_with(|| random_paillier_blum_prime::<P>(rng)).into(),
-            q: SecretBox::init_with(|| random_paillier_blum_prime::<P>(rng)).into(),
-        }
+        Self::new(
+            SecretBox::init_with(|| random_paillier_blum_prime::<P>(rng)).into(),
+            SecretBox::init_with(|| random_paillier_blum_prime::<P>(rng)).into(),
+        )
     }
 
     /// Creates a pair of safe primes.
     pub fn random_safe(rng: &mut impl CryptoRngCore) -> Self {
-        Self {
-            p: SecretBox::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS as u32)).into(),
-            q: SecretBox::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS as u32)).into(),
-        }
+        Self::new(
+            SecretBox::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS as u32)).into(),
+            SecretBox::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS as u32)).into(),
+        )
     }
 
-    pub fn modulus(&self) -> PublicModulus<P> {
-        PublicModulus::new(self)
+    pub fn modulus(&self) -> PublicModulusWire<P> {
+        PublicModulusWire::new(self)
     }
 
-    pub fn into_precomputed(self) -> SecretPrimesPrecomputed<P> {
-        SecretPrimesPrecomputed::new(self)
+    pub fn into_precomputed(self) -> SecretPrimes<P> {
+        SecretPrimes::new(self)
     }
 }
 
-// TODO: this should be ZeroizeOnDrop, but that needs support in crypto-bigint - Monty::Params are not Zeroize.
+/// RSA primes plus some precomputed constants.
 #[derive(Debug, Clone)]
-pub(crate) struct SecretPrimesPrecomputed<P: PaillierParams> {
+pub(crate) struct SecretPrimes<P: PaillierParams> {
     /// The base RSA primes corresponding to a modulus $N$.
-    primes: SecretPrimes<P>,
+    primes: SecretPrimesWire<P>,
     /// Euler's totient function of the modulus ($\phi(N)$).
     totient: Secret<P::Uint>,
 }
 
-impl<P: PaillierParams> SecretPrimesPrecomputed<P> {
-    pub fn new(primes: SecretPrimes<P>) -> Self {
+impl<P: PaillierParams> SecretPrimes<P> {
+    fn new(primes: SecretPrimesWire<P>) -> Self {
         let one = <P::HalfUint as Integer>::one();
 
         let p_minus_one = primes
@@ -87,8 +97,12 @@ impl<P: PaillierParams> SecretPrimesPrecomputed<P> {
         Self { primes, totient }
     }
 
-    pub fn into_minimal(self) -> SecretPrimes<P> {
+    pub fn into_wire(self) -> SecretPrimesWire<P> {
         self.primes
+    }
+
+    pub fn modulus_wire(&self) -> PublicModulusWire<P> {
+        PublicModulusWire::new(&self.primes)
     }
 
     pub fn p_half(&self) -> &SecretBox<P::HalfUint> {
@@ -149,10 +163,6 @@ impl<P: PaillierParams> SecretPrimesPrecomputed<P> {
         SecretBox::init_with(|| self.p_signed().expose_secret().into_wide())
     }
 
-    pub fn modulus(&self) -> PublicModulus<P> {
-        PublicModulus::new(&self.primes)
-    }
-
     pub fn totient(&self) -> &SecretBox<P::Uint> {
         &self.totient
     }
@@ -167,7 +177,6 @@ impl<P: PaillierParams> SecretPrimesPrecomputed<P> {
         SecretBox::init_with(|| self.totient_bounded().expose_secret().into_wide())
     }
 
-    /// Returns Euler's totient function (`φ(n)`) of the modulus as a [`NonZero`].
     pub fn totient_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
         SecretBox::init_with(|| {
             NonZero::new(*self.totient.expose_secret()).expect(concat![
@@ -178,6 +187,7 @@ impl<P: PaillierParams> SecretPrimesPrecomputed<P> {
         })
     }
 
+    /// Returns a random in range `[0, \phi(N))`.
     pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
         Bounded::new(
             P::Uint::random_mod(rng, self.totient_nonzero().expose_secret()),
@@ -190,45 +200,42 @@ impl<P: PaillierParams> SecretPrimesPrecomputed<P> {
     }
 }
 
+/// The minimized structure containing the public RSA modulus.
+///
+/// Suitable for serialization or transmission.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct PublicModulus<P: PaillierParams>(P::Uint);
+pub(crate) struct PublicModulusWire<P: PaillierParams>(P::Uint);
 
-impl<P: PaillierParams> PublicModulus<P> {
-    pub fn new(primes: &SecretPrimes<P>) -> Self {
+impl<P: PaillierParams> PublicModulusWire<P> {
+    fn new(primes: &SecretPrimesWire<P>) -> Self {
         Self(primes.p.expose_secret().mul_wide(primes.q.expose_secret()))
     }
 
-    pub fn into_precomputed(self) -> PublicModulusPrecomputed<P> {
-        PublicModulusPrecomputed::new(self)
-    }
-}
-
-impl<P: PaillierParams> Deref for PublicModulus<P> {
-    type Target = P::Uint;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn into_precomputed(self) -> PublicModulus<P> {
+        PublicModulus::new(self)
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct PublicModulusPrecomputed<P: PaillierParams> {
+pub(crate) struct PublicModulus<P: PaillierParams> {
     /// The base RSA modulus $N$.
-    modulus: PublicModulus<P>,
+    modulus: PublicModulusWire<P>,
     /// Montgomery representation parameters for modulo $N$.
     monty_params_mod_n: <P::UintMod as Monty>::Params,
 }
 
-impl<P: PaillierParams> PartialEq for PublicModulusPrecomputed<P> {
-    fn eq(&self, other: &PublicModulusPrecomputed<P>) -> bool {
+impl<P: PaillierParams> PartialEq for PublicModulus<P> {
+    fn eq(&self, other: &PublicModulus<P>) -> bool {
+        // Only compare the moduli themselves, not the precomputed constants.
         self.modulus.eq(&other.modulus)
     }
 }
 
-impl<P: PaillierParams> Eq for PublicModulusPrecomputed<P> {}
+impl<P: PaillierParams> Eq for PublicModulus<P> {}
 
-impl<P: PaillierParams> PublicModulusPrecomputed<P> {
-    pub fn new(modulus: PublicModulus<P>) -> Self {
-        let odd_modulus = Odd::new(*modulus).expect("the RSA modulus is odd");
+impl<P: PaillierParams> PublicModulus<P> {
+    pub fn new(modulus: PublicModulusWire<P>) -> Self {
+        let odd_modulus = Odd::new(modulus.0).expect("the RSA modulus is odd");
         let monty_params_mod_n = P::UintMod::new_params_vartime(odd_modulus);
         Self {
             modulus,
@@ -236,28 +243,27 @@ impl<P: PaillierParams> PublicModulusPrecomputed<P> {
         }
     }
 
-    pub fn into_minimal(self) -> PublicModulus<P> {
-        self.modulus
+    pub fn to_wire(&self) -> PublicModulusWire<P> {
+        self.modulus.clone()
     }
 
-    pub fn modulus(&self) -> &PublicModulus<P> {
-        &self.modulus
+    pub fn modulus(&self) -> &P::Uint {
+        &self.modulus.0
     }
 
     pub fn modulus_nonzero(&self) -> NonZero<P::Uint> {
-        NonZero::new(*self.modulus).expect("the modulus is non-zero")
+        NonZero::new(self.modulus.0).expect("the modulus is non-zero")
     }
 
     pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
-        Bounded::new(*self.modulus, P::MODULUS_BITS as u32).expect("the modulus can be bounded by 2^MODULUS_BITS")
+        Bounded::new(self.modulus.0, P::MODULUS_BITS as u32).expect("the modulus can be bounded by 2^MODULUS_BITS")
     }
 
     pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
         &self.monty_params_mod_n
     }
 
-    /// Finds an invertible group element via rejection sampling. Returns the
-    /// element in Montgomery form.
+    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
     pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
         let modulus = self.modulus_nonzero();
         loop {
@@ -269,7 +275,7 @@ impl<P: PaillierParams> PublicModulusPrecomputed<P> {
         }
     }
 
-    /// Returns a uniformly chosen quadratic residue modulo $N$.
+    /// Returns a uniformly chosen quadratic residue modulo $N$, in Montgomery form.
     pub fn random_square_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
         self.random_invertible_group_elem(rng).square()
     }

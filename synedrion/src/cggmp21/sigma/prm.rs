@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
-    paillier::{PaillierParams, RPParamsMod, RPSecret},
+    paillier::{PaillierParams, RPParams, RPSecret},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{
         subtle::{Choice, ConditionallySelectable},
@@ -49,15 +49,11 @@ impl<P: SchemeParams> PrmCommitment<P> {
 struct PrmChallenge(Vec<bool>);
 
 impl PrmChallenge {
-    fn new<P: SchemeParams>(
-        commitment: &PrmCommitment<P>,
-        setup: &RPParamsMod<P::Paillier>,
-        aux: &impl Hashable,
-    ) -> Self {
+    fn new<P: SchemeParams>(commitment: &PrmCommitment<P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> Self {
         // TODO: use BitVec here?
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             .chain(commitment)
-            .chain(&setup.retrieve())
+            .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
         let mut bytes = vec![0u8; P::SECURITY_PARAMETER];
@@ -91,7 +87,7 @@ impl<P: SchemeParams> PrmProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         secret: &RPSecret<P::Paillier>,
-        setup: &RPParamsMod<P::Paillier>,
+        setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         // TODO: check that secret.public_modulus == setup.public_modulus?
@@ -118,7 +114,7 @@ impl<P: SchemeParams> PrmProof<P> {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
-    pub fn verify(&self, setup: &RPParamsMod<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
         let monty_params = setup.monty_params_mod_n();
 
         let challenge = PrmChallenge::new(&self.commitment, setup, aux);
@@ -147,7 +143,7 @@ mod tests {
     use super::PrmProof;
     use crate::{
         cggmp21::TestParams,
-        paillier::{RPParamsMod, RPSecret},
+        paillier::{RPParams, RPSecret},
     };
 
     #[test]
@@ -155,7 +151,7 @@ mod tests {
         type Params = TestParams;
 
         let secret = RPSecret::random(&mut OsRng);
-        let setup = RPParamsMod::random_with_secret(&mut OsRng, &secret);
+        let setup = RPParams::random_with_secret(&mut OsRng, &secret);
 
         let aux: &[u8] = b"abcde";
 
