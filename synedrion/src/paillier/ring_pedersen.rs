@@ -1,7 +1,7 @@
 /// Implements the Definition 3.3 from the CGGMP'21 paper and related operations.
 use core::ops::Mul;
 
-use crypto_bigint::{Monty, NonZero, RandomMod, ShrVartime, Square};
+use crypto_bigint::{Monty, NonZero, RandomMod, ShrVartime};
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
@@ -76,10 +76,9 @@ impl<P: PaillierParams> RPParamsMod<P> {
 
     pub fn random_with_secret(rng: &mut impl CryptoRngCore, secret: &RPSecret<P>) -> Self {
         let precomputed_modulus = secret.primes.modulus().into_precomputed();
-        let r = precomputed_modulus.random_invertible_group_elem(rng);
 
-        let base = r.square();
-        let power = base.pow_bounded(secret.lambda.expose_secret());
+        let base = precomputed_modulus.random_square_group_elem(rng); // $t$
+        let power = base.pow_bounded(secret.lambda.expose_secret()); // $s$
 
         Self {
             precomputed_modulus,

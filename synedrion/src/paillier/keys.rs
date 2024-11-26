@@ -129,6 +129,8 @@ where
         let t = SecretBox::init_with(|| t_mod.expose_secret().retrieve());
 
         // Calculate $u$
+        // I am not entirely sure if it can be used to learn something about `p` and `q`,
+        // so just to be on the safe side it lives in the secret key.
 
         let u = SecretBox::init_with(|| t.expose_secret().mul_wide(primes.p_half().expose_secret()));
         let u = SecretBox::init_with(|| {
@@ -282,9 +284,9 @@ where
         which we get by selecting $y$ uniformly from $\mathbb{Z}_N^*$ and taking $x = y^2 \mod N$.
         After that, we select uniformly between $u x$ and $-u x$.
         */
-        let y = self.public_key.modulus.random_invertible_group_elem(rng);
+        let y = self.public_key.modulus.random_square_group_elem(rng);
         let b = Choice::from(rng.next_u32() as u8 & 1);
-        let w = y.square() * self.nonsquare_sampling_constant.expose_secret();
+        let w = y * self.nonsquare_sampling_constant.expose_secret();
         P::UintMod::conditional_select(&w, &-w, b).retrieve()
     }
 }

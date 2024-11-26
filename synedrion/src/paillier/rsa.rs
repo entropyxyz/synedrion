@@ -1,6 +1,6 @@
 use core::ops::Deref;
 
-use crypto_bigint::{Monty, NonZero, Odd, RandomMod};
+use crypto_bigint::{Monty, NonZero, Odd, RandomMod, Square};
 use crypto_primes::RandomPrimeWithRng;
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
@@ -252,6 +252,10 @@ impl<P: PaillierParams> PublicModulusPrecomputed<P> {
         Bounded::new(*self.modulus, P::MODULUS_BITS as u32).expect("the modulus can be bounded by 2^MODULUS_BITS")
     }
 
+    pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
+        &self.monty_params_mod_n
+    }
+
     /// Finds an invertible group element via rejection sampling. Returns the
     /// element in Montgomery form.
     pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
@@ -265,7 +269,8 @@ impl<P: PaillierParams> PublicModulusPrecomputed<P> {
         }
     }
 
-    pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
-        &self.monty_params_mod_n
+    /// Returns a uniformly chosen quadratic residue modulo $N$.
+    pub fn random_square_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
+        self.random_invertible_group_elem(rng).square()
     }
 }
