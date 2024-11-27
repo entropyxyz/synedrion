@@ -59,11 +59,8 @@ impl<P: SchemeParams> MulProof<P> {
         let r_mod = Randomizer::random(rng, pk);
         let s_mod = Randomizer::random(rng, pk);
 
-        let alpha = Bounded::new(
-            alpha_mod.retrieve(),
-            <P::Paillier as PaillierParams>::MODULUS_BITS as u32,
-        )
-        .expect("the value is bounded by `MODULUS_BITS` by construction");
+        let alpha = Bounded::new(alpha_mod.retrieve(), <P::Paillier as PaillierParams>::MODULUS_BITS)
+            .expect("the value is bounded by `MODULUS_BITS` by construction");
         let r = r_mod.to_wire();
         let s = s_mod.to_wire();
 

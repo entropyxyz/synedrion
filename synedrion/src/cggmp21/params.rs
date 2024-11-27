@@ -77,7 +77,7 @@ impl PaillierParams for PaillierTest {
     are much smaller than 2*PRIME_BITS.
     */
 
-    const PRIME_BITS: usize = 397;
+    const PRIME_BITS: u32 = 397;
     type HalfUint = U512;
     type HalfUintMod = U512Mod;
     type Uint = U1024;
@@ -91,7 +91,7 @@ impl PaillierParams for PaillierTest {
 pub struct PaillierProduction;
 
 impl PaillierParams for PaillierProduction {
-    const PRIME_BITS: usize = 1024;
+    const PRIME_BITS: u32 = 1024;
     type HalfUint = U1024;
     type HalfUintMod = U1024Mod;
     type Uint = U2048;
@@ -112,11 +112,11 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     /// The scheme's statistical security parameter.
     const SECURITY_PARAMETER: usize; // $\kappa$
     /// The bound for secret values.
-    const L_BOUND: usize; // $\ell$, paper sets it to $\log2(q)$ (see Table 2)
+    const L_BOUND: u32; // $\ell$, paper sets it to $\log2(q)$ (see Table 2)
     /// The error bound for secret masks.
-    const LP_BOUND: usize; // $\ell^\prime$, in paper $= 5 \ell$ (see Table 2)
+    const LP_BOUND: u32; // $\ell^\prime$, in paper $= 5 \ell$ (see Table 2)
     /// The error bound for range checks (referred to in the paper as the slackness parameter).
-    const EPS_BOUND: usize; // $\eps$, in paper $= 2 \ell$ (see Table 2)
+    const EPS_BOUND: u32; // $\eps$, in paper $= 2 \ell$ (see Table 2)
     /// The parameters of the Paillier encryption.
     ///
     /// Note: `PaillierParams::Uint` must be able to contain the full range of `Scalar` values
@@ -213,9 +213,9 @@ pub struct TestParams;
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
     const SECURITY_PARAMETER: usize = 10;
-    const L_BOUND: usize = 256;
-    const LP_BOUND: usize = 256;
-    const EPS_BOUND: usize = 320;
+    const L_BOUND: u32 = 256;
+    const LP_BOUND: u32 = 256;
+    const EPS_BOUND: u32 = 320;
     type Paillier = PaillierTest;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
         .to_nz()
@@ -231,9 +231,9 @@ pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {
     const SECURITY_PARAMETER: usize = 80; // The value is given in Table 2 in the paper
-    const L_BOUND: usize = 256;
-    const LP_BOUND: usize = Self::L_BOUND * 5;
-    const EPS_BOUND: usize = Self::L_BOUND * 2;
+    const L_BOUND: u32 = 256;
+    const LP_BOUND: u32 = Self::L_BOUND * 5;
+    const EPS_BOUND: u32 = Self::L_BOUND * 2;
     type Paillier = PaillierProduction;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
         .to_nz()

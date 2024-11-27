@@ -608,10 +608,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         // where `q` is the curve order.
         // We will need this bound later, so we're asserting it.
         let alpha = alpha
-            .assert_bit_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
+            .assert_bit_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
             .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsAlpha))?;
         let hat_alpha = hat_alpha
-            .assert_bit_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
+            .assert_bit_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
             .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsHatAlpha))?;
 
         Ok(Payload::new(Round2Payload::<P> {

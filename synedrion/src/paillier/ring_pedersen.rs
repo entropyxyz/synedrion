@@ -31,11 +31,8 @@ impl<P: PaillierParams> RPSecret<P> {
                 .expect("totient / 4 is still non-zero because p, q >= 5")
         });
         let lambda = SecretBox::init_with(|| {
-            Bounded::new(
-                P::Uint::random_mod(rng, bound.expose_secret()),
-                P::MODULUS_BITS as u32 - 2,
-            )
-            .expect("totient < N < 2^MODULUS_BITS, so totient / 4 < 2^(MODULUS_BITS - 2)")
+            Bounded::new(P::Uint::random_mod(rng, bound.expose_secret()), P::MODULUS_BITS - 2)
+                .expect("totient < N < 2^MODULUS_BITS, so totient / 4 < 2^(MODULUS_BITS - 2)")
         })
         .into();
 

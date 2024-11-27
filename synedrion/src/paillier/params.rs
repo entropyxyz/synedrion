@@ -16,9 +16,9 @@ use crate::{
 
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.
-    const PRIME_BITS: usize;
+    const PRIME_BITS: u32;
     /// The size of the RSA modulus (a product of two primes).
-    const MODULUS_BITS: usize = Self::PRIME_BITS * 2;
+    const MODULUS_BITS: u32 = Self::PRIME_BITS * 2;
     /// An integer that fits a single RSA prime.
     type HalfUint: Integer<Monty = Self::HalfUintMod>
         + Bounded
@@ -103,7 +103,7 @@ pub(crate) struct PaillierTest;
 
 #[cfg(test)]
 impl PaillierParams for PaillierTest {
-    const PRIME_BITS: usize = 512;
+    const PRIME_BITS: u32 = 512;
     type HalfUint = U512;
     type HalfUintMod = U512Mod;
     type Uint = U1024;

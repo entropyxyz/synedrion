@@ -58,7 +58,7 @@ impl<P: SchemeParams> FacProof<P> {
         // `z1` and `z2` during verification.
         let sqrt_cap_n = Bounded::new(
             <P::Paillier as PaillierParams>::Uint::one() << (<P::Paillier as PaillierParams>::PRIME_BITS - 2),
-            <P::Paillier as PaillierParams>::PRIME_BITS as u32,
+            <P::Paillier as PaillierParams>::PRIME_BITS,
         )
         .expect("the value is bounded by `2^PRIME_BITS` by construction");
 

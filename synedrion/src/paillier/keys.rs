@@ -95,7 +95,7 @@ where
                 (*modulus.modulus())
                     .inv_mod(primes.totient().expose_secret())
                     .expect("pq is invertible mod ϕ(pq) because gcd(pq, (p-1)(q-1)) = 1"),
-                P::MODULUS_BITS as u32,
+                P::MODULUS_BITS,
             )
             .expect("We assume `P::MODULUS_BITS` is properly configured")
         })
@@ -224,7 +224,7 @@ where
                 .wrapping_shr_vartime(2)
                 .wrapping_add(&<P::HalfUint as Integer>::one())
         });
-        let candidate = x.pow_bounded_exp(power.expose_secret(), P::PRIME_BITS as u32 - 1);
+        let candidate = x.pow_bounded_exp(power.expose_secret(), P::PRIME_BITS - 1);
         if candidate.square() == *x {
             Some(candidate)
         } else {
