@@ -50,6 +50,10 @@ impl<P: PaillierParams> RPSecret<P> {
     pub fn totient_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
         self.primes.totient_nonzero()
     }
+
+    pub fn modulus(&self) -> P::Uint {
+        *self.primes.modulus_wire().modulus()
+    }
 }
 
 /// The expanded representation of ring-Pedersen parameters.
@@ -86,6 +90,10 @@ impl<P: PaillierParams> RPParams<P> {
 
     pub fn power(&self) -> &P::UintMod {
         &self.power
+    }
+
+    pub fn modulus(&self) -> &P::Uint {
+        self.modulus.modulus()
     }
 
     pub fn modulus_bounded(&self) -> Bounded<P::Uint> {

@@ -211,6 +211,10 @@ impl<P: PaillierParams> PublicModulusWire<P> {
         Self(primes.p.expose_secret().mul_wide(primes.q.expose_secret()))
     }
 
+    pub fn modulus(&self) -> &P::Uint {
+        &self.0
+    }
+
     pub fn into_precomputed(self) -> PublicModulus<P> {
         PublicModulus::new(self)
     }

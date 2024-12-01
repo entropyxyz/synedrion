@@ -90,7 +90,7 @@ impl<P: SchemeParams> PrmProof<P> {
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        // TODO: check that secret.public_modulus == setup.public_modulus?
+        debug_assert!(&secret.modulus() == setup.modulus());
         let proof_secret = PrmSecret::<P>::random(rng, secret);
         let commitment = PrmCommitment::new(&proof_secret, setup.base());
 
