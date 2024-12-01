@@ -26,7 +26,7 @@ use super::{
 };
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},
-    paillier::{Ciphertext, CiphertextMod, PaillierParams, Randomizer, RandomizerMod},
+    paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer, RandomizerWire},
     tools::{
         hashing::{Chain, FofHasher, HashOutput},
         DowncastMap, Without,
@@ -149,7 +149,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
             .chain(&aux_info.public_aux)
             .finalize();
 
-        let aux_info = aux_info.to_precomputed();
+        let aux_info = aux_info.into_precomputed();
 
         // TODO (#68): check that KeyShare is consistent with AuxInfo
 
@@ -160,11 +160,11 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
 
         let pk = aux_info.secret_aux.paillier_sk.public_key();
 
-        let nu = RandomizerMod::<P::Paillier>::random(rng, pk);
-        let cap_g = CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), &nu.retrieve());
+        let nu = Randomizer::<P::Paillier>::random(rng, pk);
+        let cap_g = Ciphertext::new_with_randomizer(pk, &P::uint_from_scalar(&gamma), &nu.to_wire());
 
-        let rho = RandomizerMod::<P::Paillier>::random(rng, pk);
-        let cap_k = CiphertextMod::new_with_randomizer(pk, &P::uint_from_scalar(&k), &rho.retrieve());
+        let rho = Randomizer::<P::Paillier>::random(rng, pk);
+        let cap_k = Ciphertext::new_with_randomizer(pk, &P::uint_from_scalar(&k), &rho.to_wire());
 
         Ok(BoxedRound::new_dynamic(Round1 {
             context: Context {
@@ -195,23 +195,23 @@ struct Context<P: SchemeParams, I: Ord> {
     aux_info: AuxInfoPrecomputed<P, I>,
     k: Scalar,
     gamma: Scalar,
-    rho: RandomizerMod<P::Paillier>,
-    nu: RandomizerMod<P::Paillier>,
+    rho: Randomizer<P::Paillier>,
+    nu: Randomizer<P::Paillier>,
 }
 
 #[derive(Debug)]
 struct Round1<P: SchemeParams, I: Ord> {
     context: Context<P, I>,
-    cap_k: CiphertextMod<P::Paillier>,
-    cap_g: CiphertextMod<P::Paillier>,
+    cap_k: Ciphertext<P::Paillier>,
+    cap_g: Ciphertext<P::Paillier>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "Ciphertext<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "Ciphertext<P::Paillier>: for<'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "CiphertextWire<P::Paillier>: Serialize"))]
+#[serde(bound(deserialize = "CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>"))]
 struct Round1BroadcastMessage<P: SchemeParams> {
-    cap_k: Ciphertext<P::Paillier>,
-    cap_g: Ciphertext<P::Paillier>,
+    cap_k: CiphertextWire<P::Paillier>,
+    cap_g: CiphertextWire<P::Paillier>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -222,8 +222,8 @@ struct Round1DirectMessage<P: SchemeParams> {
 }
 
 struct Round1Payload<P: SchemeParams> {
-    cap_k: Ciphertext<P::Paillier>,
-    cap_g: Ciphertext<P::Paillier>,
+    cap_k: CiphertextWire<P::Paillier>,
+    cap_g: CiphertextWire<P::Paillier>,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
@@ -253,8 +253,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         EchoBroadcast::new(
             serializer,
             Round1BroadcastMessage::<P> {
-                cap_k: self.cap_k.retrieve(),
-                cap_g: self.cap_g.retrieve(),
+                cap_k: self.cap_k.to_wire(),
+                cap_g: self.cap_g.to_wire(),
             },
         )
     }
@@ -301,7 +301,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
         if !direct_message.psi0.verify(
             from_pk,
-            &echo_broadcast.cap_k.to_mod(from_pk),
+            &echo_broadcast.cap_k.to_precomputed(from_pk),
             &public_aux.rp_params,
             &aux,
         ) {
@@ -334,7 +334,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let mut all_cap_k = others_cap_k
             .into_iter()
             .map(|(id, ciphertext)| {
-                let ciphertext_mod = ciphertext.to_mod(&self.context.aux_info.public_aux[&id].paillier_pk);
+                let ciphertext_mod = ciphertext.to_precomputed(&self.context.aux_info.public_aux[&id].paillier_pk);
                 (id, ciphertext_mod)
             })
             .collect::<BTreeMap<_, _>>();
@@ -343,7 +343,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let mut all_cap_g = others_cap_g
             .into_iter()
             .map(|(id, ciphertext)| {
-                let ciphertext_mod = ciphertext.to_mod(&self.context.aux_info.public_aux[&id].paillier_pk);
+                let ciphertext_mod = ciphertext.to_precomputed(&self.context.aux_info.public_aux[&id].paillier_pk);
                 (id, ciphertext_mod)
             })
             .collect::<BTreeMap<_, _>>();
@@ -360,27 +360,27 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 #[derive(Debug)]
 struct Round2<P: SchemeParams, I: Ord> {
     context: Context<P, I>,
-    all_cap_k: BTreeMap<I, CiphertextMod<P::Paillier>>,
-    all_cap_g: BTreeMap<I, CiphertextMod<P::Paillier>>,
+    all_cap_k: BTreeMap<I, Ciphertext<P::Paillier>>,
+    all_cap_g: BTreeMap<I, Ciphertext<P::Paillier>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
-    Ciphertext<P::Paillier>: Serialize,
+    CiphertextWire<P::Paillier>: Serialize,
     AffGProof<P>: Serialize,
     LogStarProof<P>: Serialize,
 "))]
 #[serde(bound(deserialize = "
-    Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
+    CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>,
     AffGProof<P>: for<'x> Deserialize<'x>,
     LogStarProof<P>: for<'x> Deserialize<'x>,
 "))]
 struct Round2Message<P: SchemeParams> {
     cap_gamma: Point,
-    cap_d: Ciphertext<P::Paillier>,
-    hat_cap_d: Ciphertext<P::Paillier>,
-    cap_f: Ciphertext<P::Paillier>,
-    hat_cap_f: Ciphertext<P::Paillier>,
+    cap_d: CiphertextWire<P::Paillier>,
+    hat_cap_d: CiphertextWire<P::Paillier>,
+    cap_f: CiphertextWire<P::Paillier>,
+    hat_cap_f: CiphertextWire<P::Paillier>,
     psi: AffGProof<P>,
     hat_psi: AffGProof<P>,
     hat_psi_prime: LogStarProof<P>,
@@ -390,22 +390,22 @@ struct Round2Message<P: SchemeParams> {
 struct Round2Artifact<P: SchemeParams> {
     beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
     hat_beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
-    r: Randomizer<P::Paillier>,
-    s: Randomizer<P::Paillier>,
-    hat_r: Randomizer<P::Paillier>,
-    hat_s: Randomizer<P::Paillier>,
-    cap_d: CiphertextMod<P::Paillier>,
-    cap_f: CiphertextMod<P::Paillier>,
-    hat_cap_d: CiphertextMod<P::Paillier>,
-    hat_cap_f: CiphertextMod<P::Paillier>,
+    r: RandomizerWire<P::Paillier>,
+    s: RandomizerWire<P::Paillier>,
+    hat_r: RandomizerWire<P::Paillier>,
+    hat_s: RandomizerWire<P::Paillier>,
+    cap_d: Ciphertext<P::Paillier>,
+    cap_f: Ciphertext<P::Paillier>,
+    hat_cap_d: Ciphertext<P::Paillier>,
+    hat_cap_f: Ciphertext<P::Paillier>,
 }
 
 struct Round2Payload<P: SchemeParams> {
     cap_gamma: Point,
     alpha: Signed<<P::Paillier as PaillierParams>::Uint>,
     hat_alpha: Signed<<P::Paillier as PaillierParams>::Uint>,
-    cap_d: CiphertextMod<P::Paillier>,
-    hat_cap_d: CiphertextMod<P::Paillier>,
+    cap_d: Ciphertext<P::Paillier>,
+    hat_cap_d: Ciphertext<P::Paillier>,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
@@ -442,19 +442,19 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let beta = SecretBox::new(Box::new(Signed::random_bounded_bits(rng, P::LP_BOUND)));
         let hat_beta = SecretBox::new(Box::new(Signed::random_bounded_bits(rng, P::LP_BOUND)));
-        let r = RandomizerMod::random(rng, pk);
-        let s = RandomizerMod::random(rng, target_pk);
-        let hat_r = RandomizerMod::random(rng, pk);
-        let hat_s = RandomizerMod::random(rng, target_pk);
+        let r = Randomizer::random(rng, pk);
+        let s = Randomizer::random(rng, target_pk);
+        let hat_r = Randomizer::random(rng, pk);
+        let hat_s = Randomizer::random(rng, target_pk);
 
-        let cap_f = CiphertextMod::new_with_randomizer_signed(pk, beta.expose_secret(), &r.retrieve());
+        let cap_f = Ciphertext::new_with_randomizer_signed(pk, beta.expose_secret(), &r.to_wire());
         let cap_d = &self.all_cap_k[destination] * P::signed_from_scalar(&self.context.gamma)
-            + CiphertextMod::new_with_randomizer_signed(target_pk, &-beta.expose_secret(), &s.retrieve());
+            + Ciphertext::new_with_randomizer_signed(target_pk, &-beta.expose_secret(), &s.to_wire());
 
-        let hat_cap_f = CiphertextMod::new_with_randomizer_signed(pk, hat_beta.expose_secret(), &hat_r.retrieve());
+        let hat_cap_f = Ciphertext::new_with_randomizer_signed(pk, hat_beta.expose_secret(), &hat_r.to_wire());
         let hat_cap_d = &self.all_cap_k[destination]
             * P::signed_from_scalar(self.context.key_share.secret_share.expose_secret())
-            + CiphertextMod::new_with_randomizer_signed(target_pk, &-hat_beta.expose_secret(), &hat_s.retrieve());
+            + Ciphertext::new_with_randomizer_signed(target_pk, &-hat_beta.expose_secret(), &hat_s.to_wire());
 
         let public_aux = &self.context.aux_info.public_aux[destination];
         let rp = &public_aux.rp_params;
@@ -507,10 +507,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             serializer,
             Round2Message::<P> {
                 cap_gamma,
-                cap_d: cap_d.retrieve(),
-                cap_f: cap_f.retrieve(),
-                hat_cap_d: hat_cap_d.retrieve(),
-                hat_cap_f: hat_cap_f.retrieve(),
+                cap_d: cap_d.to_wire(),
+                cap_f: cap_f.to_wire(),
+                hat_cap_d: hat_cap_d.to_wire(),
+                hat_cap_f: hat_cap_f.to_wire(),
                 psi,
                 hat_psi,
                 hat_psi_prime,
@@ -520,10 +520,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let artifact = Artifact::new(Round2Artifact::<P> {
             beta,
             hat_beta,
-            r: r.retrieve(),
-            s: s.retrieve(),
-            hat_r: hat_r.retrieve(),
-            hat_s: hat_s.retrieve(),
+            r: r.to_wire(),
+            s: s.to_wire(),
+            hat_r: hat_r.to_wire(),
+            hat_s: hat_s.to_wire(),
             cap_d,
             cap_f,
             hat_cap_d,
@@ -555,15 +555,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let public_aux = &self.context.aux_info.public_aux[&self.context.my_id];
         let rp = &public_aux.rp_params;
 
-        let cap_d = direct_message.cap_d.to_mod(pk);
-        let hat_cap_d = direct_message.hat_cap_d.to_mod(pk);
+        let cap_d = direct_message.cap_d.to_precomputed(pk);
+        let hat_cap_d = direct_message.hat_cap_d.to_precomputed(pk);
 
         if !direct_message.psi.verify(
             pk,
             from_pk,
             &self.all_cap_k[&self.context.my_id],
             &cap_d,
-            &direct_message.cap_f.to_mod(from_pk),
+            &direct_message.cap_f.to_precomputed(from_pk),
             &direct_message.cap_gamma,
             rp,
             &aux,
@@ -578,7 +578,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             from_pk,
             &self.all_cap_k[&self.context.my_id],
             &hat_cap_d,
-            &direct_message.hat_cap_f.to_mod(from_pk),
+            &direct_message.hat_cap_f.to_precomputed(from_pk),
             &cap_x,
             rp,
             &aux,
@@ -608,10 +608,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         // where `q` is the curve order.
         // We will need this bound later, so we're asserting it.
         let alpha = alpha
-            .assert_bit_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
+            .assert_bit_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
             .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsAlpha))?;
         let hat_alpha = hat_alpha
-            .assert_bit_bound_usize(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
+            .assert_bit_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
             .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsHatAlpha))?;
 
         Ok(Payload::new(Round2Payload::<P> {
@@ -679,10 +679,10 @@ struct Round3<P: SchemeParams, I: Ord> {
     chi: Signed<<P::Paillier as PaillierParams>::Uint>,
     cap_delta: Point,
     cap_gamma: Point,
-    all_cap_k: BTreeMap<I, CiphertextMod<P::Paillier>>,
-    all_cap_g: BTreeMap<I, CiphertextMod<P::Paillier>>,
-    cap_ds: BTreeMap<I, CiphertextMod<P::Paillier>>,
-    hat_cap_ds: BTreeMap<I, CiphertextMod<P::Paillier>>,
+    all_cap_k: BTreeMap<I, Ciphertext<P::Paillier>>,
+    all_cap_g: BTreeMap<I, Ciphertext<P::Paillier>>,
+    cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
+    hat_cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
     round2_artifacts: BTreeMap<I, Round2Artifact<P>>,
 }
 
@@ -880,8 +880,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                     rng,
                     &P::signed_from_scalar(&self.context.gamma),
                     beta,
-                    s.to_mod(target_pk),
-                    r.to_mod(pk),
+                    s.to_precomputed(target_pk),
+                    r.to_precomputed(pk),
                     target_pk,
                     pk,
                     &self.all_cap_k[id_j],
@@ -909,9 +909,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         // Mul proof
 
-        let rho = RandomizerMod::random(rng, pk);
+        let rho = Randomizer::random(rng, pk);
         let cap_h = (&self.all_cap_g[&self.context.my_id] * P::bounded_from_scalar(&self.context.k))
-            .mul_randomizer(&rho.retrieve());
+            .mul_randomizer(&rho.to_wire());
 
         let p_mul = MulProof::<P>::new(
             rng,
@@ -1106,8 +1106,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                     rng,
                     &P::signed_from_scalar(self.context.key_share.secret_share.expose_secret()),
                     &values.hat_beta,
-                    values.hat_s.to_mod(target_pk),
-                    values.hat_r.to_mod(pk),
+                    values.hat_s.to_precomputed(target_pk),
+                    values.hat_r.to_precomputed(pk),
                     target_pk,
                     pk,
                     &values.cap_k,
@@ -1138,9 +1138,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let x = &self.context.key_share.secret_share;
         let cap_x = self.context.key_share.public_shares[&my_id];
 
-        let rho = RandomizerMod::random(rng, pk);
+        let rho = Randomizer::random(rng, pk);
         let hat_cap_h =
-            (&self.presigning.cap_k * P::bounded_from_scalar(x.expose_secret())).mul_randomizer(&rho.retrieve());
+            (&self.presigning.cap_k * P::bounded_from_scalar(x.expose_secret())).mul_randomizer(&rho.to_wire());
 
         let aux = (&self.context.ssid_hash, &my_id);
 

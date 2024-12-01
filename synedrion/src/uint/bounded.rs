@@ -79,11 +79,6 @@ where
         self.bound
     }
 
-    pub fn bound_usize(&self) -> usize {
-        // Extracted into a method to localize the conversion
-        self.bound as usize
-    }
-
     /// Creates a new [`Bounded`] wrapper around `T`, restricted to `bound`.
     ///
     /// Returns `None` if the bound is invalid, i.e.:

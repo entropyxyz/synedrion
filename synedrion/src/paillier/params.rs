@@ -1,11 +1,11 @@
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, CtOption},
-    Bounded, Encoding, Integer, InvMod, Invert, Monty, RandomMod,
+    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
+use zeroize::{DefaultIsZeroes, Zeroize};
 
 #[cfg(test)]
 use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
@@ -16,9 +16,9 @@ use crate::{
 
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.
-    const PRIME_BITS: usize;
+    const PRIME_BITS: u32;
     /// The size of the RSA modulus (a product of two primes).
-    const MODULUS_BITS: usize = Self::PRIME_BITS * 2;
+    const MODULUS_BITS: u32 = Self::PRIME_BITS * 2;
     /// An integer that fits a single RSA prime.
     type HalfUint: Integer<Monty = Self::HalfUintMod>
         + Bounded
@@ -28,7 +28,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + for<'de> Deserialize<'de>
         + HasWide<Wide = Self::Uint>
         + ToMontgomery
-        + Zeroize;
+        + Zeroize
+        + DefaultIsZeroes;
 
     /// A modulo-residue counterpart of `HalfUint`.
     type HalfUintMod: Monty<Integer = Self::HalfUint>
@@ -39,6 +40,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     /// An integer that fits the RSA modulus.
     type Uint: Integer<Monty = Self::UintMod>
         + Bounded
+        + Gcd<Output = Self::Uint>
         + ConditionallySelectable
         + Encoding
         + Hashable
@@ -102,7 +104,7 @@ pub(crate) struct PaillierTest;
 
 #[cfg(test)]
 impl PaillierParams for PaillierTest {
-    const PRIME_BITS: usize = 512;
+    const PRIME_BITS: u32 = 512;
     type HalfUint = U512;
     type HalfUintMod = U512Mod;
     type Uint = U1024;

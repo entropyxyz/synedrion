@@ -2,15 +2,16 @@
 
 use alloc::vec::Vec;
 
-use crypto_bigint::{PowBoundedExp, Square};
+use crypto_bigint::Square;
 use rand_core::CryptoRngCore;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
-    paillier::{PaillierParams, PublicKeyPaillierPrecomputed, SecretKeyPaillierPrecomputed},
+    paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher},
-    uint::{RandomPrimeWithRng, Retrieve, ToMontgomery},
+    uint::{Exponentiable, RandomPrimeWithRng, Retrieve, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_mod";
@@ -19,8 +20,8 @@ const HASH_TAG: &[u8] = b"P_mod";
 struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 
 impl<P: SchemeParams> ModCommitment<P> {
-    fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillierPrecomputed<P::Paillier>) -> Self {
-        Self(sk.random_nonsquare(rng))
+    fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>) -> Self {
+        Self(sk.random_nonsquare_residue(rng))
     }
 }
 
@@ -28,9 +29,9 @@ impl<P: SchemeParams> ModCommitment<P> {
 struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> ModChallenge<P> {
-    fn new(pk: &PublicKeyPaillierPrecomputed<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Hashable) -> Self {
+    fn new(pk: &PublicKeyPaillier<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Hashable) -> Self {
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
-            .chain(pk.as_minimal())
+            .chain(pk.as_wire())
             .chain(commitment)
             .chain(aux)
             .finalize_to_reader();
@@ -72,11 +73,7 @@ pub(crate) struct ModProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> ModProof<P> {
-    pub fn new(
-        rng: &mut impl CryptoRngCore,
-        sk: &SecretKeyPaillierPrecomputed<P::Paillier>,
-        aux: &impl Hashable,
-    ) -> Self {
+    pub fn new(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>, aux: &impl Hashable) -> Self {
         let pk = sk.public_key();
         let commitment = ModCommitment::<P>::random(rng, sk);
         let challenge = ModChallenge::<P>::new(pk, &commitment, aux);
@@ -100,7 +97,7 @@ impl<P: SchemeParams> ModProof<P> {
                         y_mod_q *= omega_mod_q.clone();
                     }
 
-                    if let Some((p, q)) = sk.sqrt(&(y_mod_p, y_mod_q)) {
+                    if let Some((p, q)) = sk.rns_sqrt(&(y_mod_p, y_mod_q)) {
                         y_sqrt = Some((p, q));
                         found_a = *a;
                         found_b = *b;
@@ -112,14 +109,14 @@ impl<P: SchemeParams> ModProof<P> {
                 // these square roots will exist.
                 let y_sqrt = y_sqrt.expect("the square root exists if N is a Paillier-Blum modulus");
                 let y_4th_parts = sk
-                    .sqrt(&y_sqrt)
+                    .rns_sqrt(&y_sqrt)
                     .expect("the square root exists if N is a Paillier-Blum modulus");
 
                 let y_4th = sk.rns_join(&y_4th_parts);
 
-                let y = challenge.0[i].to_montgomery(pk.precomputed_modulus());
+                let y = challenge.0[i].to_montgomery(pk.monty_params_mod_n());
                 let sk_inv_modulus = sk.inv_modulus();
-                let z = y.pow_bounded_exp(sk_inv_modulus.as_ref(), sk_inv_modulus.bound());
+                let z = y.pow_bounded(sk_inv_modulus.expose_secret());
 
                 ModProofElem {
                     x: y_4th,
@@ -140,7 +137,7 @@ impl<P: SchemeParams> ModProof<P> {
     pub fn verify(
         &self,
         rng: &mut impl CryptoRngCore,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
+        pk: &PublicKeyPaillier<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         let challenge = ModChallenge::new(pk, &self.commitment, aux);
@@ -149,24 +146,24 @@ impl<P: SchemeParams> ModProof<P> {
         }
 
         // The paper requires checking that `N` is odd here,
-        // but it is already an invariant of `PublicKeyPaillierPrecomputed`.
+        // but it is already an invariant of `PublicKeyPaillier`.
 
         // Note: I think we can get away with using the default RNG here
         // since the result is RNG-independent (or at least supposed to be).
         // It is possible to pass the external RNG similarly to how it's done for `new()`,
         // but it would require quite a bit of changes because an external RNG is not accessible
         // at the callsite.
-        if pk.modulus().is_prime_with_rng(rng) {
+        if (*pk.modulus()).is_prime_with_rng(rng) {
             return false;
         }
 
-        let precomputed = pk.precomputed_modulus();
-        let omega_mod = self.commitment.0.to_montgomery(precomputed);
+        let monty_params = pk.monty_params_mod_n();
+        let omega_mod = self.commitment.0.to_montgomery(monty_params);
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
-            let z_m = elem.z.to_montgomery(precomputed);
-            let mut y_m = y.to_montgomery(precomputed);
+            let z_m = elem.z.to_montgomery(monty_params);
+            let mut y_m = y.to_montgomery(monty_params);
             let pk_modulus_bounded = pk.modulus_bounded();
-            if z_m.pow_bounded_exp(pk_modulus_bounded.as_ref(), pk_modulus_bounded.bound()) != y_m {
+            if z_m.pow_bounded(&pk_modulus_bounded) != y_m {
                 return false;
             }
 
@@ -176,7 +173,7 @@ impl<P: SchemeParams> ModProof<P> {
             if elem.b {
                 y_m *= omega_mod;
             }
-            let x = elem.x.to_montgomery(precomputed);
+            let x = elem.x.to_montgomery(monty_params);
             let x_4 = x.square().square();
             if y_m != x_4 {
                 return false;
@@ -193,7 +190,7 @@ mod tests {
     use super::ModProof;
     use crate::{
         cggmp21::{SchemeParams, TestParams},
-        paillier::SecretKeyPaillier,
+        paillier::SecretKeyPaillierWire,
     };
 
     #[test]
@@ -201,7 +198,7 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillierWire::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
         let aux: &[u8] = b"abcde";

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
-    paillier::{Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, Randomizer, RandomizerMod},
+    paillier::{Ciphertext, CiphertextWire, PaillierParams, PublicKeyPaillier, Randomizer, RandomizerWire},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{Bounded, Retrieve, Signed},
 };
@@ -15,11 +15,11 @@ const HASH_TAG: &[u8] = b"P_mul";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
-    cap_a: Ciphertext<P::Paillier>,
-    cap_b: Ciphertext<P::Paillier>,
+    cap_a: CiphertextWire<P::Paillier>,
+    cap_b: CiphertextWire<P::Paillier>,
     z: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    u: Randomizer<P::Paillier>,
-    v: Randomizer<P::Paillier>,
+    u: RandomizerWire<P::Paillier>,
+    v: RandomizerWire<P::Paillier>,
 }
 
 /**
@@ -43,42 +43,39 @@ impl<P: SchemeParams> MulProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
-        rho_x: &RandomizerMod<P::Paillier>,
-        rho: &RandomizerMod<P::Paillier>,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_x: &CiphertextMod<P::Paillier>,
-        cap_y: &CiphertextMod<P::Paillier>,
-        cap_c: &CiphertextMod<P::Paillier>,
+        rho_x: &Randomizer<P::Paillier>,
+        rho: &Randomizer<P::Paillier>,
+        pk: &PublicKeyPaillier<P::Paillier>,
+        cap_x: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         assert_eq!(cap_x.public_key(), pk);
         assert_eq!(cap_y.public_key(), pk);
         assert_eq!(cap_c.public_key(), pk);
 
-        let alpha_mod = pk.random_invertible_group_elem(rng);
-        let r_mod = RandomizerMod::random(rng, pk);
-        let s_mod = RandomizerMod::random(rng, pk);
+        let alpha_mod = pk.random_invertible_residue(rng);
+        let r_mod = Randomizer::random(rng, pk);
+        let s_mod = Randomizer::random(rng, pk);
 
-        let alpha = Bounded::new(
-            alpha_mod.retrieve(),
-            <P::Paillier as PaillierParams>::MODULUS_BITS as u32,
-        )
-        .expect("the value is bounded by `MODULUS_BITS` by construction");
-        let r = r_mod.retrieve();
-        let s = s_mod.retrieve();
+        let alpha = Bounded::new(alpha_mod.retrieve(), <P::Paillier as PaillierParams>::MODULUS_BITS)
+            .expect("the value is bounded by `MODULUS_BITS` by construction");
+        let r = r_mod.to_wire();
+        let s = s_mod.to_wire();
 
-        let cap_a = (cap_y * alpha).mul_randomizer(&r).retrieve();
-        let cap_b = CiphertextMod::new_with_randomizer(pk, alpha.as_ref(), &s).retrieve();
+        let cap_a = (cap_y * alpha).mul_randomizer(&r).to_wire();
+        let cap_b = Ciphertext::new_with_randomizer(pk, alpha.as_ref(), &s).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_a)
             .chain(&cap_b)
             // public parameters
-            .chain(pk.as_minimal())
-            .chain(&cap_x.retrieve())
-            .chain(&cap_y.retrieve())
-            .chain(&cap_c.retrieve())
+            .chain(pk.as_wire())
+            .chain(&cap_x.to_wire())
+            .chain(&cap_y.to_wire())
+            .chain(&cap_c.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
@@ -90,8 +87,8 @@ impl<P: SchemeParams> MulProof<P> {
             .into_signed()
             .expect("conversion to `WideUint` provides enough space for a sign bit")
             + e.mul_wide(x);
-        let u = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
-        let v = (s_mod * rho_x.pow_signed_vartime(&e)).retrieve();
+        let u = (r_mod * rho.pow_signed_vartime(&e)).to_wire();
+        let v = (s_mod * rho_x.pow_signed_vartime(&e)).to_wire();
 
         Self {
             e,
@@ -105,10 +102,10 @@ impl<P: SchemeParams> MulProof<P> {
 
     pub fn verify(
         &self,
-        pk: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_x: &CiphertextMod<P::Paillier>,
-        cap_y: &CiphertextMod<P::Paillier>,
-        cap_c: &CiphertextMod<P::Paillier>,
+        pk: &PublicKeyPaillier<P::Paillier>,
+        cap_x: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         assert_eq!(cap_x.public_key(), pk);
@@ -120,10 +117,10 @@ impl<P: SchemeParams> MulProof<P> {
             .chain(&self.cap_a)
             .chain(&self.cap_b)
             // public parameters
-            .chain(pk.as_minimal())
-            .chain(&cap_x.retrieve())
-            .chain(&cap_y.retrieve())
-            .chain(&cap_c.retrieve())
+            .chain(pk.as_wire())
+            .chain(&cap_x.to_wire())
+            .chain(&cap_y.to_wire())
+            .chain(&cap_c.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
@@ -135,13 +132,13 @@ impl<P: SchemeParams> MulProof<P> {
         }
 
         // Y^z u^N = A * C^e \mod N^2
-        if cap_y.homomorphic_mul_wide(&self.z).mul_randomizer(&self.u) != self.cap_a.to_mod(pk) + cap_c * e {
+        if cap_y.homomorphic_mul_wide(&self.z).mul_randomizer(&self.u) != self.cap_a.to_precomputed(pk) + cap_c * e {
             return false;
         }
 
         // enc(z, v) == B * X^e \mod N^2
         // (Note: typo in the paper, it uses `c` and not `v` here)
-        if CiphertextMod::new_with_randomizer_wide(pk, &self.z, &self.v) != self.cap_b.to_mod(pk) + cap_x * e {
+        if Ciphertext::new_with_randomizer_wide(pk, &self.z, &self.v) != self.cap_b.to_precomputed(pk) + cap_x * e {
             return false;
         }
 
@@ -156,7 +153,7 @@ mod tests {
     use super::MulProof;
     use crate::{
         cggmp21::{SchemeParams, TestParams},
-        paillier::{CiphertextMod, RandomizerMod, SecretKeyPaillier},
+        paillier::{Ciphertext, Randomizer, SecretKeyPaillierWire},
         uint::Signed,
     };
 
@@ -165,19 +162,19 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk = SecretKeyPaillierWire::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
 
         let aux: &[u8] = b"abcde";
 
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let y = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let rho_x = RandomizerMod::random(&mut OsRng, pk);
-        let rho = RandomizerMod::random(&mut OsRng, pk);
+        let rho_x = Randomizer::random(&mut OsRng, pk);
+        let rho = Randomizer::random(&mut OsRng, pk);
 
-        let cap_x = CiphertextMod::new_with_randomizer_signed(pk, &x, &rho_x.retrieve());
-        let cap_y = CiphertextMod::new_signed(&mut OsRng, pk, &y);
-        let cap_c = (&cap_y * x).mul_randomizer(&rho.retrieve());
+        let cap_x = Ciphertext::new_with_randomizer_signed(pk, &x, &rho_x.to_wire());
+        let cap_y = Ciphertext::new_signed(&mut OsRng, pk, &y);
+        let cap_c = (&cap_y * x).mul_randomizer(&rho.to_wire());
 
         let proof = MulProof::<Params>::new(&mut OsRng, &x, &rho_x, &rho, pk, &cap_x, &cap_y, &cap_c, &aux);
         assert!(proof.verify(pk, &cap_x, &cap_y, &cap_c, &aux));

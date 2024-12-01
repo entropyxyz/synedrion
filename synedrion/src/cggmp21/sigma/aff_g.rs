@@ -8,8 +8,8 @@ use super::super::SchemeParams;
 use crate::{
     curve::Point,
     paillier::{
-        Ciphertext, CiphertextMod, PaillierParams, PublicKeyPaillierPrecomputed, RPCommitment, RPParamsMod, Randomizer,
-        RandomizerMod,
+        Ciphertext, CiphertextWire, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, Randomizer,
+        RandomizerWire,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::Signed,
@@ -42,19 +42,19 @@ Public inputs:
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
     e: Signed<<P::Paillier as PaillierParams>::Uint>,
-    cap_a: Ciphertext<P::Paillier>,
+    cap_a: CiphertextWire<P::Paillier>,
     cap_b_x: Point,
-    cap_b_y: Ciphertext<P::Paillier>,
-    cap_e: RPCommitment<P::Paillier>,
-    cap_s: RPCommitment<P::Paillier>,
-    cap_f: RPCommitment<P::Paillier>,
-    cap_t: RPCommitment<P::Paillier>,
+    cap_b_y: CiphertextWire<P::Paillier>,
+    cap_e: RPCommitmentWire<P::Paillier>,
+    cap_s: RPCommitmentWire<P::Paillier>,
+    cap_f: RPCommitmentWire<P::Paillier>,
+    cap_t: RPCommitmentWire<P::Paillier>,
     z1: Signed<<P::Paillier as PaillierParams>::Uint>,
     z2: Signed<<P::Paillier as PaillierParams>::Uint>,
     z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
     z4: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    omega: Randomizer<P::Paillier>,
-    omega_y: Randomizer<P::Paillier>,
+    omega: RandomizerWire<P::Paillier>,
+    omega_y: RandomizerWire<P::Paillier>,
 }
 
 impl<P: SchemeParams> AffGProof<P> {
@@ -63,15 +63,15 @@ impl<P: SchemeParams> AffGProof<P> {
         rng: &mut impl CryptoRngCore,
         x: &Signed<<P::Paillier as PaillierParams>::Uint>,
         y: &SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
-        rho: RandomizerMod<P::Paillier>,
-        rho_y: RandomizerMod<P::Paillier>,
-        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &CiphertextMod<P::Paillier>,
-        cap_d: &CiphertextMod<P::Paillier>,
-        cap_y: &CiphertextMod<P::Paillier>,
+        rho: Randomizer<P::Paillier>,
+        rho_y: Randomizer<P::Paillier>,
+        pk0: &PublicKeyPaillier<P::Paillier>,
+        pk1: &PublicKeyPaillier<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        cap_d: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
         cap_x: &Point,
-        setup: &RPParamsMod<P::Paillier>,
+        setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
         x.assert_bound(P::L_BOUND);
@@ -80,31 +80,30 @@ impl<P: SchemeParams> AffGProof<P> {
         assert!(cap_d.public_key() == pk0);
         assert!(cap_y.public_key() == pk1);
 
-        let hat_cap_n = &setup.public_key().modulus_bounded();
+        let hat_cap_n = &setup.modulus_bounded();
 
         let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
         let beta = Signed::random_bounded_bits(rng, P::LP_BOUND + P::EPS_BOUND);
 
-        let r_mod = RandomizerMod::random(rng, pk0);
-        let r_y_mod = RandomizerMod::random(rng, pk1);
+        let r_mod = Randomizer::random(rng, pk0);
+        let r_y_mod = Randomizer::random(rng, pk1);
 
         let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let m = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
         let delta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        let cap_a =
-            (cap_c * alpha + CiphertextMod::new_with_randomizer_signed(pk0, &beta, &r_mod.retrieve())).retrieve();
+        let cap_a = (cap_c * alpha + Ciphertext::new_with_randomizer_signed(pk0, &beta, &r_mod.to_wire())).to_wire();
         let cap_b_x = P::scalar_from_signed(&alpha).mul_by_generator();
-        let cap_b_y = CiphertextMod::new_with_randomizer_signed(pk1, &beta, &r_y_mod.retrieve()).retrieve();
-        let cap_e = setup.commit(&alpha, &gamma).retrieve();
-        let cap_s = setup.commit(x, &m).retrieve();
-        let cap_f = setup.commit(&beta, &delta).retrieve();
+        let cap_b_y = Ciphertext::new_with_randomizer_signed(pk1, &beta, &r_y_mod.to_wire()).to_wire();
+        let cap_e = setup.commit(&alpha, &gamma).to_wire();
+        let cap_s = setup.commit(x, &m).to_wire();
+        let cap_f = setup.commit(&beta, &delta).to_wire();
 
         // NOTE: deviation from the paper to support a different $D$
         // (see the comment in `AffGProof`)
         // Original: $s^y$. Modified: $s^{-y}$
-        let cap_t = setup.commit(&(-y.expose_secret()), &mu).retrieve();
+        let cap_t = setup.commit(&(-y.expose_secret()), &mu).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -116,13 +115,13 @@ impl<P: SchemeParams> AffGProof<P> {
             .chain(&cap_s)
             .chain(&cap_t)
             // public parameters
-            .chain(pk0.as_minimal())
-            .chain(pk1.as_minimal())
-            .chain(&cap_c.retrieve())
-            .chain(&cap_d.retrieve())
-            .chain(&cap_y.retrieve())
+            .chain(pk0.as_wire())
+            .chain(pk1.as_wire())
+            .chain(&cap_c.to_wire())
+            .chain(&cap_d.to_wire())
+            .chain(&cap_y.to_wire())
             .chain(cap_x)
-            .chain(&setup.retrieve())
+            .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
@@ -141,12 +140,12 @@ impl<P: SchemeParams> AffGProof<P> {
         let z3 = gamma + e_wide * m;
         let z4 = delta + e_wide * mu;
 
-        let omega = (r_mod * rho.pow_signed_vartime(&e)).retrieve();
+        let omega = (r_mod * rho.pow_signed_vartime(&e)).to_wire();
 
         // NOTE: deviation from the paper to support a different $D$
         // (see the comment in `AffGProof`)
         // Original: $\rho_y^e$. Modified: $\rho_y^{-e}$.
-        let omega_y = (r_y_mod * rho_y.pow_signed_vartime(&-e)).retrieve();
+        let omega_y = (r_y_mod * rho_y.pow_signed_vartime(&-e)).to_wire();
 
         Self {
             e,
@@ -169,13 +168,13 @@ impl<P: SchemeParams> AffGProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        pk0: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        pk1: &PublicKeyPaillierPrecomputed<P::Paillier>,
-        cap_c: &CiphertextMod<P::Paillier>,
-        cap_d: &CiphertextMod<P::Paillier>,
-        cap_y: &CiphertextMod<P::Paillier>,
+        pk0: &PublicKeyPaillier<P::Paillier>,
+        pk1: &PublicKeyPaillier<P::Paillier>,
+        cap_c: &Ciphertext<P::Paillier>,
+        cap_d: &Ciphertext<P::Paillier>,
+        cap_y: &Ciphertext<P::Paillier>,
         cap_x: &Point,
-        setup: &RPParamsMod<P::Paillier>,
+        setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
         assert!(cap_c.public_key() == pk0);
@@ -192,13 +191,13 @@ impl<P: SchemeParams> AffGProof<P> {
             .chain(&self.cap_s)
             .chain(&self.cap_t)
             // public parameters
-            .chain(pk0.as_minimal())
-            .chain(pk1.as_minimal())
-            .chain(&cap_c.retrieve())
-            .chain(&cap_d.retrieve())
-            .chain(&cap_y.retrieve())
+            .chain(pk0.as_wire())
+            .chain(pk1.as_wire())
+            .chain(&cap_c.to_wire())
+            .chain(&cap_d.to_wire())
+            .chain(&cap_y.to_wire())
             .chain(cap_x)
-            .chain(&setup.retrieve())
+            .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
@@ -208,8 +207,6 @@ impl<P: SchemeParams> AffGProof<P> {
         if e != self.e {
             return false;
         }
-
-        let aux_pk = setup.public_key();
 
         // Range checks
 
@@ -223,8 +220,8 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
-        if cap_c * self.z1 + CiphertextMod::new_with_randomizer_signed(pk0, &self.z2, &self.omega)
-            != cap_d * e + self.cap_a.to_mod(pk0)
+        if cap_c * self.z1 + Ciphertext::new_with_randomizer_signed(pk0, &self.z2, &self.omega)
+            != cap_d * e + self.cap_a.to_precomputed(pk0)
         {
             return false;
         }
@@ -239,22 +236,22 @@ impl<P: SchemeParams> AffGProof<P> {
         // Original: `Y^e`. Modified `Y^{-e}`.
         // (1 + N_1)^{z_2} \omega_y^{N_1} = B_y Y^(-e) \mod N_1^2
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
-        if CiphertextMod::new_with_randomizer_signed(pk1, &self.z2, &self.omega_y)
-            != cap_y * (-e) + self.cap_b_y.to_mod(pk1)
+        if Ciphertext::new_with_randomizer_signed(pk1, &self.z2, &self.omega_y)
+            != cap_y * (-e) + self.cap_b_y.to_precomputed(pk1)
         {
             return false;
         }
 
         // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
-        let cap_e_mod = self.cap_e.to_mod(aux_pk);
-        let cap_s_mod = self.cap_s.to_mod(aux_pk);
+        let cap_e_mod = self.cap_e.to_precomputed(setup);
+        let cap_s_mod = self.cap_s.to_precomputed(setup);
         if setup.commit(&self.z1, &self.z3) != &cap_e_mod * &cap_s_mod.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
-        let cap_f_mod = self.cap_f.to_mod(aux_pk);
-        let cap_t_mod = self.cap_t.to_mod(aux_pk);
+        let cap_f_mod = self.cap_f.to_precomputed(setup);
+        let cap_t_mod = self.cap_t.to_precomputed(setup);
         if setup.commit(&self.z2, &self.z4) != &cap_f_mod * &cap_t_mod.pow_signed_vartime(&e) {
             return false;
         }
@@ -271,7 +268,7 @@ mod tests {
     use super::AffGProof;
     use crate::{
         cggmp21::{SchemeParams, TestParams},
-        paillier::{CiphertextMod, RPParamsMod, RandomizerMod, SecretKeyPaillier},
+        paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
         uint::Signed,
     };
 
@@ -280,32 +277,31 @@ mod tests {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
 
-        let sk0 = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk0 = SecretKeyPaillierWire::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk0 = sk0.public_key();
 
-        let sk1 = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
+        let sk1 = SecretKeyPaillierWire::<Paillier>::random(&mut OsRng).into_precomputed();
         let pk1 = sk1.public_key();
 
-        let aux_sk = SecretKeyPaillier::<Paillier>::random(&mut OsRng).to_precomputed();
-        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let rp_params = RPParams::random(&mut OsRng);
 
         let aux: &[u8] = b"abcde";
 
         let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
         let y = SecretBox::new(Box::new(Signed::random_bounded_bits(&mut OsRng, Params::LP_BOUND)));
 
-        let rho = RandomizerMod::random(&mut OsRng, pk0);
-        let rho_y = RandomizerMod::random(&mut OsRng, pk1);
+        let rho = Randomizer::random(&mut OsRng, pk0);
+        let rho_y = Randomizer::random(&mut OsRng, pk1);
         let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
-        let cap_c = CiphertextMod::new_signed(&mut OsRng, pk0, &secret);
+        let cap_c = Ciphertext::new_signed(&mut OsRng, pk0, &secret);
 
-        let cap_d = &cap_c * x + CiphertextMod::new_with_randomizer_signed(pk0, &-y.expose_secret(), &rho.retrieve());
-        let cap_y = CiphertextMod::new_with_randomizer_signed(pk1, y.expose_secret(), &rho_y.retrieve());
+        let cap_d = &cap_c * x + Ciphertext::new_with_randomizer_signed(pk0, &-y.expose_secret(), &rho.to_wire());
+        let cap_y = Ciphertext::new_with_randomizer_signed(pk1, y.expose_secret(), &rho_y.to_wire());
         let cap_x = Params::scalar_from_signed(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(
-            &mut OsRng, &x, &y, rho, rho_y, pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux,
+            &mut OsRng, &x, &y, rho, rho_y, pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &rp_params, &aux,
         );
-        assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &setup, &aux));
+        assert!(proof.verify(pk0, pk1, &cap_c, &cap_d, &cap_y, &cap_x, &rp_params, &aux));
     }
 }

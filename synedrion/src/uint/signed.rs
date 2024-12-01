@@ -100,11 +100,6 @@ where
         self.bound
     }
 
-    pub fn bound_usize(&self) -> usize {
-        // Extracted into a method to localize the conversion
-        self.bound as usize
-    }
-
     /// Creates a signed value from an unsigned one,
     /// assuming that it encodes a positive value.
     pub fn new_positive(value: T, bound: u32) -> Option<Self> {
@@ -158,10 +153,10 @@ where
 
     // Asserts that the value lies in the interval `[-2^bound, 2^bound]`.
     // Panics if it is not the case.
-    pub fn assert_bound(self, bound: usize) {
+    pub fn assert_bound(self, bound: u32) {
         assert!(
             T::one()
-                .overflowing_shl_vartime(bound as u32)
+                .overflowing_shl_vartime(bound)
                 .map(|b| self.abs() <= b)
                 .expect("Out of bounds"),
             "Out of bounds"
@@ -199,18 +194,18 @@ where
     // Asserts that the value has bound less or equal to `bound`
     // (or, in other words, the value lies in the interval `(-(2^bound-1), 2^bound-1)`).
     // Returns the value with the bound set to `bound`.
-    pub fn assert_bit_bound_usize(self, bound: usize) -> Option<Self> {
-        if self.abs().bits_vartime() <= bound as u32 {
+    pub fn assert_bit_bound(self, bound: u32) -> Option<Self> {
+        if self.abs().bits_vartime() <= bound {
             Some(Self {
                 value: self.value,
-                bound: bound as u32,
+                bound,
             })
         } else {
             None
         }
     }
     /// Returns `true` if the value is within `[-2^bound_bits, 2^bound_bits]`.
-    pub fn in_range_bits(&self, bound_bits: usize) -> bool {
+    pub fn in_range_bits(&self, bound_bits: u32) -> bool {
         self.abs() <= T::one() << bound_bits
     }
 
@@ -273,9 +268,9 @@ where
     /// Returns a random value in range `[-2^bound_bits, 2^bound_bits]`.
     ///
     /// Note: variable time in `bound_bits`.
-    pub fn random_bounded_bits(rng: &mut impl CryptoRngCore, bound_bits: usize) -> Self {
+    pub fn random_bounded_bits(rng: &mut impl CryptoRngCore, bound_bits: u32) -> Self {
         assert!(
-            bound_bits < (T::BITS - 1) as usize,
+            bound_bits < T::BITS - 1,
             "Out of bounds: bound_bits was {} but must be smaller than {}",
             bound_bits,
             T::BITS - 1
@@ -366,10 +361,9 @@ where
     /// Note: variable time in `bound_bits` and bit size of `scale`.
     pub fn random_bounded_bits_scaled(
         rng: &mut impl CryptoRngCore,
-        bound_bits: usize,
+        bound_bits: u32,
         scale: &Bounded<T>,
     ) -> Signed<T::Wide> {
-        let bound_bits = u32::try_from(bound_bits).expect("Assumed to fit in a u32; caller beware");
         assert!(
             bound_bits < T::BITS - 1,
             "Out of bounds: bound_bits was {} but must be smaller than {}",
@@ -445,10 +439,9 @@ where
     /// Note: variable time in `bound_bits` and `scale`.
     pub fn random_bounded_bits_scaled_wide(
         rng: &mut impl CryptoRngCore,
-        bound_bits: usize,
+        bound_bits: u32,
         scale: &Bounded<T::Wide>,
     ) -> Signed<<T::Wide as HasWide>::Wide> {
-        let bound_bits = u32::try_from(bound_bits).expect("Assumed to fit in a u32; caller beware");
         assert!(
             bound_bits < T::BITS - 1,
             "Out of bounds: bound_bits was {} but must be smaller than {}",
@@ -747,9 +740,9 @@ mod tests {
     fn random_bounded_bits_is_sane() {
         let mut rng = ChaCha8Rng::seed_from_u64(SEED);
         for bound_bits in 1..U1024::BITS - 1 {
-            let signed: Signed<U1024> = Signed::random_bounded_bits(&mut rng, bound_bits as usize);
+            let signed: Signed<U1024> = Signed::random_bounded_bits(&mut rng, bound_bits);
             assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound_bits));
-            signed.assert_bound(bound_bits as usize);
+            signed.assert_bound(bound_bits);
         }
     }
 
@@ -760,7 +753,7 @@ mod tests {
         let value = U1024::from_u8(3);
         let signed = Signed::new_from_unsigned(value, bound).unwrap();
         assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        signed.assert_bound(bound as usize);
+        signed.assert_bound(bound);
         // 4 is too big
         let value = U1024::from_u8(4);
         let signed = Signed::new_from_unsigned(value, bound);
@@ -771,7 +764,7 @@ mod tests {
         let value = U1024::from_u8(1);
         let signed = Signed::new_from_unsigned(value, bound).unwrap();
         assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        signed.assert_bound(bound as usize);
+        signed.assert_bound(bound);
         // 2 is too big
         let value = U1024::from_u8(2);
         let signed = Signed::new_from_unsigned(value, bound);
@@ -782,7 +775,7 @@ mod tests {
         let value = U1024::from_u8(0);
         let signed = Signed::new_from_unsigned(value, bound).unwrap();
         assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        signed.assert_bound(bound as usize);
+        signed.assert_bound(bound);
         // 1 is too big
         let value = U1024::from_u8(1);
         let signed = Signed::new_from_unsigned(value, bound);

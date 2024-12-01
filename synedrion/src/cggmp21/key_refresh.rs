@@ -29,8 +29,8 @@ use super::{
 use crate::{
     curve::{Point, Scalar},
     paillier::{
-        Ciphertext, CiphertextMod, PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod, RPSecret,
-        Randomizer, SecretKeyPaillier, SecretKeyPaillierPrecomputed,
+        Ciphertext, CiphertextWire, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret,
+        RandomizerWire, SecretKeyPaillier, SecretKeyPaillierWire,
     },
     tools::{
         bitvec::BitVec,
@@ -69,9 +69,9 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
     // TODO (#43): this can be removed when error verification is added
     #[allow(dead_code)]
     Round3MismatchedSecret {
-        cap_c: Ciphertext<P::Paillier>,
+        cap_c: CiphertextWire<P::Paillier>,
         x: Scalar,
-        mu: Randomizer<P::Paillier>,
+        mu: RandomizerWire<P::Paillier>,
     },
 }
 
@@ -155,7 +155,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
             .finalize();
 
         // $p_i$, $q_i$
-        let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
+        let paillier_sk = SecretKeyPaillierWire::<P::Paillier>::random(rng);
         // $N_i$
         let paillier_pk = paillier_sk.public_key();
 
@@ -178,12 +178,12 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
         // Public counterparts of secret share updates ($X_i^j$ where $i$ is this party's index).
         let cap_x_to_send = x_to_send.values().map(|x| x.mul_by_generator()).collect();
 
-        let lambda = RPSecret::random(rng, &paillier_sk);
+        let rp_secret = RPSecret::random(rng);
         // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
-        let rp_params = RPParamsMod::random_with_secret(rng, &lambda, paillier_pk);
+        let rp_params = RPParams::random_with_secret(rng, &rp_secret);
 
         let aux = (&sid_hash, id);
-        let hat_psi = PrmProof::<P>::new(rng, &paillier_sk, &lambda, &rp_params, &aux);
+        let hat_psi = PrmProof::<P>::new(rng, &rp_secret, &rp_params, &aux);
 
         // The secrets share changes ($\tau_j$, not to be confused with $\tau$)
         let tau_x = self
@@ -203,8 +203,8 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
             cap_a_to_send,
             cap_y,
             cap_b,
-            paillier_pk: paillier_pk.to_minimal(),
-            rp_params: rp_params.retrieve(),
+            paillier_pk: paillier_pk.clone(),
+            rp_params: rp_params.to_wire(),
             hat_psi,
             rho,
             u,
@@ -212,12 +212,12 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
 
         let data_precomp = PublicData1Precomp {
             data,
-            paillier_pk: paillier_pk.clone(),
+            paillier_pk: paillier_pk.into_precomputed(),
             rp_params,
         };
 
         let context = Context {
-            paillier_sk,
+            paillier_sk: paillier_sk.into_precomputed(),
             y,
             x_to_send,
             tau_x,
@@ -245,8 +245,8 @@ struct PublicData1<P: SchemeParams> {
     cap_a_to_send: Vec<SchCommitment>, // $A_i^j$ where $i$ is this party's index
     cap_y: Point,
     cap_b: SchCommitment,
-    paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
-    rp_params: RPParams<P::Paillier>,            // $s_i$ and $t_i$
+    paillier_pk: PublicKeyPaillierWire<P::Paillier>, // $N_i$
+    rp_params: RPParamsWire<P::Paillier>,            // $s_i$ and $t_i$
     hat_psi: PrmProof<P>,
     rho: BitVec,
     u: BitVec,
@@ -255,13 +255,13 @@ struct PublicData1<P: SchemeParams> {
 #[derive(Debug, Clone)]
 struct PublicData1Precomp<P: SchemeParams> {
     data: PublicData1<P>,
-    paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
-    rp_params: RPParamsMod<P::Paillier>,
+    paillier_pk: PublicKeyPaillier<P::Paillier>,
+    rp_params: RPParams<P::Paillier>,
 }
 
 #[derive(Debug)]
 struct Context<P: SchemeParams, I> {
-    paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
+    paillier_sk: SecretKeyPaillier<P::Paillier>,
     y: Scalar,
     x_to_send: BTreeMap<I, Scalar>, // $x_i^j$ where $i$ is this party's index
     tau_y: SchSecret,
@@ -437,7 +437,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             ))));
         }
 
-        let paillier_pk = normal_broadcast.data.paillier_pk.to_precomputed();
+        let paillier_pk = normal_broadcast.data.paillier_pk.clone().into_precomputed();
 
         if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
             return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round2(
@@ -453,7 +453,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let aux = (&self.context.sid_hash, &from);
 
-        let rp_params = normal_broadcast.data.rp_params.to_mod(&paillier_pk);
+        let rp_params = normal_broadcast.data.rp_params.to_precomputed();
         if !normal_broadcast.data.hat_psi.verify(&rp_params, &aux) {
             return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round2(
                 "PRM verification failed".into(),
@@ -507,19 +507,19 @@ struct Round3<P: SchemeParams, I> {
 #[serde(bound(serialize = "
     ModProof<P>: Serialize,
     FacProof<P>: Serialize,
-    Ciphertext<P::Paillier>: Serialize,
+    CiphertextWire<P::Paillier>: Serialize,
 "))]
 #[serde(bound(deserialize = "
     ModProof<P>: for<'x> Deserialize<'x>,
     FacProof<P>: for<'x> Deserialize<'x>,
-    Ciphertext<P::Paillier>: for<'x> Deserialize<'x>,
+    CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>,
 "))]
 struct PublicData2<P: SchemeParams> {
     psi_mod: ModProof<P>, // $\psi_i$, a P^{mod} for the Paillier modulus
     phi: FacProof<P>,
     pi: SchProof,
-    paillier_enc_x: Ciphertext<P::Paillier>, // `C_j,i`
-    psi_sch: SchProof,                       // $psi_i^j$, a P^{sch} for the secret share change
+    paillier_enc_x: CiphertextWire<P::Paillier>, // `C_j,i`
+    psi_sch: SchProof,                           // $psi_i^j$, a P^{sch} for the secret share change
 }
 
 impl<P: SchemeParams, I: PartyId> Round3<P, I> {
@@ -603,7 +603,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let x_secret = self.context.x_to_send[destination];
         let x_public = self.context.data_precomp.data.cap_x_to_send[destination_idx];
-        let ciphertext = CiphertextMod::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
+        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
 
         let psi_sch = SchProof::new(
             &self.context.tau_x[destination],
@@ -617,7 +617,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             psi_mod: self.psi_mod.clone(),
             phi,
             pi: self.pi.clone(),
-            paillier_enc_x: ciphertext.retrieve(),
+            paillier_enc_x: ciphertext.to_wire(),
             psi_sch,
         };
 
@@ -646,7 +646,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         let enc_x = direct_message
             .data2
             .paillier_enc_x
-            .to_mod(self.context.paillier_sk.public_key());
+            .to_precomputed(&self.context.data_precomp.paillier_pk);
 
         let x = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
 
@@ -658,7 +658,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                 KeyRefreshErrorEnum::Round3MismatchedSecret {
                     cap_c: direct_message.data2.paillier_enc_x,
                     x,
-                    mu: mu.retrieve(),
+                    mu: mu.to_wire(),
                 },
             )));
         }
@@ -745,15 +745,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                     id,
                     PublicAuxInfo {
                         el_gamal_pk: data.data.cap_y,
-                        paillier_pk: data.paillier_pk.to_minimal(),
-                        rp_params: data.rp_params.retrieve(),
+                        paillier_pk: data.paillier_pk.into_wire(),
+                        rp_params: data.rp_params.to_wire(),
                     },
                 )
             })
             .collect();
 
         let secret_aux = SecretAuxInfo {
-            paillier_sk: self.context.paillier_sk.to_minimal(),
+            paillier_sk: self.context.paillier_sk.into_wire(),
             el_gamal_sk: SecretBox::new(Box::new(self.context.y)),
         };
 

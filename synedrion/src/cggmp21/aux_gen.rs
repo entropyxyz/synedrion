@@ -28,8 +28,8 @@ use super::{
 use crate::{
     curve::{Point, Scalar},
     paillier::{
-        PublicKeyPaillier, PublicKeyPaillierPrecomputed, RPParams, RPParamsMod, RPSecret, SecretKeyPaillier,
-        SecretKeyPaillierPrecomputed,
+        PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillier,
+        SecretKeyPaillierWire,
     },
     tools::{
         bitvec::BitVec,
@@ -133,7 +133,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
             .finalize();
 
         // $p_i$, $q_i$
-        let paillier_sk = SecretKeyPaillier::<P::Paillier>::random(rng).to_precomputed();
+        let paillier_sk = SecretKeyPaillierWire::<P::Paillier>::random(rng);
         // $N_i$
         let paillier_pk = paillier_sk.public_key();
 
@@ -145,12 +145,12 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
         let tau_y = SchSecret::random(rng); // $\tau$
         let cap_b = SchCommitment::new(&tau_y);
 
-        let lambda = RPSecret::random(rng, &paillier_sk);
+        let rp_secret = RPSecret::random(rng);
         // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
-        let rp_params = RPParamsMod::random_with_secret(rng, &lambda, paillier_pk);
+        let rp_params = RPParams::random_with_secret(rng, &rp_secret);
 
         let aux = (&sid_hash, id);
-        let hat_psi = PrmProof::<P>::new(rng, &paillier_sk, &lambda, &rp_params, &aux);
+        let hat_psi = PrmProof::<P>::new(rng, &rp_secret, &rp_params, &aux);
 
         let rho = BitVec::random(rng, P::SECURITY_PARAMETER);
         let u = BitVec::random(rng, P::SECURITY_PARAMETER);
@@ -158,8 +158,8 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
         let data = PublicData1 {
             cap_y,
             cap_b,
-            paillier_pk: paillier_pk.to_minimal(),
-            rp_params: rp_params.retrieve(),
+            paillier_pk: paillier_pk.clone(),
+            rp_params: rp_params.to_wire(),
             hat_psi,
             rho,
             u,
@@ -167,12 +167,12 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
 
         let data_precomp = PublicData1Precomp {
             data,
-            paillier_pk: paillier_pk.clone(),
+            paillier_pk: paillier_pk.into_precomputed(),
             rp_params,
         };
 
         let context = Context {
-            paillier_sk,
+            paillier_sk: paillier_sk.into_precomputed(),
             y,
             tau_y,
             data_precomp,
@@ -191,8 +191,8 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
 struct PublicData1<P: SchemeParams> {
     cap_y: Point,
     cap_b: SchCommitment,
-    paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
-    rp_params: RPParams<P::Paillier>,            // $s_i$ and $t_i$
+    paillier_pk: PublicKeyPaillierWire<P::Paillier>, // $N_i$
+    rp_params: RPParamsWire<P::Paillier>,            // $s_i$ and $t_i$
     hat_psi: PrmProof<P>,
     rho: BitVec,
     u: BitVec,
@@ -201,13 +201,13 @@ struct PublicData1<P: SchemeParams> {
 #[derive(Debug, Clone)]
 struct PublicData1Precomp<P: SchemeParams> {
     data: PublicData1<P>,
-    paillier_pk: PublicKeyPaillierPrecomputed<P::Paillier>,
-    rp_params: RPParamsMod<P::Paillier>,
+    paillier_pk: PublicKeyPaillier<P::Paillier>,
+    rp_params: RPParams<P::Paillier>,
 }
 
 #[derive(Debug)]
 struct Context<P: SchemeParams, I> {
-    paillier_sk: SecretKeyPaillierPrecomputed<P::Paillier>,
+    paillier_sk: SecretKeyPaillier<P::Paillier>,
     y: Scalar,
     tau_y: SchSecret,
     data_precomp: PublicData1Precomp<P>,
@@ -380,7 +380,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             ))));
         }
 
-        let paillier_pk = normal_broadcast.data.paillier_pk.to_precomputed();
+        let paillier_pk = normal_broadcast.data.paillier_pk.clone().into_precomputed();
 
         if (paillier_pk.modulus().bits_vartime() as usize) < 8 * P::SECURITY_PARAMETER {
             return Err(ReceiveError::protocol(AuxGenError(AuxGenErrorEnum::Round2(
@@ -390,7 +390,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let aux = (&self.context.sid_hash, &from);
 
-        let rp_params = normal_broadcast.data.rp_params.to_mod(&paillier_pk);
+        let rp_params = normal_broadcast.data.rp_params.to_precomputed();
         if !normal_broadcast.data.hat_psi.verify(&rp_params, &aux) {
             return Err(ReceiveError::protocol(AuxGenError(AuxGenErrorEnum::Round2(
                 "PRM verification failed".into(),
@@ -604,15 +604,15 @@ impl<P: SchemeParams, I: PartyId + Serialize> Round<I> for Round3<P, I> {
                     id,
                     PublicAuxInfo {
                         el_gamal_pk: data.data.cap_y,
-                        paillier_pk: data.paillier_pk.to_minimal(),
-                        rp_params: data.rp_params.retrieve(),
+                        paillier_pk: data.paillier_pk.into_wire(),
+                        rp_params: data.rp_params.to_wire(),
                     },
                 )
             })
             .collect();
 
         let secret_aux = SecretAuxInfo {
-            paillier_sk: self.context.paillier_sk.to_minimal(),
+            paillier_sk: self.context.paillier_sk.into_wire(),
             el_gamal_sk: SecretBox::new(Box::new(self.context.y)),
         };
 
