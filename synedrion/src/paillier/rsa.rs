@@ -1,4 +1,4 @@
-use crypto_bigint::{CheckedSub, Integer, Invert, Monty, NonZero, Odd, RandomMod, Square};
+use crypto_bigint::{CheckedSub, Gcd, Integer, Monty, NonZero, Odd, RandomMod, Square};
 use crypto_primes::RandomPrimeWithRng;
 use rand_core::CryptoRngCore;
 use secrecy::{ExposeSecret, SecretBox};
@@ -268,9 +268,8 @@ impl<P: PaillierParams> PublicModulus<P> {
         let modulus = self.modulus_nonzero();
         loop {
             let r = P::Uint::random_mod(rng, &modulus);
-            let r_m = P::UintMod::new(r, self.monty_params_mod_n.clone());
-            if r_m.invert().is_some().into() {
-                return r_m;
+            if r.gcd(&self.modulus.0) == P::Uint::one() {
+                return P::UintMod::new(r, self.monty_params_mod_n.clone());
             }
         }
     }

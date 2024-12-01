@@ -1,7 +1,7 @@
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, CtOption},
-    Bounded, Encoding, Integer, InvMod, Invert, Monty, RandomMod,
+    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     /// An integer that fits the RSA modulus.
     type Uint: Integer<Monty = Self::UintMod>
         + Bounded
+        + Gcd<Output = Self::Uint>
         + ConditionallySelectable
         + Encoding
         + Hashable
