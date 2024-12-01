@@ -43,8 +43,8 @@ impl<P: PaillierParams> RPSecret<P> {
         &self.lambda
     }
 
-    pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
-        self.primes.random_field_elem(rng)
+    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
+        self.primes.random_residue_mod_totient(rng)
     }
 
     pub fn totient_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
@@ -74,7 +74,7 @@ impl<P: PaillierParams> RPParams<P> {
     pub fn random_with_secret(rng: &mut impl CryptoRngCore, secret: &RPSecret<P>) -> Self {
         let modulus = secret.primes.modulus_wire().into_precomputed();
 
-        let base = modulus.random_square_group_elem(rng); // $t$
+        let base = modulus.random_quadratic_residue(rng); // $t$
         let power = base.pow_bounded(secret.lambda.expose_secret()); // $s$
 
         Self { modulus, base, power }

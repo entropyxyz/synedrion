@@ -264,7 +264,7 @@ where
     /// Returns a random $w \in [0, N)$ such that $w$ is not a square modulo $N$,
     /// where $N$ is the public key
     /// (or, equivalently, such that the Jacobi symbol $(w|N) = -1$).
-    pub fn random_nonsquare_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
+    pub fn random_nonsquare_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
         /*
         (The sampling method and the explanation by Thomas Pornin)
 
@@ -284,7 +284,7 @@ where
         which we get by selecting $y$ uniformly from $\mathbb{Z}_N^*$ and taking $x = y^2 \mod N$.
         After that, we select uniformly between $u x$ and $-u x$.
         */
-        let y = self.public_key.modulus.random_square_group_elem(rng);
+        let y = self.public_key.modulus.random_quadratic_residue(rng);
         let b = Choice::from(rng.next_u32() as u8 & 1);
         let w = y * self.nonsquare_sampling_constant.expose_secret();
         P::UintMod::conditional_select(&w, &-w, b).retrieve()
@@ -371,8 +371,8 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
 
     /// Finds an invertible group element via rejection sampling. Returns the
     /// element in Montgomery form.
-    pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
-        self.modulus.random_invertible_group_elem(rng)
+    pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
+        self.modulus.random_invertible_residue(rng)
     }
 }
 

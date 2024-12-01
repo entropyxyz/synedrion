@@ -55,7 +55,7 @@ impl<P: SchemeParams> MulProof<P> {
         assert_eq!(cap_y.public_key(), pk);
         assert_eq!(cap_c.public_key(), pk);
 
-        let alpha_mod = pk.random_invertible_group_elem(rng);
+        let alpha_mod = pk.random_invertible_residue(rng);
         let r_mod = Randomizer::random(rng, pk);
         let s_mod = Randomizer::random(rng, pk);
 

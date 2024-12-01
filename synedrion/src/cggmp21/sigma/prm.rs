@@ -29,7 +29,7 @@ struct PrmSecret<P: SchemeParams>(Vec<Bounded<<P::Paillier as PaillierParams>::U
 impl<P: SchemeParams> PrmSecret<P> {
     fn random(rng: &mut impl CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
         let secret = (0..P::SECURITY_PARAMETER)
-            .map(|_| secret.random_field_elem(rng))
+            .map(|_| secret.random_residue_mod_totient(rng))
             .collect();
         Self(secret)
     }

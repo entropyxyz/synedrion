@@ -188,7 +188,7 @@ impl<P: PaillierParams> SecretPrimes<P> {
     }
 
     /// Returns a random in range `[0, \phi(N))`.
-    pub fn random_field_elem(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
+    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
         Bounded::new(
             P::Uint::random_mod(rng, self.totient_nonzero().expose_secret()),
             P::MODULUS_BITS,
@@ -264,7 +264,7 @@ impl<P: PaillierParams> PublicModulus<P> {
     }
 
     /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
-    pub fn random_invertible_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
+    pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
         let modulus = self.modulus_nonzero();
         loop {
             let r = P::Uint::random_mod(rng, &modulus);
@@ -276,7 +276,7 @@ impl<P: PaillierParams> PublicModulus<P> {
     }
 
     /// Returns a uniformly chosen quadratic residue modulo $N$, in Montgomery form.
-    pub fn random_square_group_elem(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
-        self.random_invertible_group_elem(rng).square()
+    pub fn random_quadratic_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
+        self.random_invertible_residue(rng).square()
     }
 }

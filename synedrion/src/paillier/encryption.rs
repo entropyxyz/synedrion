@@ -37,7 +37,7 @@ pub(crate) struct Randomizer<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> Randomizer<P> {
     pub fn random(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillier<P>) -> Self {
-        Self(pk.random_invertible_group_elem(rng))
+        Self(pk.random_invertible_residue(rng))
     }
 
     pub fn to_wire(&self) -> RandomizerWire<P> {

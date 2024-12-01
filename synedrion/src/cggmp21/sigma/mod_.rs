@@ -21,7 +21,7 @@ struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 
 impl<P: SchemeParams> ModCommitment<P> {
     fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>) -> Self {
-        Self(sk.random_nonsquare_group_elem(rng))
+        Self(sk.random_nonsquare_residue(rng))
     }
 }
 
