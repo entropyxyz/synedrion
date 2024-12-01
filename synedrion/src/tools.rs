@@ -3,9 +3,11 @@ use alloc::collections::{BTreeMap, BTreeSet};
 pub(crate) mod bitvec;
 pub(crate) mod hashing;
 mod hide_debug;
+mod secret;
 pub(crate) mod sss;
 
-pub(crate) use hide_debug::{HideDebug, Secret};
+pub(crate) use hide_debug::HideDebug;
+pub(crate) use secret::Secret;
 
 use manul::protocol::{Artifact, LocalError, Payload};
 
