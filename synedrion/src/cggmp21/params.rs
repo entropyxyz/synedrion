@@ -110,13 +110,13 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     /// The order of the curve as a wide integer.
     const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint>;
     /// The scheme's statistical security parameter.
-    const SECURITY_PARAMETER: usize; // $\kappa$
+    const SECURITY_PARAMETER: usize; // $\kappa$ (κ)
     /// The bound for secret values.
-    const L_BOUND: usize; // $\ell$, paper sets it to $\log2(q)$ (see Table 2)
+    const L_BOUND: usize; // $\ell$ (ℓ), paper sets it to $\log2(q)$ (see Table 2, p. 69, Appendix D)
     /// The error bound for secret masks.
-    const LP_BOUND: usize; // $\ell^\prime$, in paper $= 5 \ell$ (see Table 2)
+    const LP_BOUND: usize; // $\ell^\prime$ (ℓ′), in paper $= 5 \ell$ (see Table 2, p. 69, Appendix D)
     /// The error bound for range checks (referred to in the paper as the slackness parameter).
-    const EPS_BOUND: usize; // $\eps$, in paper $= 2 \ell$ (see Table 2)
+    const EPS_BOUND: usize; // $\eps$ (ε), in paper $= 2 \ell$ (see Table 2, p. 69, Appendix D)
     /// The parameters of the Paillier encryption.
     ///
     /// Note: `PaillierParams::Uint` must be able to contain the full range of `Scalar` values

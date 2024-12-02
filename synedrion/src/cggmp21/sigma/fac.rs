@@ -3,7 +3,7 @@
 use rand_core::CryptoRngCore;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+use tracing::{debug, error, trace};
 
 use super::super::SchemeParams;
 use crate::{
@@ -44,29 +44,46 @@ impl<P: SchemeParams> FacProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
         sk0: &SecretKeyPaillierPrecomputed<P::Paillier>,
+        // Auxiliary safe bi-prime N_hat and Ring-Pedersen parameters s,t ∈ Z∗N_hat
         setup: &RPParamsMod<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
+        trace!(
+            "[FacProof, new] SchemeParams: CURVE_ORDER={:?}, PRIME_BITS={:?}, L_BOUND={:?}, EPS_BOUND={:?}",
+            P::CURVE_ORDER,
+            <P::Paillier as PaillierParams>::PRIME_BITS - 2,
+            P::L_BOUND,
+            P::EPS_BOUND
+        );
         let pk0 = sk0.public_key();
 
         let hat_cap_n = &setup.public_key().modulus_bounded(); // $\hat{N}$
 
         // NOTE: using `2^(Paillier::PRIME_BITS - 2)` as $\sqrt{N_0}$ (which is its lower bound)
         // According to the authors of the paper, it is acceptable.
-        // In the end of the day, we're proving that `p, q < sqrt{N_0} 2^\ell`,
+        // At the end of the day, we're proving that `p, q < sqrt{N_0} 2^\ell`,
         // and really they should be `~ sqrt{N_0}`.
-        // Note that it has to be matched when we check the range of
+        // Note that the same approximation must be used when we check the range of
         // `z1` and `z2` during verification.
         let sqrt_cap_n = Bounded::new(
             <P::Paillier as PaillierParams>::Uint::one() << (<P::Paillier as PaillierParams>::PRIME_BITS - 2),
             <P::Paillier as PaillierParams>::PRIME_BITS as u32,
         )
         .expect("the value is bounded by `2^PRIME_BITS` by construction");
+        // let mut zero = <P::Paillier as PaillierParams>::Uint::zero();
+        // zero.set_bit((<P::Paillier as PaillierParams>::PRIME_BITS - 2) as u32, 1.into());
+        // error!("zero={zero:?}");
+        // let sqrt_cap_n = Bounded::new(zero, <P::Paillier as PaillierParams>::PRIME_BITS as u32).unwrap();
+        // assert!(
+        //     sqrt_cap_n.value() != <<P::Paillier as PaillierParams>::Uint as Zero>::zero(),
+        //     "sqrt(N_0) should not be zero"
+        // );
 
         let alpha = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
         let beta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
         let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
         let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
+        trace!("[FacProof, new] hat_cap_n={hat_cap_n:?}, sqrt_cap_n={sqrt_cap_n:?}, alpha={alpha:?}, beta={beta:?}, mu={mu:?}, nu={nu:?}");
 
         // N_0 \hat{N}
         let scale = pk0.modulus_bounded().mul_wide(hat_cap_n);
@@ -80,6 +97,7 @@ impl<P: SchemeParams> FacProof<P> {
         );
         let x = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        trace!("[FacProof, new] hat_cap_n={hat_cap_n:?}, scale={scale:?}, sigma={sigma:?}, r={r:?}, x={x:?}, y={y:?}");
 
         let (p, q) = sk0.primes();
 
@@ -114,7 +132,7 @@ impl<P: SchemeParams> FacProof<P> {
         let omega1 = x + e_wide * mu;
         let omega2 = y + e_wide * nu;
         let v = r + (e_wide.into_wide() * hat_sigma);
-
+        trace!("[FacProof, new] e={e:?}, z1={z1:?}, z2={z2:?}, omega1={omega1:?}, omega2={omega2:?}, v={v:?}");
         Self {
             e,
             cap_p,
@@ -153,8 +171,14 @@ impl<P: SchemeParams> FacProof<P> {
 
         // Non-interactive challenge
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        trace!("[FacProof, verify] CURVE_ORDER={:?} (aka 'q')", P::CURVE_ORDER);
+        debug!("[FacProof, verify] challenge={e:?} (aka 'e')");
 
         if e != self.e {
+            error!(
+                "Challenge mismatch, e={e:?} is NOT equal to proof's challenge={:?}",
+                self.e
+            );
             return false;
         }
 
@@ -163,55 +187,80 @@ impl<P: SchemeParams> FacProof<P> {
         // R = s^{N_0} t^\sigma
         let cap_r = &setup.commit_xwide(&pk0.modulus_bounded().into(), &self.sigma);
 
-        // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
+        // Check 1/3: s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a_mod = self.cap_a.to_mod(aux_pk);
         let cap_p_mod = self.cap_p.to_mod(aux_pk);
         if setup.commit_wide(&self.z1, &self.omega1) != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e) {
+            error!("[FacProof, verify] Check 1 failed.");
             return false;
         }
+        trace!("[FacProof, verify] Check 1 Ok.");
 
-        // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
+        // Check 2/3: s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
         let cap_b_mod = self.cap_b.to_mod(aux_pk);
         let cap_q_mod = self.cap_q.to_mod(aux_pk);
         if setup.commit_wide(&self.z2, &self.omega2) != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e) {
+            error!("[FacProof, verify] Check 2 failed.");
             return false;
         }
+        trace!("[FacProof, verify] Check 2 Ok.");
 
-        // Q^{z_1} * t^v == T * R^e \mod \hat{N}
+        // Check 3/3: Q^{z_1} * t^v == T * R^e \mod \hat{N}
         let cap_t_mod = self.cap_t.to_mod(aux_pk);
         if &cap_q_mod.pow_signed_wide(&self.z1) * &setup.commit_base_xwide(&self.v)
             != &cap_t_mod * &cap_r.pow_signed_vartime(&e)
         {
+            error!("[FacProof, verify] Check 3 failed.");
             return false;
         }
-
+        trace!("[FacProof, verify] Check 3 Ok.");
         // NOTE: since when creating this proof we generated `alpha` and `beta`
         // using the approximation `sqrt(N_0) ~ 2^(PRIME_BITS - 2)`,
         // this is the bound we are using here as well.
 
+        let range_bits = P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2;
+        debug!(
+            "[FacProof, verify] range bound={range_bits:?}, L_BOUND={:?}, EPS_BOUND={:?}, PRIME_BITS-2={:?}",
+            P::L_BOUND,
+            P::EPS_BOUND,
+            <P::Paillier as PaillierParams>::PRIME_BITS - 2
+        );
         // z1 \in \pm \sqrt{N_0} 2^{\ell + \eps}
         if !self
             .z1
             .in_range_bits(P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2)
         {
+            error!(
+                "[FacProof, verify] z1 is NOT in range. z1={:?}, bound={:?}",
+                self.z1,
+                P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2
+            );
             return false;
         }
+        trace!("[FacProof, verify] z1 is in range. z1={:?}", self.z1);
 
         // z2 \in \pm \sqrt{N_0} 2^{\ell + \eps}
         if !self
             .z2
             .in_range_bits(P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2)
         {
+            error!(
+                "[FacProof, verify] z2 is NOT in range. z2={:?}, bound={:?}",
+                self.z2,
+                P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2
+            );
             return false;
         }
-
+        trace!("[FacProof, verify] z2 is in range. z2={:?}", self.z2);
         true
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use rand::SeedableRng;
     use rand_core::OsRng;
+    use tracing::trace;
 
     use super::FacProof;
     use crate::{
@@ -239,25 +288,32 @@ mod tests {
 
     #[test_log::test]
     fn malicious_prover_with_production_params() {
-        type SKP = SecretKeyPaillier<PaillierProduction>;
-        let sk = make_broken_paillier_key(&mut OsRng, 23);
+        type Skp = SecretKeyPaillier<PaillierProduction>;
+        let mut rng = rand_chacha::ChaCha8Rng::from_seed(*b"01234567890123456789012345678901");
+        let sk = make_broken_paillier_key(&mut rng, 23);
+        // trace!("[test] Have sk={sk:?}");
         let sk_precomp = sk.to_precomputed();
+        // trace!("[test] Have sk_precomp={sk_precomp:?}");
 
-        let aux_sk = SKP::random(&mut OsRng).to_precomputed();
-        let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
+        let aux_sk = Skp::random(&mut OsRng).to_precomputed();
+        // trace!("[test] Have aux_sk={aux_sk:?}");
+        let setup = RPParamsMod::random(&mut rng, &aux_sk);
+        // trace!("[test] Have setup={setup:?}");
         let aux: &[u8] = b"dontforgetthemilk";
 
-        let proof = FacProof::<ProductionParams>::new(&mut OsRng, &sk_precomp, &setup, &aux);
+        let proof = FacProof::<ProductionParams>::new(&mut rng, &sk_precomp, &setup, &aux);
+        trace!("[test] Have proof={proof:?}");
 
-        assert!(!proof.verify(sk_precomp.public_key(), &setup, &aux));
+        assert!(proof.verify(sk_precomp.public_key(), &setup, &aux));
+        trace!("[test] Done");
     }
     #[test_log::test]
     fn malicious_prover_with_test_params() {
-        type SKP = SecretKeyPaillier<PaillierTest2>;
+        type Skp = SecretKeyPaillier<PaillierTest2>;
         let sk = make_broken_paillier_key(&mut OsRng, 7);
         let sk_precomp = sk.to_precomputed();
 
-        let aux_sk = SKP::random(&mut OsRng).to_precomputed();
+        let aux_sk = Skp::random(&mut OsRng).to_precomputed();
         let setup = RPParamsMod::random(&mut OsRng, &aux_sk);
         let aux: &[u8] = b"dontforgetthemilk";
 

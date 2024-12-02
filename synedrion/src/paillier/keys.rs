@@ -153,6 +153,7 @@ impl<P: PaillierParams> SecretKeyPaillier<P> {
 pub(crate) struct SecretKeyPaillierPrecomputed<P: PaillierParams> {
     sk: SecretKeyPaillier<P>,
     totient: SecretBox<Bounded<P::Uint>>,
+    // TODO(dp): This should be a secret I'm pretty sure
     /// $\phi(N)^{-1} \mod N$
     inv_totient: P::UintMod,
     /// $N^{-1} \mod \phi(N)$
@@ -443,6 +444,10 @@ where
 
     let p = P::HalfUint::from(p);
     let q = P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS as u32);
+    tracing::debug!(
+        "[broken_paillier_key, {} bits] p={p:?}, q={q:?}",
+        <P::HalfUint as crypto_bigint::Bounded>::BITS
+    );
     SecretKeyPaillier {
         p: SecretBox::new(Box::new(p)),
         q: SecretBox::new(Box::new(q)),

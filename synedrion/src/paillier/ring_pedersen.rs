@@ -50,8 +50,9 @@ impl<P: PaillierParams> RPParamsMod<P> {
         pk: &PublicKeyPaillierPrecomputed<P>,
     ) -> Self {
         let r = pk.random_invertible_group_elem(rng);
-
+        // This is $t$ in the paper
         let base = r.square();
+        // This is $s$ in the paper
         let power = base.pow_bounded_exp(secret.0.as_ref(), secret.0.bound());
 
         Self {
