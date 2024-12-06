@@ -1,9 +1,11 @@
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
+    format,
     vec::Vec,
 };
 use core::{fmt::Debug, marker::PhantomData};
+use manul::session::LocalError;
 
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
 use k256::ecdsa::{SigningKey, VerifyingKey};
@@ -37,8 +39,11 @@ pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
 
 impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I> {
     /// Threshold share ID.
-    pub fn share_id(&self) -> ShareId {
-        self.share_ids[&self.owner]
+    pub fn share_id(&self) -> Result<&ShareId, LocalError> {
+        self.share_ids.get(&self.owner).ok_or(LocalError::new(format!(
+            "owner={:?} is missing in the share_ids",
+            self.owner
+        )))
     }
 
     /// The threshold.
@@ -66,24 +71,37 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
 
         let public_shares = share_ids
             .iter()
-            .map(|(id, share_id)| (id.clone(), secret_shares[share_id].mul_by_generator()))
-            .collect::<BTreeMap<_, _>>();
+            .map(|(id, share_id)| {
+                let secret_share = secret_shares
+                    .get(share_id)
+                    .ok_or(LocalError::new("share_id={share_id:?} is missing in the secret shares"))?;
+                Ok((id.clone(), secret_share.mul_by_generator()))
+            })
+            .collect::<Result<BTreeMap<_, _>, LocalError>>()
+            .expect("TODO(dp): Return error");
 
         ids.iter()
             .map(|id| {
-                (
+                let share_id = share_ids
+                    .get(id)
+                    .ok_or(LocalError::new("id={id:?} is missing in the share_ids"))?;
+                let secret_share = secret_shares
+                    .get(share_id)
+                    .ok_or(LocalError::new("share_id={share_id:?} is missing in the secret shares"))?;
+                Ok((
                     id.clone(),
                     Self {
                         owner: id.clone(),
                         threshold: threshold as u32,
-                        secret_share: SecretBox::new(Box::new(secret_shares[&share_ids[id]])),
+                        secret_share: SecretBox::new(Box::new(*secret_share)),
                         share_ids: share_ids.clone(),
                         public_shares: public_shares.clone(),
                         phantom: PhantomData,
                     },
-                )
+                ))
             })
-            .collect()
+            .collect::<Result<_, LocalError>>()
+            .expect("TODO(dp): Return LocalErr")
     }
 
     pub(crate) fn verifying_key_as_point(&self) -> Point {
@@ -91,9 +109,15 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             &self
                 .share_ids
                 .iter()
-                .map(|(party_idx, share_id)| (*share_id, self.public_shares[party_idx]))
+                .map(|(party_idx, share_id)| {
+                    let public_share = self.public_shares.get(party_idx).ok_or(LocalError::new(
+                        "party_idx={party_idx:?} is missing in the public shares",
+                    ))?;
+                    Ok((*share_id, *public_share))
+                })
                 .take(self.threshold as usize)
-                .collect(),
+                .collect::<Result<_, LocalError>>()
+                .expect("TODO(dp): return LocalError"),
         )
     }
 
@@ -111,25 +135,46 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         debug_assert!(ids.len() == self.threshold as usize);
         debug_assert!(ids.iter().any(|id| id == &self.owner));
 
-        let share_id = self.share_ids[&self.owner];
+        let owner_share_id = self
+            .share_ids
+            .get(&self.owner)
+            .ok_or(LocalError::new("id={id:?} is missing in the share_ids"))
+            .expect("TODO(dp): make method return LocalErr");
+
         let share_ids = ids
             .iter()
-            .map(|id| (id.clone(), self.share_ids[id]))
-            .collect::<BTreeMap<_, _>>();
+            .map(|id| {
+                let share_id = self
+                    .share_ids
+                    .get(id)
+                    .ok_or(LocalError::new("id={id:?} is missing in the share_ids"))?;
+                Ok((id.clone(), *share_id))
+            })
+            .collect::<Result<BTreeMap<_, _>, LocalError>>()
+            .expect("TODO(dp): make this method return LocalErr");
 
         let share_ids_set = share_ids.values().cloned().collect();
         let secret_share = SecretBox::new(Box::new(
-            self.secret_share.expose_secret() * &interpolation_coeff(&share_ids_set, &share_id),
+            self.secret_share.expose_secret() * &interpolation_coeff(&share_ids_set, owner_share_id),
         ));
         let public_shares = ids
             .iter()
             .map(|id| {
-                (
+                let public_share = self
+                    .public_shares
+                    .get(id)
+                    .ok_or(LocalError::new("id={id:?} is missing in the public shares"))?;
+                let this_share_id = self
+                    .share_ids
+                    .get(id)
+                    .ok_or(LocalError::new("id={id:?} is missing in the share_ids"))?;
+                Ok((
                     id.clone(),
-                    self.public_shares[id] * interpolation_coeff(&share_ids_set, &self.share_ids[id]),
-                )
+                    public_share * &interpolation_coeff(&share_ids_set, this_share_id),
+                ))
             })
-            .collect();
+            .collect::<Result<_, LocalError>>()
+            .expect("TODO(dp): make this method return LocalErr");
 
         KeyShare {
             owner: self.owner.clone(),
@@ -150,18 +195,24 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .collect::<BTreeMap<_, _>>();
 
         let share_ids_set = share_ids.values().cloned().collect();
+        let owner_share_id = share_ids
+            .get(key_share.owner())
+            .expect("Just created a ShareId for all parties");
         let secret_share = SecretBox::new(Box::new(
             key_share.secret_share.expose_secret()
-                * &interpolation_coeff(&share_ids_set, &share_ids[key_share.owner()])
+                * &interpolation_coeff(&share_ids_set, owner_share_id)
                     .invert()
                     .expect("the interpolation coefficient is a non-zero scalar"),
         ));
         let public_shares = ids
             .iter()
             .map(|id| {
-                let share_id = share_ids[id];
-                let public_share = key_share.public_shares[id]
-                    * interpolation_coeff(&share_ids_set, &share_id)
+                let share_id = share_ids.get(id).expect("share_ids and ids have identical lengths");
+                let public_share = key_share
+                    .public_shares
+                    .get(id)
+                    .expect("There is one public share (Point) for each party")
+                    * &interpolation_coeff(&share_ids_set, share_id)
                         .invert()
                         .expect("the interpolation coefficient is a non-zero scalar");
                 (id.clone(), public_share)

@@ -9,7 +9,8 @@
     rust_2018_idioms,
     trivial_casts,
     trivial_numeric_casts,
-    unused_qualifications
+    unused_qualifications,
+    clippy::indexing_slicing
 )]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 

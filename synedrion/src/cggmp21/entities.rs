@@ -133,10 +133,23 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
         let secret_share = SecretBox::new(Box::new(
             self.secret_share.expose_secret() + change.secret_share_change.expose_secret(),
         ));
+        // TODO(dp): return error instead?
+        assert_eq!(
+            self.public_shares.len(),
+            change.public_share_changes.len(),
+            "Inconsistent number of public key shares in updated share set (expected {}, was {})",
+            self.public_shares.len(),
+            change.public_share_changes.len()
+        );
         let public_shares = self
             .public_shares
             .iter()
-            .map(|(id, public_share)| (id.clone(), public_share + &change.public_share_changes[id]))
+            .zip(change.public_share_changes)
+            // TODO(dp): this should fail, I'm pretty sure, but doesn't (no test)
+            // let hh = change.public_share_changes.first_key_value().unwrap().0.clone();
+            // .map(|(pub_share, changed_pub_share)| (hh.clone(), pub_share.1 + &changed_pub_share.1))
+            // TODO(dp): is this correct? No test!
+            .map(|(pub_share, changed_pub_share)| (changed_pub_share.0, pub_share.1 + &changed_pub_share.1))
             .collect();
 
         Self {
