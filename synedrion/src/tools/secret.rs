@@ -45,13 +45,19 @@ impl<T: Zeroize + Clone> Secret<T> {
     }
 
     pub fn maybe_init_with(ctr: impl FnOnce() -> Option<T>) -> Option<Self> {
-        Some(Self(SecretBox::try_init_with(|| ctr().ok_or(())).ok()?))
+        Self::try_init_with(|| ctr().ok_or(())).ok()
+    }
+}
+
+impl<T: Zeroize + Clone + Default> Default for Secret<T> {
+    fn default() -> Self {
+        Self::init_with(|| T::default())
     }
 }
 
 impl<T: Zeroize + Clone> Clone for Secret<T> {
     fn clone(&self) -> Self {
-        Self(SecretBox::init_with(|| self.0.expose_secret().clone()))
+        Self::init_with(|| self.0.expose_secret().clone())
     }
 }
 
@@ -306,13 +312,13 @@ impl<'a, T: Zeroize + Clone + RemAssign<&'a NonZero<T>>> Rem<&'a NonZero<T>> for
 
 impl<T: Zeroize + Clone + for<'a> AddAssign<&'a T> + Default> core::iter::Sum for Secret<T> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(Add::add).unwrap_or(Secret::init_with(|| T::default()))
+        iter.reduce(Add::add).unwrap_or(Secret::<T>::default())
     }
 }
 
 impl<'b, T: Zeroize + Clone + for<'a> AddAssign<&'a T> + Default> core::iter::Sum<&'b Secret<T>> for Secret<T> {
     fn sum<I: Iterator<Item = &'b Secret<T>>>(iter: I) -> Self {
-        iter.fold(Secret::init_with(|| T::default()), |accum, x| accum + x)
+        iter.fold(Secret::<T>::default(), |accum, x| accum + x)
     }
 }
 
