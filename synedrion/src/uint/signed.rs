@@ -381,7 +381,7 @@ where
 {
     /// Returns a [`Signed`] with the same value, but twice the bit-width.
     /// Consumes `self`, but under the hood this method clones.
-    pub fn to_wide(self) -> Signed<T::Wide> {
+    pub fn to_wide(&self) -> Signed<T::Wide> {
         let abs_result = self.abs().to_wide();
         Signed::new_from_abs(abs_result, self.bound(), self.is_negative())
             .expect("the value fit the bound before, and the bound won't overflow for `WideUint`")
