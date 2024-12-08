@@ -3,14 +3,18 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
+use super::super::{
+    params::{scalar_from_signed, secret_scalar_from_signed},
+    SchemeParams,
+};
 use crate::{
     curve::Point,
     paillier::{
-        Ciphertext, CiphertextWire, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, Randomizer,
-        RandomizerWire,
+        Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
+        Randomizer,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
+    tools::Secret,
     uint::Signed,
 };
 
@@ -38,7 +42,7 @@ pub(crate) struct LogStarProof<P: SchemeParams> {
     cap_y: Point,
     cap_d: RPCommitmentWire<P::Paillier>,
     z1: Signed<<P::Paillier as PaillierParams>::Uint>,
-    z2: RandomizerWire<P::Paillier>,
+    z2: MaskedRandomizer<P::Paillier>,
     z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
 }
 
@@ -46,7 +50,7 @@ impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        x: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
         rho: &Randomizer<P::Paillier>,
         pk0: &PublicKeyPaillier<P::Paillier>,
         cap_c: &Ciphertext<P::Paillier>,
@@ -55,19 +59,19 @@ impl<P: SchemeParams> LogStarProof<P> {
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        x.assert_bound(P::L_BOUND);
+        x.expose_secret().assert_bound(P::L_BOUND);
         assert_eq!(cap_c.public_key(), pk0);
 
         let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
 
-        let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
-        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
+        let alpha = Secret::init_with(|| Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND));
+        let mu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
         let r = Randomizer::random(rng, pk0);
-        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let gamma = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
 
         let cap_s = setup.commit(x, &mu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.to_wire()).to_wire();
-        let cap_y = g * &P::scalar_from_signed(&alpha);
+        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r).to_wire();
+        let cap_y = g * secret_scalar_from_signed::<P>(&alpha);
         let cap_d = setup.commit(&alpha, &gamma).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -88,9 +92,9 @@ impl<P: SchemeParams> LogStarProof<P> {
         // Non-interactive challenge
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let z1 = alpha + e * x;
-        let z2 = (r * rho.pow_signed_vartime(&e)).to_wire();
-        let z3 = gamma + mu * e.into_wide();
+        let z1 = *(alpha + x * e).expose_secret();
+        let z2 = rho.to_masked(&r, &e);
+        let z3 = *(gamma + mu * e.to_wide()).expose_secret();
 
         Self {
             e,
@@ -144,20 +148,20 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) C (*) e
-        let c = Ciphertext::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
+        let c = Ciphertext::new_public_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self.cap_a.to_precomputed(pk0) + cap_c * e {
             return false;
         }
 
         // g^{z_1} == Y X^e
-        if g * &P::scalar_from_signed(&self.z1) != self.cap_y + cap_x * &P::scalar_from_signed(&e) {
+        if g * &scalar_from_signed::<P>(&self.z1) != self.cap_y + cap_x * &scalar_from_signed::<P>(&e) {
             return false;
         }
 
         // s^{z_1} t^{z_3} == D S^e \mod \hat{N}
-        let cap_d_mod = self.cap_d.to_precomputed(setup);
-        let cap_s_mod = self.cap_s.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.z3) != &cap_d_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        let cap_d = self.cap_d.to_precomputed(setup);
+        let cap_s = self.cap_s.to_precomputed(setup);
+        if setup.commit_public(&self.z1, &self.z3) != &cap_d * &cap_s.pow_signed_vartime(&e) {
             return false;
         }
 
@@ -171,9 +175,10 @@ mod tests {
 
     use super::LogStarProof;
     use crate::{
-        cggmp21::{SchemeParams, TestParams},
+        cggmp21::{params::secret_scalar_from_signed, SchemeParams, TestParams},
         curve::{Point, Scalar},
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
+        tools::Secret,
         uint::Signed,
     };
 
@@ -190,10 +195,10 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let g = Point::GENERATOR * Scalar::random(&mut OsRng);
-        let x = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
+        let x = Secret::init_with(|| Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND));
         let rho = Randomizer::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho.to_wire());
-        let cap_x = g * Params::scalar_from_signed(&x);
+        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho);
+        let cap_x = g * secret_scalar_from_signed::<Params>(&x);
 
         let proof = LogStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &g, &cap_x, &setup, &aux);
         assert!(proof.verify(pk, &cap_c, &g, &cap_x, &setup, &aux));

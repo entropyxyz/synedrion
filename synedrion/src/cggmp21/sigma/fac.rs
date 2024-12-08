@@ -1,13 +1,15 @@
 //! No small factor proof ($\Pi^{fac}$, Section C.5, Fig. 28)
 
 use rand_core::CryptoRngCore;
-use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
-    tools::hashing::{Chain, Hashable, XofHasher},
+    tools::{
+        hashing::{Chain, Hashable, XofHasher},
+        Secret,
+    },
     uint::{Bounded, Integer, Signed},
 };
 
@@ -62,32 +64,36 @@ impl<P: SchemeParams> FacProof<P> {
         )
         .expect("the value is bounded by `2^PRIME_BITS` by construction");
 
-        let alpha = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
-        let beta = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
-        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
-        let nu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
+        let alpha =
+            Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n));
+        let beta =
+            Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n));
+        let mu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
+        let nu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
 
         // N_0 \hat{N}
         let scale = pk0.modulus_bounded().mul_wide(hat_cap_n);
 
         let sigma =
             Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(rng, P::L_BOUND, &scale);
-        let r = Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
-            rng,
-            P::L_BOUND + P::EPS_BOUND,
-            &scale,
-        );
-        let x = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let y = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let r = Secret::init_with(|| {
+            Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
+                rng,
+                P::L_BOUND + P::EPS_BOUND,
+                &scale,
+            )
+        });
+        let x = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
+        let y = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
 
         let p = sk0.p_signed();
         let q = sk0.q_signed();
 
-        let cap_p = setup.commit(p.expose_secret(), &mu).to_wire();
-        let cap_q = setup.commit(q.expose_secret(), &nu);
+        let cap_p = setup.commit(&p, &mu).to_wire();
+        let cap_q = setup.commit(&q, &nu);
         let cap_a = setup.commit_wide(&alpha, &x).to_wire();
         let cap_b = setup.commit_wide(&beta, &y).to_wire();
-        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_base_xwide(&r)).to_wire();
+        let cap_t = (&cap_q.pow_signed_wide(&alpha) * &setup.commit_zero_xwide(&r)).to_wire();
         let cap_q = cap_q.to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -106,16 +112,16 @@ impl<P: SchemeParams> FacProof<P> {
 
         // Non-interactive challenge
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
-        let e_wide = e.into_wide();
+        let e_wide = e.to_wide();
 
         let p_wide = sk0.p_wide_signed();
 
-        let hat_sigma = sigma - (nu * p_wide.expose_secret()).into_wide();
-        let z1 = alpha + (e * p.expose_secret()).into_wide();
-        let z2 = beta + (e * q.expose_secret()).into_wide();
-        let omega1 = x + e_wide * mu;
-        let omega2 = y + e_wide * nu;
-        let v = r + (e_wide.into_wide() * hat_sigma);
+        let hat_sigma = sigma - (p_wide * &nu).expose_secret().to_wide();
+        let z1 = *(alpha + (p * e).to_wide()).expose_secret();
+        let z2 = *(beta + (q * e).to_wide()).expose_secret();
+        let omega1 = *(x + mu * e_wide).expose_secret();
+        let omega2 = *(nu * e_wide + &y).expose_secret();
+        let v = *(r + &(hat_sigma * e_wide.to_wide())).expose_secret();
 
         Self {
             e,
@@ -161,26 +167,26 @@ impl<P: SchemeParams> FacProof<P> {
         }
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &setup.commit_xwide(&pk0.modulus_bounded().into(), &self.sigma);
+        let cap_r = &setup.commit_public_xwide(&pk0.modulus_bounded(), &self.sigma);
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
-        let cap_a_mod = self.cap_a.to_precomputed(setup);
-        let cap_p_mod = self.cap_p.to_precomputed(setup);
-        if setup.commit_wide(&self.z1, &self.omega1) != &cap_a_mod * &cap_p_mod.pow_signed_vartime(&e) {
+        let cap_a = self.cap_a.to_precomputed(setup);
+        let cap_p = self.cap_p.to_precomputed(setup);
+        if setup.commit_public_wide(&self.z1, &self.omega1) != &cap_a * &cap_p.pow_signed_vartime(&e) {
             return false;
         }
 
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
-        let cap_b_mod = self.cap_b.to_precomputed(setup);
-        let cap_q_mod = self.cap_q.to_precomputed(setup);
-        if setup.commit_wide(&self.z2, &self.omega2) != &cap_b_mod * &cap_q_mod.pow_signed_vartime(&e) {
+        let cap_b = self.cap_b.to_precomputed(setup);
+        let cap_q = self.cap_q.to_precomputed(setup);
+        if setup.commit_public_wide(&self.z2, &self.omega2) != &cap_b * &cap_q.pow_signed_vartime(&e) {
             return false;
         }
 
         // Q^{z_1} * t^v == T * R^e \mod \hat{N}
-        let cap_t_mod = self.cap_t.to_precomputed(setup);
-        if &cap_q_mod.pow_signed_wide(&self.z1) * &setup.commit_base_xwide(&self.v)
-            != &cap_t_mod * &cap_r.pow_signed_vartime(&e)
+        let cap_t = self.cap_t.to_precomputed(setup);
+        if &cap_q.pow_signed_wide_vartime(&self.z1) * &setup.commit_public_base_xwide(&self.v)
+            != &cap_t * &cap_r.pow_signed_vartime(&e)
         {
             return false;
         }

@@ -6,7 +6,6 @@
 //! (Specifically, REDIST protocol).
 
 use alloc::{
-    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     string::String,
     vec::Vec,
@@ -20,7 +19,6 @@ use manul::protocol::{
     ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
-use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use super::ThresholdKeyShare;
@@ -28,7 +26,7 @@ use crate::{
     curve::{Point, Scalar},
     tools::{
         sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},
-        DowncastMap, Without,
+        DowncastMap, Secret, Without,
     },
     SchemeParams,
 };
@@ -178,11 +176,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
         };
 
         let old_holder = self.old_holder.map(|old_holder| {
-            let polynomial = Polynomial::random(
-                rng,
-                old_holder.key_share.secret_share.expose_secret(),
-                self.new_threshold,
-            );
+            let polynomial = Polynomial::random(rng, old_holder.key_share.secret_share.clone(), self.new_threshold);
             let public_polynomial = polynomial.public();
 
             OldHolderData {
@@ -241,11 +235,11 @@ struct Round1BroadcastMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Round1DirectMessage {
-    subshare: Scalar,
+    subshare: Secret<Scalar>,
 }
 
 struct Round1Payload {
-    subshare: Scalar,
+    subshare: Secret<Scalar>,
     public_polynomial: PublicPolynomial,
     old_share_id: ShareId,
 }
@@ -396,9 +390,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             .inputs
             .old_holders
             .iter()
-            .map(|id| (payloads[id].old_share_id, payloads[id].subshare))
+            .map(|id| (payloads[id].old_share_id, payloads[id].subshare.clone()))
             .collect::<BTreeMap<_, _>>();
-        let secret_share = SecretBox::new(Box::new(shamir_join_scalars(&subshares)));
+        let secret_share = shamir_join_scalars(subshares);
 
         // Generate the public shares of all the new holders.
         let public_shares = self
@@ -435,7 +429,6 @@ mod tests {
         session::signature::Keypair,
     };
     use rand_core::OsRng;
-    use secrecy::ExposeSecret;
 
     use super::{KeyResharing, NewHolder, OldHolder, ThresholdKeyShare};
     use crate::TestParams;
@@ -528,7 +521,7 @@ mod tests {
 
         // Check that the public keys correspond to the secret key shares
         for share in shares.values() {
-            let public = share.secret_share.expose_secret().mul_by_generator();
+            let public = share.secret_share.mul_by_generator();
             assert_eq!(public, share.public_shares[&share.owner]);
         }
     }
