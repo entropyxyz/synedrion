@@ -79,21 +79,11 @@ where
     T::Wide: Zeroize,
 {
     pub fn to_wide(&self) -> Secret<<T as HasWide>::Wide> {
-        Secret::init_with(|| {
-            let mut value = self.expose_secret().clone();
-            let result = value.to_wide();
-            value.zeroize();
-            result
-        })
+        Secret::init_with(|| self.expose_secret().to_wide())
     }
 
     pub fn mul_wide(&self, rhs: &T) -> Secret<T::Wide> {
-        Secret::init_with(|| {
-            let mut value = self.expose_secret().clone();
-            let result = value.mul_wide(rhs);
-            value.zeroize();
-            result
-        })
+        Secret::init_with(|| self.expose_secret().mul_wide(rhs))
     }
 }
 
@@ -103,21 +93,11 @@ where
     T::Wide: ConditionallySelectable + crypto_bigint::Bounded + Zeroize,
 {
     pub fn to_wide(&self) -> Secret<Signed<<T as HasWide>::Wide>> {
-        Secret::init_with(|| {
-            let mut value = *self.expose_secret();
-            let result = value.to_wide();
-            value.zeroize();
-            result
-        })
+        Secret::init_with(|| self.expose_secret().to_wide())
     }
 
     pub fn mul_wide(&self, rhs: &Signed<T>) -> Secret<Signed<T::Wide>> {
-        Secret::init_with(|| {
-            let mut value = *self.expose_secret();
-            let result = value.mul_wide(rhs);
-            value.zeroize();
-            result
-        })
+        Secret::init_with(|| self.expose_secret().mul_wide(rhs))
     }
 }
 
@@ -127,12 +107,7 @@ where
     T::Wide: crypto_bigint::Bounded + Zeroize,
 {
     pub fn to_wide(&self) -> Secret<Bounded<<T as HasWide>::Wide>> {
-        Secret::init_with(|| {
-            let mut value = self.expose_secret().clone();
-            let result = value.to_wide();
-            value.zeroize();
-            result
-        })
+        Secret::init_with(|| self.expose_secret().to_wide())
     }
 
     pub fn to_signed(&self) -> Option<Secret<Signed<T>>> {
