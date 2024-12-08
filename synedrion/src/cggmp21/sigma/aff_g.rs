@@ -1,4 +1,4 @@
-//! Paillier Affine Operation with Group Commitment in Range ($\Pi^{aff-g}$, Section 6.2, Fig. 15)
+//! Paillier Affine Operation with Group Commitment in Range ($\Pi^{aff-g}$, Fig. 25)
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
