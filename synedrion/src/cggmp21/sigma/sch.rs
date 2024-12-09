@@ -5,28 +5,27 @@
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use zeroize::ZeroizeOnDrop;
 
 use crate::{
     curve::{Point, Scalar},
     tools::{
         hashing::{Chain, FofHasher, Hashable},
-        HideDebug,
+        Secret,
     },
 };
 
 const HASH_TAG: &[u8] = b"P_sch";
 
 /// Secret data the proof is based on (~ signing key)
-#[derive(Debug, Clone, ZeroizeOnDrop)]
+#[derive(Debug, Clone)]
 pub(crate) struct SchSecret(
     /// `\alpha`
-    HideDebug<Scalar>,
+    Secret<Scalar>,
 );
 
 impl SchSecret {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        Self(Scalar::random(rng).into())
+        Self(Secret::init_with(|| Scalar::random(rng)))
     }
 }
 
@@ -73,13 +72,13 @@ pub(crate) struct SchProof {
 impl SchProof {
     pub fn new(
         proof_secret: &SchSecret,
-        x: &Scalar,
+        x: &Secret<Scalar>,
         commitment: &SchCommitment,
         cap_x: &Point,
         aux: &impl Hashable,
     ) -> Self {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        let proof = *proof_secret.0 + challenge.0 * x;
+        let proof = *(&proof_secret.0 + x * challenge.0).expose_secret();
         Self { challenge, proof }
     }
 
@@ -94,11 +93,11 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{SchCommitment, SchProof, SchSecret};
-    use crate::curve::Scalar;
+    use crate::{curve::Scalar, tools::Secret};
 
     #[test]
     fn prove_and_verify() {
-        let secret = Scalar::random(&mut OsRng);
+        let secret = Secret::init_with(|| Scalar::random(&mut OsRng));
         let public = secret.mul_by_generator();
         let aux: &[u8] = b"abcde";
 

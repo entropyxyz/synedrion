@@ -3,7 +3,6 @@
 //! for ZK proofs (e.g. Paillier keys).
 
 use alloc::{
-    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     format,
     string::String,
@@ -18,24 +17,23 @@ use manul::protocol::{
     ReceiveError, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
-use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
 use super::{
     entities::{AuxInfo, KeyShareChange, PublicAuxInfo, SecretAuxInfo},
-    params::SchemeParams,
+    params::{secret_scalar_from_uint, secret_uint_from_scalar, SchemeParams},
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 use crate::{
-    curve::{Point, Scalar},
+    curve::{secret_split, Point, Scalar},
     paillier::{
-        Ciphertext, CiphertextWire, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret,
-        RandomizerWire, SecretKeyPaillier, SecretKeyPaillierWire,
+        Ciphertext, CiphertextWire, PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire,
+        RPSecret, SecretKeyPaillier, SecretKeyPaillierWire,
     },
     tools::{
         bitvec::BitVec,
         hashing::{Chain, FofHasher, HashOutput},
-        DowncastMap, Without,
+        DowncastMap, Secret, Without,
     },
 };
 
@@ -71,7 +69,7 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
     Round3MismatchedSecret {
         cap_c: CiphertextWire<P::Paillier>,
         x: Scalar,
-        mu: RandomizerWire<P::Paillier>,
+        mu: <P::Paillier as PaillierParams>::Uint,
     },
 }
 
@@ -160,7 +158,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
         let paillier_pk = paillier_sk.public_key();
 
         // El-Gamal key
-        let y = Scalar::random(rng);
+        let y = Secret::init_with(|| Scalar::random(rng));
         let cap_y = y.mul_by_generator();
 
         // The secret and the commitment for the Schnorr PoK of the El-Gamal key
@@ -172,7 +170,11 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyRefresh<P, I> {
             .all_ids
             .iter()
             .cloned()
-            .zip(Scalar::ZERO.split(rng, self.all_ids.len()))
+            .zip(secret_split(
+                rng,
+                Secret::init_with(|| Scalar::ZERO),
+                self.all_ids.len(),
+            ))
             .collect::<BTreeMap<_, _>>();
 
         // Public counterparts of secret share updates ($X_i^j$ where $i$ is this party's index).
@@ -262,8 +264,8 @@ struct PublicData1Precomp<P: SchemeParams> {
 #[derive(Debug)]
 struct Context<P: SchemeParams, I> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
-    y: Scalar,
-    x_to_send: BTreeMap<I, Scalar>, // $x_i^j$ where $i$ is this party's index
+    y: Secret<Scalar>,
+    x_to_send: BTreeMap<I, Secret<Scalar>>, // $x_i^j$ where $i$ is this party's index
     tau_y: SchSecret,
     tau_x: BTreeMap<I, SchSecret>,
     data_precomp: PublicData1Precomp<P>,
@@ -558,7 +560,7 @@ struct Round3Message<P: SchemeParams> {
 }
 
 struct Round3Payload {
-    x: Scalar, // $x_j^i$, a secret share change received from the party $j$
+    x: Secret<Scalar>, // $x_j^i$, a secret share change received from the party $j$
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
@@ -601,13 +603,13 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let destination_idx = self.context.ids_ordering[destination];
 
-        let x_secret = self.context.x_to_send[destination];
+        let x_secret = &self.context.x_to_send[destination];
         let x_public = self.context.data_precomp.data.cap_x_to_send[destination_idx];
-        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
+        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &secret_uint_from_scalar::<P>(x_secret));
 
         let psi_sch = SchProof::new(
             &self.context.tau_x[destination],
-            &x_secret,
+            x_secret,
             &self.context.data_precomp.data.cap_a_to_send[destination_idx],
             &x_public,
             &aux,
@@ -648,7 +650,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .paillier_enc_x
             .to_precomputed(&self.context.data_precomp.paillier_pk);
 
-        let x = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
+        let x = secret_scalar_from_uint::<P>(&enc_x.decrypt(&self.context.paillier_sk));
 
         let my_idx = self.context.ids_ordering[&self.context.my_id];
 
@@ -657,8 +659,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             return Err(ReceiveError::protocol(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3MismatchedSecret {
                     cap_c: direct_message.data2.paillier_enc_x,
-                    x,
-                    mu: mu.to_wire(),
+                    x: *x.expose_secret(),
+                    mu: mu.expose(),
                 },
             )));
         }
@@ -717,7 +719,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .collect::<BTreeMap<_, _>>();
 
         // The combined secret share change
-        let x_star = others_x.values().sum::<Scalar>() + self.context.x_to_send[&self.context.my_id];
+        let x_star = others_x.into_values().sum::<Secret<Scalar>>() + &self.context.x_to_send[&self.context.my_id];
 
         let my_id = self.context.my_id.clone();
         let mut all_ids = self.context.other_ids;
@@ -754,12 +756,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let secret_aux = SecretAuxInfo {
             paillier_sk: self.context.paillier_sk.into_wire(),
-            el_gamal_sk: SecretBox::new(Box::new(self.context.y)),
+            el_gamal_sk: self.context.y,
         };
 
         let key_share_change = KeyShareChange {
             owner: my_id.clone(),
-            secret_share_change: SecretBox::new(Box::new(x_star)),
+            secret_share_change: x_star,
             public_share_changes: cap_x_star,
             phantom: PhantomData,
         };
@@ -784,7 +786,6 @@ mod tests {
         session::signature::Keypair,
     };
     use rand_core::OsRng;
-    use secrecy::ExposeSecret;
 
     use super::KeyRefresh;
     use crate::{cggmp21::TestParams, curve::Scalar};
@@ -819,7 +820,7 @@ mod tests {
         for (id, change) in changes.iter() {
             for other_change in changes.values() {
                 assert_eq!(
-                    change.secret_share_change.expose_secret().mul_by_generator(),
+                    change.secret_share_change.mul_by_generator(),
                     other_change.public_share_changes[id]
                 );
             }
@@ -828,7 +829,7 @@ mod tests {
         for (id, aux_info) in aux_infos.iter() {
             for other_aux_info in aux_infos.values() {
                 assert_eq!(
-                    aux_info.secret_aux.el_gamal_sk.expose_secret().mul_by_generator(),
+                    aux_info.secret_aux.el_gamal_sk.mul_by_generator(),
                     other_aux_info.public_aux[id].el_gamal_pk
                 );
             }

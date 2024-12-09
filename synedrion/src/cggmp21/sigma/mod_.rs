@@ -4,7 +4,6 @@ use alloc::vec::Vec;
 
 use crypto_bigint::Square;
 use rand_core::CryptoRngCore;
-use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;

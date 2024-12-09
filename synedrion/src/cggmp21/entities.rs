@@ -1,5 +1,4 @@
 use alloc::{
-    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     vec::Vec,
 };
@@ -7,16 +6,16 @@ use core::{fmt::Debug, marker::PhantomData};
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
-use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     cggmp21::SchemeParams,
-    curve::{Point, Scalar},
+    curve::{secret_split, Point, Scalar},
     paillier::{
-        Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RandomizerWire,
+        Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, Randomizer,
         SecretKeyPaillier, SecretKeyPaillierWire,
     },
+    tools::Secret,
     uint::Signed,
 };
 
@@ -25,7 +24,7 @@ use crate::{
 pub struct KeyShare<P, I: Ord> {
     pub(crate) owner: I,
     /// Secret key share of this node.
-    pub(crate) secret_share: SecretBox<Scalar>, // `x_i`
+    pub(crate) secret_share: Secret<Scalar>, // `x_i`
     pub(crate) public_shares: BTreeMap<I, Point>, // `X_j`
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
     pub(crate) phantom: PhantomData<P>,
@@ -44,7 +43,7 @@ pub struct AuxInfo<P: SchemeParams, I: Ord> {
 #[serde(bound(deserialize = "SecretKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct SecretAuxInfo<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillierWire<P::Paillier>,
-    pub(crate) el_gamal_sk: SecretBox<Scalar>, // `y_i`
+    pub(crate) el_gamal_sk: Secret<Scalar>, // `y_i`
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +67,7 @@ pub(crate) struct AuxInfoPrecomputed<P: SchemeParams, I> {
 pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
     #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
-    pub(crate) el_gamal_sk: SecretBox<Scalar>, // `y_i`
+    pub(crate) el_gamal_sk: Secret<Scalar>, // `y_i`
 }
 
 #[derive(Debug, Clone)]
@@ -84,7 +83,7 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 pub struct KeyShareChange<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.
-    pub(crate) secret_share_change: SecretBox<Scalar>, // `x_i^* - x_i == \sum_{j} x_j^i`
+    pub(crate) secret_share_change: Secret<Scalar>, // `x_i^* - x_i == \sum_{j} x_j^i`
     /// The values to be added to the public shares of remote nodes.
     pub(crate) public_share_changes: BTreeMap<I, Point>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
@@ -96,13 +95,13 @@ pub struct KeyShareChange<P: SchemeParams, I: Ord> {
 pub(crate) struct PresigningData<P: SchemeParams, I> {
     pub(crate) nonce: Scalar, // x-coordinate of $R$
     /// An additive share of the ephemeral scalar.
-    pub(crate) ephemeral_scalar_share: SecretBox<Scalar>, // $k_i$
+    pub(crate) ephemeral_scalar_share: Secret<Scalar>, // $k_i$
     /// An additive share of `k * x` where `x` is the secret key.
-    pub(crate) product_share: SecretBox<Scalar>,
+    pub(crate) product_share: Secret<Scalar>,
 
     // Values generated during presigning,
     // kept in case we need to generate a proof of correctness.
-    pub(crate) product_share_nonreduced: Signed<<P::Paillier as PaillierParams>::Uint>,
+    pub(crate) product_share_nonreduced: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
 
     // $K_i$.
     pub(crate) cap_k: Ciphertext<P::Paillier>,
@@ -113,9 +112,9 @@ pub(crate) struct PresigningData<P: SchemeParams, I> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PresigningValues<P: SchemeParams> {
-    pub(crate) hat_beta: SecretBox<Signed<<P::Paillier as PaillierParams>::Uint>>,
-    pub(crate) hat_r: RandomizerWire<P::Paillier>,
-    pub(crate) hat_s: RandomizerWire<P::Paillier>,
+    pub(crate) hat_beta: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    pub(crate) hat_r: Randomizer<P::Paillier>,
+    pub(crate) hat_s: Randomizer<P::Paillier>,
     pub(crate) cap_k: Ciphertext<P::Paillier>,
     /// Received $\hat{D}_{i,j}$.
     pub(crate) hat_cap_d_received: Ciphertext<P::Paillier>,
@@ -130,13 +129,11 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
         // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
         assert_eq!(self.owner, change.owner);
 
-        let secret_share = SecretBox::new(Box::new(
-            self.secret_share.expose_secret() + change.secret_share_change.expose_secret(),
-        ));
+        let secret_share = self.secret_share + change.secret_share_change;
         let public_shares = self
             .public_shares
             .iter()
-            .map(|(id, public_share)| (id.clone(), public_share + &change.public_share_changes[id]))
+            .map(|(id, public_share)| (id.clone(), *public_share + change.public_share_changes[id]))
             .collect();
 
         Self {
@@ -154,12 +151,12 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
         ids: &BTreeSet<I>,
         signing_key: Option<&k256::ecdsa::SigningKey>,
     ) -> BTreeMap<I, Self> {
-        let secret = match signing_key {
+        let secret = Secret::init_with(|| match signing_key {
             None => Scalar::random(rng),
             Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
-        };
+        });
 
-        let secret_shares = secret.split(rng, ids.len());
+        let secret_shares = secret_split(rng, secret, ids.len());
         let public_shares = ids
             .iter()
             .zip(secret_shares.iter())
@@ -173,7 +170,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
                     id.clone(),
                     KeyShare {
                         owner: id.clone(),
-                        secret_share: SecretBox::new(Box::new(secret_share)),
+                        secret_share,
                         public_shares: public_shares.clone(),
                         phantom: PhantomData,
                     },
@@ -216,7 +213,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
         let secret_aux = (0..ids.len())
             .map(|_| SecretAuxInfo {
                 paillier_sk: SecretKeyPaillierWire::<P::Paillier>::random(rng),
-                el_gamal_sk: SecretBox::new(Box::new(Scalar::random(rng))),
+                el_gamal_sk: Secret::init_with(|| Scalar::random(rng)),
             })
             .collect::<Vec<_>>();
 
@@ -228,7 +225,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
                     id.clone(),
                     PublicAuxInfo {
                         paillier_pk: secret.paillier_sk.public_key(),
-                        el_gamal_pk: secret.el_gamal_sk.expose_secret().mul_by_generator(),
+                        el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
                         rp_params: RPParams::random(rng).to_wire(),
                     },
                 )

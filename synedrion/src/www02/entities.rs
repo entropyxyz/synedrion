@@ -1,5 +1,4 @@
 use alloc::{
-    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     vec::Vec,
 };
@@ -8,7 +7,6 @@ use core::{fmt::Debug, marker::PhantomData};
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use rand_core::CryptoRngCore;
-use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -17,6 +15,7 @@ use crate::{
     tools::{
         hashing::{Chain, FofHasher},
         sss::{interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareId},
+        Secret,
     },
 };
 
@@ -28,7 +27,7 @@ pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
     // (mainly, that the verifying key is not an identity)
     pub(crate) owner: I,
     pub(crate) threshold: u32,
-    pub(crate) secret_share: SecretBox<Scalar>,
+    pub(crate) secret_share: Secret<Scalar>,
     pub(crate) share_ids: BTreeMap<I, ShareId>,
     pub(crate) public_shares: BTreeMap<I, Point>,
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
@@ -55,13 +54,13 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
     ) -> BTreeMap<I, Self> {
         debug_assert!(threshold <= ids.len()); // TODO (#68): make the method fallible
 
-        let secret = match signing_key {
+        let secret = Secret::init_with(|| match signing_key {
             None => Scalar::random(rng),
             Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
-        };
+        });
 
         let share_ids = shamir_evaluation_points(ids.len());
-        let secret_shares = shamir_split(rng, &secret, threshold, &share_ids);
+        let secret_shares = shamir_split(rng, secret, threshold, &share_ids);
         let share_ids = ids.iter().cloned().zip(share_ids).collect::<BTreeMap<_, _>>();
 
         let public_shares = share_ids
@@ -76,7 +75,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                     Self {
                         owner: id.clone(),
                         threshold: threshold as u32,
-                        secret_share: SecretBox::new(Box::new(secret_shares[&share_ids[id]])),
+                        secret_share: secret_shares[&share_ids[id]].clone(),
                         share_ids: share_ids.clone(),
                         public_shares: public_shares.clone(),
                         phantom: PhantomData,
@@ -118,9 +117,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .collect::<BTreeMap<_, _>>();
 
         let share_ids_set = share_ids.values().cloned().collect();
-        let secret_share = SecretBox::new(Box::new(
-            self.secret_share.expose_secret() * &interpolation_coeff(&share_ids_set, &share_id),
-        ));
+        let secret_share = self.secret_share.clone() * interpolation_coeff(&share_ids_set, &share_id);
         let public_shares = ids
             .iter()
             .map(|id| {
@@ -150,12 +147,10 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .collect::<BTreeMap<_, _>>();
 
         let share_ids_set = share_ids.values().cloned().collect();
-        let secret_share = SecretBox::new(Box::new(
-            key_share.secret_share.expose_secret()
-                * &interpolation_coeff(&share_ids_set, &share_ids[key_share.owner()])
-                    .invert()
-                    .expect("the interpolation coefficient is a non-zero scalar"),
-        ));
+        let secret_share = key_share.secret_share.clone()
+            * interpolation_coeff(&share_ids_set, &share_ids[key_share.owner()])
+                .invert()
+                .expect("the interpolation coefficient is a non-zero scalar");
         let public_shares = ids
             .iter()
             .map(|id| {
@@ -183,15 +178,9 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         let tweaks = derive_tweaks(self.verifying_key(), derivation_path)?;
 
         // Will fail here if secret share is zero
-        let secret_share = self
-            .secret_share
-            .expose_secret()
-            .to_signing_key()
-            .ok_or(bip32::Error::Crypto)?;
-        let secret_share = SecretBox::new(Box::new(Scalar::from_signing_key(&apply_tweaks_private(
-            secret_share,
-            &tweaks,
-        )?)));
+        let secret_share = self.secret_share.clone().to_signing_key().ok_or(bip32::Error::Crypto)?;
+        let secret_share =
+            apply_tweaks_private(secret_share, &tweaks).map(|signing_key| Scalar::from_signing_key(&signing_key))?;
 
         let public_shares = self
             .public_shares
@@ -285,7 +274,6 @@ mod tests {
         session::signature::Keypair,
     };
     use rand_core::OsRng;
-    use secrecy::ExposeSecret;
 
     use super::ThresholdKeyShare;
     use crate::{cggmp21::TestParams, curve::Scalar};
