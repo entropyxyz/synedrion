@@ -599,19 +599,39 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let phi = FacProof::new(rng, &self.context.paillier_sk, &data.rp_params, &aux);
 
-        let destination_idx = self.context.ids_ordering[destination];
+        let destination_idx = *self
+            .context
+            .ids_ordering
+            .get(destination)
+            .ok_or_else(|| LocalError::new("destination={destination:?} is missing in ids_ordering"))?;
 
-        let x_secret = self.context.x_to_send[destination];
-        let x_public = self.context.data_precomp.data.cap_x_to_send[destination_idx];
-        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &P::uint_from_scalar(&x_secret));
+        let x_secret = self
+            .context
+            .x_to_send
+            .get(destination)
+            .ok_or_else(|| LocalError::new("destination={destination} is missing in x_to_send"))?;
+        let x_public = self
+            .context
+            .data_precomp
+            .data
+            .cap_x_to_send
+            .get(destination_idx)
+            .ok_or_else(|| LocalError::new("destination_idx={destination_idx} is missing in cap_x_to_send"))?;
+        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &P::uint_from_scalar(x_secret));
+        let proof_secret = self
+            .context
+            .tau_x
+            .get(destination)
+            .ok_or_else(|| LocalError::new("destination_idx={destination_idx} is missing in tau_x"))?;
+        let commitment = self
+            .context
+            .data_precomp
+            .data
+            .cap_a_to_send
+            .get(destination_idx)
+            .ok_or_else(|| LocalError::new("destination_idx={destination_idx} is missing in cap_a_to_send"))?;
 
-        let psi_sch = SchProof::new(
-            &self.context.tau_x[destination],
-            &x_secret,
-            &self.context.data_precomp.data.cap_a_to_send[destination_idx],
-            &x_public,
-            &aux,
-        );
+        let psi_sch = SchProof::new(proof_secret, x_secret, commitment, x_public, &aux);
 
         let data2 = PublicData2 {
             psi_mod: self.psi_mod.clone(),
@@ -650,9 +670,19 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let x = P::scalar_from_uint(&enc_x.decrypt(&self.context.paillier_sk));
 
-        let my_idx = self.context.ids_ordering[&self.context.my_id];
+        let my_idx = *self
+            .context
+            .ids_ordering
+            .get(&self.context.my_id)
+            .ok_or_else(|| LocalError::new(format!("my_id={:?} is missing in ids_ordering", self.context.my_id)))?;
 
-        if x.mul_by_generator() != sender_data.data.cap_x_to_send[my_idx] {
+        if x.mul_by_generator()
+            != *sender_data
+                .data
+                .cap_x_to_send
+                .get(my_idx)
+                .ok_or_else(|| LocalError::new("my_idx={my_idx} is missing in cap_x_to_send"))?
+        {
             let mu = enc_x.derive_randomizer(&self.context.paillier_sk);
             return Err(ReceiveError::protocol(KeyRefreshError(
                 KeyRefreshErrorEnum::Round3MismatchedSecret {
@@ -692,8 +722,16 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         }
 
         if !direct_message.data2.psi_sch.verify(
-            &sender_data.data.cap_a_to_send[my_idx],
-            &sender_data.data.cap_x_to_send[my_idx],
+            sender_data
+                .data
+                .cap_a_to_send
+                .get(my_idx)
+                .ok_or_else(|| LocalError::new("my_idx={my_idx} is missing in cap_a_to_send"))?,
+            sender_data
+                .data
+                .cap_x_to_send
+                .get(my_idx)
+                .ok_or_else(|| LocalError::new("my_idx={my_idx} is missing in cap_a_to_send"))?,
             &aux,
         ) {
             return Err(ReceiveError::protocol(KeyRefreshError(KeyRefreshErrorEnum::Round3(
@@ -717,7 +755,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .collect::<BTreeMap<_, _>>();
 
         // The combined secret share change
-        let x_star = others_x.values().sum::<Scalar>() + self.context.x_to_send[&self.context.my_id];
+        let x_star =
+            others_x.values().sum::<Scalar>()
+                + *self.context.x_to_send.get(&self.context.my_id).ok_or_else(|| {
+                    LocalError::new(format!("my_id={:?} is missing in x_to_send", self.context.my_id))
+                })?;
 
         let my_id = self.context.my_id.clone();
         let mut all_ids = self.context.other_ids;
@@ -731,12 +773,16 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .iter()
             .enumerate()
             .map(|(idx, id)| {
-                (
+                Ok((
                     id.clone(),
-                    all_data.values().map(|data| data.data.cap_x_to_send[idx]).sum(),
-                )
+                    all_data
+                        .values()
+                        .map(|data| data.data.cap_x_to_send.get(idx))
+                        .sum::<Option<Point>>()
+                        .ok_or_else(|| LocalError::new("idx={idx} is missing in cap_x_to_send"))?,
+                ))
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         let public_aux = all_data
             .into_iter()

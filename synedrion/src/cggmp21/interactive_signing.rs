@@ -915,7 +915,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                 ephemeral_scalar_share: SecretBox::new(Box::new(self.context.k)),
                 product_share: SecretBox::new(Box::new(P::scalar_from_signed(&self.chi))),
                 product_share_nonreduced: self.chi,
-                cap_k: self.all_cap_k[&my_id].clone(),
+                cap_k: self
+                    .all_cap_k
+                    .get(&my_id)
+                    .ok_or_else(|| LocalError::new("m_id={my_id:?} is missing in all_cap_k"))?
+                    .clone(),
                 values,
             };
 
@@ -938,16 +942,19 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let cap_gamma = self.context.gamma.mul_by_generator();
 
-        for id_j in self.context.other_ids.iter() {
-            let r2_artefacts = &self.round2_artifacts[id_j];
+        for (id_j, (_, r2_artifacts)) in self.context.other_ids.iter().zip(self.round2_artifacts.iter()) {
+            let cap_c = self
+                .all_cap_k
+                .get(id_j)
+                .ok_or_else(|| LocalError::new("id_j={id_j:?} is missing in all_cap_k"))?;
+            for id_l in self.context.other_ids.iter().filter(|id| *id != id_j) {
+                let paux = self.public_aux(id_j)?;
+                let target_pk = &paux.paillier_pk;
+                let rp = &paux.rp_params;
 
-            for id_l in self.context.other_ids.iter().filter(|id| id != &id_j) {
-                let target_pk = &self.context.aux_info.public_aux[id_j].paillier_pk;
-                let rp = &self.context.aux_info.public_aux[id_l].rp_params;
-
-                let beta = &self.round2_artifacts[id_j].beta;
-                let r = &self.round2_artifacts[id_j].r;
-                let s = &self.round2_artifacts[id_j].s;
+                let beta = &r2_artifacts.beta;
+                let r = &r2_artifacts.r;
+                let s = &r2_artifacts.s;
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
@@ -957,9 +964,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                     r.to_precomputed(pk),
                     target_pk,
                     pk,
-                    &self.all_cap_k[id_j],
-                    &r2_artefacts.cap_d,
-                    &r2_artefacts.cap_f,
+                    cap_c,
+                    &r2_artifacts.cap_d,
+                    &r2_artifacts.cap_f,
                     &cap_gamma,
                     rp,
                     &aux,
@@ -968,9 +975,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                 assert!(p_aff_g.verify(
                     target_pk,
                     pk,
-                    &self.all_cap_k[id_j],
-                    &r2_artefacts.cap_d,
-                    &r2_artefacts.cap_f,
+                    cap_c,
+                    &r2_artifacts.cap_d,
+                    &r2_artifacts.cap_f,
                     &cap_gamma,
                     rp,
                     &aux,
@@ -981,10 +988,17 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         }
 
         // Mul proof
-
+        let my_id = &self.context.my_id;
         let rho = Randomizer::random(rng, pk);
-        let cap_h = (&self.all_cap_g[&self.context.my_id] * P::bounded_from_scalar(&self.context.k))
-            .mul_randomizer(&rho.to_wire());
+        let cap_x = self
+            .all_cap_k
+            .get(my_id)
+            .ok_or_else(|| LocalError::new("my_id={my_id:?} is missing in all_cap_k"))?;
+        let cap_y = self
+            .all_cap_g
+            .get(my_id)
+            .ok_or_else(|| LocalError::new("my_id={my_id:?} is missing in all_cap_g"))?;
+        let cap_h = (cap_y * P::bounded_from_scalar(&self.context.k)).mul_randomizer(&rho.to_wire());
 
         let p_mul = MulProof::<P>::new(
             rng,
@@ -992,18 +1006,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             &self.context.rho,
             &rho,
             pk,
-            &self.all_cap_k[&self.context.my_id],
-            &self.all_cap_g[&self.context.my_id],
+            cap_x,
+            cap_y,
             &cap_h,
             &aux,
         );
-        assert!(p_mul.verify(
-            pk,
-            &self.all_cap_k[&self.context.my_id],
-            &self.all_cap_g[&self.context.my_id],
-            &cap_h,
-            &aux
-        ));
+        assert!(p_mul.verify(pk, cap_x, cap_y, &cap_h, &aux));
 
         // Dec proof
 
@@ -1032,16 +1040,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                 pk,
                 &scalar_delta,
                 &ciphertext,
-                &self.context.aux_info.public_aux[id_j].rp_params,
+                &self.public_aux(id_j)?.rp_params,
                 &aux,
             );
-            assert!(p_dec.verify(
-                pk,
-                &scalar_delta,
-                &ciphertext,
-                &self.context.aux_info.public_aux[id_j].rp_params,
-                &aux
-            ));
+            assert!(p_dec.verify(pk, &scalar_delta, &ciphertext, &self.public_aux(id_j)?.rp_params, &aux));
             dec_proofs.push((id_j.clone(), p_dec));
         }
 
@@ -1072,6 +1074,21 @@ where
             r,
             sigma,
         }
+    }
+    fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
+        self.context
+            .aux_info
+            .public_aux
+            .get(i)
+            .ok_or_else(|| LocalError::new("Missing public_aux for party Id {i:?}"))
+    }
+
+    fn public_shares(&self, i: &I) -> Result<&Point, LocalError> {
+        self.context
+            .key_share
+            .public_shares
+            .get(i)
+            .ok_or_else(|| LocalError::new("Missing public_aux for party Id {i:?}"))
     }
 }
 
@@ -1165,15 +1182,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let mut aff_g_proofs = Vec::new();
 
         for id_j in self.context.other_ids.iter() {
-            for id_l in self.context.other_ids.iter().filter(|id| id != &id_j) {
-                let target_pk = &self.context.aux_info.public_aux[id_j].paillier_pk;
-                let rp = &self.context.aux_info.public_aux[id_l].rp_params;
+            for id_l in self.context.other_ids.iter().filter(|id| *id != id_j) {
+                let target_pk = &self.public_aux(id_j)?.paillier_pk;
+                let rp = &self.public_aux(id_l)?.rp_params;
 
                 let values = self
                     .presigning
                     .values
                     .get(id_j)
-                    .ok_or_else(|| LocalError::new(format!("Missing presigning values for {id_j:?}")))?;
+                    .ok_or_else(|| LocalError::new("Missing presigning values for {id_j:?}"))?;
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
@@ -1186,7 +1203,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                     &values.cap_k,
                     &values.hat_cap_d,
                     &values.hat_cap_f,
-                    &self.context.key_share.public_shares[&my_id],
+                    self.public_shares(&my_id)?,
                     rp,
                     &aux,
                 );
@@ -1197,7 +1214,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                     &values.cap_k,
                     &values.hat_cap_d,
                     &values.hat_cap_f,
-                    &self.context.key_share.public_shares[&my_id],
+                    self.public_shares(&my_id)?,
                     rp,
                     &aux,
                 ));
@@ -1209,7 +1226,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         // mul* proofs
 
         let x = &self.context.key_share.secret_share;
-        let cap_x = self.context.key_share.public_shares[&my_id];
+        let cap_x = self.public_shares(&my_id)?;
 
         let rho = Randomizer::random(rng, pk);
         let hat_cap_h =
@@ -1220,6 +1237,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let mut mul_star_proofs = Vec::new();
 
         for id_l in self.context.other_ids.iter() {
+            let paux = self.public_aux(id_l)?;
             let p_mul = MulStarProof::<P>::new(
                 rng,
                 &P::signed_from_scalar(x.expose_secret()),
@@ -1227,19 +1245,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                 pk,
                 &self.presigning.cap_k,
                 &hat_cap_h,
-                &cap_x,
-                &self.context.aux_info.public_aux[id_l].rp_params,
+                cap_x,
+                &paux.rp_params,
                 &aux,
             );
 
-            assert!(p_mul.verify(
-                pk,
-                &self.presigning.cap_k,
-                &hat_cap_h,
-                &cap_x,
-                &self.context.aux_info.public_aux[id_l].rp_params,
-                &aux,
-            ));
+            assert!(p_mul.verify(pk, &self.presigning.cap_k, &hat_cap_h, cap_x, &paux.rp_params, &aux,));
 
             mul_star_proofs.push((id_l.clone(), p_mul));
         }
@@ -1270,6 +1281,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 
         let mut dec_proofs = Vec::new();
         for id_l in self.context.other_ids.iter() {
+            let paux = self.public_aux(id_l)?;
             let p_dec = DecProof::<P>::new(
                 rng,
                 &s_part_nonreduced,
@@ -1277,16 +1289,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                 pk,
                 &self.sigma,
                 &ciphertext,
-                &self.context.aux_info.public_aux[id_l].rp_params,
+                &paux.rp_params,
                 &aux,
             );
-            assert!(p_dec.verify(
-                pk,
-                &self.sigma,
-                &ciphertext,
-                &self.context.aux_info.public_aux[id_l].rp_params,
-                &aux,
-            ));
+            assert!(p_dec.verify(pk, &self.sigma, &ciphertext, &paux.rp_params, &aux,));
             dec_proofs.push((id_l.clone(), p_dec));
         }
 
