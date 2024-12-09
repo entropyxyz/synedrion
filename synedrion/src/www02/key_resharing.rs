@@ -395,9 +395,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let vkey = payloads
             .values()
             .map(|payload| {
-                payload.public_polynomial.coeff0() * interpolation_coeff(&old_share_ids, &payload.old_share_id)
+                payload
+                    .public_polynomial
+                    .coeff0()
+                    .map(|coeff0| coeff0 * &interpolation_coeff(&old_share_ids, &payload.old_share_id))
             })
-            .sum();
+            .sum::<Result<_, _>>()?;
         if Point::from_verifying_key(&new_holder.inputs.verifying_key) != vkey {
             // TODO (#113): this is unattributable.
             // Should we add an enum variant to `FinalizeError`?
@@ -444,6 +447,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 #[cfg(test)]
 mod tests {
     use alloc::collections::{BTreeMap, BTreeSet};

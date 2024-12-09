@@ -887,18 +887,28 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
                 .round2_artifacts
                 .into_iter()
                 .map(|(id, artifact)| {
+                    let cap_k = self
+                        .all_cap_k
+                        .get(&id)
+                        .ok_or_else(|| LocalError::new("id={id:?} is missing in all_cap_k"))?
+                        .clone();
+                    let hat_cap_d_received = self
+                        .hat_cap_ds
+                        .get(&id)
+                        .ok_or_else(|| LocalError::new("id={id:?} is missing in hat_cap_ds"))?
+                        .clone();
                     let values = PresigningValues {
                         hat_beta: artifact.hat_beta,
                         hat_r: artifact.hat_r,
                         hat_s: artifact.hat_s,
-                        cap_k: self.all_cap_k[&id].clone(),
-                        hat_cap_d_received: self.hat_cap_ds[&id].clone(),
+                        cap_k,
+                        hat_cap_d_received,
                         hat_cap_d: artifact.hat_cap_d,
                         hat_cap_f: artifact.hat_cap_f,
                     };
-                    (id, values)
+                    Ok((id, values))
                 })
-                .collect();
+                .collect::<Result<_, LocalError>>()?;
 
             let presigning_data = PresigningData {
                 nonce,
@@ -1350,6 +1360,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for SigningErrorRound<P, I> {
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeSet;
