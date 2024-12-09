@@ -6,10 +6,11 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::{
     paillier::{
-        Ciphertext, CiphertextWire, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, Randomizer,
-        RandomizerWire,
+        Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
+        Randomizer,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
+    tools::Secret,
     uint::Signed,
 };
 
@@ -34,34 +35,34 @@ pub(crate) struct EncProof<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
     cap_c: RPCommitmentWire<P::Paillier>,
     z1: Signed<<P::Paillier as PaillierParams>::Uint>,
-    z2: RandomizerWire<P::Paillier>,
+    z2: MaskedRandomizer<P::Paillier>,
     z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
 }
 
 impl<P: SchemeParams> EncProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        k: &Signed<<P::Paillier as PaillierParams>::Uint>,
+        k: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
         rho: &Randomizer<P::Paillier>,
         pk0: &PublicKeyPaillier<P::Paillier>,
         cap_k: &Ciphertext<P::Paillier>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        k.assert_bound(P::L_BOUND);
+        k.expose_secret().assert_bound(P::L_BOUND);
         assert_eq!(cap_k.public_key(), pk0);
 
         let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
 
         // TODO (#86): should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
         // This will ensure that the range check on the prover side will pass.
-        let alpha = Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND);
-        let mu = Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n);
+        let alpha = Secret::init_with(|| Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND));
+        let mu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
         let r = Randomizer::random(rng, pk0);
-        let gamma = Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let gamma = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
 
         let cap_s = setup.commit(k, &mu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r.to_wire()).to_wire();
+        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r).to_wire();
         let cap_c = setup.commit(&alpha, &gamma).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -79,9 +80,9 @@ impl<P: SchemeParams> EncProof<P> {
         // Non-interactive challenge
         let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let z1 = alpha + e * k;
-        let z2 = (r * rho.pow_signed_vartime(&e)).to_wire();
-        let z3 = gamma + mu * e.into_wide();
+        let z1 = *(alpha + k * e).expose_secret();
+        let z2 = rho.to_masked(&r, &e);
+        let z3 = *(gamma + mu * e.to_wide()).expose_secret();
 
         Self {
             e,
@@ -128,15 +129,15 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) K (*) e
-        let c = Ciphertext::new_with_randomizer_signed(pk0, &self.z1, &self.z2);
+        let c = Ciphertext::new_public_with_randomizer_signed(pk0, &self.z1, &self.z2);
         if c != self.cap_a.to_precomputed(pk0) + cap_k * e {
             return false;
         }
 
         // s^{z_1} t^{z_3} == C S^e \mod \hat{N}
-        let cap_c_mod = self.cap_c.to_precomputed(setup);
-        let cap_s_mod = self.cap_s.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.z3) != &cap_c_mod * &cap_s_mod.pow_signed_vartime(&e) {
+        let cap_c = self.cap_c.to_precomputed(setup);
+        let cap_s = self.cap_s.to_precomputed(setup);
+        if setup.commit_public(&self.z1, &self.z3) != &cap_c * &cap_s.pow_signed_vartime(&e) {
             return false;
         }
 
@@ -152,6 +153,7 @@ mod tests {
     use crate::{
         cggmp21::{SchemeParams, TestParams},
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
+        tools::Secret,
         uint::Signed,
     };
 
@@ -167,9 +169,9 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let secret = Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND);
+        let secret = Secret::init_with(|| Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND));
         let randomizer = Randomizer::random(&mut OsRng, pk);
-        let ciphertext = Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer.to_wire());
+        let ciphertext = Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer);
 
         let proof = EncProof::<Params>::new(&mut OsRng, &secret, &randomizer, pk, &ciphertext, &setup, &aux);
         assert!(proof.verify(pk, &ciphertext, &setup, &aux));

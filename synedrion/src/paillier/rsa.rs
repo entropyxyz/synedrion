@@ -1,14 +1,12 @@
 use crypto_bigint::{CheckedSub, Gcd, Integer, Monty, NonZero, Odd, RandomMod, Square};
 use crypto_primes::RandomPrimeWithRng;
 use rand_core::CryptoRngCore;
-use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
 
 use super::params::PaillierParams;
 use crate::{
     tools::Secret,
-    uint::{Bounded, HasWide, Signed},
+    uint::{Bounded, HasWide, Signed, ToMontgomery},
 };
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
@@ -43,16 +41,16 @@ impl<P: PaillierParams> SecretPrimesWire<P> {
     /// that is `p` and `q` are regular primes with an additional condition `p, q mod 3 = 4`.
     pub fn random_paillier_blum(rng: &mut impl CryptoRngCore) -> Self {
         Self::new(
-            SecretBox::init_with(|| random_paillier_blum_prime::<P>(rng)).into(),
-            SecretBox::init_with(|| random_paillier_blum_prime::<P>(rng)).into(),
+            Secret::init_with(|| random_paillier_blum_prime::<P>(rng)),
+            Secret::init_with(|| random_paillier_blum_prime::<P>(rng)),
         )
     }
 
     /// Creates a pair of safe primes.
     pub fn random_safe(rng: &mut impl CryptoRngCore) -> Self {
         Self::new(
-            SecretBox::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS)).into(),
-            SecretBox::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS)).into(),
+            Secret::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS)),
+            Secret::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS)),
         )
     }
 
@@ -92,7 +90,7 @@ impl<P: PaillierParams> SecretPrimes<P> {
         // Euler's totient function of $N = p q$ - the number of positive integers up to $N$
         // that are relatively prime to it.
         // Since $p$ and $q$ are primes, $\phi(N) = (p - 1) (q - 1)$.
-        let totient = SecretBox::init_with(|| p_minus_one.mul_wide(&q_minus_one)).into();
+        let totient = Secret::init_with(|| p_minus_one.mul_wide(&q_minus_one));
 
         Self { primes, totient }
     }
@@ -105,80 +103,70 @@ impl<P: PaillierParams> SecretPrimes<P> {
         PublicModulusWire::new(&self.primes)
     }
 
-    pub fn p_half(&self) -> &SecretBox<P::HalfUint> {
+    pub fn p_half(&self) -> &Secret<P::HalfUint> {
         &self.primes.p
     }
 
-    pub fn q_half(&self) -> &SecretBox<P::HalfUint> {
+    pub fn q_half(&self) -> &Secret<P::HalfUint> {
         &self.primes.q
     }
 
-    pub fn p_half_odd(&self) -> SecretBox<Odd<P::HalfUint>> {
-        SecretBox::init_with(|| Odd::new(*self.primes.p.expose_secret()).expect("`p` is an odd prime"))
+    pub fn p_half_odd(&self) -> Secret<Odd<P::HalfUint>> {
+        Secret::init_with(|| Odd::new(self.primes.p.expose_secret().clone()).expect("`p` is an odd prime"))
     }
 
-    pub fn q_half_odd(&self) -> SecretBox<Odd<P::HalfUint>> {
-        SecretBox::init_with(|| Odd::new(*self.primes.q.expose_secret()).expect("`q` is an odd prime"))
+    pub fn q_half_odd(&self) -> Secret<Odd<P::HalfUint>> {
+        Secret::init_with(|| Odd::new(self.primes.q.expose_secret().clone()).expect("`q` is an odd prime"))
     }
 
-    pub fn p(&self) -> SecretBox<P::Uint> {
-        SecretBox::init_with(|| {
-            let mut p = *self.primes.p.expose_secret();
-            let p_wide = p.into_wide();
-            p.zeroize();
-            p_wide
-        })
+    pub fn p(&self) -> Secret<P::Uint> {
+        Secret::init_with(|| self.primes.p.expose_secret().to_wide())
     }
 
-    pub fn q(&self) -> SecretBox<P::Uint> {
-        SecretBox::init_with(|| {
-            let mut q = *self.primes.q.expose_secret();
-            let q_wide = q.into_wide();
-            q.zeroize();
-            q_wide
-        })
+    pub fn q(&self) -> Secret<P::Uint> {
+        Secret::init_with(|| self.primes.q.expose_secret().to_wide())
     }
 
-    pub fn p_signed(&self) -> SecretBox<Signed<P::Uint>> {
-        SecretBox::init_with(|| {
+    pub fn p_signed(&self) -> Secret<Signed<P::Uint>> {
+        Secret::init_with(|| {
             Signed::new_positive(*self.p().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
         })
     }
 
-    pub fn q_signed(&self) -> SecretBox<Signed<P::Uint>> {
-        SecretBox::init_with(|| {
+    pub fn q_signed(&self) -> Secret<Signed<P::Uint>> {
+        Secret::init_with(|| {
             Signed::new_positive(*self.q().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
         })
     }
 
-    pub fn p_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
-        SecretBox::init_with(|| NonZero::new(*self.p().expose_secret()).expect("`p` is non-zero"))
+    pub fn p_nonzero(&self) -> Secret<NonZero<P::Uint>> {
+        Secret::init_with(|| NonZero::new(*self.p().expose_secret()).expect("`p` is non-zero"))
     }
 
-    pub fn q_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
-        SecretBox::init_with(|| NonZero::new(*self.q().expose_secret()).expect("`q` is non-zero"))
+    pub fn q_nonzero(&self) -> Secret<NonZero<P::Uint>> {
+        Secret::init_with(|| NonZero::new(*self.q().expose_secret()).expect("`q` is non-zero"))
     }
 
-    pub fn p_wide_signed(&self) -> SecretBox<Signed<P::WideUint>> {
-        SecretBox::init_with(|| self.p_signed().expose_secret().into_wide())
+    pub fn p_wide_signed(&self) -> Secret<Signed<P::WideUint>> {
+        self.p_signed().to_wide()
     }
 
-    pub fn totient(&self) -> &SecretBox<P::Uint> {
+    pub fn totient(&self) -> &Secret<P::Uint> {
         &self.totient
     }
 
-    pub fn totient_bounded(&self) -> SecretBox<Bounded<P::Uint>> {
-        SecretBox::init_with(|| {
+    pub fn totient_bounded(&self) -> Secret<Bounded<P::Uint>> {
+        Secret::init_with(|| {
             Bounded::new(*self.totient.expose_secret(), P::MODULUS_BITS).expect("`P::MODULUS_BITS` is valid")
         })
     }
 
-    pub fn totient_wide_bounded(&self) -> SecretBox<Bounded<P::WideUint>> {
-        SecretBox::init_with(|| self.totient_bounded().expose_secret().into_wide())
+    pub fn totient_wide_bounded(&self) -> Secret<Bounded<P::WideUint>> {
+        self.totient_bounded().to_wide()
     }
 
-    pub fn totient_nonzero(&self) -> SecretBox<NonZero<P::Uint>> {
-        SecretBox::init_with(|| {
+    pub fn totient_nonzero(&self) -> Secret<NonZero<P::Uint>> {
+        Secret::init_with(|| {
             NonZero::new(*self.totient.expose_secret()).expect(concat![
                 "φ(n) is never zero for n >= 1; n is strictly greater than 1 ",
                 "because it is (p-1)(q-1) and given that both p and q are prime ",
@@ -268,18 +256,20 @@ impl<P: PaillierParams> PublicModulus<P> {
     }
 
     /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
-    pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
+    pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
         let modulus = self.modulus_nonzero();
         loop {
             let r = P::Uint::random_mod(rng, &modulus);
             if r.gcd(&self.modulus.0) == P::Uint::one() {
-                return P::UintMod::new(r, self.monty_params_mod_n.clone());
+                return r;
             }
         }
     }
 
     /// Returns a uniformly chosen quadratic residue modulo $N$, in Montgomery form.
     pub fn random_quadratic_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
-        self.random_invertible_residue(rng).square()
+        self.random_invertible_residue(rng)
+            .to_montgomery(&self.monty_params_mod_n)
+            .square()
     }
 }

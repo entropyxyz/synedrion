@@ -1,9 +1,8 @@
-use alloc::{boxed::Box, string::String};
-use core::ops::{Add, Mul, Neg, Sub};
+use alloc::string::String;
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
 
 use digest::XofReader;
 use rand_core::CryptoRngCore;
-use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
@@ -25,7 +24,7 @@ struct PackedSigned {
 
 impl<T> From<Signed<T>> for PackedSigned
 where
-    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable,
+    T: ConditionallySelectable + Integer + Encoding + crypto_bigint::Bounded,
 {
     fn from(val: Signed<T>) -> Self {
         Self {
@@ -37,7 +36,7 @@ where
 
 impl<T> TryFrom<PackedSigned> for Signed<T>
 where
-    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable,
+    T: ConditionallySelectable + Integer + Encoding + crypto_bigint::Bounded,
 {
     type Error = String;
     fn try_from(val: PackedSigned) -> Result<Self, Self::Error> {
@@ -54,13 +53,13 @@ where
 /// A wrapper over unsigned integers that treats two's complement numbers as negative.
 // In principle, Bounded could be separate from Signed, but we only use it internally,
 // and pretty much every time we need a bounded value, it's also signed.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Zeroize)]
 #[serde(
     try_from = "PackedSigned",
     into = "PackedSigned",
     bound = "T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable"
 )]
-pub struct Signed<T> {
+pub(crate) struct Signed<T> {
     /// bound on the bit size of the absolute value
     bound: u32,
     value: T,
@@ -290,35 +289,6 @@ impl<T: Integer> Default for Signed<T> {
     }
 }
 
-impl<T> Zeroize for Signed<T>
-where
-    T: Integer + Zeroize,
-{
-    fn zeroize(&mut self) {
-        self.value.zeroize();
-    }
-}
-
-impl<T> secrecy::CloneableSecret for Signed<T> where T: Clone + Integer + Zeroize {}
-
-impl<T> From<Signed<T>> for SecretBox<Signed<T>>
-where
-    T: Integer + Zeroize,
-{
-    fn from(value: Signed<T>) -> Self {
-        Box::new(value).into()
-    }
-}
-
-impl<T> From<&Signed<T>> for SecretBox<Signed<T>>
-where
-    T: Integer + Zeroize,
-{
-    fn from(value: &Signed<T>) -> Self {
-        SecretBox::new(Box::new(value.clone()))
-    }
-}
-
 impl<T> ConditionallySelectable for Signed<T>
 where
     T: Integer + ConditionallySelectable,
@@ -372,7 +342,7 @@ where
         );
         let scaled_bound: <T as HasWide>::Wide = scale
             .clone()
-            .into_wide()
+            .to_wide()
             .as_ref()
             .overflowing_shl_vartime(bound_bits)
             .expect("Just asserted that bound bits is smaller than T's bit precision");
@@ -411,8 +381,8 @@ where
 {
     /// Returns a [`Signed`] with the same value, but twice the bit-width.
     /// Consumes `self`, but under the hood this method clones.
-    pub fn into_wide(self) -> Signed<T::Wide> {
-        let abs_result = self.abs().into_wide();
+    pub fn to_wide(self) -> Signed<T::Wide> {
+        let abs_result = self.abs().to_wide();
         Signed::new_from_abs(abs_result, self.bound(), self.is_negative())
             .expect("the value fit the bound before, and the bound won't overflow for `WideUint`")
     }
@@ -450,7 +420,7 @@ where
         );
         let scaled_bound = scale
             .as_ref()
-            .into_wide()
+            .to_wide()
             .overflowing_shl_vartime(bound_bits)
             .expect("Just asserted that bound_bits is smaller than bit precision of T");
 
@@ -492,17 +462,6 @@ where
     }
 }
 
-impl<T> Add<&Signed<T>> for Signed<T>
-where
-    T: Integer + crypto_bigint::Bounded,
-{
-    type Output = Self;
-    fn add(self, rhs: &Self) -> Self::Output {
-        self.checked_add(rhs)
-            .expect("does not overflow by the construction of the arguments")
-    }
-}
-
 impl<T> CheckedSub<Signed<T>> for Signed<T>
 where
     T: crypto_bigint::Bounded + ConditionallySelectable + Integer,
@@ -532,14 +491,23 @@ where
     }
 }
 
-impl<T> Sub<&Signed<T>> for Signed<T>
+impl<'a, T> AddAssign<&'a Signed<T>> for Signed<T>
 where
-    T: crypto_bigint::Bounded + ConditionallySelectable + Encoding + Integer,
+    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer,
 {
-    type Output = Self;
-    fn sub(self, rhs: &Self) -> Self::Output {
-        self.checked_add(&-rhs)
-            .expect("does not overflow by the construction of the arguments")
+    fn add_assign(&mut self, rhs: &'a Signed<T>) {
+        // TODO: implement properly
+        *self = self.checked_add(rhs).unwrap()
+    }
+}
+
+impl<'a, T> MulAssign<&'a Signed<T>> for Signed<T>
+where
+    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer,
+{
+    fn mul_assign(&mut self, rhs: &'a Signed<T>) {
+        // TODO: implement properly
+        *self = self.checked_mul(rhs).unwrap()
     }
 }
 
@@ -554,60 +522,6 @@ where
     }
 }
 
-impl<T> Mul<&Signed<T>> for Signed<T>
-where
-    T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable,
-{
-    type Output = Self;
-    fn mul(self, rhs: &Self) -> Self::Output {
-        self.checked_mul(rhs)
-            .expect("does not overflow by the construction of the arguments")
-    }
-}
-
-impl<T> core::iter::Sum for Signed<T>
-where
-    T: Integer + Encoding + crypto_bigint::Bounded,
-{
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(|x, y| x.checked_add(&y).unwrap())
-            .unwrap_or(Self::default())
-    }
-}
-
-impl<'a, T> core::iter::Sum<&'a Self> for Signed<T>
-where
-    T: Integer + Encoding + crypto_bigint::Bounded,
-{
-    fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
-        iter.cloned().sum()
-    }
-}
-
-impl<T> PartialOrd for Signed<T>
-where
-    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer + PartialOrd,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        // The bounds of the two numbers do not come into play, only the signs and absolute values
-        if bool::from(self.is_negative()) {
-            if bool::from(other.is_negative()) {
-                // both are negative, flip comparison
-                other.abs().partial_cmp(&self.abs())
-            } else {
-                // self is neg, other is not => other is bigger
-                Some(core::cmp::Ordering::Less)
-            }
-        } else if bool::from(other.is_negative()) {
-            // self is positive, other is not => self is bigger
-            Some(core::cmp::Ordering::Greater)
-        } else {
-            // both are positive, use abs value
-            self.abs().partial_cmp(&other.abs())
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::ops::Neg;
@@ -619,58 +533,6 @@ mod tests {
     use super::Signed;
     use crate::uint::U1024;
     const SEED: u64 = 123;
-
-    #[test]
-    fn partial_ord_pos_vs_pos() {
-        let bound = 34;
-        let p1 = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap();
-        let p2 = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap();
-
-        assert!(p1 < p2);
-        assert_eq!(p1, Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap());
-    }
-
-    #[test]
-    fn partial_ord_neg_vs_neg() {
-        let bound = 114;
-        let n1 = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap().neg();
-        let n2 = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap().neg();
-
-        assert!(n2 < n1);
-        assert_eq!(
-            n1 + Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap(),
-            Signed::new_from_unsigned(U128::ZERO, bound + 1).unwrap()
-        );
-    }
-
-    #[test]
-    fn partial_ord_pos_vs_neg() {
-        let bound = 65;
-        let p = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap();
-        let n = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap().neg();
-        assert!(n < p);
-    }
-
-    #[test]
-    fn partial_ord_neg_vs_pos() {
-        let bound = 93;
-        let n = Signed::new_from_unsigned(U128::from_u64(10), bound).unwrap().neg();
-        let p = Signed::new_from_unsigned(U128::from_u64(12), bound).unwrap();
-        assert!(n < p);
-    }
-
-    #[test]
-    fn partial_ord_different_bounds() {
-        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 10).unwrap();
-        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 106).unwrap();
-        let s3 = Signed::new_from_unsigned(U128::from_u8(30), 127).unwrap();
-        let s4 = Signed::new_from_unsigned(U128::from_u8(30), 47).unwrap();
-
-        assert!(s2 < s1);
-        assert!(s2 < s3);
-        assert_ne!(s3, s4); // different bounds compare differently
-        assert_eq!(s3.abs(), s4.abs());
-    }
 
     #[test]
     fn adding_signed_numbers_increases_the_bound() {

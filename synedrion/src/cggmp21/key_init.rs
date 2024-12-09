@@ -3,7 +3,6 @@
 //! auxiliary parameters need to be generated as well (during the KeyRefresh protocol).
 
 use alloc::{
-    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     format,
     string::String,
@@ -17,7 +16,6 @@ use manul::protocol::{
     ReceiveError, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
-use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -30,7 +28,7 @@ use crate::{
     tools::{
         bitvec::BitVec,
         hashing::{Chain, FofHasher, HashOutput},
-        DowncastMap, Without,
+        DowncastMap, Secret, Without,
     },
 };
 
@@ -143,7 +141,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
             .finalize();
 
         // The secret share
-        let x = Scalar::random(rng);
+        let x = Secret::init_with(|| Scalar::random(rng));
         // The public share
         let cap_x = x.mul_by_generator();
 
@@ -177,7 +175,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
 struct Context<P: SchemeParams, I> {
     other_ids: BTreeSet<I>,
     my_id: I,
-    x: Scalar,
+    x: Secret<Scalar>,
     tau: SchSecret,
     public_data: PublicData<P>,
     sid_hash: HashOutput,
@@ -451,7 +449,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         public_shares.insert(my_id.clone(), self.context.public_data.cap_x);
         Ok(FinalizeOutcome::Result(KeyShare {
             owner: my_id,
-            secret_share: SecretBox::new(Box::new(self.context.x)),
+            secret_share: self.context.x,
             public_shares,
             phantom: PhantomData,
         }))
@@ -467,7 +465,6 @@ mod tests {
         session::signature::Keypair,
     };
     use rand_core::OsRng;
-    use secrecy::ExposeSecret;
 
     use super::KeyInit;
     use crate::cggmp21::TestParams;
@@ -508,7 +505,7 @@ mod tests {
 
         let public_from_secret = shares
             .into_iter()
-            .map(|(id, share)| (id, share.secret_share.expose_secret().mul_by_generator()))
+            .map(|(id, share)| (id, share.secret_share.mul_by_generator()))
             .collect();
 
         assert!(public_set == &public_from_secret);

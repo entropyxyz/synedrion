@@ -1,13 +1,12 @@
 use alloc::{boxed::Box, format, string::String};
 
-use secrecy::{CloneableSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
-use zeroize::DefaultIsZeroes;
+use zeroize::Zeroize;
 
 use super::{
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
-    CheckedAdd, CheckedMul, Encoding, HasWide, Integer, NonZero, Signed,
+    CheckedMul, Encoding, HasWide, Integer, NonZero, Signed,
 };
 
 /// A packed representation for serializing Bounded objects.
@@ -59,13 +58,13 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Zeroize)]
 #[serde(
     try_from = "PackedBounded",
     into = "PackedBounded",
     bound = "T: Integer + Encoding + crypto_bigint::Bounded"
 )]
-pub struct Bounded<T> {
+pub(crate) struct Bounded<T> {
     /// bound on the bit size of the value
     bound: u32,
     value: T,
@@ -103,11 +102,6 @@ where
     pub fn into_signed(self) -> Option<Signed<T>> {
         Signed::new_positive(self.value, self.bound)
     }
-
-    /// Extracts the inner `T` from the `Bounded`. Consumes `self`.
-    pub fn into_inner(self) -> T {
-        self.value
-    }
 }
 
 impl<T> AsRef<T> for Bounded<T> {
@@ -120,9 +114,9 @@ impl<T> Bounded<T>
 where
     T: HasWide,
 {
-    pub fn into_wide(self) -> Bounded<T::Wide> {
+    pub fn to_wide(&self) -> Bounded<T::Wide> {
         Bounded {
-            value: self.value.into_wide(),
+            value: self.value.to_wide(),
             bound: self.bound,
         }
     }
@@ -133,22 +127,6 @@ where
             value: result,
             bound: self.bound + rhs.bound,
         }
-    }
-}
-
-impl<T> CheckedAdd for Bounded<T>
-where
-    T: Integer + crypto_bigint::Bounded,
-{
-    fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
-        let bound = core::cmp::max(self.bound, rhs.bound) + 1;
-        let in_range = bound.ct_lt(&<T as crypto_bigint::Bounded>::BITS);
-
-        let result = Self {
-            bound,
-            value: self.value.wrapping_add(&rhs.value),
-        };
-        CtOption::new(result, in_range)
     }
 }
 
@@ -177,18 +155,6 @@ where
             bound: u32::conditional_select(&a.bound, &b.bound, choice),
             value: T::conditional_select(&a.value, &b.value, choice),
         }
-    }
-}
-
-impl<T> DefaultIsZeroes for Bounded<T> where T: Integer + Copy {}
-impl<T> CloneableSecret for Bounded<T> where T: Integer + Copy {}
-
-impl<T> From<Bounded<T>> for SecretBox<Bounded<T>>
-where
-    T: Integer + Copy,
-{
-    fn from(value: Bounded<T>) -> Self {
-        Box::new(value).into()
     }
 }
 
