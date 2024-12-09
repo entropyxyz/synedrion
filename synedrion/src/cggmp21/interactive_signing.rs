@@ -376,7 +376,7 @@ struct Round2<P: SchemeParams, I: Ord> {
     all_cap_g: BTreeMap<I, Ciphertext<P::Paillier>>,
 }
 
-// TODO(dp): convenient enough to include in `Round`?
+// TODO(dp): @reviewers convenient enough to include in `Round`?
 impl<P: SchemeParams, I: Ord + Debug> Round2<P, I> {
     fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
         self.context

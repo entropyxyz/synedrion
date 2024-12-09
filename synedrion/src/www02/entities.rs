@@ -57,8 +57,13 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         ids: &BTreeSet<I>,
         threshold: usize,
         signing_key: Option<&SigningKey>,
-    ) -> BTreeMap<I, Self> {
-        debug_assert!(threshold <= ids.len()); // TODO (#68): make the method fallible
+    ) -> Result<BTreeMap<I, Self>, LocalError> {
+        if threshold > ids.len() {
+            return Err(LocalError::new(format!(
+                "Invalid threshold ({threshold}). Must be smaller than {}",
+                ids.len()
+            )));
+        }
 
         let secret = match signing_key {
             None => Scalar::random(rng),
@@ -74,20 +79,19 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .map(|(id, share_id)| {
                 let secret_share = secret_shares
                     .get(share_id)
-                    .ok_or(LocalError::new("share_id={share_id:?} is missing in the secret shares"))?;
+                    .ok_or_else(|| LocalError::new("share_id={share_id:?} is missing in the secret shares"))?;
                 Ok((id.clone(), secret_share.mul_by_generator()))
             })
-            .collect::<Result<BTreeMap<_, _>, LocalError>>()
-            .expect("TODO(dp): Return error");
+            .collect::<Result<BTreeMap<_, _>, LocalError>>()?;
 
         ids.iter()
             .map(|id| {
                 let share_id = share_ids
                     .get(id)
-                    .ok_or(LocalError::new("id={id:?} is missing in the share_ids"))?;
+                    .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
                 let secret_share = secret_shares
                     .get(share_id)
-                    .ok_or(LocalError::new("share_id={share_id:?} is missing in the secret shares"))?;
+                    .ok_or_else(|| LocalError::new("share_id={share_id:?} is missing in the secret shares"))?;
                 Ok((
                     id.clone(),
                     Self {
@@ -100,12 +104,11 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                     },
                 ))
             })
-            .collect::<Result<_, LocalError>>()
-            .expect("TODO(dp): Return LocalErr")
+            .collect()
     }
 
-    pub(crate) fn verifying_key_as_point(&self) -> Point {
-        shamir_join_points(
+    pub(crate) fn verifying_key_as_point(&self) -> Result<Point, LocalError> {
+        Ok(shamir_join_points(
             &self
                 .share_ids
                 .iter()
@@ -116,30 +119,28 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                     Ok((*share_id, *public_share))
                 })
                 .take(self.threshold as usize)
-                .collect::<Result<_, LocalError>>()
-                .expect("TODO(dp): return LocalError"),
-        )
+                .collect::<Result<_, LocalError>>()?,
+        ))
     }
 
     /// Return the verifying key to which this set of shares corresponds.
-    pub fn verifying_key(&self) -> VerifyingKey {
-        self.verifying_key_as_point()
+    pub fn verifying_key(&self) -> Result<VerifyingKey, LocalError> {
+        self.verifying_key_as_point()?
             .to_verifying_key()
-            .expect("the combined verrifying key is not an identity")
+            .ok_or_else(|| LocalError::new("The combined verifying key is an identity"))
     }
 
     /// Converts a t-of-n key share into a t-of-t key share
     /// (for the `t` share indices supplied as `share_ids`)
     /// that can be used in the presigning/signing protocols.
-    pub fn to_key_share(&self, ids: &BTreeSet<I>) -> KeyShare<P, I> {
+    pub fn to_key_share(&self, ids: &BTreeSet<I>) -> Result<KeyShare<P, I>, LocalError> {
         debug_assert!(ids.len() == self.threshold as usize);
         debug_assert!(ids.iter().any(|id| id == &self.owner));
 
         let owner_share_id = self
             .share_ids
             .get(&self.owner)
-            .ok_or(LocalError::new("id={id:?} is missing in the share_ids"))
-            .expect("TODO(dp): make method return LocalErr");
+            .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
 
         let share_ids = ids
             .iter()
@@ -147,11 +148,10 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                 let share_id = self
                     .share_ids
                     .get(id)
-                    .ok_or(LocalError::new("id={id:?} is missing in the share_ids"))?;
+                    .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
                 Ok((id.clone(), *share_id))
             })
-            .collect::<Result<BTreeMap<_, _>, LocalError>>()
-            .expect("TODO(dp): make this method return LocalErr");
+            .collect::<Result<BTreeMap<_, _>, LocalError>>()?;
 
         let share_ids_set = share_ids.values().cloned().collect();
         let secret_share = SecretBox::new(Box::new(
@@ -163,25 +163,24 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                 let public_share = self
                     .public_shares
                     .get(id)
-                    .ok_or(LocalError::new("id={id:?} is missing in the public shares"))?;
+                    .ok_or_else(|| LocalError::new("id={id:?} is missing in the public shares"))?;
                 let this_share_id = self
                     .share_ids
                     .get(id)
-                    .ok_or(LocalError::new("id={id:?} is missing in the share_ids"))?;
+                    .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
                 Ok((
                     id.clone(),
                     public_share * &interpolation_coeff(&share_ids_set, this_share_id),
                 ))
             })
-            .collect::<Result<_, LocalError>>()
-            .expect("TODO(dp): make this method return LocalErr");
+            .collect::<Result<_, LocalError>>()?;
 
-        KeyShare {
+        Ok(KeyShare {
             owner: self.owner.clone(),
             secret_share,
             public_shares,
             phantom: PhantomData,
-        }
+        })
     }
 
     /// Creates a t-of-t threshold keyshare that can be used in KeyResharing protocol.
@@ -231,7 +230,8 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
 
     /// Deterministically derives a child share using BIP-32 standard.
     pub fn derive_bip32(&self, derivation_path: &DerivationPath) -> Result<Self, bip32::Error> {
-        let tweaks = derive_tweaks(self.verifying_key(), derivation_path)?;
+        let pk = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
+        let tweaks = derive_tweaks(pk, derivation_path)?;
 
         // Will fail here if secret share is zero
         let secret_share = self
@@ -274,7 +274,7 @@ pub trait DeriveChildKey {
 
 impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> DeriveChildKey for ThresholdKeyShare<P, I> {
     fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey, bip32::Error> {
-        let public_key = self.verifying_key();
+        let public_key = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
         let tweaks = derive_tweaks(public_key, derivation_path)?;
         apply_tweaks_public(public_key, &tweaks)
     }
@@ -350,23 +350,25 @@ mod tests {
         let ids = signers.iter().map(|signer| signer.verifying_key()).collect::<Vec<_>>();
         let ids_set = ids.iter().cloned().collect::<BTreeSet<_>>();
 
-        let shares = ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, 2, Some(&sk));
+        let shares =
+            ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, 2, Some(&sk)).unwrap();
 
-        assert_eq!(&shares[&ids[0]].verifying_key(), sk.verifying_key());
-        assert_eq!(&shares[&ids[1]].verifying_key(), sk.verifying_key());
-        assert_eq!(&shares[&ids[2]].verifying_key(), sk.verifying_key());
+        let sk_verifying_key = sk.verifying_key();
+        assert_eq!(&shares[&ids[0]].verifying_key().unwrap(), sk_verifying_key);
+        assert_eq!(&shares[&ids[1]].verifying_key().unwrap(), sk_verifying_key);
+        assert_eq!(&shares[&ids[2]].verifying_key().unwrap(), sk_verifying_key);
 
-        assert_eq!(&shares[&ids[0]].verifying_key(), sk.verifying_key());
+        assert_eq!(&shares[&ids[0]].verifying_key().unwrap(), sk_verifying_key);
 
         let ids_subset = BTreeSet::from([ids[2], ids[0]]);
-        let nt_share0 = shares[&ids[0]].to_key_share(&ids_subset);
-        let nt_share1 = shares[&ids[2]].to_key_share(&ids_subset);
+        let nt_share0 = shares[&ids[0]].to_key_share(&ids_subset).unwrap();
+        let nt_share1 = shares[&ids[2]].to_key_share(&ids_subset).unwrap();
 
         assert_eq!(
             nt_share0.secret_share.expose_secret() + nt_share1.secret_share.expose_secret(),
             Scalar::from(sk.as_nonzero_scalar())
         );
-        assert_eq!(&nt_share0.verifying_key().unwrap(), sk.verifying_key());
-        assert_eq!(&nt_share1.verifying_key().unwrap(), sk.verifying_key());
+        assert_eq!(&nt_share0.verifying_key().unwrap(), sk_verifying_key);
+        assert_eq!(&nt_share1.verifying_key().unwrap(), sk_verifying_key);
     }
 }

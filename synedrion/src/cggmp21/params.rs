@@ -196,7 +196,7 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
         Scalar::try_from_bytes(
             repr.as_ref()
                 .get(uint_len - scalar_len..)
-                // TODO(dp): Do I need a better proof that this is true?
+                // TODO(dp): @reviewers Do we need a better proof that this is true?
                 .expect("WideUint is assumed to be bigger than Scalar"),
         )
         .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")

@@ -471,8 +471,8 @@ mod tests {
         let new_holders = BTreeSet::from([ids[1], ids[2], ids[3]]);
 
         let old_key_shares =
-            ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &old_holders, 2, None);
-        let old_vkey = old_key_shares[&ids[0]].verifying_key();
+            ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &old_holders, 2, None).unwrap();
+        let old_vkey = old_key_shares[&ids[0]].verifying_key().unwrap();
         let new_threshold = 2;
 
         let party0 = KeyResharing::new(

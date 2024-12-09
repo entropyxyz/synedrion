@@ -1,9 +1,11 @@
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
+    format,
     vec::Vec,
 };
 use core::{fmt::Debug, marker::PhantomData};
+use manul::session::LocalError;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
@@ -126,38 +128,40 @@ pub(crate) struct PresigningValues<P: SchemeParams> {
 
 impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
     /// Updates a key share with a change obtained from KeyRefresh protocol.
-    pub fn update(self, change: KeyShareChange<P, I>) -> Self {
-        // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
-        assert_eq!(self.owner, change.owner);
+    pub fn update(self, change: KeyShareChange<P, I>) -> Result<Self, LocalError> {
+        if self.owner != change.owner {
+            return Err(LocalError::new(format!(
+                "Owning party mismatch. self.owner={:?}, change.owner={:?}",
+                self.owner, change.owner
+            )));
+        }
+        if self.public_shares.len() != change.public_share_changes.len() {
+            return Err(LocalError::new(format!(
+                "Inconsistent number of public key shares in updated share set (expected {}, was {})",
+                self.public_shares.len(),
+                change.public_share_changes.len()
+            )));
+        }
 
         let secret_share = SecretBox::new(Box::new(
             self.secret_share.expose_secret() + change.secret_share_change.expose_secret(),
         ));
-        // TODO(dp): return error instead?
-        assert_eq!(
-            self.public_shares.len(),
-            change.public_share_changes.len(),
-            "Inconsistent number of public key shares in updated share set (expected {}, was {})",
-            self.public_shares.len(),
-            change.public_share_changes.len()
-        );
         let public_shares = self
             .public_shares
             .iter()
             .zip(change.public_share_changes)
             // TODO(dp): this should fail, I'm pretty sure, but doesn't (no test)
-            // let hh = change.public_share_changes.first_key_value().unwrap().0.clone();
-            // .map(|(pub_share, changed_pub_share)| (hh.clone(), pub_share.1 + &changed_pub_share.1))
-            // TODO(dp): is this correct? No test!
+            // let obviously_wrong_value = change.public_share_changes.first_key_value().unwrap().0.clone();
+            // .map(|(pub_share, changed_pub_share)| (obviously_wrong_value.clone(), pub_share.1 + &changed_pub_share.1))
             .map(|(pub_share, changed_pub_share)| (changed_pub_share.0, pub_share.1 + &changed_pub_share.1))
             .collect();
 
-        Self {
+        Ok(Self {
             owner: self.owner,
             secret_share,
             public_shares,
             phantom: PhantomData,
-        }
+        })
     }
 
     /// Creates a set of random self-consistent key shares

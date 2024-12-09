@@ -165,7 +165,7 @@ where
         u8::MAX
     };
 
-    // TODO(dp): this uses `to_le_bytes` (little-endian) but then the original code masks out bits
+    // TODO(dp): @reviewers this uses `to_le_bytes` (little-endian) but then the original code masks out bits
     // from the *last* byte, so it'd mask out the *low* bits yeah? Changing to mask the first byte
     // but this could use a test.
     let mut bytes = T::zero().to_le_bytes();
