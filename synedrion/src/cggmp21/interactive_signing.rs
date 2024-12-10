@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use super::{
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues, PublicAuxInfoPrecomputed},
     params::{
-        bounded_from_scalar, secret_bounded_from_scalar, secret_scalar_from_signed, secret_signed_from_scalar,
-        secret_uint_from_scalar, signed_from_scalar, SchemeParams,
+        public_signed_from_scalar, secret_scalar_from_signed, secret_signed_from_scalar, secret_unsigned_from_scalar,
+        SchemeParams,
     },
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof, MulStarProof},
 };
@@ -32,7 +32,7 @@ use crate::{
         hashing::{Chain, FofHasher, HashOutput},
         DowncastMap, Secret, Without,
     },
-    uint::Signed,
+    uint::SecretSigned,
 };
 
 /// A protocol for creating all the data necessary for signing
@@ -162,10 +162,10 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         let pk = aux_info.secret_aux.paillier_sk.public_key();
 
         let nu = Randomizer::<P::Paillier>::random(rng, pk);
-        let cap_g = Ciphertext::new_with_randomizer(pk, &secret_uint_from_scalar::<P>(&gamma), &nu);
+        let cap_g = Ciphertext::new_with_randomizer(pk, &secret_unsigned_from_scalar::<P>(&gamma), &nu);
 
         let rho = Randomizer::<P::Paillier>::random(rng, pk);
-        let cap_k = Ciphertext::new_with_randomizer(pk, &secret_uint_from_scalar::<P>(&k), &rho);
+        let cap_k = Ciphertext::new_with_randomizer(pk, &secret_unsigned_from_scalar::<P>(&k), &rho);
 
         Ok(BoxedRound::new_dynamic(Round1 {
             context: Context {
@@ -421,8 +421,8 @@ struct Round2Message<P: SchemeParams> {
 
 #[derive(Debug, Clone)]
 struct Round2Artifact<P: SchemeParams> {
-    beta: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
-    hat_beta: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    beta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    hat_beta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     r: Randomizer<P::Paillier>,
     s: Randomizer<P::Paillier>,
     hat_r: Randomizer<P::Paillier>,
@@ -435,8 +435,8 @@ struct Round2Artifact<P: SchemeParams> {
 
 struct Round2Payload<P: SchemeParams> {
     cap_gamma: Point,
-    alpha: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
-    hat_alpha: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    hat_alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_d: Ciphertext<P::Paillier>,
     hat_cap_d: Ciphertext<P::Paillier>,
 }
@@ -473,8 +473,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let target_pk = &self.context.public_aux(destination)?.paillier_pk;
 
-        let beta = Secret::init_with(|| Signed::random_bounded_bits(rng, P::LP_BOUND));
-        let hat_beta = Secret::init_with(|| Signed::random_bounded_bits(rng, P::LP_BOUND));
+        let beta = SecretSigned::random_in_exp_range(rng, P::LP_BOUND);
+        let hat_beta = SecretSigned::random_in_exp_range(rng, P::LP_BOUND);
         let r = Randomizer::random(rng, pk);
         let s = Randomizer::random(rng, target_pk);
         let hat_r = Randomizer::random(rng, pk);
@@ -661,18 +661,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         // `alpha == x * y + z` where `0 <= x, y < q`, and `-2^l' <= z <= 2^l'`,
         // where `q` is the curve order.
         // We will need this bound later, so we're asserting it.
-        let alpha = Secret::try_init_with(|| {
-            alpha
-                .expose_secret()
-                .assert_bit_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
-                .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsAlpha))
-        })?;
-        let hat_alpha = Secret::try_init_with(|| {
-            hat_alpha
-                .expose_secret()
-                .assert_bit_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1)
-                .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsHatAlpha))
-        })?;
+        let alpha = Option::from(alpha.ensure_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1))
+            .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsAlpha))?;
+        let hat_alpha = Option::from(hat_alpha.ensure_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1))
+            .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsHatAlpha))?;
 
         Ok(Payload::new(Round2Payload::<P> {
             cap_gamma: direct_message.cap_gamma,
@@ -697,15 +689,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let cap_delta = cap_gamma * &self.context.k;
 
-        let alpha_sum: Secret<Signed<_>> = payloads.values().map(|payload| &payload.alpha).sum();
-        let beta_sum: Secret<Signed<_>> = artifacts.values().map(|artifact| &artifact.beta).sum();
+        let alpha_sum: SecretSigned<_> = payloads.values().map(|payload| &payload.alpha).sum();
+        let beta_sum: SecretSigned<_> = artifacts.values().map(|artifact| &artifact.beta).sum();
         let delta = secret_signed_from_scalar::<P>(&self.context.gamma)
             * secret_signed_from_scalar::<P>(&self.context.k)
             + &alpha_sum
             + &beta_sum;
 
-        let hat_alpha_sum: Secret<Signed<_>> = payloads.values().map(|payload| &payload.hat_alpha).sum();
-        let hat_beta_sum: Secret<Signed<_>> = artifacts.values().map(|artifact| &artifact.hat_beta).sum();
+        let hat_alpha_sum: SecretSigned<_> = payloads.values().map(|payload| &payload.hat_alpha).sum();
+        let hat_beta_sum: SecretSigned<_> = artifacts.values().map(|artifact| &artifact.hat_beta).sum();
         let chi = secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
             * secret_signed_from_scalar::<P>(&self.context.k)
             + &hat_alpha_sum
@@ -734,8 +726,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 #[derive(Debug)]
 struct Round3<P: SchemeParams, I: Ord> {
     context: Context<P, I>,
-    delta: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
-    chi: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    delta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    chi: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_delta: Point,
     cap_gamma: Point,
     all_cap_k: BTreeMap<I, Ciphertext<P::Paillier>>,
@@ -999,15 +991,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         // Mul proof
         let my_id = &self.context.my_id;
         let rho = Randomizer::random(rng, pk);
-        let cap_x = self
+        let cap_k = self
             .all_cap_k
             .get(my_id)
             .ok_or_else(|| LocalError::new("my_id={my_id:?} is missing in all_cap_k"))?;
-        let cap_y = self
+        let cap_g = self
             .all_cap_g
             .get(my_id)
             .ok_or_else(|| LocalError::new("my_id={my_id:?} is missing in all_cap_g"))?;
-        let cap_h = (cap_y * secret_bounded_from_scalar::<P>(&self.context.k)).mul_randomizer(&rho);
+        let cap_h = (cap_g * &secret_unsigned_from_scalar::<P>(&self.context.k)).mul_randomizer(&rho);
 
         let p_mul = MulProof::<P>::new(
             rng,
@@ -1015,12 +1007,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             &self.context.rho,
             &rho,
             pk,
-            cap_x,
-            cap_y,
+            cap_k,
+            cap_g,
             &cap_h,
             &aux,
         );
-        assert!(p_mul.verify(pk, cap_x, cap_y, &cap_h, &aux));
+        assert!(p_mul.verify(pk, cap_k, cap_g, &cap_h, &aux));
 
         // Dec proof
 
@@ -1229,7 +1221,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let cap_x = self.context.public_share(&my_id)?;
 
         let rho = Randomizer::random(rng, pk);
-        let hat_cap_h = (&self.presigning.cap_k * secret_bounded_from_scalar::<P>(x)).mul_randomizer(&rho);
+        let hat_cap_h = (&self.presigning.cap_k * &secret_unsigned_from_scalar::<P>(x)).mul_randomizer(&rho);
 
         let aux = (&self.context.ssid_hash, &my_id);
 
@@ -1267,16 +1259,17 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         }
 
         let r = self.presigning.nonce;
+        let signed_r = public_signed_from_scalar::<P>(&r);
+        let signed_message = public_signed_from_scalar::<P>(&self.context.message);
 
-        let ciphertext = ciphertext * bounded_from_scalar::<P>(&r)
-            + &self.presigning.cap_k * bounded_from_scalar::<P>(&self.context.message);
+        let ciphertext = ciphertext * &signed_r + &self.presigning.cap_k * &signed_message;
 
         let rho = ciphertext.derive_randomizer(sk);
         // This is the same as `s_part` but if all the calculations were performed
         // without reducing modulo curve order.
         let s_part_nonreduced = secret_signed_from_scalar::<P>(&self.presigning.ephemeral_scalar_share)
-            * signed_from_scalar::<P>(&self.context.message)
-            + self.presigning.product_share_nonreduced.clone() * signed_from_scalar::<P>(&r);
+            * signed_message
+            + &self.presigning.product_share_nonreduced * signed_r;
 
         let mut dec_proofs = Vec::new();
         for id_l in self.context.other_ids.iter() {

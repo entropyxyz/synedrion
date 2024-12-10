@@ -14,8 +14,7 @@ use crate::{
         Randomizer,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
-    tools::Secret,
-    uint::Signed,
+    uint::{PublicSigned, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_dec";
@@ -36,13 +35,13 @@ Public inputs:
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
-    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_t: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
     gamma: Scalar,
-    z1: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    z1: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
+    z2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     omega: MaskedRandomizer<P::Paillier>,
 }
 
@@ -50,7 +49,7 @@ impl<P: SchemeParams> DecProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        y: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+        y: &SecretSigned<<P::Paillier as PaillierParams>::Uint>,
         rho: &Randomizer<P::Paillier>,
         pk0: &PublicKeyPaillier<P::Paillier>,
         x: &Scalar,
@@ -60,11 +59,11 @@ impl<P: SchemeParams> DecProof<P> {
     ) -> Self {
         assert_eq!(cap_c.public_key(), pk0);
 
-        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = setup.modulus(); // $\hat{N}$
 
-        let alpha = Secret::init_with(|| Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND));
-        let mu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
-        let nu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
+        let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
+        let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let nu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let r = Randomizer::random(rng, pk0);
 
         let cap_s = setup.commit(y, &mu).to_wire();
@@ -93,10 +92,10 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let z1 = *(alpha.to_wide() + y.mul_wide(&e)).expose_secret();
-        let z2 = *(nu + mu * e.to_wide()).expose_secret();
+        let z1 = (alpha.to_wide() + y.mul_wide(&e)).to_public();
+        let z2 = (nu + mu * e.to_wide()).to_public();
 
         let omega = rho.to_masked(&r, &e);
 
@@ -137,7 +136,7 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -145,7 +144,7 @@ impl<P: SchemeParams> DecProof<P> {
 
         // enc(z_1, \omega) == A (+) C (*) e
         if Ciphertext::new_public_with_randomizer_wide(pk0, &self.z1, &self.omega)
-            != self.cap_a.to_precomputed(pk0) + cap_c * e
+            != self.cap_a.to_precomputed(pk0) + cap_c * &e
         {
             return false;
         }
@@ -158,7 +157,7 @@ impl<P: SchemeParams> DecProof<P> {
         // s^{z_1} t^{z_2} == T S^e
         let cap_s = self.cap_s.to_precomputed(setup);
         let cap_t = self.cap_t.to_precomputed(setup);
-        if setup.commit_public_wide(&self.z1, &self.z2) != &cap_t * &cap_s.pow_signed_vartime(&e) {
+        if setup.commit(&self.z1, &self.z2) != &cap_t * &cap_s.pow(&e) {
             return false;
         }
 
@@ -172,10 +171,9 @@ mod tests {
 
     use super::DecProof;
     use crate::{
-        cggmp21::{params::scalar_from_signed, SchemeParams, TestParams},
+        cggmp21::{params::secret_scalar_from_signed, SchemeParams, TestParams},
         paillier::{Ciphertext, PaillierParams, RPParams, Randomizer, SecretKeyPaillierWire},
-        tools::Secret,
-        uint::Signed,
+        uint::SecretSigned,
     };
 
     #[test]
@@ -191,8 +189,8 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         // We need something within the range -N/2..N/2 so that it doesn't wrap around.
-        let y = Secret::init_with(|| Signed::random_bounded_bits(&mut OsRng, Paillier::PRIME_BITS * 2 - 2));
-        let x = scalar_from_signed::<Params>(y.expose_secret());
+        let y = SecretSigned::random_in_exp_range(&mut OsRng, Paillier::PRIME_BITS * 2 - 2);
+        let x = *secret_scalar_from_signed::<Params>(&y).expose_secret();
 
         let rho = Randomizer::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho);

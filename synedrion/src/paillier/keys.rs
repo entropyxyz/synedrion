@@ -1,9 +1,11 @@
-use core::{
-    fmt::Debug,
-    ops::{AddAssign, SubAssign},
-};
+use core::fmt::Debug;
 
-use crypto_bigint::{InvMod, Monty, Odd, ShrVartime, Square, WrappingAdd};
+use crypto_bigint::{
+    modular::Retrieve,
+    subtle::{Choice, ConditionallySelectable},
+    CheckedAdd, CheckedSub, Integer, InvMod, Invert, Monty, NonZero, Odd, PowBoundedExp, ShrVartime, Square,
+    WrappingAdd,
+};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -13,11 +15,7 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{
-        subtle::{Choice, ConditionallySelectable},
-        Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, Retrieve, Signed,
-        ToMontgomery,
-    },
+    uint::{HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,13 +48,12 @@ pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     /// The inverse of the totient modulo the modulus ($\phi(N)^{-1} \mod N$).
     inv_totient: Secret<P::UintMod>,
     /// The inverse of the modulus modulo the totient ($N^{-1} \mod \phi(N)$).
-    inv_modulus: Secret<Bounded<P::Uint>>,
+    inv_modulus: SecretUnsigned<P::Uint>,
     /// $p^{-1} \mod q$, a constant used when joining an RNS-represented number using Garner's algorithm.
     inv_p_mod_q: Secret<P::HalfUintMod>,
     // $u$ such that $u = -1 \mod p$ and $u = 1 \mod q$. Used for sampling of non-square residues.
     nonsquare_sampling_constant: Secret<P::UintMod>,
     // TODO (#162): these should be secret, but they are not zeroizable.
-    // See https://github.com/RustCrypto/crypto-bigint/issues/704
     /// Montgomery parameters for operations modulo $p$.
     monty_params_mod_p: <P::HalfUintMod as Monty>::Params,
     /// Montgomery parameters for operations modulo $q$.
@@ -88,24 +85,21 @@ where
                 ])
         });
 
-        let inv_modulus = Secret::init_with(|| {
-            Bounded::new(
-                (*modulus.modulus())
+        let inv_modulus = SecretUnsigned::new(
+            Secret::init_with(|| {
+                modulus
+                    .modulus()
                     .inv_mod(primes.totient().expose_secret())
-                    .expect("pq is invertible mod ϕ(pq) because gcd(pq, (p-1)(q-1)) = 1"),
-                P::MODULUS_BITS,
-            )
-            .expect("We assume `P::MODULUS_BITS` is properly configured")
-        });
+                    .expect("pq is invertible mod ϕ(pq) because gcd(pq, (p-1)(q-1)) = 1")
+            }),
+            P::MODULUS_BITS,
+        )
+        .expect("We assume `P::MODULUS_BITS` is properly configured");
 
+        let p_mod = primes.p_half().to_montgomery(&monty_params_mod_q);
         let inv_p_mod_q = Secret::init_with(|| {
-            primes
-                .p_half()
+            p_mod
                 .expose_secret()
-                .clone()
-                // NOTE: `monty_params_mod_q` is cloned here and can remain on the stack.
-                // See https://github.com/RustCrypto/crypto-bigint/issues/704
-                .to_montgomery(&monty_params_mod_q)
                 .invert()
                 .expect("All non-zero integers mod a prime have a multiplicative inverse")
         });
@@ -117,14 +111,10 @@ where
         // Calculate $t = 2 p^{-1} - 1 \mod q$
 
         let one = Secret::init_with(|| {
-            // NOTE: `monty_params_mod_q` is cloned here and can remain on the stack.
-            // See https://github.com/RustCrypto/crypto-bigint/issues/704
+            // TODO (#162): `monty_params_mod_q` is cloned here and can remain on the stack.
             P::HalfUintMod::one(monty_params_mod_q.clone())
         });
-        let mut t_mod = inv_p_mod_q.clone();
-        t_mod.expose_secret_mut().add_assign(inv_p_mod_q.expose_secret());
-        t_mod.expose_secret_mut().sub_assign(one.expose_secret());
-        let t = Secret::init_with(|| t_mod.expose_secret().retrieve());
+        let t = (&inv_p_mod_q + &inv_p_mod_q - one).retrieve();
 
         // Calculate $u$
         // I am not entirely sure if it can be used to learn something about `p` and `q`,
@@ -164,21 +154,21 @@ where
         }
     }
 
-    pub fn p_signed(&self) -> Secret<Signed<P::Uint>> {
+    pub fn p_signed(&self) -> SecretSigned<P::Uint> {
         self.primes.p_signed()
     }
 
-    pub fn q_signed(&self) -> Secret<Signed<P::Uint>> {
+    pub fn q_signed(&self) -> SecretSigned<P::Uint> {
         self.primes.q_signed()
     }
 
-    pub fn p_wide_signed(&self) -> Secret<Signed<P::WideUint>> {
+    pub fn p_wide_signed(&self) -> SecretSigned<P::WideUint> {
         self.primes.p_wide_signed()
     }
 
     /// Returns Euler's totient function (`φ(n)`) of the modulus, wrapped in a [`Secret`].
-    pub fn totient_wide_bounded(&self) -> Secret<Bounded<P::WideUint>> {
-        self.primes.totient_wide_bounded()
+    pub fn totient_wide_unsigned(&self) -> SecretUnsigned<P::WideUint> {
+        self.primes.totient_wide_unsigned()
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
@@ -187,7 +177,7 @@ where
     }
 
     /// Returns $N^{-1} \mod \phi(N)$
-    pub fn inv_modulus(&self) -> &Secret<Bounded<P::Uint>> {
+    pub fn inv_modulus(&self) -> &SecretUnsigned<P::Uint> {
         &self.inv_modulus
     }
 
@@ -203,8 +193,7 @@ where
         let p_rem_half = P::HalfUint::try_from_wide(&p_rem).expect("`p` fits into `HalfUint`");
         let q_rem_half = P::HalfUint::try_from_wide(&q_rem).expect("`q` fits into `HalfUint`");
 
-        // NOTE: `monty_params_mod_q` is cloned here and can remain on the stack.
-        // See https://github.com/RustCrypto/crypto-bigint/issues/704
+        // TODO (#162): `monty_params_mod_q` is cloned here and can remain on the stack.
         let p_rem_mod = p_rem_half.to_montgomery(&self.monty_params_mod_p);
         let q_rem_mod = q_rem_half.to_montgomery(&self.monty_params_mod_q);
 
@@ -319,7 +308,7 @@ pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
 impl<P: PaillierParams> PublicKeyPaillier<P> {
     fn new(modulus: PublicModulus<P>) -> Self {
         let monty_params_mod_n_squared = P::WideUintMod::new_params_vartime(
-            Odd::new(modulus.modulus().square_wide()).expect("Square of odd number is odd"),
+            Odd::new(modulus.modulus().mul_wide(modulus.modulus())).expect("Square of odd number is odd"),
         );
 
         let public_key_wire = PublicKeyPaillierWire {
@@ -345,8 +334,8 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
         self.modulus.modulus()
     }
 
-    pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
-        self.modulus.modulus_bounded()
+    pub fn modulus_signed(&self) -> PublicSigned<P::WideUint> {
+        self.modulus.modulus_signed()
     }
 
     pub fn modulus_nonzero(&self) -> NonZero<P::Uint> {
@@ -375,8 +364,8 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
 }
 
 impl<P: PaillierParams> PartialEq for PublicKeyPaillier<P> {
-    fn eq(&self, other: &Self) -> bool {
-        self.modulus.eq(&other.modulus)
+    fn eq(&self, rhs: &Self) -> bool {
+        self.modulus.eq(&rhs.modulus)
     }
 }
 
