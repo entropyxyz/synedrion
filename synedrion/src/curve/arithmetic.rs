@@ -1,7 +1,7 @@
 use alloc::{format, string::String, vec, vec::Vec};
 use core::{
     default::Default,
-    ops::{Add, Mul, Neg, Sub},
+    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
 use digest::Digest;
@@ -16,6 +16,7 @@ use k256::elliptic_curve::{
     Field,
     FieldBytesSize,
     NonZeroScalar,
+    SecretKey,
 };
 use k256::{
     ecdsa::{SigningKey, VerifyingKey},
@@ -23,12 +24,14 @@ use k256::{
     Secp256k1,
 };
 use rand_core::CryptoRngCore;
-use secrecy::{CloneableSecret, SerializableSecret};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_encoded_bytes::{Hex, SliceLike};
-use zeroize::DefaultIsZeroes;
+use zeroize::Zeroize;
 
-use crate::tools::hashing::{Chain, HashableType};
+use crate::tools::{
+    hashing::{Chain, HashableType},
+    Secret,
+};
 
 pub(crate) type Curve = Secp256k1;
 pub(crate) type BackendScalar = k256::Scalar;
@@ -54,8 +57,8 @@ impl HashableType for Curve {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord)]
-pub struct Scalar(BackendScalar);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
+pub(crate) struct Scalar(BackendScalar);
 
 impl Scalar {
     pub const ZERO: Self = Self(BackendScalar::ZERO);
@@ -107,13 +110,8 @@ impl Scalar {
         self.0
     }
 
-    pub fn to_signing_key(self) -> Option<SigningKey> {
-        let scalar: Option<NonZeroScalar<Secp256k1>> = NonZeroScalar::new(self.0).into();
-        Some(SigningKey::from(scalar?))
-    }
-
-    pub fn from_signing_key(sk: &SigningKey) -> Self {
-        Self(*sk.as_nonzero_scalar().as_ref())
+    pub fn from_signing_key(sk: &SigningKey) -> Secret<Self> {
+        Secret::init_with(|| Self(*sk.as_nonzero_scalar().as_ref()))
     }
 
     // TODO(dp): @reviewers Does this assume big endian order?
@@ -125,18 +123,30 @@ impl Scalar {
             .map(Self)
             .ok_or_else(|| "Invalid curve scalar representation".into())
     }
+}
 
-    pub(crate) fn split(&self, rng: &mut impl CryptoRngCore, num: usize) -> Vec<Scalar> {
-        // TODO (#5): do all the parts have to be non-zero?
-        if num == 1 {
-            return vec![*self];
-        }
-
-        let mut parts = (0..(num - 1)).map(|_| Scalar::random(rng)).collect::<Vec<_>>();
-        let partial_sum: Scalar = parts.iter().sum();
-        parts.push(self - &partial_sum);
-        parts
+impl Secret<Scalar> {
+    pub fn to_signing_key(&self) -> Option<SigningKey> {
+        let nonzero_scalar: Secret<NonZeroScalar<_>> =
+            Secret::maybe_init_with(|| Option::from(NonZeroScalar::new(self.expose_secret().0)))?;
+        // SigningKey can be instantiated from NonZeroScalar directly, but that method takes it by value,
+        // so it is more likely to leave traces of secret data on the stack. `SecretKey::from()` takes a reference.
+        let secret_key = SecretKey::from(nonzero_scalar.expose_secret());
+        Some(SigningKey::from(&secret_key))
     }
+}
+
+pub(crate) fn secret_split(rng: &mut impl CryptoRngCore, scalar: Secret<Scalar>, num: usize) -> Vec<Secret<Scalar>> {
+    if num == 1 {
+        return vec![scalar];
+    }
+
+    let mut parts = (0..(num - 1))
+        .map(|_| Secret::init_with(|| Scalar::random_nonzero(rng)))
+        .collect::<Vec<_>>();
+    let partial_sum: Secret<Scalar> = parts.iter().cloned().sum();
+    parts.push(scalar - partial_sum);
+    parts
 }
 
 impl<'a> TryFrom<&'a [u8]> for Scalar {
@@ -170,14 +180,8 @@ impl<'de> Deserialize<'de> for Scalar {
     }
 }
 
-impl DefaultIsZeroes for Scalar {}
-
-impl CloneableSecret for Scalar {}
-
-impl SerializableSecret for Scalar {}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Point(BackendPoint);
+pub(crate) struct Point(BackendPoint);
 
 impl Point {
     pub const GENERATOR: Self = Self(BackendPoint::GENERATOR);
@@ -268,18 +272,16 @@ impl Add<&Scalar> for &Scalar {
     }
 }
 
+impl AddAssign<&Scalar> for Scalar {
+    fn add_assign(&mut self, other: &Scalar) {
+        self.0.add_assign(&other.0)
+    }
+}
+
 impl Add<Point> for Point {
     type Output = Point;
 
     fn add(self, other: Point) -> Point {
-        Point(self.0.add(&(other.0)))
-    }
-}
-
-impl Add<&Point> for &Point {
-    type Output = Point;
-
-    fn add(self, other: &Point) -> Point {
         Point(self.0.add(&(other.0)))
     }
 }
@@ -292,11 +294,9 @@ impl Sub<Scalar> for Scalar {
     }
 }
 
-impl Sub<&Scalar> for &Scalar {
-    type Output = Scalar;
-
-    fn sub(self, other: &Scalar) -> Scalar {
-        Scalar(self.0.sub(&(other.0)))
+impl SubAssign<&Scalar> for Scalar {
+    fn sub_assign(&mut self, other: &Scalar) {
+        self.0.sub_assign(&other.0)
     }
 }
 
@@ -340,11 +340,9 @@ impl Mul<&Scalar> for Scalar {
     }
 }
 
-impl Mul<&Scalar> for &Scalar {
-    type Output = Scalar;
-
-    fn mul(self, other: &Scalar) -> Scalar {
-        Scalar(self.0.mul(&(other.0)))
+impl MulAssign<&Scalar> for Scalar {
+    fn mul_assign(&mut self, other: &Scalar) {
+        self.0.mul_assign(&other.0)
     }
 }
 

@@ -7,11 +7,10 @@ use manul::session::LocalError;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use zeroize::ZeroizeOnDrop;
 
 use crate::{
     curve::{Point, Scalar},
-    tools::HideDebug,
+    tools::Secret,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -46,25 +45,40 @@ where
     })
 }
 
-#[derive(Debug, ZeroizeOnDrop)]
-pub(crate) struct Polynomial(HideDebug<Vec<Scalar>>);
+fn evaluate_polynomial_secret(coeffs: &[Secret<Scalar>], x: &Scalar) -> Secret<Scalar> {
+    // Evaluate in reverse to save on multiplications.
+    // Basically: a0 + a1 x + a2 x^2 + a3 x^3 == (((a3 x) + a2) x + a1) x + a0
+    let (acc, coeffs) = coeffs.split_last().expect("Coefficients is not empty");
+    coeffs.iter().rev().fold(acc.clone(), |mut acc, coeff| {
+        acc = acc * x + coeff.expose_secret();
+        acc
+    })
+}
+
+#[derive(Debug)]
+pub(crate) struct Polynomial(Vec<Secret<Scalar>>);
 
 impl Polynomial {
-    pub fn random(rng: &mut impl CryptoRngCore, coeff0: &Scalar, degree: usize) -> Self {
+    pub fn random(rng: &mut impl CryptoRngCore, coeff0: Secret<Scalar>, degree: usize) -> Self {
         let mut coeffs = Vec::with_capacity(degree);
-        coeffs.push(*coeff0);
+        coeffs.push(coeff0);
         for _ in 1..degree {
-            coeffs.push(Scalar::random_nonzero(rng));
+            coeffs.push(Secret::init_with(|| Scalar::random_nonzero(rng)));
         }
-        Self(coeffs.into())
+        Self(coeffs)
     }
 
-    pub fn evaluate(&self, x: &ShareId) -> Scalar {
-        evaluate_polynomial(&self.0, &x.0)
+    pub fn evaluate(&self, x: &ShareId) -> Secret<Scalar> {
+        evaluate_polynomial_secret(&self.0, &x.0)
     }
 
     pub fn public(&self) -> PublicPolynomial {
-        PublicPolynomial(self.0.iter().map(|coeff| coeff.mul_by_generator()).collect())
+        PublicPolynomial(
+            self.0
+                .iter()
+                .map(|coeff| coeff.expose_secret().mul_by_generator())
+                .collect(),
+        )
     }
 }
 
@@ -85,10 +99,10 @@ impl PublicPolynomial {
 
 pub(crate) fn shamir_split(
     rng: &mut impl CryptoRngCore,
-    secret: &Scalar,
+    secret: Secret<Scalar>,
     threshold: usize,
     indices: &[ShareId],
-) -> BTreeMap<ShareId, Scalar> {
+) -> BTreeMap<ShareId, Secret<Scalar>> {
     let polynomial = Polynomial::random(rng, secret, threshold);
     indices.iter().map(|idx| (*idx, polynomial.evaluate(idx))).collect()
 }
@@ -105,12 +119,15 @@ pub(crate) fn interpolation_coeff(share_ids: &BTreeSet<ShareId>, share_id: &Shar
         .product()
 }
 
-pub(crate) fn shamir_join_scalars(pairs: &BTreeMap<ShareId, Scalar>) -> Scalar {
+pub(crate) fn shamir_join_scalars(pairs: BTreeMap<ShareId, Secret<Scalar>>) -> Secret<Scalar> {
     let share_ids = pairs.keys().cloned().collect::<BTreeSet<_>>();
-    pairs
-        .iter()
-        .map(|(share_id, val)| val * &interpolation_coeff(&share_ids, share_id))
-        .sum()
+    let mut sum = Secret::init_with(|| Scalar::ZERO);
+
+    for (share_id, val) in pairs.into_iter() {
+        sum += &(val * interpolation_coeff(&share_ids, &share_id));
+    }
+
+    sum
 }
 
 pub(crate) fn shamir_join_points(pairs: &BTreeMap<ShareId, Point>) -> Point {
@@ -126,7 +143,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{evaluate_polynomial, shamir_evaluation_points, shamir_join_scalars, shamir_split};
-    use crate::curve::Scalar;
+    use crate::{curve::Scalar, tools::Secret};
 
     #[test]
     fn evaluate() {
@@ -143,14 +160,14 @@ mod tests {
     fn split_and_join() {
         let threshold = 3;
         let num_shares = 5;
-        let secret = Scalar::random(&mut OsRng);
+        let secret = Secret::init_with(|| Scalar::random(&mut OsRng));
         let points = shamir_evaluation_points(num_shares);
-        let mut shares = shamir_split(&mut OsRng, &secret, threshold, &points);
+        let mut shares = shamir_split(&mut OsRng, secret.clone(), threshold, &points);
 
         shares.remove(&points[0]);
         shares.remove(&points[3]);
 
-        let recovered_secret = shamir_join_scalars(&shares);
-        assert_eq!(recovered_secret, secret);
+        let recovered_secret = shamir_join_scalars(shares);
+        assert_eq!(recovered_secret.expose_secret(), secret.expose_secret());
     }
 }

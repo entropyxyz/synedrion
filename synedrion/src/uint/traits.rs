@@ -1,7 +1,7 @@
 use crypto_bigint::{
     modular::MontyForm,
     subtle::{ConditionallySelectable, CtOption},
-    Encoding, Integer, Invert, Limb, PowBoundedExp, RandomMod, Square, Zero, U1024, U2048, U4096, U512, U8192,
+    Encoding, Integer, Invert, Limb, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048, U4096, U512, U8192,
 };
 
 use crate::uint::{Bounded, Signed};
@@ -61,7 +61,7 @@ where
         let bits = <T as crypto_bigint::Bounded>::BITS;
         let bound = bound % (2 * bits + 1);
 
-        let (lo, hi) = <T as HasWide>::from_wide(exp.clone());
+        let (lo, hi) = <T as HasWide>::from_wide(exp);
         let lo_res = self.pow_bounded_exp(&lo, core::cmp::min(bits, bound));
 
         // TODO (#34): this may be faster if we could get access to Uint's pow_bounded_exp() that takes
@@ -92,7 +92,7 @@ where
         let bound = exp.bound();
 
         let abs_exponent = exp.abs();
-        let (wlo, whi) = <T as HasWide>::Wide::from_wide(abs_exponent);
+        let (wlo, whi) = <T as HasWide>::Wide::from_wide(&abs_exponent);
 
         let lo_res = self.pow_wide(&wlo, core::cmp::min(bits, bound));
 
@@ -124,6 +124,25 @@ where
             abs_result
         }
     }
+
+    /// Variable-time exponentiation of an integer in Montgomery form by a "wide" and signed exponent.
+    ///
+    /// #Panics
+    ///
+    /// Panics if `self` is not invertible.
+    fn pow_signed_wide_vartime(&self, exp: &Signed<<T as HasWide>::Wide>) -> Self
+    where
+        T: HasWide,
+        <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
+    {
+        let exp_abs = exp.abs();
+        let abs_result = self.pow_wide(&exp_abs, exp.bound());
+        if exp.is_negative().into() {
+            abs_result.invert().expect("`self` is assumed invertible")
+        } else {
+            abs_result
+        }
+    }
 }
 
 pub trait HasWide: Sized + Zero {
@@ -133,7 +152,7 @@ pub trait HasWide: Sized + Zero {
 
     /// Converts `self` to a new `Wide` uint, setting the higher half to `0`s.
     /// Consumes `self`.
-    fn into_wide(self) -> Self::Wide;
+    fn to_wide(&self) -> Self::Wide;
 
     /// Splits a `Wide` in two halves and returns the halves (`Self` sized) in a
     /// tuple (lower half first).
@@ -141,12 +160,12 @@ pub trait HasWide: Sized + Zero {
     /// *Note*: The behaviour of this method has changed in v0.2. Previously,
     /// the order of the halves was `(hi, lo)` but after v0.2 the order is `(lo,
     /// hi)`.
-    fn from_wide(value: Self::Wide) -> (Self, Self);
+    fn from_wide(value: &Self::Wide) -> (Self, Self);
 
     /// Tries to convert a `Wide` into a `Self` sized uint. Splits a `Wide`
     /// value in two halves and returns the lower half if the high half is zero.
     /// Otherwise returns `None`.
-    fn try_from_wide(value: Self::Wide) -> Option<Self> {
+    fn try_from_wide(value: &Self::Wide) -> Option<Self> {
         let (lo, hi) = Self::from_wide(value);
         if hi.is_zero().into() {
             return Some(lo);
@@ -163,11 +182,11 @@ impl HasWide for U512 {
     fn square_wide(&self) -> Self::Wide {
         self.square_wide().into()
     }
-    fn into_wide(self) -> Self::Wide {
-        (self, Self::ZERO).into()
+    fn to_wide(&self) -> Self::Wide {
+        Uint::concat_mixed(self, &Self::ZERO)
     }
-    fn from_wide(value: Self::Wide) -> (Self, Self) {
-        value.into()
+    fn from_wide(value: &Self::Wide) -> (Self, Self) {
+        value.split_mixed()
     }
 }
 
@@ -179,11 +198,11 @@ impl HasWide for U1024 {
     fn square_wide(&self) -> Self::Wide {
         self.square_wide().into()
     }
-    fn into_wide(self) -> Self::Wide {
-        (self, Self::ZERO).into()
+    fn to_wide(&self) -> Self::Wide {
+        Uint::concat_mixed(self, &Self::ZERO)
     }
-    fn from_wide(value: Self::Wide) -> (Self, Self) {
-        value.into()
+    fn from_wide(value: &Self::Wide) -> (Self, Self) {
+        value.split_mixed()
     }
 }
 
@@ -195,11 +214,11 @@ impl HasWide for U2048 {
     fn square_wide(&self) -> Self::Wide {
         self.square_wide().into()
     }
-    fn into_wide(self) -> Self::Wide {
-        (self, Self::ZERO).into()
+    fn to_wide(&self) -> Self::Wide {
+        Uint::concat_mixed(self, &Self::ZERO)
     }
-    fn from_wide(value: Self::Wide) -> (Self, Self) {
-        value.into()
+    fn from_wide(value: &Self::Wide) -> (Self, Self) {
+        value.split_mixed()
     }
 }
 
@@ -211,11 +230,11 @@ impl HasWide for U4096 {
     fn square_wide(&self) -> Self::Wide {
         self.square_wide().into()
     }
-    fn into_wide(self) -> Self::Wide {
-        (self, Self::ZERO).into()
+    fn to_wide(&self) -> Self::Wide {
+        Uint::concat_mixed(self, &Self::ZERO)
     }
-    fn from_wide(value: Self::Wide) -> (Self, Self) {
-        value.into()
+    fn from_wide(value: &Self::Wide) -> (Self, Self) {
+        value.split_mixed()
     }
 }
 

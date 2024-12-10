@@ -7,7 +7,6 @@ use alloc::{vec, vec::Vec};
 
 use digest::XofReader;
 use rand_core::CryptoRngCore;
-use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
@@ -92,7 +91,7 @@ impl<P: SchemeParams> PrmProof<P> {
     ) -> Self {
         debug_assert!(&secret.modulus() == setup.modulus());
         let proof_secret = PrmSecret::<P>::random(rng, secret);
-        let commitment = PrmCommitment::new(&proof_secret, setup.base());
+        let commitment = PrmCommitment::new(&proof_secret, setup.base_randomizer());
 
         let totient = secret.totient_nonzero();
         let challenge = PrmChallenge::new(&commitment, setup, aux);
@@ -124,8 +123,8 @@ impl<P: SchemeParams> PrmProof<P> {
 
         for ((e, z), a) in challenge.0.iter().zip(self.proof.iter()).zip(self.commitment.0.iter()) {
             let a = a.to_montgomery(monty_params);
-            let pwr = setup.base().pow_bounded(z);
-            let test = if *e { pwr == a * setup.power() } else { pwr == a };
+            let pwr = setup.base_randomizer().pow_bounded(z);
+            let test = if *e { pwr == a * setup.base_value() } else { pwr == a };
             if !test {
                 return false;
             }

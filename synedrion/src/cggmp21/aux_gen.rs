@@ -2,7 +2,6 @@
 //! that only generates the auxiliary data.
 
 use alloc::{
-    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     format,
     string::String,
@@ -17,7 +16,6 @@ use manul::protocol::{
     ReceiveError, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
-use secrecy::SecretBox;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -34,7 +32,7 @@ use crate::{
     tools::{
         bitvec::BitVec,
         hashing::{Chain, FofHasher, HashOutput},
-        DowncastMap, Without,
+        DowncastMap, Secret, Without,
     },
 };
 
@@ -138,7 +136,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
         let paillier_pk = paillier_sk.public_key();
 
         // El-Gamal key
-        let y = Scalar::random(rng);
+        let y = Secret::init_with(|| Scalar::random(rng));
         let cap_y = y.mul_by_generator();
 
         // The secret and the commitment for the Schnorr PoK of the El-Gamal key
@@ -208,7 +206,7 @@ struct PublicData1Precomp<P: SchemeParams> {
 #[derive(Debug)]
 struct Context<P: SchemeParams, I> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
-    y: Scalar,
+    y: Secret<Scalar>,
     tau_y: SchSecret,
     data_precomp: PublicData1Precomp<P>,
     my_id: I,
@@ -613,7 +611,7 @@ impl<P: SchemeParams, I: PartyId + Serialize> Round<I> for Round3<P, I> {
 
         let secret_aux = SecretAuxInfo {
             paillier_sk: self.context.paillier_sk.into_wire(),
-            el_gamal_sk: SecretBox::new(Box::new(self.context.y)),
+            el_gamal_sk: self.context.y,
         };
 
         let aux_info = AuxInfo {
@@ -635,7 +633,6 @@ mod tests {
         session::signature::Keypair,
     };
     use rand_core::OsRng;
-    use secrecy::ExposeSecret;
 
     use super::AuxGen;
     use crate::cggmp21::TestParams;
@@ -664,7 +661,7 @@ mod tests {
         for (id, aux_info) in aux_infos.iter() {
             for other_aux_info in aux_infos.values() {
                 assert_eq!(
-                    aux_info.secret_aux.el_gamal_sk.expose_secret().mul_by_generator(),
+                    aux_info.secret_aux.el_gamal_sk.mul_by_generator(),
                     other_aux_info.public_aux[id].el_gamal_pk
                 );
             }
