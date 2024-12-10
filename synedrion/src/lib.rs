@@ -11,7 +11,7 @@
     trivial_numeric_casts,
     unused_qualifications
 )]
-#![cfg_attr(not(test), warn(clippy::unwrap_used))]
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::indexing_slicing))]
 
 extern crate alloc;
 

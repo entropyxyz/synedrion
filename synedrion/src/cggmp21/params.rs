@@ -23,12 +23,14 @@ use crate::{
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaillierTest;
 
+#[allow(clippy::indexing_slicing)]
 const fn upcast_uint<const N1: usize, const N2: usize>(value: K256Uint<N1>) -> K256Uint<N2> {
     assert!(N2 >= N1, "Upcast target must be bigger than the upcast candidate");
     let mut result_words = [0; N2];
     let mut i = 0;
+    let words = value.as_words();
     while i < N1 {
-        result_words[i] = value.as_words()[i];
+        result_words[i] = words[i];
         i += 1;
     }
     K256Uint::from_words(result_words)
@@ -136,8 +138,14 @@ pub(crate) fn uint_from_scalar<P: SchemeParams>(value: &Scalar) -> <P::Paillier 
     let uint_len = repr.as_ref().len();
     let scalar_len = scalar_bytes.len();
 
-    debug_assert!(uint_len >= scalar_len);
-    repr.as_mut()[uint_len - scalar_len..].copy_from_slice(&scalar_bytes);
+    debug_assert!(
+        uint_len >= scalar_len,
+        "PaillierParams::Uint is expected to be bigger than a Scalar"
+    );
+    repr.as_mut()
+        .get_mut(uint_len - scalar_len..)
+        .expect("PaillierParams::Uint is expected to be bigger than a Scalar")
+        .copy_from_slice(&scalar_bytes);
     <P::Paillier as PaillierParams>::Uint::from_be_bytes(repr)
 }
 
@@ -166,8 +174,12 @@ pub(crate) fn scalar_from_uint<P: SchemeParams>(value: &<P::Paillier as Paillier
     let scalar_len = Scalar::repr_len();
 
     // Can unwrap here since the value is within the Scalar range
-    Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..])
-        .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
+    Scalar::try_from_bytes(
+        repr.as_ref()
+            .get(uint_len - scalar_len..)
+            .expect("Uint is assumed to be bigger than Scalar"),
+    )
+    .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
 }
 
 /// Converts a `Signed`-wrapped integer to the associated curve scalar type.
@@ -185,8 +197,13 @@ pub(crate) fn scalar_from_wide_uint<P: SchemeParams>(value: &<P::Paillier as Pai
     let scalar_len = Scalar::repr_len();
 
     // Can unwrap here since the value is within the Scalar range
-    Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..])
-        .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
+    Scalar::try_from_bytes(
+        repr.as_ref()
+            .get(uint_len - scalar_len..)
+            // TODO(dp): @reviewers Do we need a better proof that this is true? If `WideUint` is, say, 192 bits long…
+            .expect("WideUint is assumed to be bigger than Scalar"),
+    )
+    .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
 }
 
 /// Converts a `Signed`-wrapped wide integer to the associated curve scalar type.
@@ -208,8 +225,14 @@ pub(crate) fn secret_scalar_from_uint<P: SchemeParams>(
 
     // Can unwrap here since the value is within the Scalar range
     Secret::init_with(|| {
-        Scalar::try_from_bytes(&repr.expose_secret().as_ref()[uint_len - scalar_len..])
-            .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
+        Scalar::try_from_bytes(
+            repr.expose_secret()
+                .as_ref()
+                .get(uint_len - scalar_len..)
+                // TODO(dp): @reviewers Do we need a better proof that this is true? If `Uint` is, say, 128 bits long…
+                .expect("Uint is assumed to be bigger than Scalar"),
+        )
+        .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
     })
 }
 
@@ -223,7 +246,12 @@ pub(crate) fn secret_uint_from_scalar<P: SchemeParams>(
     let scalar_len = scalar_bytes.expose_secret().len();
 
     debug_assert!(uint_len >= scalar_len);
-    repr.expose_secret_mut().as_mut()[uint_len - scalar_len..].copy_from_slice(scalar_bytes.expose_secret());
+    repr.expose_secret_mut()
+        .as_mut()
+        .get_mut(uint_len - scalar_len..)
+        // TODO(dp): @reviewers Do we need a better proof that this is true? If `Uint` is, say, 128 bits long…
+        .expect("Uint is assumed to be bigger than Scalar")
+        .copy_from_slice(scalar_bytes.expose_secret());
     Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::from_be_bytes(*repr.expose_secret()))
 }
 
@@ -263,6 +291,7 @@ pub(crate) fn secret_scalar_from_signed<P: SchemeParams>(
     // TODO: wrap in secrets properly
     let abs_value = scalar_from_uint::<P>(&value.expose_secret().abs());
     Secret::init_with(|| Scalar::conditional_select(&abs_value, &-abs_value, value.expose_secret().is_negative()))
+    // >>>>>>> master
 }
 
 impl<P: SchemeParams> HashableType for P {

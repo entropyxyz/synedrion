@@ -20,8 +20,8 @@ impl BitVec {
 impl BitXorAssign<&BitVec> for BitVec {
     fn bitxor_assign(&mut self, rhs: &BitVec) {
         assert!(self.0.len() == rhs.0.len());
-        for i in 0..self.0.len() {
-            self.0[i] ^= rhs.0[i];
+        for (lhs, rhs) in self.0.iter_mut().zip(rhs.0.iter()) {
+            *lhs ^= rhs
         }
     }
 }

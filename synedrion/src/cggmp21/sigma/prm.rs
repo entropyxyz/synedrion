@@ -121,12 +121,10 @@ impl<P: SchemeParams> PrmProof<P> {
             return false;
         }
 
-        for i in 0..challenge.0.len() {
-            let z = self.proof[i];
-            let e = challenge.0[i];
-            let a = self.commitment.0[i].to_montgomery(monty_params);
-            let pwr = setup.base_randomizer().pow_bounded(&z);
-            let test = if e { pwr == a * setup.base_value() } else { pwr == a };
+        for ((e, z), a) in challenge.0.iter().zip(self.proof.iter()).zip(self.commitment.0.iter()) {
+            let a = a.to_montgomery(monty_params);
+            let pwr = setup.base_randomizer().pow_bounded(z);
+            let test = if *e { pwr == a * setup.base_value() } else { pwr == a };
             if !test {
                 return false;
             }
