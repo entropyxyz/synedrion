@@ -10,17 +10,17 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    uint::{Bounded, Signed},
+    uint::{Bounded, PublicSigned, Signed},
 };
 
 const HASH_TAG: &[u8] = b"P_mul";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
-    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_a: CiphertextWire<P::Paillier>,
     cap_b: CiphertextWire<P::Paillier>,
-    z: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    z: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     u: MaskedRandomizer<P::Paillier>,
     v: MaskedRandomizer<P::Paillier>,
 }
@@ -86,7 +86,7 @@ impl<P: SchemeParams> MulProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let z = *(alpha
             .to_wide()
@@ -101,7 +101,7 @@ impl<P: SchemeParams> MulProof<P> {
             e,
             cap_a,
             cap_b,
-            z,
+            z: z.into(),
             u,
             v,
         }
@@ -132,15 +132,17 @@ impl<P: SchemeParams> MulProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
         }
 
         // Y^z u^N = A * C^e \mod N^2
-        if cap_y.homomorphic_mul_wide(&self.z).mul_masked_randomizer(&self.u)
-            != self.cap_a.to_precomputed(pk) + cap_c * e
+        if cap_y
+            .homomorphic_mul_wide_public(&self.z)
+            .mul_masked_randomizer(&self.u)
+            != self.cap_a.to_precomputed(pk) + cap_c * &e
         {
             return false;
         }
@@ -148,7 +150,7 @@ impl<P: SchemeParams> MulProof<P> {
         // enc(z, v) == B * X^e \mod N^2
         // (Note: typo in the paper, it uses `c` and not `v` here)
         if Ciphertext::new_public_with_randomizer_wide(pk, &self.z, &self.v)
-            != self.cap_b.to_precomputed(pk) + cap_x * e
+            != self.cap_b.to_precomputed(pk) + cap_x * &e
         {
             return false;
         }

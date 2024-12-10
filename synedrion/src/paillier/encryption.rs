@@ -15,7 +15,7 @@ use crate::{
     tools::Secret,
     uint::{
         subtle::{Choice, ConditionallyNegatable},
-        Bounded, Exponentiable, HasWide, Retrieve, Signed, ToMontgomery,
+        Bounded, Exponentiable, HasWide, PublicSigned, Retrieve, Signed, ToMontgomery,
     },
 };
 
@@ -60,7 +60,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 
     /// Converts the randomizer to a publishable form by masking it with another randomizer and a public exponent.
-    pub fn to_masked(&self, coeff: &Self, exponent: &Signed<P::Uint>) -> MaskedRandomizer<P> {
+    pub fn to_masked(&self, coeff: &Self, exponent: &PublicSigned<P::Uint>) -> MaskedRandomizer<P> {
         MaskedRandomizer(
             (self.randomizer_mod.pow_signed_vartime(exponent) * &coeff.randomizer_mod)
                 .expose_secret()
@@ -146,13 +146,15 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillier<P>,
         abs_plaintext: &P::Uint,
         randomizer: &MaskedRandomizer<P>,
-        plaintext_is_negative: Choice,
+        plaintext_is_negative: bool,
     ) -> Self {
         // Same as `new_with_randomizer_inner`, but works on public data.
 
         let prod = abs_plaintext.mul_wide(pk.modulus());
         let mut prod_mod = prod.to_montgomery(pk.monty_params_mod_n_squared());
-        prod_mod.conditional_negate(plaintext_is_negative);
+        if plaintext_is_negative {
+            prod_mod = -prod_mod;
+        }
 
         let factor1 = prod_mod + P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
 
@@ -208,7 +210,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     pub fn new_public_with_randomizer_signed(
         pk: &PublicKeyPaillier<P>,
-        plaintext: &Signed<P::Uint>,
+        plaintext: &PublicSigned<P::Uint>,
         randomizer: &MaskedRandomizer<P>,
     ) -> Self {
         Self::new_public_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())
@@ -216,7 +218,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     pub fn new_public_with_randomizer_wide(
         pk: &PublicKeyPaillier<P>,
-        plaintext: &Signed<P::WideUint>,
+        plaintext: &PublicSigned<P::WideUint>,
         randomizer: &MaskedRandomizer<P>,
     ) -> Self {
         let plaintext_reduced = P::Uint::try_from_wide(&(plaintext.abs() % pk.modulus_wide_nonzero()))
@@ -332,6 +334,20 @@ impl<P: PaillierParams> Ciphertext<P> {
         }
     }
 
+    fn homomorphic_mul_public(self, rhs: &PublicSigned<P::Uint>) -> Self {
+        Self {
+            pk: self.pk,
+            ciphertext: self.ciphertext.pow_signed_vartime(&rhs.to_wide()),
+        }
+    }
+
+    fn homomorphic_mul_ref_public(&self, rhs: &PublicSigned<P::Uint>) -> Self {
+        Self {
+            pk: self.pk.clone(),
+            ciphertext: self.ciphertext.pow_signed_vartime(&rhs.to_wide()),
+        }
+    }
+
     fn homomorphic_mul_ref(&self, rhs: &Signed<P::Uint>) -> Self {
         Self {
             pk: self.pk.clone(),
@@ -339,13 +355,13 @@ impl<P: PaillierParams> Ciphertext<P> {
         }
     }
 
-    pub fn homomorphic_mul_wide(&self, rhs: &Signed<P::WideUint>) -> Self {
+    pub fn homomorphic_mul_wide_public(&self, rhs: &PublicSigned<P::WideUint>) -> Self {
         // Unfortunately we cannot implement `Mul` for `Signed<P::Uint>` and `Signed<P::WideUint>`
         // at the same time, since they can be the same type.
         // But this method is only used once, so it's not a problem to spell it out.
         Self {
             pk: self.pk.clone(),
-            ciphertext: self.ciphertext.pow_signed(rhs),
+            ciphertext: self.ciphertext.pow_signed_vartime(rhs),
         }
     }
 
@@ -418,6 +434,20 @@ impl<P: PaillierParams> Add<&Ciphertext<P>> for Ciphertext<P> {
     type Output = Ciphertext<P>;
     fn add(self, other: &Ciphertext<P>) -> Ciphertext<P> {
         self.homomorphic_add(other)
+    }
+}
+
+impl<P: PaillierParams> Mul<&PublicSigned<P::Uint>> for Ciphertext<P> {
+    type Output = Ciphertext<P>;
+    fn mul(self, other: &PublicSigned<P::Uint>) -> Ciphertext<P> {
+        self.homomorphic_mul_public(other)
+    }
+}
+
+impl<P: PaillierParams> Mul<&PublicSigned<P::Uint>> for &Ciphertext<P> {
+    type Output = Ciphertext<P>;
+    fn mul(self, other: &PublicSigned<P::Uint>) -> Ciphertext<P> {
+        self.homomorphic_mul_ref_public(other)
     }
 }
 

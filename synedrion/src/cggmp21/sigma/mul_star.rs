@@ -15,7 +15,7 @@ use crate::{
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     tools::Secret,
-    uint::Signed,
+    uint::{PublicSigned, Signed},
 };
 
 const HASH_TAG: &[u8] = b"P_mul*";
@@ -36,13 +36,13 @@ Public inputs:
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
-    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_a: CiphertextWire<P::Paillier>,
     cap_b_x: Point,
     cap_e: RPCommitmentWire<P::Paillier>,
     cap_s: RPCommitmentWire<P::Paillier>,
-    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
-    z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    z1: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    z2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     omega: MaskedRandomizer<P::Paillier>,
 }
 
@@ -98,7 +98,7 @@ impl<P: SchemeParams> MulStarProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let z1 = *(alpha + x * e).expose_secret();
         let z2 = *(gamma + m * e.to_wide()).expose_secret();
@@ -110,8 +110,8 @@ impl<P: SchemeParams> MulStarProof<P> {
             cap_b_x,
             cap_e,
             cap_s,
-            z1,
-            z2,
+            z1: z1.into(),
+            z2: z2.into(),
             omega,
         }
     }
@@ -146,7 +146,7 @@ impl<P: SchemeParams> MulStarProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -158,7 +158,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
-        if (cap_c * self.z1).mul_masked_randomizer(&self.omega) != self.cap_a.to_precomputed(pk0) + cap_d * e {
+        if (cap_c * &self.z1).mul_masked_randomizer(&self.omega) != self.cap_a.to_precomputed(pk0) + cap_d * &e {
             return false;
         }
 

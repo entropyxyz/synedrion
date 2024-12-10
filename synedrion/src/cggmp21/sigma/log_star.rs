@@ -15,7 +15,7 @@ use crate::{
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     tools::Secret,
-    uint::Signed,
+    uint::{PublicSigned, Signed},
 };
 
 const HASH_TAG: &[u8] = b"P_log*";
@@ -36,14 +36,14 @@ Public inputs:
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
-    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
     cap_y: Point,
     cap_d: RPCommitmentWire<P::Paillier>,
-    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
+    z1: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     z2: MaskedRandomizer<P::Paillier>,
-    z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    z3: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
 }
 
 impl<P: SchemeParams> LogStarProof<P> {
@@ -90,7 +90,7 @@ impl<P: SchemeParams> LogStarProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let z1 = *(alpha + x * e).expose_secret();
         let z2 = rho.to_masked(&r, &e);
@@ -102,9 +102,9 @@ impl<P: SchemeParams> LogStarProof<P> {
             cap_a,
             cap_y,
             cap_d,
-            z1,
+            z1: z1.into(),
             z2,
-            z3,
+            z3: z3.into(),
         }
     }
 
@@ -136,7 +136,7 @@ impl<P: SchemeParams> LogStarProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -149,7 +149,7 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         // enc_0(z1, z2) == A (+) C (*) e
         let c = Ciphertext::new_public_with_randomizer_signed(pk0, &self.z1, &self.z2);
-        if c != self.cap_a.to_precomputed(pk0) + cap_c * e {
+        if c != self.cap_a.to_precomputed(pk0) + cap_c * &e {
             return false;
         }
 

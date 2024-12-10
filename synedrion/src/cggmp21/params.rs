@@ -15,8 +15,8 @@ use crate::{
         Secret,
     },
     uint::{
-        subtle::ConditionallySelectable, Bounded, Encoding, NonZero, Signed, U1024Mod, U2048Mod, U4096Mod, U512Mod,
-        Uint, Zero, U1024, U2048, U4096, U512, U8192,
+        subtle::ConditionallySelectable, Bounded, Encoding, NonZero, PublicSigned, Signed, U1024Mod, U2048Mod,
+        U4096Mod, U512Mod, Uint, Zero, U1024, U2048, U4096, U512, U8192,
     },
 };
 
@@ -171,9 +171,15 @@ pub(crate) fn scalar_from_uint<P: SchemeParams>(value: &<P::Paillier as Paillier
 }
 
 /// Converts a `Signed`-wrapped integer to the associated curve scalar type.
-pub(crate) fn scalar_from_signed<P: SchemeParams>(value: &Signed<<P::Paillier as PaillierParams>::Uint>) -> Scalar {
+pub(crate) fn scalar_from_signed<P: SchemeParams>(
+    value: &PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+) -> Scalar {
     let abs_value = scalar_from_uint::<P>(&value.abs());
-    Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
+    if value.is_negative() {
+        -abs_value
+    } else {
+        abs_value
+    }
 }
 
 /// Converts a wide integer to the associated curve scalar type.
@@ -191,10 +197,14 @@ pub(crate) fn scalar_from_wide_uint<P: SchemeParams>(value: &<P::Paillier as Pai
 
 /// Converts a `Signed`-wrapped wide integer to the associated curve scalar type.
 pub(crate) fn scalar_from_wide_signed<P: SchemeParams>(
-    value: &Signed<<P::Paillier as PaillierParams>::WideUint>,
+    value: &PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
 ) -> Scalar {
     let abs_value = scalar_from_wide_uint::<P>(&value.abs());
-    Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
+    if value.is_negative() {
+        -abs_value
+    } else {
+        abs_value
+    }
 }
 
 pub(crate) fn secret_scalar_from_uint<P: SchemeParams>(

@@ -17,7 +17,7 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    uint::Signed,
+    uint::{PublicSigned, Signed},
 };
 
 const HASH_TAG: &[u8] = b"P_aff_g";
@@ -46,7 +46,7 @@ Public inputs:
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
-    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_a: CiphertextWire<P::Paillier>,
     cap_b_x: Point,
     cap_b_y: CiphertextWire<P::Paillier>,
@@ -54,10 +54,10 @@ pub(crate) struct AffGProof<P: SchemeParams> {
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_f: RPCommitmentWire<P::Paillier>,
     cap_t: RPCommitmentWire<P::Paillier>,
-    z1: Signed<<P::Paillier as PaillierParams>::Uint>,
-    z2: Signed<<P::Paillier as PaillierParams>::Uint>,
-    z3: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    z4: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    z1: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    z2: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    z3: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
+    z4: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     omega: MaskedRandomizer<P::Paillier>,
     omega_y: MaskedRandomizer<P::Paillier>,
 }
@@ -131,7 +131,7 @@ impl<P: SchemeParams> AffGProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.to_wide();
 
         let z1 = *(alpha + x * e).expose_secret();
@@ -161,10 +161,10 @@ impl<P: SchemeParams> AffGProof<P> {
             cap_s,
             cap_f,
             cap_t,
-            z1,
-            z2,
-            z3,
-            z4,
+            z1: z1.into(),
+            z2: z2.into(),
+            z3: z3.into(),
+            z4: z4.into(),
             omega,
             omega_y,
         }
@@ -207,7 +207,7 @@ impl<P: SchemeParams> AffGProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -225,8 +225,8 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
-        if cap_c * self.z1 + Ciphertext::new_public_with_randomizer_signed(pk0, &self.z2, &self.omega)
-            != cap_d * e + self.cap_a.to_precomputed(pk0)
+        if cap_c * &self.z1 + Ciphertext::new_public_with_randomizer_signed(pk0, &self.z2, &self.omega)
+            != cap_d * &e + self.cap_a.to_precomputed(pk0)
         {
             return false;
         }
@@ -242,7 +242,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // (1 + N_1)^{z_2} \omega_y^{N_1} = B_y Y^(-e) \mod N_1^2
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
         if Ciphertext::new_public_with_randomizer_signed(pk1, &self.z2, &self.omega_y)
-            != cap_y * (-e) + self.cap_b_y.to_precomputed(pk1)
+            != cap_y * &(-e) + self.cap_b_y.to_precomputed(pk1)
         {
             return false;
         }

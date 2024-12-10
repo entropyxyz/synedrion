@@ -10,7 +10,7 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    uint::{Bounded, Integer, Signed},
+    uint::{Bounded, Integer, PublicSigned, Signed},
 };
 
 const HASH_TAG: &[u8] = b"P_fac";
@@ -27,18 +27,18 @@ Public inputs:
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
-    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_p: RPCommitmentWire<P::Paillier>,
     cap_q: RPCommitmentWire<P::Paillier>,
     cap_a: RPCommitmentWire<P::Paillier>,
     cap_b: RPCommitmentWire<P::Paillier>,
     cap_t: RPCommitmentWire<P::Paillier>,
-    sigma: Signed<<P::Paillier as PaillierParams>::ExtraWideUint>,
-    z1: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    z2: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    omega1: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    omega2: Signed<<P::Paillier as PaillierParams>::WideUint>,
-    v: Signed<<P::Paillier as PaillierParams>::ExtraWideUint>,
+    sigma: PublicSigned<<P::Paillier as PaillierParams>::ExtraWideUint>,
+    z1: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
+    z2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
+    omega1: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
+    omega2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
+    v: PublicSigned<<P::Paillier as PaillierParams>::ExtraWideUint>,
 }
 
 impl<P: SchemeParams> FacProof<P> {
@@ -74,8 +74,9 @@ impl<P: SchemeParams> FacProof<P> {
         // N_0 \hat{N}
         let scale = pk0.modulus_bounded().mul_wide(hat_cap_n);
 
-        let sigma =
-            Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(rng, P::L_BOUND, &scale);
+        let sigma = PublicSigned::from(
+            Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(rng, P::L_BOUND, &scale),
+        );
         let r = Secret::init_with(|| {
             Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
                 rng,
@@ -111,17 +112,17 @@ impl<P: SchemeParams> FacProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.to_wide();
 
         let p_wide = sk0.p_wide_signed();
 
-        let hat_sigma = sigma - (p_wide * &nu).expose_secret().to_wide();
+        let hat_sigma = sigma - PublicSigned::from(*(p_wide * &nu).expose_secret()).to_wide();
         let z1 = *(alpha + (p * e).to_wide()).expose_secret();
         let z2 = *(beta + (q * e).to_wide()).expose_secret();
         let omega1 = *(x + mu * e_wide).expose_secret();
         let omega2 = *(nu * e_wide + &y).expose_secret();
-        let v = *(r + &(hat_sigma * e_wide.to_wide())).expose_secret();
+        let v = *(r + (hat_sigma * e_wide.to_wide())).expose_secret();
 
         Self {
             e,
@@ -131,11 +132,11 @@ impl<P: SchemeParams> FacProof<P> {
             cap_b,
             cap_t,
             sigma,
-            z1,
-            z2,
-            omega1,
-            omega2,
-            v,
+            z1: z1.into(),
+            z2: z2.into(),
+            omega1: omega1.into(),
+            omega2: omega2.into(),
+            v: v.into(),
         }
     }
 
@@ -160,7 +161,7 @@ impl<P: SchemeParams> FacProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
