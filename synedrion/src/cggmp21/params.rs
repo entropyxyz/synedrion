@@ -15,8 +15,8 @@ use crate::{
         Secret,
     },
     uint::{
-        subtle::ConditionallySelectable, Bounded, Encoding, NonZero, Signed, U1024Mod, U2048Mod, U4096Mod, U512Mod,
-        Uint, Zero, U1024, U2048, U4096, U512, U8192,
+        subtle::ConditionallySelectable, Encoding, NonZero, PublicSigned, SecretSigned, U1024Mod, U2048Mod, U4096Mod,
+        U512Mod, Uint, Zero, U1024, U2048, U4096, U512, U8192,
     },
 };
 
@@ -141,17 +141,11 @@ pub(crate) fn uint_from_scalar<P: SchemeParams>(value: &Scalar) -> <P::Paillier 
     <P::Paillier as PaillierParams>::Uint::from_be_bytes(repr)
 }
 
-/// Converts a curve scalar to the associated integer type, wrapped in `Bounded`.
-pub(crate) fn bounded_from_scalar<P: SchemeParams>(value: &Scalar) -> Bounded<<P::Paillier as PaillierParams>::Uint> {
-    Bounded::new(uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
-        "a curve scalar value is smaller than the curve order, ",
-        "and the curve order fits in `PaillierParams::Uint`"
-    ])
-}
-
 /// Converts a curve scalar to the associated integer type, wrapped in `Signed`.
-pub(crate) fn signed_from_scalar<P: SchemeParams>(value: &Scalar) -> Signed<<P::Paillier as PaillierParams>::Uint> {
-    bounded_from_scalar::<P>(value).into_signed().expect(concat![
+pub(crate) fn signed_from_scalar<P: SchemeParams>(
+    value: &Scalar,
+) -> SecretSigned<<P::Paillier as PaillierParams>::Uint> {
+    SecretSigned::new_positive(uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
         "a curve scalar value is smaller than the half of `PaillierParams::Uint` range, ",
         "so it is still positive when treated as a 2-complement signed value"
     ])
@@ -171,9 +165,15 @@ pub(crate) fn scalar_from_uint<P: SchemeParams>(value: &<P::Paillier as Paillier
 }
 
 /// Converts a `Signed`-wrapped integer to the associated curve scalar type.
-pub(crate) fn scalar_from_signed<P: SchemeParams>(value: &Signed<<P::Paillier as PaillierParams>::Uint>) -> Scalar {
+pub(crate) fn scalar_from_signed<P: SchemeParams>(
+    value: &PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+) -> Scalar {
     let abs_value = scalar_from_uint::<P>(&value.abs());
-    Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
+    if value.is_negative() {
+        -abs_value
+    } else {
+        abs_value
+    }
 }
 
 /// Converts a wide integer to the associated curve scalar type.
@@ -191,10 +191,14 @@ pub(crate) fn scalar_from_wide_uint<P: SchemeParams>(value: &<P::Paillier as Pai
 
 /// Converts a `Signed`-wrapped wide integer to the associated curve scalar type.
 pub(crate) fn scalar_from_wide_signed<P: SchemeParams>(
-    value: &Signed<<P::Paillier as PaillierParams>::WideUint>,
+    value: &PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
 ) -> Scalar {
     let abs_value = scalar_from_wide_uint::<P>(&value.abs());
-    Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
+    if value.is_negative() {
+        -abs_value
+    } else {
+        abs_value
+    }
 }
 
 pub(crate) fn secret_scalar_from_uint<P: SchemeParams>(
@@ -229,24 +233,9 @@ pub(crate) fn secret_uint_from_scalar<P: SchemeParams>(
 
 pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar>,
-) -> Secret<Signed<<P::Paillier as PaillierParams>::Uint>> {
+) -> Secret<SecretSigned<<P::Paillier as PaillierParams>::Uint>> {
     Secret::init_with(|| {
-        Signed::new_positive(
-            *secret_uint_from_scalar::<P>(value).expose_secret(),
-            ORDER.bits_vartime() as u32,
-        )
-        .expect(concat![
-            "a curve scalar value is smaller than the curve order, ",
-            "and the curve order fits in `PaillierParams::Uint`"
-        ])
-    })
-}
-
-pub(crate) fn secret_bounded_from_scalar<P: SchemeParams>(
-    value: &Secret<Scalar>,
-) -> Secret<Bounded<<P::Paillier as PaillierParams>::Uint>> {
-    Secret::init_with(|| {
-        Bounded::new(
+        SecretSigned::new_positive(
             *secret_uint_from_scalar::<P>(value).expose_secret(),
             ORDER.bits_vartime() as u32,
         )
@@ -258,7 +247,7 @@ pub(crate) fn secret_bounded_from_scalar<P: SchemeParams>(
 }
 
 pub(crate) fn secret_scalar_from_signed<P: SchemeParams>(
-    value: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    value: &Secret<SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
 ) -> Secret<Scalar> {
     // TODO: wrap in secrets properly
     let abs_value = scalar_from_uint::<P>(&value.expose_secret().abs());

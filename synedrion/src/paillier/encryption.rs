@@ -15,7 +15,7 @@ use crate::{
     tools::Secret,
     uint::{
         subtle::{Choice, ConditionallyNegatable},
-        Bounded, Exponentiable, HasWide, Retrieve, Signed, ToMontgomery,
+        Exponentiable, HasWide, PublicSigned, Retrieve, SecretBounded, SecretSigned, ToMontgomery,
     },
 };
 
@@ -60,7 +60,7 @@ impl<P: PaillierParams> Randomizer<P> {
     }
 
     /// Converts the randomizer to a publishable form by masking it with another randomizer and a public exponent.
-    pub fn to_masked(&self, coeff: &Self, exponent: &Signed<P::Uint>) -> MaskedRandomizer<P> {
+    pub fn to_masked(&self, coeff: &Self, exponent: &PublicSigned<P::Uint>) -> MaskedRandomizer<P> {
         MaskedRandomizer(
             (self.randomizer_mod.pow_signed_vartime(exponent) * &coeff.randomizer_mod)
                 .expose_secret()
@@ -129,10 +129,10 @@ impl<P: PaillierParams> Ciphertext<P> {
         let factor1 = prod_mod + &P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
 
         let randomizer = randomizer.randomizer.to_wide();
-        let pk_mod_bound = pk.modulus_bounded().to_wide();
+        let pk_modulus = pk.modulus_bounded().to_wide();
         let factor2 = randomizer
             .to_montgomery(pk.monty_params_mod_n_squared())
-            .pow_bounded(&pk_mod_bound);
+            .pow_bounded_vartime(&pk_modulus);
 
         let ciphertext = *(factor1 * factor2).expose_secret();
 
@@ -146,21 +146,23 @@ impl<P: PaillierParams> Ciphertext<P> {
         pk: &PublicKeyPaillier<P>,
         abs_plaintext: &P::Uint,
         randomizer: &MaskedRandomizer<P>,
-        plaintext_is_negative: Choice,
+        plaintext_is_negative: bool,
     ) -> Self {
         // Same as `new_with_randomizer_inner`, but works on public data.
 
         let prod = abs_plaintext.mul_wide(pk.modulus());
         let mut prod_mod = prod.to_montgomery(pk.monty_params_mod_n_squared());
-        prod_mod.conditional_negate(plaintext_is_negative);
+        if plaintext_is_negative {
+            prod_mod = -prod_mod;
+        }
 
         let factor1 = prod_mod + P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
 
         let randomizer = randomizer.0.to_wide();
-        let pk_mod_bound = pk.modulus_bounded().to_wide();
+        let pk_modulus = pk.modulus_bounded().to_wide();
         let factor2 = randomizer
             .to_montgomery(pk.monty_params_mod_n_squared())
-            .pow_bounded(&pk_mod_bound);
+            .pow_bounded_vartime(&pk_modulus);
 
         let ciphertext = factor1 * factor2;
 
@@ -181,12 +183,12 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     pub fn new_with_randomizer_bounded(
         pk: &PublicKeyPaillier<P>,
-        plaintext: &Secret<Bounded<P::Uint>>,
+        plaintext: &SecretBounded<P::Uint>,
         randomizer: &Randomizer<P>,
     ) -> Self {
         Self::new_with_randomizer_inner(
             pk,
-            &Secret::init_with(|| *plaintext.expose_secret().as_ref()),
+            &Secret::init_with(|| *plaintext.expose_secret()),
             randomizer,
             Choice::from(0),
         )
@@ -194,7 +196,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     pub fn new_with_randomizer_signed(
         pk: &PublicKeyPaillier<P>,
-        plaintext: &Secret<Signed<P::Uint>>,
+        plaintext: &Secret<SecretSigned<P::Uint>>,
         randomizer: &Randomizer<P>,
     ) -> Self {
         let plaintext = *plaintext.expose_secret();
@@ -208,7 +210,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     pub fn new_public_with_randomizer_signed(
         pk: &PublicKeyPaillier<P>,
-        plaintext: &Signed<P::Uint>,
+        plaintext: &PublicSigned<P::Uint>,
         randomizer: &MaskedRandomizer<P>,
     ) -> Self {
         Self::new_public_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())
@@ -216,7 +218,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     pub fn new_public_with_randomizer_wide(
         pk: &PublicKeyPaillier<P>,
-        plaintext: &Signed<P::WideUint>,
+        plaintext: &PublicSigned<P::WideUint>,
         randomizer: &MaskedRandomizer<P>,
     ) -> Self {
         let plaintext_reduced = P::Uint::try_from_wide(&(plaintext.abs() % pk.modulus_wide_nonzero()))
@@ -233,7 +235,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     pub fn new_signed(
         rng: &mut impl CryptoRngCore,
         pk: &PublicKeyPaillier<P>,
-        plaintext: &Secret<Signed<P::Uint>>,
+        plaintext: &Secret<SecretSigned<P::Uint>>,
     ) -> Self {
         Self::new_with_randomizer_signed(pk, plaintext, &Randomizer::random(rng, pk))
     }
@@ -255,9 +257,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // (because `N` itself fits into `Uint`).
 
         // Calculate `C^phi mod N^2`. The result is already secret.
-        // The exponent may leave traces on the stack in the `pow` implementation in `crypto-bigint`
-        // (since it'll probably be decomposed with a small radix), but we can't do much about that.
-        let t = Secret::init_with(|| self.ciphertext.pow_bounded(totient_wide.expose_secret()));
+        let t = Secret::init_with(|| self.ciphertext.pow_bounded(&totient_wide));
         let one = P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
         let x = (t - &one).retrieve() / pk.modulus_wide_nonzero();
         let x = Secret::init_with(|| {
@@ -270,7 +270,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Decrypts this ciphertext assuming that the plaintext is in range `[-N/2, N/2)`.
-    pub fn decrypt_signed(&self, sk: &SecretKeyPaillier<P>) -> Secret<Signed<P::Uint>> {
+    pub fn decrypt_signed(&self, sk: &SecretKeyPaillier<P>) -> Secret<SecretSigned<P::Uint>> {
         assert_eq!(sk.public_key(), &self.pk);
 
         let pk = sk.public_key();
@@ -286,7 +286,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
         let uint_result = Secret::<P::Uint>::conditional_select(&positive_result, &negative_result, is_negative);
         let mut result = Secret::init_with(|| {
-            Signed::new_from_unsigned(*uint_result.expose_secret(), P::MODULUS_BITS - 1)
+            SecretSigned::new_from_unsigned(*uint_result.expose_secret(), P::MODULUS_BITS - 1)
                 .expect("the value is within `[-2^(MODULUS_BITS-1), 2^(MODULUS_BITS-1)]` by construction")
         });
 
@@ -315,7 +315,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
         let sk_inv_modulus = sk.inv_modulus();
-        let randomizer_mod = Secret::init_with(|| ciphertext_mod_n.pow_bounded(sk_inv_modulus.expose_secret()));
+        let randomizer_mod = Secret::init_with(|| ciphertext_mod_n.pow_bounded(sk_inv_modulus));
 
         Randomizer::new_mod(randomizer_mod)
     }
@@ -325,39 +325,38 @@ impl<P: PaillierParams> Ciphertext<P> {
     // compared to what we would get if we used the signed `rhs` faithfully in the original formula.
     // So if we want to replicate the Paillier encryption manually and get the same ciphertext
     // (e.g. in the P_enc sigma-protocol), we need to process the sign correctly.
-    fn homomorphic_mul(self, rhs: &Signed<P::Uint>) -> Self {
+    fn homomorphic_mul(self, rhs: &SecretSigned<P::Uint>) -> Self {
         Self {
             pk: self.pk,
             ciphertext: self.ciphertext.pow_signed(&rhs.to_wide()),
         }
     }
 
-    fn homomorphic_mul_ref(&self, rhs: &Signed<P::Uint>) -> Self {
+    fn homomorphic_mul_ref_public(&self, rhs: &PublicSigned<P::Uint>) -> Self {
+        Self {
+            pk: self.pk.clone(),
+            ciphertext: self.ciphertext.pow_signed_vartime(&rhs.to_wide()),
+        }
+    }
+
+    fn homomorphic_mul_ref(&self, rhs: &SecretSigned<P::Uint>) -> Self {
         Self {
             pk: self.pk.clone(),
             ciphertext: self.ciphertext.pow_signed(&rhs.to_wide()),
         }
     }
 
-    pub fn homomorphic_mul_wide(&self, rhs: &Signed<P::WideUint>) -> Self {
-        // Unfortunately we cannot implement `Mul` for `Signed<P::Uint>` and `Signed<P::WideUint>`
+    pub fn homomorphic_mul_wide_public(&self, rhs: &PublicSigned<P::WideUint>) -> Self {
+        // Unfortunately we cannot implement `Mul` for `SecretSigned<P::Uint>` and `SecretSigned<P::WideUint>`
         // at the same time, since they can be the same type.
         // But this method is only used once, so it's not a problem to spell it out.
         Self {
             pk: self.pk.clone(),
-            ciphertext: self.ciphertext.pow_signed(rhs),
+            ciphertext: self.ciphertext.pow_signed_vartime(rhs),
         }
     }
 
-    fn homomorphic_mul_unsigned(self, rhs: &Bounded<P::Uint>) -> Self {
-        let rhs_wide = rhs.to_wide();
-        Self {
-            pk: self.pk,
-            ciphertext: self.ciphertext.pow_bounded(&rhs_wide),
-        }
-    }
-
-    fn homomorphic_mul_unsigned_ref(&self, rhs: &Bounded<P::Uint>) -> Self {
+    fn homomorphic_mul_unsigned_ref(&self, rhs: &SecretBounded<P::Uint>) -> Self {
         let rhs_wide = rhs.to_wide();
         Self {
             pk: self.pk.clone(),
@@ -378,8 +377,8 @@ impl<P: PaillierParams> Ciphertext<P> {
             .0
             .to_wide()
             .to_montgomery(self.pk.monty_params_mod_n_squared());
-        let pk_modulus_wide = self.pk.modulus_bounded().to_wide();
-        let ciphertext = self.ciphertext * randomizer_mod.pow_bounded(&pk_modulus_wide);
+        let pk_modulus = self.pk.modulus_bounded().to_wide();
+        let ciphertext = self.ciphertext * randomizer_mod.pow_bounded_vartime(&pk_modulus);
         Self {
             pk: self.pk,
             ciphertext,
@@ -391,8 +390,8 @@ impl<P: PaillierParams> Ciphertext<P> {
             .randomizer
             .to_wide()
             .to_montgomery(self.pk.monty_params_mod_n_squared());
-        let pk_modulus_wide = self.pk.modulus_bounded().to_wide();
-        let ciphertext = self.ciphertext * randomizer_mod.pow_bounded(&pk_modulus_wide).expose_secret();
+        let pk_modulus = self.pk.modulus_bounded().to_wide();
+        let ciphertext = self.ciphertext * randomizer_mod.pow_bounded_vartime(&pk_modulus).expose_secret();
         Self {
             pk: self.pk,
             ciphertext,
@@ -421,66 +420,52 @@ impl<P: PaillierParams> Add<&Ciphertext<P>> for Ciphertext<P> {
     }
 }
 
-impl<P: PaillierParams> Mul<Signed<P::Uint>> for Ciphertext<P> {
+impl<P: PaillierParams> Mul<&PublicSigned<P::Uint>> for &Ciphertext<P> {
     type Output = Ciphertext<P>;
-    fn mul(self, other: Signed<P::Uint>) -> Ciphertext<P> {
+    fn mul(self, other: &PublicSigned<P::Uint>) -> Ciphertext<P> {
+        self.homomorphic_mul_ref_public(other)
+    }
+}
+
+impl<P: PaillierParams> Mul<SecretSigned<P::Uint>> for Ciphertext<P> {
+    type Output = Ciphertext<P>;
+    fn mul(self, other: SecretSigned<P::Uint>) -> Ciphertext<P> {
         self.homomorphic_mul(&other)
     }
 }
 
-impl<P: PaillierParams> Mul<Signed<P::Uint>> for &Ciphertext<P> {
+impl<P: PaillierParams> Mul<SecretSigned<P::Uint>> for &Ciphertext<P> {
     type Output = Ciphertext<P>;
-    fn mul(self, other: Signed<P::Uint>) -> Ciphertext<P> {
+    fn mul(self, other: SecretSigned<P::Uint>) -> Ciphertext<P> {
         self.homomorphic_mul_ref(&other)
     }
 }
 
-impl<'a, P: PaillierParams> Mul<&'a Signed<P::Uint>> for &Ciphertext<P> {
+impl<'a, P: PaillierParams> Mul<&'a SecretSigned<P::Uint>> for &Ciphertext<P> {
     type Output = Ciphertext<P>;
-    fn mul(self, other: &'a Signed<P::Uint>) -> Ciphertext<P> {
+    fn mul(self, other: &'a SecretSigned<P::Uint>) -> Ciphertext<P> {
         self.homomorphic_mul_ref(other)
     }
 }
 
-impl<P: PaillierParams> Mul<Secret<Signed<P::Uint>>> for &Ciphertext<P> {
+impl<P: PaillierParams> Mul<Secret<SecretSigned<P::Uint>>> for &Ciphertext<P> {
     type Output = Ciphertext<P>;
-    fn mul(self, other: Secret<Signed<P::Uint>>) -> Ciphertext<P> {
+    fn mul(self, other: Secret<SecretSigned<P::Uint>>) -> Ciphertext<P> {
         self * other.expose_secret()
     }
 }
 
-impl<'a, P: PaillierParams> Mul<&'a Secret<Signed<P::Uint>>> for &Ciphertext<P> {
+impl<'a, P: PaillierParams> Mul<&'a Secret<SecretSigned<P::Uint>>> for &Ciphertext<P> {
     type Output = Ciphertext<P>;
-    fn mul(self, other: &'a Secret<Signed<P::Uint>>) -> Ciphertext<P> {
+    fn mul(self, other: &'a Secret<SecretSigned<P::Uint>>) -> Ciphertext<P> {
         self * other.expose_secret()
     }
 }
 
-impl<P: PaillierParams> Mul<Bounded<P::Uint>> for Ciphertext<P> {
+impl<'a, P: PaillierParams> Mul<&'a SecretBounded<P::Uint>> for &Ciphertext<P> {
     type Output = Ciphertext<P>;
-    fn mul(self, other: Bounded<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned(&other)
-    }
-}
-
-impl<P: PaillierParams> Mul<Bounded<P::Uint>> for &Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, other: Bounded<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned_ref(&other)
-    }
-}
-
-impl<P: PaillierParams> Mul<Secret<Bounded<P::Uint>>> for &Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, other: Secret<Bounded<P::Uint>>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned_ref(other.expose_secret())
-    }
-}
-
-impl<'a, P: PaillierParams> Mul<&'a Secret<Bounded<P::Uint>>> for &Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, other: &'a Secret<Bounded<P::Uint>>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned_ref(other.expose_secret())
+    fn mul(self, other: &'a SecretBounded<P::Uint>) -> Ciphertext<P> {
+        self.homomorphic_mul_unsigned_ref(other)
     }
 }
 
@@ -497,11 +482,11 @@ mod tests {
         tools::Secret,
         uint::{
             subtle::{ConditionallyNegatable, ConditionallySelectable},
-            HasWide, NonZero, RandomMod, Signed,
+            HasWide, NonZero, RandomMod, SecretSigned,
         },
     };
 
-    fn mul_mod<T>(lhs: &T, rhs: &Signed<T>, modulus: &NonZero<T>) -> T
+    fn mul_mod<T>(lhs: &T, rhs: &SecretSigned<T>, modulus: &NonZero<T>) -> T
     where
         T: Integer + HasWide + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
     {
@@ -520,14 +505,14 @@ mod tests {
         }
     }
 
-    fn reduce<P: PaillierParams>(val: &Signed<P::Uint>, modulus: &NonZero<P::Uint>) -> Signed<P::Uint> {
+    fn reduce<P: PaillierParams>(val: &SecretSigned<P::Uint>, modulus: &NonZero<P::Uint>) -> SecretSigned<P::Uint> {
         let result = val.abs() % *modulus;
         let twos_complement_result = if result > modulus.as_ref().wrapping_shr_vartime(1) {
             result.wrapping_sub(modulus.as_ref())
         } else {
             result
         };
-        let mut signed_result = Signed::new_from_unsigned(twos_complement_result, P::MODULUS_BITS - 1).unwrap();
+        let mut signed_result = SecretSigned::new_from_unsigned(twos_complement_result, P::MODULUS_BITS - 1).unwrap();
         signed_result.conditional_negate(val.is_negative());
         signed_result
     }
@@ -552,7 +537,7 @@ mod tests {
         let sk = SecretKeyPaillierWire::<PaillierTest>::random(&mut OsRng).into_precomputed();
         let pk = sk.public_key();
         let plaintext = Secret::init_with(|| {
-            Signed::random_bounded_bits(&mut OsRng, <PaillierTest as PaillierParams>::Uint::BITS - 2)
+            SecretSigned::random_bounded_bits(&mut OsRng, <PaillierTest as PaillierParams>::Uint::BITS - 2)
         });
         let ciphertext = Ciphertext::new_signed(&mut OsRng, pk, &plaintext);
         let plaintext_back = ciphertext.decrypt_signed(&sk);
@@ -580,7 +565,7 @@ mod tests {
             Secret::init_with(|| <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero()));
         let ciphertext = Ciphertext::<PaillierTest>::new(&mut OsRng, pk, &plaintext);
 
-        let coeff = Signed::random_bounded_bits(&mut OsRng, <PaillierTest as PaillierParams>::Uint::BITS - 2);
+        let coeff = SecretSigned::random_bounded_bits(&mut OsRng, <PaillierTest as PaillierParams>::Uint::BITS - 2);
         let new_ciphertext = ciphertext * coeff;
         let new_plaintext = new_ciphertext.decrypt(&sk);
 
@@ -621,7 +606,8 @@ mod tests {
 
         let plaintext1 =
             Secret::init_with(|| <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero()));
-        let plaintext2 = Signed::random_bounded_bits(&mut OsRng, <PaillierTest as PaillierParams>::Uint::BITS - 2);
+        let plaintext2 =
+            SecretSigned::random_bounded_bits(&mut OsRng, <PaillierTest as PaillierParams>::Uint::BITS - 2);
         let plaintext3 =
             Secret::init_with(|| <PaillierTest as PaillierParams>::Uint::random_mod(&mut OsRng, &pk.modulus_nonzero()));
 

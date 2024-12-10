@@ -1,104 +1,28 @@
-use alloc::string::String;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
 
-use digest::XofReader;
+use crypto_bigint::BitOps;
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use super::{
-    bounded::PackedBounded,
-    subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess, CtOption},
-    Bounded, CheckedAdd, CheckedSub, Encoding, HasWide, Integer, NonZero, RandomMod, ShlVartime, WrappingSub,
+    subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeLess, CtOption},
+    CheckedAdd, CheckedSub, Encoding, HasWide, Integer, NonZero, PublicSigned, RandomMod, ShlVartime, WrappingSub,
 };
-use crate::tools::hashing::uint_from_xof;
-
-/// A packed representation for serializing Signed objects.
-/// Usually they have the bound much lower than the full size of the integer,
-/// so this way we avoid serializing a bunch of zeros.
-#[derive(Serialize, Deserialize)]
-struct PackedSigned {
-    is_negative: bool,
-    abs_value: PackedBounded,
-}
-
-impl<T> From<Signed<T>> for PackedSigned
-where
-    T: ConditionallySelectable + Integer + Encoding + crypto_bigint::Bounded,
-{
-    fn from(val: Signed<T>) -> Self {
-        Self {
-            is_negative: val.is_negative().into(),
-            abs_value: PackedBounded::from(val.abs_bounded()),
-        }
-    }
-}
-
-impl<T> TryFrom<PackedSigned> for Signed<T>
-where
-    T: ConditionallySelectable + Integer + Encoding + crypto_bigint::Bounded,
-{
-    type Error = String;
-    fn try_from(val: PackedSigned) -> Result<Self, Self::Error> {
-        let abs_value = Bounded::try_from(val.abs_value)?;
-        Self::new_from_abs(
-            *abs_value.as_ref(),
-            abs_value.bound(),
-            Choice::from(val.is_negative as u8),
-        )
-        .ok_or_else(|| "Invalid values for the signed integer".into())
-    }
-}
 
 /// A wrapper over unsigned integers that treats two's complement numbers as negative.
 // In principle, Bounded could be separate from Signed, but we only use it internally,
 // and pretty much every time we need a bounded value, it's also signed.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Zeroize)]
-#[serde(
-    try_from = "PackedSigned",
-    into = "PackedSigned",
-    bound = "T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable"
-)]
-pub(crate) struct Signed<T> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Zeroize)]
+pub(crate) struct SecretSigned<T> {
     /// bound on the bit size of the absolute value
-    bound: u32,
-    value: T,
+    pub(crate) bound: u32,
+    pub(crate) value: T,
 }
 
-impl<T> Signed<T>
+impl<T> SecretSigned<T>
 where
     T: crypto_bigint::Bounded + Integer,
 {
-    /// Note: when adding two [`Signed`], the bound on the result is equal to the biggest bound of
-    /// the two operands plus 1.
-    fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
-        let bound = core::cmp::max(self.bound, rhs.bound) + 1;
-        let in_range = bound.ct_lt(&T::BITS);
-
-        let result = Self {
-            bound,
-            value: self.value.wrapping_add(&rhs.value),
-        };
-        let lhs_neg = self.is_negative();
-        let rhs_neg = rhs.is_negative();
-        let res_neg = result.is_negative();
-
-        // Cannot get overflow from adding values of different signs,
-        // and if for two values of the same sign the sign of the result remains the same
-        // it means there was no overflow.
-        CtOption::new(result, !(lhs_neg.ct_eq(&rhs_neg) & !lhs_neg.ct_eq(&res_neg)) & in_range)
-    }
-
-    /// Checks if a [`Signed`] is negative by checking the MSB: if it's `1` then the [`Signed`] is
-    /// negative; if it's `0` it's positive. Returns a [`Choice`].
-    pub fn is_negative(&self) -> Choice {
-        Choice::from(self.value.bit_vartime(T::BITS - 1) as u8)
-    }
-
-    pub fn bound(&self) -> u32 {
-        self.bound
-    }
-
     /// Creates a signed value from an unsigned one,
     /// assuming that it encodes a positive value.
     pub fn new_positive(value: T, bound: u32) -> Option<Self> {
@@ -112,29 +36,59 @@ where
         }
         Some(result)
     }
-}
 
-impl<T> Signed<T>
-where
-    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer,
-{
-    /// Constant-time checked multiplication. The product must fit in a `T`; use [`Signed::mul_wide`] if widening is desired.
-    /// Note: when multiplying two [`Signed`], the bound on the result is equal to the sum of the bounds of the operands.
+    /// Checks if a [`SecretSigned`] is negative by checking the MSB: if it's `1` then the [`SecretSigned`] is
+    /// negative; if it's `0` it's positive. Returns a [`Choice`].
+    pub fn is_negative(&self) -> Choice {
+        Choice::from(self.value.bit_vartime(T::BITS - 1) as u8)
+    }
+
+    pub fn bound(&self) -> u32 {
+        self.bound
+    }
+
+    /// Note: when adding two [`SecretSigned`], the bound on the result is equal to the biggest bound of
+    /// the two operands plus 1.
+    fn checked_add(&self, rhs: &Self) -> CtOption<Self> {
+        let bound = core::cmp::max(self.bound, rhs.bound) + 1;
+        let in_range = bound.ct_lt(&T::BITS);
+        let result = Self {
+            bound,
+            value: self.value.wrapping_add(&rhs.value),
+        };
+        CtOption::new(result, in_range)
+    }
+
+    /// Constant-time checked multiplication. The product must fit in a `T`; use [`SecretSigned::mul_wide`] if widening is desired.
+    /// Note: when multiplying two [`SecretSigned`], the bound on the result is equal to the sum of the bounds of the operands.
     fn checked_mul(&self, rhs: &Self) -> CtOption<Self> {
         let bound = self.bound + rhs.bound;
         let in_range = bound.ct_lt(&T::BITS);
+        let result = Self {
+            bound,
+            value: self.value.wrapping_mul(&rhs.value),
+        };
+        CtOption::new(result, in_range)
+    }
 
-        let lhs_neg = self.is_negative();
-        let rhs_neg = rhs.is_negative();
-        let lhs = T::conditional_select(&self.value, &T::zero().wrapping_sub(&self.value), lhs_neg);
-        let rhs = T::conditional_select(&rhs.value, &T::zero().wrapping_sub(&rhs.value), rhs_neg);
-        let result = lhs.checked_mul(&rhs);
-        result.and_then(|val| {
-            let result_neg = lhs_neg ^ rhs_neg;
-            let val_neg = T::zero().wrapping_sub(&val);
-            let value = T::conditional_select(&val, &val_neg, result_neg);
-            CtOption::new(Self { bound, value }, in_range)
-        })
+    pub fn add_public(&self, rhs: &PublicSigned<T>) -> Self {
+        let bound = core::cmp::max(self.bound, rhs.bound) + 1;
+        let in_range = bound.ct_lt(&T::BITS);
+        let result = Self {
+            bound,
+            value: self.value.wrapping_add(&rhs.value),
+        };
+        CtOption::new(result, in_range).unwrap()
+    }
+
+    pub fn mul_by_public(&self, rhs: &PublicSigned<T>) -> Self {
+        let bound = self.bound + rhs.bound;
+        let in_range = bound.ct_lt(&T::BITS);
+        let result = Self {
+            bound,
+            value: self.value.wrapping_mul(&rhs.value),
+        };
+        CtOption::new(result, in_range).unwrap()
     }
 
     /// Performs the unary - operation.
@@ -144,30 +98,15 @@ where
             bound: self.bound,
         }
     }
+}
 
+impl<T> SecretSigned<T>
+where
+    T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer,
+{
     /// Computes the absolute value of [`self`]
     pub fn abs(&self) -> T {
         T::conditional_select(&self.value, &self.neg().value, self.is_negative())
-    }
-
-    // Asserts that the value lies in the interval `[-2^bound, 2^bound]`.
-    // Panics if it is not the case.
-    pub fn assert_bound(self, bound: u32) {
-        assert!(
-            T::one()
-                .overflowing_shl_vartime(bound)
-                .map(|b| self.abs() <= b)
-                .expect("Out of bounds"),
-            "Out of bounds"
-        );
-    }
-
-    /// Creates a [`Bounded`] from the absolute value of `self`.
-    pub fn abs_bounded(&self) -> Bounded<T> {
-        // Can unwrap here since the maximum bound on the positive Bounded
-        // is always greater than the maximum bound on Signed
-        Bounded::new(self.abs(), self.bound)
-            .expect("Max bound for a positive Bounded is always greater than max bound for a Signed; qed")
     }
 
     /// Creates a signed value from an unsigned one,
@@ -203,37 +142,21 @@ where
             None
         }
     }
-    /// Returns `true` if the value is within `[-2^bound_bits, 2^bound_bits]`.
-    pub fn in_range_bits(&self, bound_bits: u32) -> bool {
-        self.abs() <= T::one() << bound_bits
-    }
 
-    /// Returns a value in range `[-bound, bound]` derived from an extendable-output hash.
-    ///
-    /// This method should be used for deriving non-interactive challenges,
-    /// since it is guaranteed to produce the same results on 32- and 64-bit platforms.
-    ///
-    /// Note: variable time in bit size of `bound`.
-    pub fn from_xof_reader_bounded(rng: &mut impl XofReader, bound: &NonZero<T>) -> Self {
-        let bound_bits = bound.as_ref().bits_vartime();
-        assert!(bound_bits < <T as crypto_bigint::Bounded>::BITS);
-        // Will not overflow because of the assertion above
-        let positive_bound = bound
-            .as_ref()
-            .overflowing_shl_vartime(1)
-            .expect("Just asserted that bound is smaller than precision; qed")
-            .checked_add(&T::one())
-            .expect("does not overflow since we're adding 1 to an even number");
-        let positive_result = uint_from_xof(
-            rng,
-            &NonZero::new(positive_bound).expect("Guaranteed to be greater than zero because we added 1"),
+    // Asserts that the value lies in the interval `[-2^bound, 2^bound]`.
+    // Panics if it is not the case.
+    pub fn assert_bound(self, bound: u32) {
+        assert!(
+            T::one()
+                .overflowing_shl_vartime(bound)
+                .map(|b| self.abs() <= b)
+                .expect("Out of bounds"),
+            "Out of bounds"
         );
-        Self::new_from_unsigned(positive_result.wrapping_sub(bound.as_ref()), bound_bits)
-            .expect("Guaranteed to be Some because we checked the bounds just above")
     }
 }
 
-impl<T> Signed<T>
+impl<T> SecretSigned<T>
 where
     T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer + RandomMod,
 {
@@ -280,7 +203,7 @@ where
     }
 }
 
-impl<T: Integer> Default for Signed<T> {
+impl<T: Integer> Default for SecretSigned<T> {
     fn default() -> Self {
         Self {
             bound: 0,
@@ -289,7 +212,7 @@ impl<T: Integer> Default for Signed<T> {
     }
 }
 
-impl<T> ConditionallySelectable for Signed<T>
+impl<T> ConditionallySelectable for SecretSigned<T>
 where
     T: Integer + ConditionallySelectable,
 {
@@ -301,27 +224,27 @@ where
     }
 }
 
-impl<T> Neg for Signed<T>
+impl<T> Neg for SecretSigned<T>
 where
-    T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
+    T: Integer + crypto_bigint::Bounded + Encoding,
 {
     type Output = Self;
     fn neg(self) -> Self::Output {
-        Signed::neg(&self)
+        SecretSigned::neg(&self)
     }
 }
 
-impl<T> Neg for &Signed<T>
+impl<T> Neg for &SecretSigned<T>
 where
-    T: Integer + crypto_bigint::Bounded + ConditionallySelectable + Encoding,
+    T: Integer + crypto_bigint::Bounded + Encoding,
 {
-    type Output = Signed<T>;
+    type Output = SecretSigned<T>;
     fn neg(self) -> Self::Output {
-        Signed::neg(self)
+        SecretSigned::neg(self)
     }
 }
 
-impl<T> Signed<T>
+impl<T> SecretSigned<T>
 where
     T: crypto_bigint::Bounded + HasWide + Integer,
     <T as HasWide>::Wide: RandomMod,
@@ -332,8 +255,8 @@ where
     pub fn random_bounded_bits_scaled(
         rng: &mut impl CryptoRngCore,
         bound_bits: u32,
-        scale: &Bounded<T>,
-    ) -> Signed<T::Wide> {
+        scale: &T,
+    ) -> SecretSigned<T::Wide> {
         assert!(
             bound_bits < T::BITS - 1,
             "Out of bounds: bound_bits was {} but must be smaller than {}",
@@ -341,9 +264,7 @@ where
             T::BITS - 1
         );
         let scaled_bound: <T as HasWide>::Wide = scale
-            .clone()
             .to_wide()
-            .as_ref()
             .overflowing_shl_vartime(bound_bits)
             .expect("Just asserted that bound bits is smaller than T's bit precision");
 
@@ -367,42 +288,42 @@ where
         );
         let result = positive_result.wrapping_sub(&scaled_bound);
 
-        Signed {
-            bound: bound_bits + scale.bound(),
+        SecretSigned {
+            bound: bound_bits + scale.bits_vartime(),
             value: result,
         }
     }
 }
 
-impl<T> Signed<T>
+impl<T> SecretSigned<T>
 where
     T: ConditionallySelectable + crypto_bigint::Bounded + HasWide + Encoding + Integer,
     T::Wide: ConditionallySelectable + crypto_bigint::Bounded,
 {
-    /// Returns a [`Signed`] with the same value, but twice the bit-width.
+    /// Returns a [`SecretSigned`] with the same value, but twice the bit-width.
     /// Consumes `self`, but under the hood this method clones.
-    pub fn to_wide(self) -> Signed<T::Wide> {
+    pub fn to_wide(self) -> SecretSigned<T::Wide> {
         let abs_result = self.abs().to_wide();
-        Signed::new_from_abs(abs_result, self.bound(), self.is_negative())
+        SecretSigned::new_from_abs(abs_result, self.bound(), self.is_negative())
             .expect("the value fit the bound before, and the bound won't overflow for `WideUint`")
     }
 
-    /// Multiplies two [`Signed`] and returns a new [`Signed`] of twice the bit-width
-    pub fn mul_wide(&self, rhs: &Self) -> Signed<T::Wide> {
+    /// Multiplies two [`SecretSigned`] and returns a new [`SecretSigned`] of twice the bit-width
+    pub fn mul_wide(&self, rhs: &PublicSigned<T>) -> SecretSigned<T::Wide> {
         let abs_value = self.abs().mul_wide(&rhs.abs());
-        Signed::new_from_abs(
+        SecretSigned::new_from_abs(
             abs_value,
             self.bound() + rhs.bound(),
-            self.is_negative() ^ rhs.is_negative(),
+            self.is_negative() ^ Choice::from(rhs.is_negative() as u8),
         )
         .expect("The call to new_positive cannot fail when the input is the absolute value ")
     }
 }
 
-impl<T> Signed<T>
+impl<T> SecretSigned<T>
 where
     T: crypto_bigint::Bounded + HasWide + Integer,
-    T::Wide: ConditionallySelectable + crypto_bigint::Bounded + HasWide,
+    T::Wide: ConditionallySelectable + crypto_bigint::Bounded + HasWide + Integer,
 {
     /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
     ///
@@ -410,8 +331,8 @@ where
     pub fn random_bounded_bits_scaled_wide(
         rng: &mut impl CryptoRngCore,
         bound_bits: u32,
-        scale: &Bounded<T::Wide>,
-    ) -> Signed<<T::Wide as HasWide>::Wide> {
+        scale: &T::Wide,
+    ) -> SecretSigned<<T::Wide as HasWide>::Wide> {
         assert!(
             bound_bits < T::BITS - 1,
             "Out of bounds: bound_bits was {} but must be smaller than {}",
@@ -419,7 +340,6 @@ where
             T::BITS - 1
         );
         let scaled_bound = scale
-            .as_ref()
             .to_wide()
             .overflowing_shl_vartime(bound_bits)
             .expect("Just asserted that bound_bits is smaller than bit precision of T");
@@ -444,14 +364,14 @@ where
         );
         let result = positive_result.wrapping_sub(&scaled_bound);
 
-        Signed {
-            bound: bound_bits + scale.bound(),
+        SecretSigned {
+            bound: bound_bits + scale.bits_vartime(),
             value: result,
         }
     }
 }
 
-impl<T> Add<Signed<T>> for Signed<T>
+impl<T> Add<SecretSigned<T>> for SecretSigned<T>
 where
     T: Integer + crypto_bigint::Bounded,
 {
@@ -462,25 +382,25 @@ where
     }
 }
 
-impl<T> CheckedSub<Signed<T>> for Signed<T>
+impl<T> CheckedSub<SecretSigned<T>> for SecretSigned<T>
 where
     T: crypto_bigint::Bounded + ConditionallySelectable + Integer,
 {
     /// Performs subtraction that returns `None` instead of wrapping around on underflow.
     /// The bound of the result is the bound of `self` (lhs).
-    fn checked_sub(&self, rhs: &Signed<T>) -> CtOption<Self> {
+    fn checked_sub(&self, rhs: &SecretSigned<T>) -> CtOption<Self> {
         self.value.checked_sub(&rhs.value).and_then(|v| {
-            let signed = Signed::new_positive(v, self.bound);
+            let signed = SecretSigned::new_positive(v, self.bound);
             if let Some(signed) = signed {
                 CtOption::new(signed, 1u8.into())
             } else {
-                CtOption::new(Signed::default(), 0u8.into())
+                CtOption::new(SecretSigned::default(), 0u8.into())
             }
         })
     }
 }
 
-impl<T> Sub<Signed<T>> for Signed<T>
+impl<T> Sub<SecretSigned<T>> for SecretSigned<T>
 where
     T: crypto_bigint::Bounded + ConditionallySelectable + Encoding + Integer,
 {
@@ -491,27 +411,27 @@ where
     }
 }
 
-impl<'a, T> AddAssign<&'a Signed<T>> for Signed<T>
+impl<'a, T> AddAssign<&'a SecretSigned<T>> for SecretSigned<T>
 where
     T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer,
 {
-    fn add_assign(&mut self, rhs: &'a Signed<T>) {
+    fn add_assign(&mut self, rhs: &'a SecretSigned<T>) {
         // TODO: implement properly
         *self = self.checked_add(rhs).unwrap()
     }
 }
 
-impl<'a, T> MulAssign<&'a Signed<T>> for Signed<T>
+impl<'a, T> MulAssign<&'a SecretSigned<T>> for SecretSigned<T>
 where
     T: ConditionallySelectable + crypto_bigint::Bounded + Encoding + Integer,
 {
-    fn mul_assign(&mut self, rhs: &'a Signed<T>) {
+    fn mul_assign(&mut self, rhs: &'a SecretSigned<T>) {
         // TODO: implement properly
         *self = self.checked_mul(rhs).unwrap()
     }
 }
 
-impl<T> Mul<Signed<T>> for Signed<T>
+impl<T> Mul<SecretSigned<T>> for SecretSigned<T>
 where
     T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable,
 {
@@ -530,14 +450,15 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::{self, ChaCha8Rng};
 
-    use super::Signed;
-    use crate::uint::U1024;
+    use super::SecretSigned;
+    use crate::uint::{PublicSigned, U1024};
+
     const SEED: u64 = 123;
 
     #[test]
     fn adding_signed_numbers_increases_the_bound() {
-        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 13).unwrap();
-        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 10).unwrap();
+        let s1 = SecretSigned::new_from_unsigned(U128::from_u8(5), 13).unwrap();
+        let s2 = SecretSigned::new_from_unsigned(U128::from_u8(3), 10).unwrap();
         // The sum has a bound that is equal to the biggest bound of the operands + 1
         assert_eq!((s1 + s2).bound(), 14);
     }
@@ -545,16 +466,16 @@ mod tests {
     #[test]
     #[should_panic]
     fn adding_signed_numbers_with_max_bounds_panics() {
-        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 127).unwrap();
-        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 127).unwrap();
+        let s1 = SecretSigned::new_from_unsigned(U128::from_u8(5), 127).unwrap();
+        let s2 = SecretSigned::new_from_unsigned(U128::from_u8(3), 127).unwrap();
 
         let _ = s1 + s2;
     }
 
     #[test]
     fn checked_mul_sums_bounds() {
-        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 27).unwrap();
-        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 17).unwrap();
+        let s1 = SecretSigned::new_from_unsigned(U128::from_u8(5), 27).unwrap();
+        let s2 = SecretSigned::new_from_unsigned(U128::from_u8(3), 17).unwrap();
         let mul = s1.checked_mul(&s2).unwrap();
 
         assert_eq!(mul.bound(), 44);
@@ -562,8 +483,8 @@ mod tests {
 
     #[test]
     fn checked_mul_fails_when_sum_of_bounds_is_too_large() {
-        let s1 = Signed::new_from_unsigned(U128::from_u8(5), 127).unwrap();
-        let s2 = Signed::new_from_unsigned(U128::from_u8(3), 17).unwrap();
+        let s1 = SecretSigned::new_from_unsigned(U128::from_u8(5), 127).unwrap();
+        let s2 = SecretSigned::new_from_unsigned(U128::from_u8(3), 17).unwrap();
         let mul = s1.checked_mul(&s2);
 
         assert!(bool::from(mul.is_none()));
@@ -571,19 +492,20 @@ mod tests {
 
     #[test]
     fn mul_wide_sums_bounds() {
-        let s1 = Signed::new_from_unsigned(U1024::MAX >> 1, 1023).unwrap();
-        let mul = s1.mul_wide(&s1);
+        let s = SecretSigned::new_from_unsigned(U1024::MAX >> 1, 1023).unwrap();
+        let s1 = PublicSigned::new_from_unsigned(U1024::MAX >> 1, 1023).unwrap();
+        let mul = s.mul_wide(&s1);
         assert_eq!(mul.bound(), 2046);
 
-        let s2 = Signed::new_from_unsigned(U1024::from_u8(8), 4).unwrap();
-        let mul = s1.mul_wide(&s2);
+        let s2 = PublicSigned::new_from_unsigned(U1024::from_u8(8), 4).unwrap();
+        let mul = s.mul_wide(&s2);
         assert_eq!(mul.bound(), 1027);
     }
 
     #[test]
     fn checked_mul_handles_sign() {
-        let n = Signed::new_from_unsigned(U128::from_u8(5), 27).unwrap().neg();
-        let p = Signed::new_from_unsigned(U128::from_u8(3), 17).unwrap();
+        let n = SecretSigned::new_from_unsigned(U128::from_u8(5), 27).unwrap().neg();
+        let p = SecretSigned::new_from_unsigned(U128::from_u8(3), 17).unwrap();
         let neg_pos = n.checked_mul(&p).unwrap();
         let pos_neg = p.checked_mul(&n).unwrap();
         let pos_pos = p.checked_mul(&p).unwrap();
@@ -602,7 +524,7 @@ mod tests {
     fn random_bounded_bits_is_sane() {
         let mut rng = ChaCha8Rng::seed_from_u64(SEED);
         for bound_bits in 1..U1024::BITS - 1 {
-            let signed: Signed<U1024> = Signed::random_bounded_bits(&mut rng, bound_bits);
+            let signed: SecretSigned<U1024> = SecretSigned::random_bounded_bits(&mut rng, bound_bits);
             assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound_bits));
             signed.assert_bound(bound_bits);
         }
@@ -613,41 +535,42 @@ mod tests {
         // a 2 bit bound means numbers must be smaller or equal to 3
         let bound = 2;
         let value = U1024::from_u8(3);
-        let signed = Signed::new_from_unsigned(value, bound).unwrap();
+        let signed = SecretSigned::new_from_unsigned(value, bound).unwrap();
         assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
         signed.assert_bound(bound);
         // 4 is too big
         let value = U1024::from_u8(4);
-        let signed = Signed::new_from_unsigned(value, bound);
+        let signed = SecretSigned::new_from_unsigned(value, bound);
         assert!(signed.is_none());
 
         // a 1 bit bound means numbers must be smaller or equal to 1
         let bound = 1;
         let value = U1024::from_u8(1);
-        let signed = Signed::new_from_unsigned(value, bound).unwrap();
+        let signed = SecretSigned::new_from_unsigned(value, bound).unwrap();
         assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
         signed.assert_bound(bound);
         // 2 is too big
         let value = U1024::from_u8(2);
-        let signed = Signed::new_from_unsigned(value, bound);
+        let signed = SecretSigned::new_from_unsigned(value, bound);
         assert!(signed.is_none());
 
         // a 0 bit bound means only 0 is a valid value
         let bound = 0;
         let value = U1024::from_u8(0);
-        let signed = Signed::new_from_unsigned(value, bound).unwrap();
+        let signed = SecretSigned::new_from_unsigned(value, bound).unwrap();
         assert!(signed.abs() < U1024::MAX >> (U1024::BITS - 1 - bound));
         signed.assert_bound(bound);
         // 1 is too big
         let value = U1024::from_u8(1);
-        let signed = Signed::new_from_unsigned(value, bound);
+        let signed = SecretSigned::new_from_unsigned(value, bound);
         assert!(signed.is_none());
     }
 
     #[test]
     fn neg_u128() {
-        let n = Signed::new_from_unsigned(U128::from_be_hex("fffffffffffffffffffffffffffffff0"), 127).unwrap();
-        let neg_n = Signed::new_from_unsigned(U128::from_be_hex("00000000000000000000000000000010"), 127).unwrap();
+        let n = SecretSigned::new_from_unsigned(U128::from_be_hex("fffffffffffffffffffffffffffffff0"), 127).unwrap();
+        let neg_n =
+            SecretSigned::new_from_unsigned(U128::from_be_hex("00000000000000000000000000000010"), 127).unwrap();
         assert!(bool::from(n.is_negative()));
         assert!(!bool::from(neg_n.is_negative()));
         assert_eq!(n.neg(), neg_n);
@@ -657,31 +580,32 @@ mod tests {
     #[test]
     #[should_panic(expected = "does not overflow by the construction of the arguments")]
     fn sub_panics_on_underflow() {
-        // Biggest/smallest Signed<U128> is |2^127|:
+        // Biggest/smallest SecretSigned<U128> is |2^127|:
         use crypto_bigint::U128;
         let max_uint = U128::from_u128(u128::MAX >> 1);
-        let one_signed = Signed::new_from_abs(U128::ONE, U128::BITS - 1, 0u8.into()).unwrap();
-        let min_signed = Signed::new_from_abs(max_uint, U128::BITS - 1, 1u8.into()).expect("|2^127| is a valid Signed");
+        let one_signed = SecretSigned::new_from_abs(U128::ONE, U128::BITS - 1, 0u8.into()).unwrap();
+        let min_signed =
+            SecretSigned::new_from_abs(max_uint, U128::BITS - 1, 1u8.into()).expect("|2^127| is a valid SecretSigned");
         let _ = min_signed - one_signed;
     }
     #[test]
     #[should_panic(expected = "does not overflow by the construction of the arguments")]
     fn sub_panics_on_underflow_1024() {
-        // Biggest/smallest Signed<U1024> is |2^1023|:
+        // Biggest/smallest SecretSigned<U1024> is |2^1023|:
         let max_uint = U1024::MAX >> 1;
-        let one_signed = Signed::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
-        let min_signed =
-            Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into()).expect("|2^1023| is a valid Signed");
+        let one_signed = SecretSigned::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
+        let min_signed = SecretSigned::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into())
+            .expect("|2^1023| is a valid SecretSigned");
         let _ = min_signed - one_signed;
     }
 
     #[test]
     fn checked_sub_handles_underflow() {
-        // Biggest/smallest Signed<U1024> is |2^1023|
+        // Biggest/smallest SecretSigned<U1024> is |2^1023|
         let max_uint = U1024::MAX >> 1;
-        let one_signed = Signed::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
-        let min_signed =
-            Signed::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into()).expect("|2^1023| is a valid Signed");
+        let one_signed = SecretSigned::new_from_abs(U1024::ONE, U1024::BITS - 1, 0u8.into()).unwrap();
+        let min_signed = SecretSigned::new_from_abs(max_uint, U1024::BITS - 1, 1u8.into())
+            .expect("|2^1023| is a valid SecretSigned");
 
         let result = min_signed.checked_sub(&one_signed);
         assert!(bool::from(result.is_none()))

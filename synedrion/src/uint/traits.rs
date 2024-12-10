@@ -4,8 +4,9 @@ use crypto_bigint::{
     subtle::{ConditionallySelectable, CtOption},
     Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048, U4096, U512, U8192,
 };
+use zeroize::Zeroize;
 
-use crate::uint::{Bounded, Signed};
+use crate::uint::{PublicBounded, PublicSigned, SecretBounded, SecretSigned};
 
 pub trait ToMontgomery: Integer {
     fn to_montgomery(
@@ -21,10 +22,10 @@ pub trait ToMontgomery: Integer {
 pub trait Exponentiable<T>:
     PowBoundedExp<T> + Invert<Output = CtOption<Self>> + ConditionallySelectable + Square + core::ops::Mul<Output = Self>
 where
-    T: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
+    T: Zeroize + Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
 {
-    fn pow_bounded(&self, exponent: &Bounded<T>) -> Self {
-        self.pow_bounded_exp(exponent.as_ref(), exponent.bound())
+    fn pow_bounded(&self, exponent: &SecretBounded<T>) -> Self {
+        self.pow_bounded_exp(exponent.expose_secret(), exponent.bound())
     }
 
     /// Constant-time exponentiation of an integer in Montgomery form by a signed exponent.
@@ -32,7 +33,7 @@ where
     /// #Panics
     ///
     /// Panics if `self` is not invertible.
-    fn pow_signed(&self, exponent: &Signed<T>) -> Self {
+    fn pow_signed(&self, exponent: &SecretSigned<T>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
         let inv_result = abs_result.invert().expect("`self` is assumed to be invertible");
@@ -44,7 +45,7 @@ where
     /// #Panics
     ///
     /// Panics if `self` is not invertible.
-    fn pow_signed_wide(&self, exp: &Signed<<T as HasWide>::Wide>) -> Self
+    fn pow_signed_wide(&self, exp: &SecretSigned<<T as HasWide>::Wide>) -> Self
     where
         T: HasWide,
         <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
@@ -83,7 +84,7 @@ where
     /// #Panics
     ///
     /// Panics if `self` is not invertible.
-    fn pow_signed_extra_wide(&self, exp: &Signed<<<T as HasWide>::Wide as HasWide>::Wide>) -> Self
+    fn pow_signed_extra_wide(&self, exp: &SecretSigned<<<T as HasWide>::Wide as HasWide>::Wide>) -> Self
     where
         T: HasWide,
         <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable + HasWide,
@@ -116,14 +117,18 @@ where
     /// #Panics
     ///
     /// Panics if `self` is not invertible.
-    fn pow_signed_vartime(self, exp: &Signed<T>) -> Self {
+    fn pow_signed_vartime(self, exp: &PublicSigned<T>) -> Self {
         let abs_exp = exp.abs();
         let abs_result = self.pow_bounded_exp(&abs_exp, exp.bound());
-        if exp.is_negative().into() {
+        if exp.is_negative() {
             abs_result.invert().expect("`self` is assumed invertible")
         } else {
             abs_result
         }
+    }
+
+    fn pow_bounded_vartime(self, exp: &PublicBounded<T>) -> Self {
+        self.pow_bounded_exp(exp.as_ref(), exp.bound())
     }
 
     /// Variable-time exponentiation of an integer in Montgomery form by a "wide" and signed exponent.
@@ -131,14 +136,45 @@ where
     /// #Panics
     ///
     /// Panics if `self` is not invertible.
-    fn pow_signed_wide_vartime(&self, exp: &Signed<<T as HasWide>::Wide>) -> Self
+    fn pow_signed_wide_vartime(&self, exp: &PublicSigned<<T as HasWide>::Wide>) -> Self
     where
         T: HasWide,
         <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
     {
         let exp_abs = exp.abs();
         let abs_result = self.pow_wide(&exp_abs, exp.bound());
-        if exp.is_negative().into() {
+        if exp.is_negative() {
+            abs_result.invert().expect("`self` is assumed invertible")
+        } else {
+            abs_result
+        }
+    }
+
+    fn pow_signed_extra_wide_vartime(&self, exp: &PublicSigned<<<T as HasWide>::Wide as HasWide>::Wide>) -> Self
+    where
+        T: HasWide,
+        <T as HasWide>::Wide: crypto_bigint::Bounded + HasWide,
+        <<T as HasWide>::Wide as HasWide>::Wide: crypto_bigint::Bounded,
+    {
+        let bits = <<T as HasWide>::Wide as crypto_bigint::Bounded>::BITS;
+        let bound = exp.bound();
+
+        let abs_exponent = exp.abs();
+        let (wlo, whi) = <T as HasWide>::Wide::from_wide(&abs_exponent);
+
+        let lo_res = self.pow_wide(&wlo, core::cmp::min(bits, bound));
+
+        let abs_result = if bound > bits {
+            let mut hi_res = self.pow_wide(&whi, bound - bits);
+            for _ in 0..bits {
+                hi_res = hi_res.square();
+            }
+            hi_res * lo_res
+        } else {
+            lo_res
+        };
+
+        if exp.is_negative() {
             abs_result.invert().expect("`self` is assumed invertible")
         } else {
             abs_result

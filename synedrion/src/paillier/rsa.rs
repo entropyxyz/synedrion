@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::{
     tools::Secret,
-    uint::{Bounded, HasWide, Signed, ToMontgomery},
+    uint::{HasWide, PublicBounded, SecretBounded, SecretSigned, ToMontgomery},
 };
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
@@ -127,15 +127,15 @@ impl<P: PaillierParams> SecretPrimes<P> {
         Secret::init_with(|| self.primes.q.expose_secret().to_wide())
     }
 
-    pub fn p_signed(&self) -> Secret<Signed<P::Uint>> {
+    pub fn p_signed(&self) -> Secret<SecretSigned<P::Uint>> {
         Secret::init_with(|| {
-            Signed::new_positive(*self.p().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
+            SecretSigned::new_positive(*self.p().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
         })
     }
 
-    pub fn q_signed(&self) -> Secret<Signed<P::Uint>> {
+    pub fn q_signed(&self) -> Secret<SecretSigned<P::Uint>> {
         Secret::init_with(|| {
-            Signed::new_positive(*self.q().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
+            SecretSigned::new_positive(*self.q().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
         })
     }
 
@@ -147,7 +147,7 @@ impl<P: PaillierParams> SecretPrimes<P> {
         Secret::init_with(|| NonZero::new(*self.q().expose_secret()).expect("`q` is non-zero"))
     }
 
-    pub fn p_wide_signed(&self) -> Secret<Signed<P::WideUint>> {
+    pub fn p_wide_signed(&self) -> Secret<SecretSigned<P::WideUint>> {
         self.p_signed().to_wide()
     }
 
@@ -155,13 +155,11 @@ impl<P: PaillierParams> SecretPrimes<P> {
         &self.totient
     }
 
-    pub fn totient_bounded(&self) -> Secret<Bounded<P::Uint>> {
-        Secret::init_with(|| {
-            Bounded::new(*self.totient.expose_secret(), P::MODULUS_BITS).expect("`P::MODULUS_BITS` is valid")
-        })
+    pub fn totient_bounded(&self) -> SecretBounded<P::Uint> {
+        SecretBounded::new(*self.totient.expose_secret(), P::MODULUS_BITS).expect("`P::MODULUS_BITS` is valid")
     }
 
-    pub fn totient_wide_bounded(&self) -> Secret<Bounded<P::WideUint>> {
+    pub fn totient_wide_bounded(&self) -> SecretBounded<P::WideUint> {
         self.totient_bounded().to_wide()
     }
 
@@ -176,8 +174,8 @@ impl<P: PaillierParams> SecretPrimes<P> {
     }
 
     /// Returns a random in range `[0, \phi(N))`.
-    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
-        Bounded::new(
+    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> SecretBounded<P::Uint> {
+        SecretBounded::new(
             P::Uint::random_mod(rng, self.totient_nonzero().expose_secret()),
             P::MODULUS_BITS,
         )
@@ -247,8 +245,8 @@ impl<P: PaillierParams> PublicModulus<P> {
         NonZero::new(self.modulus.0).expect("the modulus is non-zero")
     }
 
-    pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
-        Bounded::new(self.modulus.0, P::MODULUS_BITS).expect("the modulus can be bounded by 2^MODULUS_BITS")
+    pub fn modulus_bounded(&self) -> PublicBounded<P::Uint> {
+        PublicBounded::new(self.modulus.0, P::MODULUS_BITS).expect("the modulus can be bounded by 2^MODULUS_BITS")
     }
 
     pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {

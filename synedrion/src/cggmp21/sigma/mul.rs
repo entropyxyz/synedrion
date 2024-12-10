@@ -10,17 +10,17 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    uint::{Bounded, Signed},
+    uint::{PublicSigned, SecretBounded, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_mul";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
-    e: Signed<<P::Paillier as PaillierParams>::Uint>,
+    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_a: CiphertextWire<P::Paillier>,
     cap_b: CiphertextWire<P::Paillier>,
-    z: Signed<<P::Paillier as PaillierParams>::WideUint>,
+    z: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     u: MaskedRandomizer<P::Paillier>,
     v: MaskedRandomizer<P::Paillier>,
 }
@@ -45,7 +45,7 @@ impl<P: SchemeParams> MulProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+        x: &Secret<SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
         rho_x: &Randomizer<P::Paillier>,
         rho: &Randomizer<P::Paillier>,
         pk: &PublicKeyPaillier<P::Paillier>,
@@ -59,13 +59,11 @@ impl<P: SchemeParams> MulProof<P> {
         assert_eq!(cap_c.public_key(), pk);
 
         let alpha_uint = Secret::init_with(|| pk.random_invertible_residue(rng));
-        let alpha = Secret::init_with(|| {
-            Bounded::new(
-                *alpha_uint.expose_secret(),
-                <P::Paillier as PaillierParams>::MODULUS_BITS,
-            )
-            .expect("the value is bounded by `MODULUS_BITS` by construction")
-        });
+        let alpha = SecretBounded::new(
+            *alpha_uint.expose_secret(),
+            <P::Paillier as PaillierParams>::MODULUS_BITS,
+        )
+        .expect("the value is bounded by `MODULUS_BITS` by construction");
 
         let r = Randomizer::random(rng, pk);
         let s = Randomizer::random(rng, pk);
@@ -86,7 +84,7 @@ impl<P: SchemeParams> MulProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         let z = *(alpha
             .to_wide()
@@ -101,7 +99,7 @@ impl<P: SchemeParams> MulProof<P> {
             e,
             cap_a,
             cap_b,
-            z,
+            z: z.into(),
             u,
             v,
         }
@@ -132,15 +130,17 @@ impl<P: SchemeParams> MulProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = Signed::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
         }
 
         // Y^z u^N = A * C^e \mod N^2
-        if cap_y.homomorphic_mul_wide(&self.z).mul_masked_randomizer(&self.u)
-            != self.cap_a.to_precomputed(pk) + cap_c * e
+        if cap_y
+            .homomorphic_mul_wide_public(&self.z)
+            .mul_masked_randomizer(&self.u)
+            != self.cap_a.to_precomputed(pk) + cap_c * &e
         {
             return false;
         }
@@ -148,7 +148,7 @@ impl<P: SchemeParams> MulProof<P> {
         // enc(z, v) == B * X^e \mod N^2
         // (Note: typo in the paper, it uses `c` and not `v` here)
         if Ciphertext::new_public_with_randomizer_wide(pk, &self.z, &self.v)
-            != self.cap_b.to_precomputed(pk) + cap_x * e
+            != self.cap_b.to_precomputed(pk) + cap_x * &e
         {
             return false;
         }
@@ -166,7 +166,7 @@ mod tests {
         cggmp21::{SchemeParams, TestParams},
         paillier::{Ciphertext, Randomizer, SecretKeyPaillierWire},
         tools::Secret,
-        uint::Signed,
+        uint::SecretSigned,
     };
 
     #[test]
@@ -179,8 +179,8 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let x = Secret::init_with(|| Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND));
-        let y = Secret::init_with(|| Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND));
+        let x = Secret::init_with(|| SecretSigned::random_bounded_bits(&mut OsRng, Params::L_BOUND));
+        let y = Secret::init_with(|| SecretSigned::random_bounded_bits(&mut OsRng, Params::L_BOUND));
         let rho_x = Randomizer::random(&mut OsRng, pk);
         let rho = Randomizer::random(&mut OsRng, pk);
 
