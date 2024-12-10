@@ -76,8 +76,8 @@ pub(crate) struct PublicSigned<T> {
     pub(crate) value: T,
 }
 
-impl<T> From<Signed<T>> for PublicSigned<T> {
-    fn from(source: Signed<T>) -> Self {
+impl<T> From<SecretSigned<T>> for PublicSigned<T> {
+    fn from(source: SecretSigned<T>) -> Self {
         Self {
             value: source.value,
             bound: source.bound,
@@ -211,7 +211,7 @@ where
     }
 }
 
-use super::Signed;
+use super::SecretSigned;
 use crate::tools::Secret;
 
 impl<T> Neg for PublicSigned<T>
@@ -260,33 +260,33 @@ where
     }
 }
 
-impl<T> Add<PublicSigned<T>> for Secret<Signed<T>>
+impl<T> Add<PublicSigned<T>> for Secret<SecretSigned<T>>
 where
     T: Integer + crypto_bigint::Bounded + Zeroize,
 {
-    type Output = Secret<Signed<T>>;
+    type Output = Secret<SecretSigned<T>>;
 
     fn add(self, rhs: PublicSigned<T>) -> Self::Output {
         Secret::init_with(|| self.expose_secret().add_public(&rhs))
     }
 }
 
-impl<T> Mul<PublicSigned<T>> for &Secret<Signed<T>>
+impl<T> Mul<PublicSigned<T>> for &Secret<SecretSigned<T>>
 where
     T: Integer + crypto_bigint::Bounded + Zeroize,
 {
-    type Output = Secret<Signed<T>>;
+    type Output = Secret<SecretSigned<T>>;
 
     fn mul(self, rhs: PublicSigned<T>) -> Self::Output {
         Secret::init_with(|| self.expose_secret().mul_by_public(&rhs))
     }
 }
 
-impl<T> Mul<PublicSigned<T>> for Secret<Signed<T>>
+impl<T> Mul<PublicSigned<T>> for Secret<SecretSigned<T>>
 where
     T: Integer + crypto_bigint::Bounded + Zeroize,
 {
-    type Output = Secret<Signed<T>>;
+    type Output = Secret<SecretSigned<T>>;
 
     fn mul(self, rhs: PublicSigned<T>) -> Self::Output {
         Secret::init_with(|| self.expose_secret().mul_by_public(&rhs))

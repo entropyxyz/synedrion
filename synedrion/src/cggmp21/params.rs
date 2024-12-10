@@ -15,7 +15,7 @@ use crate::{
         Secret,
     },
     uint::{
-        subtle::ConditionallySelectable, Encoding, NonZero, PublicSigned, Signed, U1024Mod, U2048Mod, U4096Mod,
+        subtle::ConditionallySelectable, Encoding, NonZero, PublicSigned, SecretSigned, U1024Mod, U2048Mod, U4096Mod,
         U512Mod, Uint, Zero, U1024, U2048, U4096, U512, U8192,
     },
 };
@@ -142,8 +142,10 @@ pub(crate) fn uint_from_scalar<P: SchemeParams>(value: &Scalar) -> <P::Paillier 
 }
 
 /// Converts a curve scalar to the associated integer type, wrapped in `Signed`.
-pub(crate) fn signed_from_scalar<P: SchemeParams>(value: &Scalar) -> Signed<<P::Paillier as PaillierParams>::Uint> {
-    Signed::new_positive(uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
+pub(crate) fn signed_from_scalar<P: SchemeParams>(
+    value: &Scalar,
+) -> SecretSigned<<P::Paillier as PaillierParams>::Uint> {
+    SecretSigned::new_positive(uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
         "a curve scalar value is smaller than the half of `PaillierParams::Uint` range, ",
         "so it is still positive when treated as a 2-complement signed value"
     ])
@@ -231,9 +233,9 @@ pub(crate) fn secret_uint_from_scalar<P: SchemeParams>(
 
 pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar>,
-) -> Secret<Signed<<P::Paillier as PaillierParams>::Uint>> {
+) -> Secret<SecretSigned<<P::Paillier as PaillierParams>::Uint>> {
     Secret::init_with(|| {
-        Signed::new_positive(
+        SecretSigned::new_positive(
             *secret_uint_from_scalar::<P>(value).expose_secret(),
             ORDER.bits_vartime() as u32,
         )
@@ -245,7 +247,7 @@ pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
 }
 
 pub(crate) fn secret_scalar_from_signed<P: SchemeParams>(
-    value: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    value: &Secret<SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
 ) -> Secret<Scalar> {
     // TODO: wrap in secrets properly
     let abs_value = scalar_from_uint::<P>(&value.expose_secret().abs());

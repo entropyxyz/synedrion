@@ -1,7 +1,7 @@
 mod public_bounded;
 mod public_signed;
 mod secret_bounded;
-mod signed;
+mod secret_signed;
 mod traits;
 
 pub(crate) use crypto_bigint::{
@@ -13,5 +13,5 @@ pub(crate) use crypto_primes::RandomPrimeWithRng;
 pub(crate) use public_bounded::PublicBounded;
 pub(crate) use public_signed::PublicSigned;
 pub(crate) use secret_bounded::SecretBounded;
-pub(crate) use signed::Signed;
+pub(crate) use secret_signed::SecretSigned;
 pub(crate) use traits::{Exponentiable, HasWide, ToMontgomery, U1024Mod, U2048Mod, U4096Mod, U512Mod};

@@ -1,7 +1,7 @@
 use crypto_bigint::{Bounded, Integer, NonZero};
 use zeroize::Zeroize;
 
-use super::{HasWide, Signed};
+use super::{HasWide, SecretSigned};
 use crate::tools::Secret;
 
 /// A bounded integer with sensitive data.
@@ -48,8 +48,8 @@ where
         }
     }
 
-    pub fn to_signed(&self) -> Option<Secret<Signed<T>>> {
-        Secret::maybe_init_with(|| Signed::new_positive(self.value.expose_secret().clone(), self.bound))
+    pub fn to_signed(&self) -> Option<Secret<SecretSigned<T>>> {
+        Secret::maybe_init_with(|| SecretSigned::new_positive(self.value.expose_secret().clone(), self.bound))
     }
 
     pub fn expose_secret(&self) -> &T {

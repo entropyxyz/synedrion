@@ -15,7 +15,7 @@ use crate::{
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     tools::Secret,
-    uint::{PublicSigned, Signed},
+    uint::{PublicSigned, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_log*";
@@ -50,7 +50,7 @@ impl<P: SchemeParams> LogStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+        x: &Secret<SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
         rho: &Randomizer<P::Paillier>,
         pk0: &PublicKeyPaillier<P::Paillier>,
         cap_c: &Ciphertext<P::Paillier>,
@@ -64,10 +64,11 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         let hat_cap_n = setup.modulus(); // $\hat{N}$
 
-        let alpha = Secret::init_with(|| Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND));
-        let mu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
+        let alpha = Secret::init_with(|| SecretSigned::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND));
+        let mu = Secret::init_with(|| SecretSigned::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
         let r = Randomizer::random(rng, pk0);
-        let gamma = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
+        let gamma =
+            Secret::init_with(|| SecretSigned::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
 
         let cap_s = setup.commit(x, &mu).to_wire();
         let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r).to_wire();
@@ -179,7 +180,7 @@ mod tests {
         curve::{Point, Scalar},
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
         tools::Secret,
-        uint::Signed,
+        uint::SecretSigned,
     };
 
     #[test]
@@ -195,7 +196,7 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let g = Point::GENERATOR * Scalar::random(&mut OsRng);
-        let x = Secret::init_with(|| Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND));
+        let x = Secret::init_with(|| SecretSigned::random_bounded_bits(&mut OsRng, Params::L_BOUND));
         let rho = Randomizer::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho);
         let cap_x = g * secret_scalar_from_signed::<Params>(&x);

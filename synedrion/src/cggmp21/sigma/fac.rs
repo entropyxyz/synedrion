@@ -10,7 +10,7 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    uint::{HasWide, Integer, PublicSigned, Signed},
+    uint::{HasWide, Integer, PublicSigned, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_fac";
@@ -62,27 +62,33 @@ impl<P: SchemeParams> FacProof<P> {
             <P::Paillier as PaillierParams>::Uint::one() << (<P::Paillier as PaillierParams>::PRIME_BITS - 2);
 
         let alpha =
-            Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n));
+            Secret::init_with(|| SecretSigned::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n));
         let beta =
-            Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n));
-        let mu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
-        let nu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
+            Secret::init_with(|| SecretSigned::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n));
+        let mu = Secret::init_with(|| SecretSigned::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
+        let nu = Secret::init_with(|| SecretSigned::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
 
         // N_0 \hat{N}
         let scale = pk0.modulus().mul_wide(hat_cap_n);
 
         let sigma = PublicSigned::from(
-            Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(rng, P::L_BOUND, &scale),
+            SecretSigned::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
+                rng,
+                P::L_BOUND,
+                &scale,
+            ),
         );
         let r = Secret::init_with(|| {
-            Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
+            SecretSigned::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(
                 rng,
                 P::L_BOUND + P::EPS_BOUND,
                 &scale,
             )
         });
-        let x = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
-        let y = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
+        let x =
+            Secret::init_with(|| SecretSigned::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
+        let y =
+            Secret::init_with(|| SecretSigned::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n));
 
         let p = sk0.p_signed();
         let q = sk0.q_signed();

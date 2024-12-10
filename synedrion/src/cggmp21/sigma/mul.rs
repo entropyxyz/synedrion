@@ -10,7 +10,7 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    uint::{PublicSigned, SecretBounded, Signed},
+    uint::{PublicSigned, SecretBounded, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_mul";
@@ -45,7 +45,7 @@ impl<P: SchemeParams> MulProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+        x: &Secret<SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
         rho_x: &Randomizer<P::Paillier>,
         rho: &Randomizer<P::Paillier>,
         pk: &PublicKeyPaillier<P::Paillier>,
@@ -166,7 +166,7 @@ mod tests {
         cggmp21::{SchemeParams, TestParams},
         paillier::{Ciphertext, Randomizer, SecretKeyPaillierWire},
         tools::Secret,
-        uint::Signed,
+        uint::SecretSigned,
     };
 
     #[test]
@@ -179,8 +179,8 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let x = Secret::init_with(|| Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND));
-        let y = Secret::init_with(|| Signed::random_bounded_bits(&mut OsRng, Params::L_BOUND));
+        let x = Secret::init_with(|| SecretSigned::random_bounded_bits(&mut OsRng, Params::L_BOUND));
+        let y = Secret::init_with(|| SecretSigned::random_bounded_bits(&mut OsRng, Params::L_BOUND));
         let rho_x = Randomizer::random(&mut OsRng, pk);
         let rho = Randomizer::random(&mut OsRng, pk);
 

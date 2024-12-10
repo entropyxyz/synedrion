@@ -16,7 +16,7 @@ use crate::{
     uint::{
         subtle::{Choice, ConditionallySelectable},
         CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, PublicBounded, Retrieve,
-        SecretBounded, Signed, ToMontgomery,
+        SecretBounded, SecretSigned, ToMontgomery,
     },
 };
 
@@ -162,15 +162,15 @@ where
         }
     }
 
-    pub fn p_signed(&self) -> Secret<Signed<P::Uint>> {
+    pub fn p_signed(&self) -> Secret<SecretSigned<P::Uint>> {
         self.primes.p_signed()
     }
 
-    pub fn q_signed(&self) -> Secret<Signed<P::Uint>> {
+    pub fn q_signed(&self) -> Secret<SecretSigned<P::Uint>> {
         self.primes.q_signed()
     }
 
-    pub fn p_wide_signed(&self) -> Secret<Signed<P::WideUint>> {
+    pub fn p_wide_signed(&self) -> Secret<SecretSigned<P::WideUint>> {
         self.primes.p_wide_signed()
     }
 

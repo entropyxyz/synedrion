@@ -6,7 +6,7 @@ use crypto_bigint::{
 };
 use zeroize::Zeroize;
 
-use crate::uint::{PublicBounded, PublicSigned, SecretBounded, Signed};
+use crate::uint::{PublicBounded, PublicSigned, SecretBounded, SecretSigned};
 
 pub trait ToMontgomery: Integer {
     fn to_montgomery(
@@ -33,7 +33,7 @@ where
     /// #Panics
     ///
     /// Panics if `self` is not invertible.
-    fn pow_signed(&self, exponent: &Signed<T>) -> Self {
+    fn pow_signed(&self, exponent: &SecretSigned<T>) -> Self {
         let abs_exponent = exponent.abs();
         let abs_result = self.pow_bounded_exp(&abs_exponent, exponent.bound());
         let inv_result = abs_result.invert().expect("`self` is assumed to be invertible");
@@ -45,7 +45,7 @@ where
     /// #Panics
     ///
     /// Panics if `self` is not invertible.
-    fn pow_signed_wide(&self, exp: &Signed<<T as HasWide>::Wide>) -> Self
+    fn pow_signed_wide(&self, exp: &SecretSigned<<T as HasWide>::Wide>) -> Self
     where
         T: HasWide,
         <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable,
@@ -84,7 +84,7 @@ where
     /// #Panics
     ///
     /// Panics if `self` is not invertible.
-    fn pow_signed_extra_wide(&self, exp: &Signed<<<T as HasWide>::Wide as HasWide>::Wide>) -> Self
+    fn pow_signed_extra_wide(&self, exp: &SecretSigned<<<T as HasWide>::Wide as HasWide>::Wide>) -> Self
     where
         T: HasWide,
         <T as HasWide>::Wide: crypto_bigint::Bounded + ConditionallySelectable + HasWide,

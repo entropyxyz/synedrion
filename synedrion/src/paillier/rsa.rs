@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::{
     tools::Secret,
-    uint::{HasWide, PublicBounded, SecretBounded, Signed, ToMontgomery},
+    uint::{HasWide, PublicBounded, SecretBounded, SecretSigned, ToMontgomery},
 };
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
@@ -127,15 +127,15 @@ impl<P: PaillierParams> SecretPrimes<P> {
         Secret::init_with(|| self.primes.q.expose_secret().to_wide())
     }
 
-    pub fn p_signed(&self) -> Secret<Signed<P::Uint>> {
+    pub fn p_signed(&self) -> Secret<SecretSigned<P::Uint>> {
         Secret::init_with(|| {
-            Signed::new_positive(*self.p().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
+            SecretSigned::new_positive(*self.p().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
         })
     }
 
-    pub fn q_signed(&self) -> Secret<Signed<P::Uint>> {
+    pub fn q_signed(&self) -> Secret<SecretSigned<P::Uint>> {
         Secret::init_with(|| {
-            Signed::new_positive(*self.q().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
+            SecretSigned::new_positive(*self.q().expose_secret(), P::PRIME_BITS).expect("`P::PRIME_BITS` is valid")
         })
     }
 
@@ -147,7 +147,7 @@ impl<P: PaillierParams> SecretPrimes<P> {
         Secret::init_with(|| NonZero::new(*self.q().expose_secret()).expect("`q` is non-zero"))
     }
 
-    pub fn p_wide_signed(&self) -> Secret<Signed<P::WideUint>> {
+    pub fn p_wide_signed(&self) -> Secret<SecretSigned<P::WideUint>> {
         self.p_signed().to_wide()
     }
 

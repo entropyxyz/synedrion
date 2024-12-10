@@ -14,7 +14,7 @@ use zeroize::Zeroize;
 
 use crate::{
     curve::{Point, Scalar},
-    uint::{Exponentiable, HasWide, PublicBounded, PublicSigned, Signed},
+    uint::{Exponentiable, HasWide, PublicBounded, PublicSigned, SecretSigned},
 };
 
 /// A helper wrapper for managing secret values.
@@ -93,16 +93,16 @@ where
     }
 }
 
-impl<T> Secret<Signed<T>>
+impl<T> Secret<SecretSigned<T>>
 where
     T: Zeroize + Clone + Encoding + Integer + HasWide + ConditionallySelectable + Bounded,
     T::Wide: ConditionallySelectable + Bounded + Zeroize,
 {
-    pub fn to_wide(&self) -> Secret<Signed<<T as HasWide>::Wide>> {
+    pub fn to_wide(&self) -> Secret<SecretSigned<<T as HasWide>::Wide>> {
         Secret::init_with(|| self.expose_secret().to_wide())
     }
 
-    pub fn mul_wide(&self, rhs: &PublicSigned<T>) -> Secret<Signed<T::Wide>> {
+    pub fn mul_wide(&self, rhs: &PublicSigned<T>) -> Secret<SecretSigned<T::Wide>> {
         Secret::init_with(|| self.expose_secret().mul_wide(rhs))
     }
 }
