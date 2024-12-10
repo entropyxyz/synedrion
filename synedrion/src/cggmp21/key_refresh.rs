@@ -820,7 +820,6 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     }
 }
 
-#[allow(clippy::indexing_slicing)]
 #[cfg(test)]
 mod tests {
 

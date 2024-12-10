@@ -121,7 +121,6 @@ pub(crate) fn shamir_join_points(pairs: &BTreeMap<ShareId, Point>) -> Point {
         .sum()
 }
 
-#[allow(clippy::indexing_slicing)]
 #[cfg(test)]
 mod tests {
     use rand_core::OsRng;

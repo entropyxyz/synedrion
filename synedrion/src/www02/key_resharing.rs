@@ -447,7 +447,6 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     }
 }
 
-#[allow(clippy::indexing_slicing)]
 #[cfg(test)]
 mod tests {
     use alloc::collections::{BTreeMap, BTreeSet};

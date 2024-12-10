@@ -1366,7 +1366,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for SigningErrorRound<P, I> {
     }
 }
 
-#[allow(clippy::indexing_slicing)]
+
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeSet;

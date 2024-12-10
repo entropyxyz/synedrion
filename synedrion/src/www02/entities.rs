@@ -326,7 +326,6 @@ fn apply_tweaks_private(private_key: SigningKey, tweaks: &[PrivateKeyBytes]) -> 
     Ok(private_key)
 }
 
-#[allow(clippy::indexing_slicing)]
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeSet;
