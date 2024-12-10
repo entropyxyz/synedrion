@@ -285,54 +285,6 @@ pub(crate) fn secret_bounded_from_scalar<P: SchemeParams>(
     })
 }
 
-// <<<<<<< HEAD
-//     /// Converts an integer to the associated curve scalar type.
-//     fn scalar_from_uint(value: &<Self::Paillier as PaillierParams>::Uint) -> Scalar {
-//         let r = *value % Self::CURVE_ORDER;
-
-//         let repr = r.to_be_bytes();
-//         let uint_len = repr.as_ref().len();
-//         let scalar_len = Scalar::repr_len();
-
-//         // Can unwrap here since the value is within the Scalar range
-//         Scalar::try_from_bytes(
-//             repr.as_ref()
-//                 .get(uint_len - scalar_len..)
-//                 .expect("Uint is assumed to be bigger than Scalar"),
-//         )
-//         .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
-//     }
-
-//     /// Converts a `Signed`-wrapped integer to the associated curve scalar type.
-//     fn scalar_from_signed(value: &Signed<<Self::Paillier as PaillierParams>::Uint>) -> Scalar {
-//         let abs_value = Self::scalar_from_uint(&value.abs());
-//         Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
-//     }
-
-//     /// Converts a wide integer to the associated curve scalar type.
-//     fn scalar_from_wide_uint(value: &<Self::Paillier as PaillierParams>::WideUint) -> Scalar {
-//         let r = *value % Self::CURVE_ORDER_WIDE;
-
-//         let repr = r.to_be_bytes();
-//         let uint_len = repr.as_ref().len();
-//         let scalar_len = Scalar::repr_len();
-
-//         // Can unwrap here since the value is within the Scalar range
-//         Scalar::try_from_bytes(
-//             repr.as_ref()
-//                 .get(uint_len - scalar_len..)
-//                 // TODO(dp): @reviewers Do we need a better proof that this is true?
-//                 .expect("WideUint is assumed to be bigger than Scalar"),
-//         )
-//         .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
-//     }
-
-//     /// Converts a `Signed`-wrapped wide integer to the associated curve scalar type.
-//     fn scalar_from_wide_signed(value: &Signed<<Self::Paillier as PaillierParams>::WideUint>) -> Scalar {
-//         let abs_value = Self::scalar_from_wide_uint(&value.abs());
-//         Scalar::conditional_select(&abs_value, &-abs_value, value.is_negative())
-//     }
-// =======
 pub(crate) fn secret_scalar_from_signed<P: SchemeParams>(
     value: &Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
 ) -> Secret<Scalar> {
