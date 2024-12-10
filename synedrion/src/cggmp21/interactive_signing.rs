@@ -20,8 +20,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues},
     params::{
-        bounded_from_scalar, secret_bounded_from_scalar, secret_scalar_from_signed, secret_signed_from_scalar,
-        secret_uint_from_scalar, signed_from_scalar, SchemeParams,
+        secret_scalar_from_signed, secret_signed_from_scalar, secret_uint_from_scalar, signed_from_scalar, SchemeParams,
     },
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof, MulStarProof},
 };
@@ -919,7 +918,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         // Mul proof
 
         let rho = Randomizer::random(rng, pk);
-        let cap_h = (&self.all_cap_g[&self.context.my_id] * secret_bounded_from_scalar::<P>(&self.context.k))
+        let cap_h = (&self.all_cap_g[&self.context.my_id] * secret_signed_from_scalar::<P>(&self.context.k))
             .mul_randomizer(&rho);
 
         let p_mul = MulProof::<P>::new(
@@ -1148,7 +1147,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let cap_x = self.context.key_share.public_shares[&my_id];
 
         let rho = Randomizer::random(rng, pk);
-        let hat_cap_h = (&self.presigning.cap_k * secret_bounded_from_scalar::<P>(x)).mul_randomizer(&rho);
+        let hat_cap_h = (&self.presigning.cap_k * secret_signed_from_scalar::<P>(x)).mul_randomizer(&rho);
 
         let aux = (&self.context.ssid_hash, &my_id);
 
@@ -1193,8 +1192,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 
         let r = self.presigning.nonce;
 
-        let ciphertext = ciphertext * bounded_from_scalar::<P>(&r)
-            + &self.presigning.cap_k * bounded_from_scalar::<P>(&self.context.message);
+        let ciphertext = ciphertext * signed_from_scalar::<P>(&r)
+            + &self.presigning.cap_k * signed_from_scalar::<P>(&self.context.message);
 
         let rho = ciphertext.derive_randomizer(sk);
         // This is the same as `s_part` but if all the calculations were performed

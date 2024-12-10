@@ -12,23 +12,23 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, RPParams, RPSecret},
-    tools::hashing::{Chain, Hashable, XofHasher},
-    uint::{
-        subtle::{Choice, ConditionallySelectable},
-        Bounded, Exponentiable, Retrieve, ToMontgomery,
+    tools::{
+        hashing::{Chain, Hashable, XofHasher},
+        Secret,
     },
+    uint::{Bounded, Exponentiable, PublicSigned, Retrieve, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_prm";
 
 /// Secret data the proof is based on ($a_i$).
 #[derive(Clone)]
-struct PrmSecret<P: SchemeParams>(Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>);
+struct PrmSecret<P: SchemeParams>(Vec<Secret<Bounded<<P::Paillier as PaillierParams>::Uint>>>);
 
 impl<P: SchemeParams> PrmSecret<P> {
     fn random(rng: &mut impl CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
         let secret = (0..P::SECURITY_PARAMETER)
-            .map(|_| secret.random_residue_mod_totient(rng))
+            .map(|_| Secret::init_with(|| secret.random_residue_mod_totient(rng)))
             .collect();
         Self(secret)
     }
@@ -39,7 +39,11 @@ struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>
 
 impl<P: SchemeParams> PrmCommitment<P> {
     fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
-        let commitment = secret.0.iter().map(|a| base.pow_bounded(a).retrieve()).collect();
+        let commitment = secret
+            .0
+            .iter()
+            .map(|a| base.pow_bounded(a.expose_secret()).retrieve())
+            .collect();
         Self(commitment)
     }
 }
@@ -77,7 +81,7 @@ Public inputs:
 pub(crate) struct PrmProof<P: SchemeParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
-    proof: Vec<Bounded<<P::Paillier as PaillierParams>::Uint>>,
+    proof: Vec<PublicSigned<<P::Paillier as PaillierParams>::Uint>>,
 }
 
 impl<P: SchemeParams> PrmProof<P> {
@@ -100,9 +104,14 @@ impl<P: SchemeParams> PrmProof<P> {
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| {
-                let x = a.add_mod(secret.lambda().expose_secret(), totient.expose_secret());
-                let choice = Choice::from(*e as u8);
-                Bounded::conditional_select(a, &x, choice)
+                let x = a
+                    .expose_secret()
+                    .add_mod(secret.lambda().expose_secret(), totient.expose_secret());
+
+                let p = if *e { x.as_ref() } else { a.expose_secret().as_ref() };
+
+                PublicSigned::new_positive(*p, P::Paillier::MODULUS_BITS)
+                    .expect("the value is modulo totient and therefore fits the bound")
             })
             .collect();
         Self {
@@ -125,7 +134,7 @@ impl<P: SchemeParams> PrmProof<P> {
             let z = self.proof[i];
             let e = challenge.0[i];
             let a = self.commitment.0[i].to_montgomery(monty_params);
-            let pwr = setup.base_randomizer().pow_bounded(&z);
+            let pwr = setup.base_randomizer().pow_signed_vartime(&z);
             let test = if e { pwr == a * setup.base_value() } else { pwr == a };
             if !test {
                 return false;

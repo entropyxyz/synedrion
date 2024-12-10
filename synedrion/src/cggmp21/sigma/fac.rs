@@ -10,7 +10,7 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    uint::{Bounded, Integer, PublicSigned, Signed},
+    uint::{HasWide, Integer, PublicSigned, Signed},
 };
 
 const HASH_TAG: &[u8] = b"P_fac";
@@ -50,7 +50,7 @@ impl<P: SchemeParams> FacProof<P> {
     ) -> Self {
         let pk0 = sk0.public_key();
 
-        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = setup.modulus(); // $\hat{N}$
 
         // NOTE: using `2^(Paillier::PRIME_BITS - 2)` as $\sqrt{N_0}$ (which is its lower bound)
         // According to the authors of the paper, it is acceptable.
@@ -58,11 +58,8 @@ impl<P: SchemeParams> FacProof<P> {
         // and really they should be `~ sqrt{N_0}`.
         // Note that it has to be matched when we check the range of
         // `z1` and `z2` during verification.
-        let sqrt_cap_n = Bounded::new(
-            <P::Paillier as PaillierParams>::Uint::one() << (<P::Paillier as PaillierParams>::PRIME_BITS - 2),
-            <P::Paillier as PaillierParams>::PRIME_BITS,
-        )
-        .expect("the value is bounded by `2^PRIME_BITS` by construction");
+        let sqrt_cap_n =
+            <P::Paillier as PaillierParams>::Uint::one() << (<P::Paillier as PaillierParams>::PRIME_BITS - 2);
 
         let alpha =
             Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n));
@@ -72,7 +69,7 @@ impl<P: SchemeParams> FacProof<P> {
         let nu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));
 
         // N_0 \hat{N}
-        let scale = pk0.modulus_bounded().mul_wide(hat_cap_n);
+        let scale = pk0.modulus().mul_wide(hat_cap_n);
 
         let sigma = PublicSigned::from(
             Signed::<<P::Paillier as PaillierParams>::Uint>::random_bounded_bits_scaled_wide(rng, P::L_BOUND, &scale),

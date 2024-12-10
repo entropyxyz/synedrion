@@ -103,6 +103,10 @@ where
         Some(Self { value, bound })
     }
 
+    pub fn new_positive(value: T, bound: u32) -> Option<Self> {
+        Self::new_from_abs(value, bound, false)
+    }
+
     pub fn new_from_unsigned(value: T, bound: u32) -> Option<Self> {
         let result = Self { value, bound };
         if bound >= T::BITS || result.abs().bits_vartime() > bound {

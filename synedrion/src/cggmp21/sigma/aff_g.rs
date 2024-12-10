@@ -85,7 +85,7 @@ impl<P: SchemeParams> AffGProof<P> {
         assert!(cap_d.public_key() == pk0);
         assert!(cap_y.public_key() == pk1);
 
-        let hat_cap_n = &setup.modulus_bounded();
+        let hat_cap_n = setup.modulus();
 
         let alpha = Secret::init_with(|| Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND));
         let beta = Secret::init_with(|| Signed::random_bounded_bits(rng, P::LP_BOUND + P::EPS_BOUND));

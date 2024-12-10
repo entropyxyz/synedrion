@@ -70,7 +70,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         assert_eq!(cap_c.public_key(), pk0);
         assert_eq!(cap_d.public_key(), pk0);
 
-        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = setup.modulus(); // $\hat{N}$
 
         let r = Randomizer::random(rng, pk0);
         let alpha = Secret::init_with(|| Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND));

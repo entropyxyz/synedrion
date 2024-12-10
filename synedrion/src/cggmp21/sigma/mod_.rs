@@ -161,8 +161,8 @@ impl<P: SchemeParams> ModProof<P> {
         for (elem, y) in self.proof.iter().zip(self.challenge.0.iter()) {
             let z_m = elem.z.to_montgomery(monty_params);
             let mut y_m = y.to_montgomery(monty_params);
-            let pk_modulus_bounded = pk.modulus_bounded();
-            if z_m.pow_bounded(&pk_modulus_bounded) != y_m {
+            let pk_modulus = pk.modulus_bounded();
+            if z_m.pow_bounded_vartime(&pk_modulus) != y_m {
                 return false;
             }
 

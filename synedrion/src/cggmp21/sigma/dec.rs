@@ -60,7 +60,7 @@ impl<P: SchemeParams> DecProof<P> {
     ) -> Self {
         assert_eq!(cap_c.public_key(), pk0);
 
-        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = setup.modulus(); // $\hat{N}$
 
         let alpha = Secret::init_with(|| Signed::random_bounded_bits(rng, P::L_BOUND + P::EPS_BOUND));
         let mu = Secret::init_with(|| Signed::random_bounded_bits_scaled(rng, P::L_BOUND, hat_cap_n));

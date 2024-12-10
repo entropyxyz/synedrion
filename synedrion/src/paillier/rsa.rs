@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::{
     tools::Secret,
-    uint::{Bounded, HasWide, Signed, ToMontgomery},
+    uint::{Bounded, HasWide, PublicBounded, Signed, ToMontgomery},
 };
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
@@ -247,8 +247,8 @@ impl<P: PaillierParams> PublicModulus<P> {
         NonZero::new(self.modulus.0).expect("the modulus is non-zero")
     }
 
-    pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
-        Bounded::new(self.modulus.0, P::MODULUS_BITS).expect("the modulus can be bounded by 2^MODULUS_BITS")
+    pub fn modulus_bounded(&self) -> PublicBounded<P::Uint> {
+        PublicBounded::new(self.modulus.0, P::MODULUS_BITS).expect("the modulus can be bounded by 2^MODULUS_BITS")
     }
 
     pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {

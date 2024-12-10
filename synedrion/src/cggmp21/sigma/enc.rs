@@ -52,7 +52,7 @@ impl<P: SchemeParams> EncProof<P> {
         k.expose_secret().assert_bound(P::L_BOUND);
         assert_eq!(cap_k.public_key(), pk0);
 
-        let hat_cap_n = &setup.modulus_bounded(); // $\hat{N}$
+        let hat_cap_n = setup.modulus(); // $\hat{N}$
 
         // TODO (#86): should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
         // This will ensure that the range check on the prover side will pass.

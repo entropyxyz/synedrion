@@ -1,63 +1,18 @@
-use alloc::string::String;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
 
+use crypto_bigint::BitOps;
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use super::{
-    bounded::PackedBounded,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeLess, CtOption},
-    Bounded, CheckedAdd, CheckedSub, Encoding, HasWide, Integer, NonZero, PublicSigned, RandomMod, ShlVartime,
-    WrappingSub,
+    CheckedAdd, CheckedSub, Encoding, HasWide, Integer, NonZero, PublicSigned, RandomMod, ShlVartime, WrappingSub,
 };
-
-/// A packed representation for serializing Signed objects.
-/// Usually they have the bound much lower than the full size of the integer,
-/// so this way we avoid serializing a bunch of zeros.
-#[derive(Serialize, Deserialize)]
-struct PackedSigned {
-    is_negative: bool,
-    abs_value: PackedBounded,
-}
-
-impl<T> From<Signed<T>> for PackedSigned
-where
-    T: ConditionallySelectable + Integer + Encoding + crypto_bigint::Bounded,
-{
-    fn from(val: Signed<T>) -> Self {
-        Self {
-            is_negative: val.is_negative().into(),
-            abs_value: PackedBounded::from(val.abs_bounded()),
-        }
-    }
-}
-
-impl<T> TryFrom<PackedSigned> for Signed<T>
-where
-    T: ConditionallySelectable + Integer + Encoding + crypto_bigint::Bounded,
-{
-    type Error = String;
-    fn try_from(val: PackedSigned) -> Result<Self, Self::Error> {
-        let abs_value = Bounded::try_from(val.abs_value)?;
-        Self::new_from_abs(
-            *abs_value.as_ref(),
-            abs_value.bound(),
-            Choice::from(val.is_negative as u8),
-        )
-        .ok_or_else(|| "Invalid values for the signed integer".into())
-    }
-}
 
 /// A wrapper over unsigned integers that treats two's complement numbers as negative.
 // In principle, Bounded could be separate from Signed, but we only use it internally,
 // and pretty much every time we need a bounded value, it's also signed.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Zeroize)]
-#[serde(
-    try_from = "PackedSigned",
-    into = "PackedSigned",
-    bound = "T: Integer + Encoding + crypto_bigint::Bounded + ConditionallySelectable"
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Zeroize)]
 pub(crate) struct Signed<T> {
     /// bound on the bit size of the absolute value
     pub(crate) bound: u32,
@@ -152,14 +107,6 @@ where
     /// Computes the absolute value of [`self`]
     pub fn abs(&self) -> T {
         T::conditional_select(&self.value, &self.neg().value, self.is_negative())
-    }
-
-    /// Creates a [`Bounded`] from the absolute value of `self`.
-    pub fn abs_bounded(&self) -> Bounded<T> {
-        // Can unwrap here since the maximum bound on the positive Bounded
-        // is always greater than the maximum bound on Signed
-        Bounded::new(self.abs(), self.bound)
-            .expect("Max bound for a positive Bounded is always greater than max bound for a Signed; qed")
     }
 
     /// Creates a signed value from an unsigned one,
@@ -305,11 +252,7 @@ where
     /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
     ///
     /// Note: variable time in `bound_bits` and bit size of `scale`.
-    pub fn random_bounded_bits_scaled(
-        rng: &mut impl CryptoRngCore,
-        bound_bits: u32,
-        scale: &Bounded<T>,
-    ) -> Signed<T::Wide> {
+    pub fn random_bounded_bits_scaled(rng: &mut impl CryptoRngCore, bound_bits: u32, scale: &T) -> Signed<T::Wide> {
         assert!(
             bound_bits < T::BITS - 1,
             "Out of bounds: bound_bits was {} but must be smaller than {}",
@@ -317,9 +260,7 @@ where
             T::BITS - 1
         );
         let scaled_bound: <T as HasWide>::Wide = scale
-            .clone()
             .to_wide()
-            .as_ref()
             .overflowing_shl_vartime(bound_bits)
             .expect("Just asserted that bound bits is smaller than T's bit precision");
 
@@ -344,7 +285,7 @@ where
         let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
-            bound: bound_bits + scale.bound(),
+            bound: bound_bits + scale.bits_vartime(),
             value: result,
         }
     }
@@ -378,7 +319,7 @@ where
 impl<T> Signed<T>
 where
     T: crypto_bigint::Bounded + HasWide + Integer,
-    T::Wide: ConditionallySelectable + crypto_bigint::Bounded + HasWide,
+    T::Wide: ConditionallySelectable + crypto_bigint::Bounded + HasWide + Integer,
 {
     /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
     ///
@@ -386,7 +327,7 @@ where
     pub fn random_bounded_bits_scaled_wide(
         rng: &mut impl CryptoRngCore,
         bound_bits: u32,
-        scale: &Bounded<T::Wide>,
+        scale: &T::Wide,
     ) -> Signed<<T::Wide as HasWide>::Wide> {
         assert!(
             bound_bits < T::BITS - 1,
@@ -395,7 +336,6 @@ where
             T::BITS - 1
         );
         let scaled_bound = scale
-            .as_ref()
             .to_wide()
             .overflowing_shl_vartime(bound_bits)
             .expect("Just asserted that bound_bits is smaller than bit precision of T");
@@ -421,7 +361,7 @@ where
         let result = positive_result.wrapping_sub(&scaled_bound);
 
         Signed {
-            bound: bound_bits + scale.bound(),
+            bound: bound_bits + scale.bits_vartime(),
             value: result,
         }
     }

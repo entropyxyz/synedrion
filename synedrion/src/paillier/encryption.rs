@@ -129,10 +129,10 @@ impl<P: PaillierParams> Ciphertext<P> {
         let factor1 = prod_mod + &P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
 
         let randomizer = randomizer.randomizer.to_wide();
-        let pk_mod_bound = pk.modulus_bounded().to_wide();
+        let pk_modulus = pk.modulus_bounded().to_wide();
         let factor2 = randomizer
             .to_montgomery(pk.monty_params_mod_n_squared())
-            .pow_bounded(&pk_mod_bound);
+            .pow_bounded_vartime(&pk_modulus);
 
         let ciphertext = *(factor1 * factor2).expose_secret();
 
@@ -159,10 +159,10 @@ impl<P: PaillierParams> Ciphertext<P> {
         let factor1 = prod_mod + P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
 
         let randomizer = randomizer.0.to_wide();
-        let pk_mod_bound = pk.modulus_bounded().to_wide();
+        let pk_modulus = pk.modulus_bounded().to_wide();
         let factor2 = randomizer
             .to_montgomery(pk.monty_params_mod_n_squared())
-            .pow_bounded(&pk_mod_bound);
+            .pow_bounded_vartime(&pk_modulus);
 
         let ciphertext = factor1 * factor2;
 
@@ -394,8 +394,8 @@ impl<P: PaillierParams> Ciphertext<P> {
             .0
             .to_wide()
             .to_montgomery(self.pk.monty_params_mod_n_squared());
-        let pk_modulus_wide = self.pk.modulus_bounded().to_wide();
-        let ciphertext = self.ciphertext * randomizer_mod.pow_bounded(&pk_modulus_wide);
+        let pk_modulus = self.pk.modulus_bounded().to_wide();
+        let ciphertext = self.ciphertext * randomizer_mod.pow_bounded_vartime(&pk_modulus);
         Self {
             pk: self.pk,
             ciphertext,
@@ -407,8 +407,8 @@ impl<P: PaillierParams> Ciphertext<P> {
             .randomizer
             .to_wide()
             .to_montgomery(self.pk.monty_params_mod_n_squared());
-        let pk_modulus_wide = self.pk.modulus_bounded().to_wide();
-        let ciphertext = self.ciphertext * randomizer_mod.pow_bounded(&pk_modulus_wide).expose_secret();
+        let pk_modulus = self.pk.modulus_bounded().to_wide();
+        let ciphertext = self.ciphertext * randomizer_mod.pow_bounded_vartime(&pk_modulus).expose_secret();
         Self {
             pk: self.pk,
             ciphertext,

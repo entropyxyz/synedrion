@@ -5,7 +5,7 @@ use crypto_bigint::{
     Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048, U4096, U512, U8192,
 };
 
-use crate::uint::{Bounded, PublicSigned, Signed};
+use crate::uint::{Bounded, PublicBounded, PublicSigned, Signed};
 
 pub trait ToMontgomery: Integer {
     fn to_montgomery(
@@ -124,6 +124,10 @@ where
         } else {
             abs_result
         }
+    }
+
+    fn pow_bounded_vartime(self, exp: &PublicBounded<T>) -> Self {
+        self.pow_bounded_exp(exp.as_ref(), exp.bound())
     }
 
     /// Variable-time exponentiation of an integer in Montgomery form by a "wide" and signed exponent.

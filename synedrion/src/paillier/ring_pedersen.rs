@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Bounded, Exponentiable, PublicSigned, Retrieve, Signed, ToMontgomery},
+    uint::{Bounded, Exponentiable, PublicBounded, PublicSigned, Retrieve, Signed, ToMontgomery},
 };
 
 /// Ring-Pedersen secret.
@@ -99,10 +99,6 @@ impl<P: PaillierParams> RPParams<P> {
         self.modulus.modulus()
     }
 
-    pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
-        self.modulus.modulus_bounded()
-    }
-
     pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
         self.modulus.monty_params_mod_n()
     }
@@ -157,11 +153,11 @@ impl<P: PaillierParams> RPParams<P> {
     /// Creates a commitment for a public `value` with a public `randomizer`.
     pub fn commit_public_xwide(
         &self,
-        value: &Bounded<P::Uint>,
+        value: &PublicBounded<P::Uint>,
         randomizer: &PublicSigned<P::ExtraWideUint>,
     ) -> RPCommitment<P> {
         RPCommitment(
-            self.base_value.pow_bounded(value) * self.base_randomizer.pow_signed_extra_wide_vartime(randomizer),
+            self.base_value.pow_bounded_vartime(value) * self.base_randomizer.pow_signed_extra_wide_vartime(randomizer),
         )
     }
 

@@ -15,8 +15,8 @@ use crate::{
     tools::Secret,
     uint::{
         subtle::{Choice, ConditionallySelectable},
-        Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, Retrieve, Signed,
-        ToMontgomery,
+        Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, PublicBounded, Retrieve,
+        Signed, ToMontgomery,
     },
 };
 
@@ -345,7 +345,7 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
         self.modulus.modulus()
     }
 
-    pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
+    pub fn modulus_bounded(&self) -> PublicBounded<P::Uint> {
         self.modulus.modulus_bounded()
     }
 
