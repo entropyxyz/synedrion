@@ -4,8 +4,9 @@ use crypto_bigint::{
     subtle::{ConditionallySelectable, CtOption},
     Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048, U4096, U512, U8192,
 };
+use zeroize::Zeroize;
 
-use crate::uint::{Bounded, PublicBounded, PublicSigned, Signed};
+use crate::uint::{PublicBounded, PublicSigned, SecretBounded, Signed};
 
 pub trait ToMontgomery: Integer {
     fn to_montgomery(
@@ -21,10 +22,10 @@ pub trait ToMontgomery: Integer {
 pub trait Exponentiable<T>:
     PowBoundedExp<T> + Invert<Output = CtOption<Self>> + ConditionallySelectable + Square + core::ops::Mul<Output = Self>
 where
-    T: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
+    T: Zeroize + Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
 {
-    fn pow_bounded(&self, exponent: &Bounded<T>) -> Self {
-        self.pow_bounded_exp(exponent.as_ref(), exponent.bound())
+    fn pow_bounded(&self, exponent: &SecretBounded<T>) -> Self {
+        self.pow_bounded_exp(exponent.expose_secret(), exponent.bound())
     }
 
     /// Constant-time exponentiation of an integer in Montgomery form by a signed exponent.

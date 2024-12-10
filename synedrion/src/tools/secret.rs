@@ -6,7 +6,7 @@ use core::{
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    Encoding, Integer, Monty, NonZero,
+    Bounded, Encoding, Integer, Monty, NonZero,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -14,7 +14,7 @@ use zeroize::Zeroize;
 
 use crate::{
     curve::{Point, Scalar},
-    uint::{Bounded, Exponentiable, HasWide, PublicBounded, PublicSigned, Signed},
+    uint::{Exponentiable, HasWide, PublicBounded, PublicSigned, Signed},
 };
 
 /// A helper wrapper for managing secret values.
@@ -95,8 +95,8 @@ where
 
 impl<T> Secret<Signed<T>>
 where
-    T: Zeroize + Clone + Encoding + Integer + HasWide + ConditionallySelectable + crypto_bigint::Bounded,
-    T::Wide: ConditionallySelectable + crypto_bigint::Bounded + Zeroize,
+    T: Zeroize + Clone + Encoding + Integer + HasWide + ConditionallySelectable + Bounded,
+    T::Wide: ConditionallySelectable + Bounded + Zeroize,
 {
     pub fn to_wide(&self) -> Secret<Signed<<T as HasWide>::Wide>> {
         Secret::init_with(|| self.expose_secret().to_wide())
@@ -104,20 +104,6 @@ where
 
     pub fn mul_wide(&self, rhs: &PublicSigned<T>) -> Secret<Signed<T::Wide>> {
         Secret::init_with(|| self.expose_secret().mul_wide(rhs))
-    }
-}
-
-impl<T> Secret<Bounded<T>>
-where
-    T: Zeroize + Clone + Encoding + Integer + HasWide + crypto_bigint::Bounded,
-    T::Wide: crypto_bigint::Bounded + Zeroize,
-{
-    pub fn to_wide(&self) -> Secret<Bounded<<T as HasWide>::Wide>> {
-        Secret::init_with(|| self.expose_secret().to_wide())
-    }
-
-    pub fn to_signed(&self) -> Option<Secret<Signed<T>>> {
-        Secret::maybe_init_with(|| self.expose_secret().clone().into_signed())
     }
 }
 
@@ -364,7 +350,7 @@ impl<T: Zeroize> Secret<T> {
     pub fn pow_bounded_vartime<V>(&self, exponent: &PublicBounded<V>) -> Self
     where
         T: Exponentiable<V>,
-        V: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
+        V: Zeroize + Integer + Bounded + Encoding + ConditionallySelectable,
     {
         // TODO: do we need to implement our own windowed exponentiation to hide the secret?
         // The exponent will be put in a stack array when it's decomposed with a small radix
@@ -377,7 +363,7 @@ impl<T: Zeroize> Secret<T> {
     pub fn pow_signed_vartime<V>(&self, exponent: &PublicSigned<V>) -> Self
     where
         T: Exponentiable<V>,
-        V: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
+        V: Zeroize + Integer + Bounded + Encoding + ConditionallySelectable,
     {
         // TODO: do we need to implement our own windowed exponentiation to hide the secret?
         // The exponent will be put in a stack array when it's decomposed with a small radix

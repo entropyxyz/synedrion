@@ -11,14 +11,14 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Bounded, Exponentiable, PublicBounded, PublicSigned, Retrieve, Signed, ToMontgomery},
+    uint::{Exponentiable, PublicBounded, PublicSigned, Retrieve, SecretBounded, Signed, ToMontgomery},
 };
 
 /// Ring-Pedersen secret.
 #[derive(Debug, Clone)]
 pub(crate) struct RPSecret<P: PaillierParams> {
     primes: SecretPrimes<P>,
-    lambda: Secret<Bounded<P::Uint>>,
+    lambda: SecretBounded<P::Uint>,
 }
 
 impl<P: PaillierParams> RPSecret<P> {
@@ -29,19 +29,17 @@ impl<P: PaillierParams> RPSecret<P> {
             NonZero::new(primes.totient().expose_secret().wrapping_shr_vartime(2))
                 .expect("totient / 4 is still non-zero because p, q >= 5")
         });
-        let lambda = Secret::init_with(|| {
-            Bounded::new(P::Uint::random_mod(rng, bound.expose_secret()), P::MODULUS_BITS - 2)
-                .expect("totient < N < 2^MODULUS_BITS, so totient / 4 < 2^(MODULUS_BITS - 2)")
-        });
+        let lambda = SecretBounded::new(P::Uint::random_mod(rng, bound.expose_secret()), P::MODULUS_BITS - 2)
+            .expect("totient < N < 2^MODULUS_BITS, so totient / 4 < 2^(MODULUS_BITS - 2)");
 
         Self { primes, lambda }
     }
 
-    pub fn lambda(&self) -> &Secret<Bounded<P::Uint>> {
+    pub fn lambda(&self) -> &SecretBounded<P::Uint> {
         &self.lambda
     }
 
-    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
+    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> SecretBounded<P::Uint> {
         self.primes.random_residue_mod_totient(rng)
     }
 
@@ -78,7 +76,7 @@ impl<P: PaillierParams> RPParams<P> {
         let modulus = secret.primes.modulus_wire().into_precomputed();
 
         let base_randomizer = modulus.random_quadratic_residue(rng); // $t$
-        let base_value = base_randomizer.pow_bounded(secret.lambda.expose_secret()); // $s$
+        let base_value = base_randomizer.pow_bounded(&secret.lambda); // $s$
 
         Self {
             modulus,

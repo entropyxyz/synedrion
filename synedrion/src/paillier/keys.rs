@@ -15,8 +15,8 @@ use crate::{
     tools::Secret,
     uint::{
         subtle::{Choice, ConditionallySelectable},
-        Bounded, CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, PublicBounded, Retrieve,
-        Signed, ToMontgomery,
+        CheckedAdd, CheckedSub, HasWide, Integer, Invert, NonZero, PowBoundedExp, PublicBounded, Retrieve,
+        SecretBounded, Signed, ToMontgomery,
     },
 };
 
@@ -50,7 +50,7 @@ pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     /// The inverse of the totient modulo the modulus ($\phi(N)^{-1} \mod N$).
     inv_totient: Secret<P::UintMod>,
     /// The inverse of the modulus modulo the totient ($N^{-1} \mod \phi(N)$).
-    inv_modulus: Secret<Bounded<P::Uint>>,
+    inv_modulus: SecretBounded<P::Uint>,
     /// $p^{-1} \mod q$, a constant used when joining an RNS-represented number using Garner's algorithm.
     inv_p_mod_q: Secret<P::HalfUintMod>,
     // $u$ such that $u = -1 \mod p$ and $u = 1 \mod q$. Used for sampling of non-square residues.
@@ -88,15 +88,13 @@ where
                 ])
         });
 
-        let inv_modulus = Secret::init_with(|| {
-            Bounded::new(
-                (*modulus.modulus())
-                    .inv_mod(primes.totient().expose_secret())
-                    .expect("pq is invertible mod ϕ(pq) because gcd(pq, (p-1)(q-1)) = 1"),
-                P::MODULUS_BITS,
-            )
-            .expect("We assume `P::MODULUS_BITS` is properly configured")
-        });
+        let inv_modulus = SecretBounded::new(
+            (*modulus.modulus())
+                .inv_mod(primes.totient().expose_secret())
+                .expect("pq is invertible mod ϕ(pq) because gcd(pq, (p-1)(q-1)) = 1"),
+            P::MODULUS_BITS,
+        )
+        .expect("We assume `P::MODULUS_BITS` is properly configured");
 
         let inv_p_mod_q = Secret::init_with(|| {
             primes
@@ -177,7 +175,7 @@ where
     }
 
     /// Returns Euler's totient function (`φ(n)`) of the modulus, wrapped in a [`Secret`].
-    pub fn totient_wide_bounded(&self) -> Secret<Bounded<P::WideUint>> {
+    pub fn totient_wide_bounded(&self) -> SecretBounded<P::WideUint> {
         self.primes.totient_wide_bounded()
     }
 
@@ -187,7 +185,7 @@ where
     }
 
     /// Returns $N^{-1} \mod \phi(N)$
-    pub fn inv_modulus(&self) -> &Secret<Bounded<P::Uint>> {
+    pub fn inv_modulus(&self) -> &SecretBounded<P::Uint> {
         &self.inv_modulus
     }
 

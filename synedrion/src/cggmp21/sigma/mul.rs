@@ -10,7 +10,7 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    uint::{Bounded, PublicSigned, Signed},
+    uint::{PublicSigned, SecretBounded, Signed},
 };
 
 const HASH_TAG: &[u8] = b"P_mul";
@@ -59,13 +59,11 @@ impl<P: SchemeParams> MulProof<P> {
         assert_eq!(cap_c.public_key(), pk);
 
         let alpha_uint = Secret::init_with(|| pk.random_invertible_residue(rng));
-        let alpha = Secret::init_with(|| {
-            Bounded::new(
-                *alpha_uint.expose_secret(),
-                <P::Paillier as PaillierParams>::MODULUS_BITS,
-            )
-            .expect("the value is bounded by `MODULUS_BITS` by construction")
-        });
+        let alpha = SecretBounded::new(
+            *alpha_uint.expose_secret(),
+            <P::Paillier as PaillierParams>::MODULUS_BITS,
+        )
+        .expect("the value is bounded by `MODULUS_BITS` by construction");
 
         let r = Randomizer::random(rng, pk);
         let s = Randomizer::random(rng, pk);

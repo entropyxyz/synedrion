@@ -5,6 +5,7 @@
 
 use alloc::{vec, vec::Vec};
 
+use crypto_bigint::modular::Retrieve;
 use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -12,23 +13,20 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, RPParams, RPSecret},
-    tools::{
-        hashing::{Chain, Hashable, XofHasher},
-        Secret,
-    },
-    uint::{Bounded, Exponentiable, PublicSigned, Retrieve, ToMontgomery},
+    tools::hashing::{Chain, Hashable, XofHasher},
+    uint::{Exponentiable, PublicSigned, SecretBounded, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_prm";
 
 /// Secret data the proof is based on ($a_i$).
 #[derive(Clone)]
-struct PrmSecret<P: SchemeParams>(Vec<Secret<Bounded<<P::Paillier as PaillierParams>::Uint>>>);
+struct PrmSecret<P: SchemeParams>(Vec<SecretBounded<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmSecret<P> {
     fn random(rng: &mut impl CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
         let secret = (0..P::SECURITY_PARAMETER)
-            .map(|_| Secret::init_with(|| secret.random_residue_mod_totient(rng)))
+            .map(|_| secret.random_residue_mod_totient(rng))
             .collect();
         Self(secret)
     }
@@ -39,11 +37,7 @@ struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>
 
 impl<P: SchemeParams> PrmCommitment<P> {
     fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
-        let commitment = secret
-            .0
-            .iter()
-            .map(|a| base.pow_bounded(a.expose_secret()).retrieve())
-            .collect();
+        let commitment = secret.0.iter().map(|a| base.pow_bounded(a).retrieve()).collect();
         Self(commitment)
     }
 }
@@ -104,11 +98,9 @@ impl<P: SchemeParams> PrmProof<P> {
             .iter()
             .zip(challenge.0.iter())
             .map(|(a, e)| {
-                let x = a
-                    .expose_secret()
-                    .add_mod(secret.lambda().expose_secret(), totient.expose_secret());
+                let x = a.add_mod(secret.lambda(), &totient);
 
-                let p = if *e { x.as_ref() } else { a.expose_secret().as_ref() };
+                let p = if *e { x.expose_secret() } else { a.expose_secret() };
 
                 PublicSigned::new_positive(*p, P::Paillier::MODULUS_BITS)
                     .expect("the value is modulo totient and therefore fits the bound")

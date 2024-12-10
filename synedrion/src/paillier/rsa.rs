@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::{
     tools::Secret,
-    uint::{Bounded, HasWide, PublicBounded, Signed, ToMontgomery},
+    uint::{HasWide, PublicBounded, SecretBounded, Signed, ToMontgomery},
 };
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
@@ -155,13 +155,11 @@ impl<P: PaillierParams> SecretPrimes<P> {
         &self.totient
     }
 
-    pub fn totient_bounded(&self) -> Secret<Bounded<P::Uint>> {
-        Secret::init_with(|| {
-            Bounded::new(*self.totient.expose_secret(), P::MODULUS_BITS).expect("`P::MODULUS_BITS` is valid")
-        })
+    pub fn totient_bounded(&self) -> SecretBounded<P::Uint> {
+        SecretBounded::new(*self.totient.expose_secret(), P::MODULUS_BITS).expect("`P::MODULUS_BITS` is valid")
     }
 
-    pub fn totient_wide_bounded(&self) -> Secret<Bounded<P::WideUint>> {
+    pub fn totient_wide_bounded(&self) -> SecretBounded<P::WideUint> {
         self.totient_bounded().to_wide()
     }
 
@@ -176,8 +174,8 @@ impl<P: PaillierParams> SecretPrimes<P> {
     }
 
     /// Returns a random in range `[0, \phi(N))`.
-    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
-        Bounded::new(
+    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> SecretBounded<P::Uint> {
+        SecretBounded::new(
             P::Uint::random_mod(rng, self.totient_nonzero().expose_secret()),
             P::MODULUS_BITS,
         )

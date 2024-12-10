@@ -15,7 +15,7 @@ use crate::{
     tools::Secret,
     uint::{
         subtle::{Choice, ConditionallyNegatable},
-        Bounded, Exponentiable, HasWide, PublicSigned, Retrieve, Signed, ToMontgomery,
+        Exponentiable, HasWide, PublicSigned, Retrieve, SecretBounded, Signed, ToMontgomery,
     },
 };
 
@@ -183,12 +183,12 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     pub fn new_with_randomizer_bounded(
         pk: &PublicKeyPaillier<P>,
-        plaintext: &Secret<Bounded<P::Uint>>,
+        plaintext: &SecretBounded<P::Uint>,
         randomizer: &Randomizer<P>,
     ) -> Self {
         Self::new_with_randomizer_inner(
             pk,
-            &Secret::init_with(|| *plaintext.expose_secret().as_ref()),
+            &Secret::init_with(|| *plaintext.expose_secret()),
             randomizer,
             Choice::from(0),
         )
@@ -257,9 +257,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // (because `N` itself fits into `Uint`).
 
         // Calculate `C^phi mod N^2`. The result is already secret.
-        // The exponent may leave traces on the stack in the `pow` implementation in `crypto-bigint`
-        // (since it'll probably be decomposed with a small radix), but we can't do much about that.
-        let t = Secret::init_with(|| self.ciphertext.pow_bounded(totient_wide.expose_secret()));
+        let t = Secret::init_with(|| self.ciphertext.pow_bounded(&totient_wide));
         let one = P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
         let x = (t - &one).retrieve() / pk.modulus_wide_nonzero();
         let x = Secret::init_with(|| {
@@ -317,7 +315,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
         let sk_inv_modulus = sk.inv_modulus();
-        let randomizer_mod = Secret::init_with(|| ciphertext_mod_n.pow_bounded(sk_inv_modulus.expose_secret()));
+        let randomizer_mod = Secret::init_with(|| ciphertext_mod_n.pow_bounded(sk_inv_modulus));
 
         Randomizer::new_mod(randomizer_mod)
     }
@@ -358,7 +356,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         }
     }
 
-    fn homomorphic_mul_unsigned_ref(&self, rhs: &Bounded<P::Uint>) -> Self {
+    fn homomorphic_mul_unsigned_ref(&self, rhs: &SecretBounded<P::Uint>) -> Self {
         let rhs_wide = rhs.to_wide();
         Self {
             pk: self.pk.clone(),
@@ -464,10 +462,10 @@ impl<'a, P: PaillierParams> Mul<&'a Secret<Signed<P::Uint>>> for &Ciphertext<P> 
     }
 }
 
-impl<'a, P: PaillierParams> Mul<&'a Secret<Bounded<P::Uint>>> for &Ciphertext<P> {
+impl<'a, P: PaillierParams> Mul<&'a SecretBounded<P::Uint>> for &Ciphertext<P> {
     type Output = Ciphertext<P>;
-    fn mul(self, other: &'a Secret<Bounded<P::Uint>>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned_ref(other.expose_secret())
+    fn mul(self, other: &'a SecretBounded<P::Uint>) -> Ciphertext<P> {
+        self.homomorphic_mul_unsigned_ref(other)
     }
 }
 
