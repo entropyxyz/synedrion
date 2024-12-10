@@ -334,13 +334,6 @@ impl<P: PaillierParams> Ciphertext<P> {
         }
     }
 
-    fn homomorphic_mul_public(self, rhs: &PublicSigned<P::Uint>) -> Self {
-        Self {
-            pk: self.pk,
-            ciphertext: self.ciphertext.pow_signed_vartime(&rhs.to_wide()),
-        }
-    }
-
     fn homomorphic_mul_ref_public(&self, rhs: &PublicSigned<P::Uint>) -> Self {
         Self {
             pk: self.pk.clone(),
@@ -362,14 +355,6 @@ impl<P: PaillierParams> Ciphertext<P> {
         Self {
             pk: self.pk.clone(),
             ciphertext: self.ciphertext.pow_signed_vartime(rhs),
-        }
-    }
-
-    fn homomorphic_mul_unsigned(self, rhs: &Bounded<P::Uint>) -> Self {
-        let rhs_wide = rhs.to_wide();
-        Self {
-            pk: self.pk,
-            ciphertext: self.ciphertext.pow_bounded(&rhs_wide),
         }
     }
 
@@ -437,13 +422,6 @@ impl<P: PaillierParams> Add<&Ciphertext<P>> for Ciphertext<P> {
     }
 }
 
-impl<P: PaillierParams> Mul<&PublicSigned<P::Uint>> for Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, other: &PublicSigned<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_public(other)
-    }
-}
-
 impl<P: PaillierParams> Mul<&PublicSigned<P::Uint>> for &Ciphertext<P> {
     type Output = Ciphertext<P>;
     fn mul(self, other: &PublicSigned<P::Uint>) -> Ciphertext<P> {
@@ -483,27 +461,6 @@ impl<'a, P: PaillierParams> Mul<&'a Secret<Signed<P::Uint>>> for &Ciphertext<P> 
     type Output = Ciphertext<P>;
     fn mul(self, other: &'a Secret<Signed<P::Uint>>) -> Ciphertext<P> {
         self * other.expose_secret()
-    }
-}
-
-impl<P: PaillierParams> Mul<Bounded<P::Uint>> for Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, other: Bounded<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned(&other)
-    }
-}
-
-impl<P: PaillierParams> Mul<Bounded<P::Uint>> for &Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, other: Bounded<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned_ref(&other)
-    }
-}
-
-impl<P: PaillierParams> Mul<Secret<Bounded<P::Uint>>> for &Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, other: Secret<Bounded<P::Uint>>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned_ref(other.expose_secret())
     }
 }
 
