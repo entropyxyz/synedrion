@@ -57,7 +57,6 @@ impl<P: SchemeParams, Id: PartyId> Misbehaving<Id, Behavior> for MaliciousSignin
 
 type MaliciousSigning<P, Id> = MisbehavingEntryPoint<Id, Behavior, MaliciousSigningOverride<P>>;
 
-
 #[test]
 fn execute_signing() {
     let signers = (0..3).map(TestSigner::new).collect::<Vec<_>>();
