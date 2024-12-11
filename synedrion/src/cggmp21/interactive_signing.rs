@@ -200,6 +200,26 @@ struct Context<P: SchemeParams, I: Ord> {
     nu: Randomizer<P::Paillier>,
 }
 
+impl<P, I> Context<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Debug,
+{
+    pub fn public_share(&self, i: &I) -> Result<&Point, LocalError> {
+        self.key_share
+            .public_shares
+            .get(i)
+            .ok_or_else(|| LocalError::new("Missing public_share for party Id {i:?}"))
+    }
+
+    pub fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
+        self.aux_info
+            .public_aux
+            .get(i)
+            .ok_or_else(|| LocalError::new(format!("Missing public_aux for party Id {i:?}")))
+    }
+}
+
 #[derive(Debug)]
 struct Round1<P: SchemeParams, I: Ord> {
     context: Context<P, I>,
@@ -377,17 +397,6 @@ struct Round2<P: SchemeParams, I: Ord> {
     all_cap_g: BTreeMap<I, Ciphertext<P::Paillier>>,
 }
 
-// TODO(dp): @reviewers convenient enough to include in `Round`?
-impl<P: SchemeParams, I: Ord + Debug> Round2<P, I> {
-    fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
-        self.context
-            .aux_info
-            .public_aux
-            .get(i)
-            .ok_or_else(|| LocalError::new(format!("Missing public_aux for party Id {i:?}")))
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
     CiphertextWire<P::Paillier>: Serialize,
@@ -462,7 +471,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let cap_gamma = self.context.gamma.mul_by_generator();
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
 
-        let target_pk = &self.public_aux(destination)?.paillier_pk;
+        let target_pk = &self.context.public_aux(destination)?.paillier_pk;
 
         let beta = Secret::init_with(|| Signed::random_bounded_bits(rng, P::LP_BOUND));
         let hat_beta = Secret::init_with(|| Signed::random_bounded_bits(rng, P::LP_BOUND));
@@ -490,7 +499,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             * secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
             + Ciphertext::new_with_randomizer_signed(target_pk, &-&hat_beta, &hat_s);
 
-        let rp = &self.public_aux(destination)?.rp_params;
+        let rp = &self.context.public_aux(destination)?.rp_params;
 
         let psi = AffGProof::new(
             rng,
@@ -523,11 +532,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
                 .ok_or(LocalError::new("destination={destination:?} is missing in all_cap_k"))?,
             &hat_cap_d,
             &hat_cap_f,
-            self.context
-                .key_share
-                .public_shares
-                .get(&self.context.my_id)
-                .ok_or(LocalError::new("my_id={my_id:?} missing in public_shares"))?,
+            self.context.public_share(&self.context.my_id)?,
             rp,
             &aux,
         );
@@ -592,16 +597,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let aux = (&self.context.ssid_hash, from);
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
-        let from_pk = &self.public_aux(from)?.paillier_pk;
+        let from_pk = &self.context.public_aux(from)?.paillier_pk;
 
-        let cap_x = self
-            .context
-            .key_share
-            .public_shares
-            .get(from)
-            .ok_or(LocalError::new("from={from:?} is missing in public_shares"))?;
+        let cap_x = self.context.public_share(from)?;
 
-        let rp = &self.public_aux(&self.context.my_id)?.rp_params;
+        let rp = &self.context.public_aux(&self.context.my_id)?.rp_params;
 
         let cap_d = direct_message.cap_d.to_precomputed(pk);
         let hat_cap_d = direct_message.hat_cap_d.to_precomputed(pk);
@@ -1090,21 +1090,6 @@ where
             sigma,
         }
     }
-    fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
-        self.context
-            .aux_info
-            .public_aux
-            .get(i)
-            .ok_or_else(|| LocalError::new("Missing public_aux for party Id {i:?}"))
-    }
-
-    fn public_shares(&self, i: &I) -> Result<&Point, LocalError> {
-        self.context
-            .key_share
-            .public_shares
-            .get(i)
-            .ok_or_else(|| LocalError::new("Missing public_aux for party Id {i:?}"))
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1198,8 +1183,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 
         for id_j in self.context.other_ids.iter() {
             for id_l in self.context.other_ids.iter().filter(|id| *id != id_j) {
-                let target_pk = &self.public_aux(id_j)?.paillier_pk;
-                let rp = &self.public_aux(id_l)?.rp_params;
+                let target_pk = &self.context.public_aux(id_j)?.paillier_pk;
+                let rp = &self.context.public_aux(id_l)?.rp_params;
 
                 let values = self
                     .presigning
@@ -1218,7 +1203,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                     &values.cap_k,
                     &values.hat_cap_d,
                     &values.hat_cap_f,
-                    self.public_shares(&my_id)?,
+                    self.context.public_share(&my_id)?,
                     rp,
                     &aux,
                 );
@@ -1229,7 +1214,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                     &values.cap_k,
                     &values.hat_cap_d,
                     &values.hat_cap_f,
-                    self.public_shares(&my_id)?,
+                    self.context.public_share(&my_id)?,
                     rp,
                     &aux,
                 ));
@@ -1241,7 +1226,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         // mul* proofs
 
         let x = &self.context.key_share.secret_share;
-        let cap_x = self.public_shares(&my_id)?;
+        let cap_x = self.context.public_share(&my_id)?;
 
         let rho = Randomizer::random(rng, pk);
         let hat_cap_h = (&self.presigning.cap_k * secret_bounded_from_scalar::<P>(x)).mul_randomizer(&rho);
@@ -1251,7 +1236,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let mut mul_star_proofs = Vec::new();
 
         for id_l in self.context.other_ids.iter() {
-            let paux = self.public_aux(id_l)?;
+            let paux = self.context.public_aux(id_l)?;
             let p_mul = MulStarProof::<P>::new(
                 rng,
                 &secret_signed_from_scalar::<P>(x),
@@ -1295,7 +1280,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 
         let mut dec_proofs = Vec::new();
         for id_l in self.context.other_ids.iter() {
-            let paux = self.public_aux(id_l)?;
+            let paux = self.context.public_aux(id_l)?;
             let p_dec = DecProof::<P>::new(
                 rng,
                 &s_part_nonreduced,

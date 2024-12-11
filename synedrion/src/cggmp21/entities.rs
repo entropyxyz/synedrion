@@ -146,12 +146,17 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
         let public_shares = self
             .public_shares
             .iter()
-            .zip(change.public_share_changes)
-            // TODO(dp): this should fail, I'm pretty sure, but doesn't (no test)
-            // let obviously_wrong_value = change.public_share_changes.first_key_value().unwrap().0.clone();
-            // .map(|(pub_share, changed_pub_share)| (obviously_wrong_value.clone(), pub_share.1 + &changed_pub_share.1))
-            .map(|(pub_share, changed_pub_share)| (changed_pub_share.0, *pub_share.1 + changed_pub_share.1))
-            .collect();
+            .map(|(id, public_share)| {
+                Ok((
+                    id.clone(),
+                    *public_share
+                        + *change
+                            .public_share_changes
+                            .get(id)
+                            .ok_or_else(|| LocalError::new("id={id:?} is missing in public_share_changes"))?,
+                ))
+            })
+            .collect::<Result<_, LocalError>>()?;
 
         Ok(Self {
             owner: self.owner,
