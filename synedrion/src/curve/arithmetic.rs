@@ -396,11 +396,10 @@ mod test {
         let mut bytes = bytes;
         let le_bytes = bytes
             .chunks_exact_mut(8)
-            .map(|word_bytes| {
+            .flat_map(|word_bytes| {
                 word_bytes.reverse();
                 word_bytes.to_vec()
             })
-            .flatten()
             .collect::<Vec<u8>>();
 
         let s_from_le_bytes = Scalar::try_from_be_bytes(&le_bytes).expect("bytes are valid-ish");
