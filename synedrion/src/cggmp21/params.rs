@@ -138,10 +138,6 @@ pub(crate) fn uint_from_scalar<P: SchemeParams>(value: &Scalar) -> <P::Paillier 
     let uint_len = repr.as_ref().len();
     let scalar_len = scalar_bytes.len();
 
-    debug_assert!(
-        uint_len >= scalar_len,
-        "PaillierParams::Uint is expected to be bigger than a Scalar"
-    );
     repr.as_mut()
         .get_mut(uint_len - scalar_len..)
         .expect("PaillierParams::Uint is expected to be bigger than a Scalar")
@@ -249,8 +245,7 @@ pub(crate) fn secret_uint_from_scalar<P: SchemeParams>(
     repr.expose_secret_mut()
         .as_mut()
         .get_mut(uint_len - scalar_len..)
-        // TODO(dp): @reviewers Do we need a better proof that this is true? If `Uint` is, say, 128 bits long…
-        .expect("Uint is assumed to be bigger than Scalar")
+        .expect("<P::Paillier as PaillierParams>::Uint is assumed to be configured to be bigger than Scalar")
         .copy_from_slice(scalar_bytes.expose_secret());
     Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::from_be_bytes(*repr.expose_secret()))
 }
@@ -291,7 +286,6 @@ pub(crate) fn secret_scalar_from_signed<P: SchemeParams>(
     // TODO: wrap in secrets properly
     let abs_value = scalar_from_uint::<P>(&value.expose_secret().abs());
     Secret::init_with(|| Scalar::conditional_select(&abs_value, &-abs_value, value.expose_secret().is_negative()))
-    // >>>>>>> master
 }
 
 impl<P: SchemeParams> HashableType for P {

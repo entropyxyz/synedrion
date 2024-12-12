@@ -114,7 +114,6 @@ impl Scalar {
         Secret::init_with(|| Self(*sk.as_nonzero_scalar().as_ref()))
     }
 
-    // TODO(dp): @reviewers Does this assume big endian order?
     pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
             .ok_or("Invalid length of a curve scalar")?;

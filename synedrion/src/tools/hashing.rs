@@ -147,7 +147,8 @@ impl<T: Serialize> Hashable for T {
     }
 }
 
-/// Build a `T` integer from an extendable Reader function
+/// Build a `T` integer from an extendable Reader function. The resulting `T` is guaranteed to be
+/// smaller than the modulus (uses rejection sampling).
 pub(crate) fn uint_from_xof<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
 where
     T: Integer + Encoding,
@@ -165,22 +166,21 @@ where
         u8::MAX
     };
 
-    // TODO(dp): @reviewers this uses `to_le_bytes` (little-endian) but then the original code masks out bits
-    // from the *last* byte, so it'd mask out the *low* bits yeah? Changing to mask the first byte
-    // but this could use a test.
     let mut bytes = T::zero().to_le_bytes();
     loop {
-        if let Some(buf) = bytes.as_mut().get_mut(0..n_bytes) {
-            reader.read(buf);
-            bytes.as_mut().first_mut().map(|byte| {
-                *byte &= mask;
-                Some(byte)
-            });
-            let n = T::from_le_bytes(bytes);
+        let buf = bytes
+            .as_mut()
+            .get_mut(0..n_bytes)
+            .expect("The modulus is a T and has at least n_bytes that can be read.");
+        reader.read(buf);
+        bytes.as_mut().last_mut().map(|byte| {
+            *byte &= mask;
+            Some(byte)
+        });
+        let n = T::from_le_bytes(bytes);
 
-            if n.ct_lt(backend_modulus).into() {
-                return n;
-            }
+        if n.ct_lt(backend_modulus).into() {
+            return n;
         }
     }
 }
