@@ -98,7 +98,8 @@ impl Scalar {
         Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr))
     }
 
-    pub fn to_bytes(self) -> k256::FieldBytes {
+    /// Returns the SEC1 encoding of this scalar (big endian order).
+    pub fn to_be_bytes(self) -> k256::FieldBytes {
         self.0.to_bytes()
     }
 
@@ -114,7 +115,8 @@ impl Scalar {
         Secret::init_with(|| Self(*sk.as_nonzero_scalar().as_ref()))
     }
 
-    pub(crate) fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
+    /// Attempts to instantiate a `Scalar` from a slice of bytes. Assumes big-endian order.
+    pub(crate) fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
         let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
             .ok_or("Invalid length of a curve scalar")?;
 
@@ -151,7 +153,7 @@ pub(crate) fn secret_split(rng: &mut impl CryptoRngCore, scalar: Secret<Scalar>,
 impl<'a> TryFrom<&'a [u8]> for Scalar {
     type Error = String;
     fn try_from(val: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(val)
+        Self::try_from_be_bytes(val)
     }
 }
 
@@ -169,7 +171,7 @@ impl ConditionallySelectable for Scalar {
 
 impl Serialize for Scalar {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        SliceLike::<Hex>::serialize(&self.to_bytes(), serializer)
+        SliceLike::<Hex>::serialize(&self.to_be_bytes(), serializer)
     }
 }
 
@@ -372,5 +374,35 @@ impl core::iter::Sum for Point {
 impl<'a> core::iter::Sum<&'a Self> for Point {
     fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
         iter.cloned().sum()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Scalar;
+    use rand::SeedableRng;
+    use rand_chacha::ChaChaRng;
+    #[test]
+    fn to_and_from_bytes() {
+        let mut rng = ChaChaRng::from_seed([7u8; 32]);
+        let s = Scalar::random(&mut rng);
+
+        // Round trip works
+        let bytes = s.to_be_bytes();
+        let s_from_bytes = Scalar::try_from_be_bytes(&bytes).expect("bytes are valid");
+        assert_eq!(s, s_from_bytes);
+
+        // …but building a `Scalar` from LE bytes does not.
+        let mut bytes = bytes;
+        let le_bytes = bytes
+            .chunks_exact_mut(8)
+            .flat_map(|word_bytes| {
+                word_bytes.reverse();
+                word_bytes.to_vec()
+            })
+            .collect::<Vec<u8>>();
+
+        let s_from_le_bytes = Scalar::try_from_be_bytes(&le_bytes).expect("bytes are valid-ish");
+        assert_ne!(s, s_from_le_bytes, "Using LE bytes should not work")
     }
 }

@@ -130,7 +130,7 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
 
 /// Converts a curve scalar to the associated integer type.
 pub(crate) fn uint_from_scalar<P: SchemeParams>(value: &Scalar) -> <P::Paillier as PaillierParams>::Uint {
-    let scalar_bytes = value.to_bytes();
+    let scalar_bytes = value.to_be_bytes();
     let mut repr = <P::Paillier as PaillierParams>::Uint::zero().to_be_bytes();
 
     let uint_len = repr.as_ref().len();
@@ -166,7 +166,7 @@ pub(crate) fn scalar_from_uint<P: SchemeParams>(value: &<P::Paillier as Paillier
     let scalar_len = Scalar::repr_len();
 
     // Can unwrap here since the value is within the Scalar range
-    Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..])
+    Scalar::try_from_be_bytes(&repr.as_ref()[uint_len - scalar_len..])
         .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
 }
 
@@ -185,7 +185,7 @@ pub(crate) fn scalar_from_wide_uint<P: SchemeParams>(value: &<P::Paillier as Pai
     let scalar_len = Scalar::repr_len();
 
     // Can unwrap here since the value is within the Scalar range
-    Scalar::try_from_bytes(&repr.as_ref()[uint_len - scalar_len..])
+    Scalar::try_from_be_bytes(&repr.as_ref()[uint_len - scalar_len..])
         .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
 }
 
@@ -208,7 +208,7 @@ pub(crate) fn secret_scalar_from_uint<P: SchemeParams>(
 
     // Can unwrap here since the value is within the Scalar range
     Secret::init_with(|| {
-        Scalar::try_from_bytes(&repr.expose_secret().as_ref()[uint_len - scalar_len..])
+        Scalar::try_from_be_bytes(&repr.expose_secret().as_ref()[uint_len - scalar_len..])
             .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
     })
 }
@@ -216,7 +216,7 @@ pub(crate) fn secret_scalar_from_uint<P: SchemeParams>(
 pub(crate) fn secret_uint_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar>,
 ) -> Secret<<P::Paillier as PaillierParams>::Uint> {
-    let scalar_bytes = Secret::init_with(|| value.expose_secret().to_bytes());
+    let scalar_bytes = Secret::init_with(|| value.expose_secret().to_be_bytes());
     let mut repr = Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::zero().to_be_bytes());
 
     let uint_len = repr.expose_secret().as_ref().len();
