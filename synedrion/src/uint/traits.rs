@@ -1,8 +1,7 @@
 use crypto_bigint::{
     modular::MontyForm,
-    nlimbs,
     subtle::{ConditionallySelectable, CtOption},
-    Encoding, Integer, Invert, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048, U4096, U512, U8192,
+    Encoding, Integer, Invert, Limb, PowBoundedExp, RandomMod, Square, Uint, Zero, U1024, U2048, U4096, U512, U8192,
 };
 
 use crate::uint::{Bounded, Signed};
@@ -239,10 +238,11 @@ impl HasWide for U4096 {
     }
 }
 
-pub type U512Mod = MontyForm<{ nlimbs!(512) }>;
-pub type U1024Mod = MontyForm<{ nlimbs!(1024) }>;
-pub type U2048Mod = MontyForm<{ nlimbs!(2048) }>;
-pub type U4096Mod = MontyForm<{ nlimbs!(4096) }>;
+// TODO(dp): Suggest crypto-bigint update nlimbs! macro.
+pub type U512Mod = MontyForm<{ 512u32.div_ceil(Limb::BITS) as usize }>;
+pub type U1024Mod = MontyForm<{ 1024u32.div_ceil(Limb::BITS) as usize }>;
+pub type U2048Mod = MontyForm<{ 2048u32.div_ceil(Limb::BITS) as usize }>;
+pub type U4096Mod = MontyForm<{ 4096u32.div_ceil(Limb::BITS) as usize }>;
 
 impl ToMontgomery for U512 {}
 impl ToMontgomery for U1024 {}

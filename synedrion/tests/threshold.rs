@@ -58,13 +58,13 @@ fn full_sequence() {
 
     // The full verifying key can be obtained both from the original key shares and child key shares
     let child_vkey = t_key_shares[&verifiers[0]].derive_verifying_key_bip32(&path).unwrap();
-    assert_eq!(child_vkey, child_key_shares[&verifiers[0]].verifying_key());
+    assert_eq!(child_vkey, child_key_shares[&verifiers[0]].verifying_key().unwrap());
 
     // Reshare to `n` nodes
 
     // This will need to be published so that new holders can see it and verify the received data
     let new_holder = NewHolder {
-        verifying_key: t_key_shares[&verifiers[0]].verifying_key(),
+        verifying_key: t_key_shares[&verifiers[0]].verifying_key().unwrap(),
         old_threshold: t_key_shares[&verifiers[0]].threshold(),
         old_holders,
     };
@@ -108,8 +108,8 @@ fn full_sequence() {
         .collect::<BTreeMap<_, _>>();
 
     assert_eq!(
-        new_t_key_shares[&verifiers[0]].verifying_key(),
-        t_key_shares[&verifiers[0]].verifying_key()
+        new_t_key_shares[&verifiers[0]].verifying_key().unwrap(),
+        t_key_shares[&verifiers[0]].verifying_key().unwrap()
     );
 
     // Check that resharing did not change the derived child key
@@ -143,15 +143,18 @@ fn full_sequence() {
         new_t_key_shares[&verifiers[0]]
             .derive_bip32(&path)
             .unwrap()
-            .to_key_share(&selected_parties),
+            .to_key_share(&selected_parties)
+            .unwrap(),
         new_t_key_shares[&verifiers[2]]
             .derive_bip32(&path)
             .unwrap()
-            .to_key_share(&selected_parties),
+            .to_key_share(&selected_parties)
+            .unwrap(),
         new_t_key_shares[&verifiers[4]]
             .derive_bip32(&path)
             .unwrap()
-            .to_key_share(&selected_parties),
+            .to_key_share(&selected_parties)
+            .unwrap(),
     ];
     let selected_aux_infos = [
         aux_infos[&verifiers[0]].clone(),

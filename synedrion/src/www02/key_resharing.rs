@@ -7,6 +7,7 @@
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},
+    format,
     string::String,
     vec::Vec,
 };
@@ -175,16 +176,19 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
             EchoRoundParticipation::Default
         };
 
-        let old_holder = self.old_holder.map(|old_holder| {
-            let polynomial = Polynomial::random(rng, old_holder.key_share.secret_share.clone(), self.new_threshold);
-            let public_polynomial = polynomial.public();
+        let old_holder = self
+            .old_holder
+            .map(|old_holder| {
+                let polynomial = Polynomial::random(rng, old_holder.key_share.secret_share.clone(), self.new_threshold);
+                let public_polynomial = polynomial.public();
 
-            OldHolderData {
-                polynomial,
-                share_id: old_holder.key_share.share_id(),
-                public_polynomial,
-            }
-        });
+                Ok(OldHolderData {
+                    polynomial,
+                    share_id: *old_holder.key_share.share_id()?,
+                    public_polynomial,
+                })
+            })
+            .transpose()?;
 
         let new_holder = self.new_holder.map(|new_holder| NewHolderData { inputs: new_holder });
 
@@ -292,7 +296,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         destination: &I,
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
         if let Some(old_holder) = self.old_holder.as_ref() {
-            let subshare = old_holder.polynomial.evaluate(&self.new_share_ids[destination]);
+            let their_share_id = self.new_share_ids.get(destination).ok_or(LocalError::new(format!(
+                "destination={:?} is missing from the new_share_ids",
+                destination
+            )))?;
+
+            let subshare = old_holder.polynomial.evaluate(their_share_id);
             let dm = DirectMessage::new(serializer, Round1DirectMessage { subshare })?;
             Ok((dm, None))
         } else {
@@ -315,9 +324,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder.inputs.old_holders.contains(from) {
-                let public_subshare_from_poly = echo_broadcast
-                    .public_polynomial
-                    .evaluate(&self.new_share_ids[&self.my_id]);
+                let my_share_id = self.new_share_ids.get(&self.my_id).ok_or(LocalError::new(format!(
+                    "my_id={:?} is missing from the new_share_ids",
+                    &self.my_id
+                )))?;
+                let public_subshare_from_poly = echo_broadcast.public_polynomial.evaluate(my_share_id);
                 let public_subshare_from_private = direct_message.subshare.mul_by_generator();
 
                 // Check that the public polynomial sent in the broadcast corresponds to the secret share
@@ -350,13 +361,16 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
         let mut payloads = payloads.downcast_all::<Round1Payload>()?;
 
-        let share_id = self.new_share_ids[&self.my_id];
+        let share_id = self
+            .new_share_ids
+            .get(&self.my_id)
+            .ok_or_else(|| LocalError::new(format!("my_id={:?} is missing from new_share_ids", &self.my_id)))?;
 
         // If this node is both an old and a new holder,
         // add a simulated payload to the mapping, as if it sent a message to itself.
         if let Some(old_holder) = self.old_holder.as_ref() {
             if self.new_holder.as_ref().is_some() {
-                let subshare = old_holder.polynomial.evaluate(&share_id);
+                let subshare = old_holder.polynomial.evaluate(share_id);
                 let my_payload = Round1Payload {
                     subshare,
                     public_polynomial: old_holder.public_polynomial.clone(),
@@ -375,9 +389,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let vkey = payloads
             .values()
             .map(|payload| {
-                payload.public_polynomial.coeff0() * interpolation_coeff(&old_share_ids, &payload.old_share_id)
+                payload
+                    .public_polynomial
+                    .coeff0()
+                    .map(|coeff0| coeff0 * &interpolation_coeff(&old_share_ids, &payload.old_share_id))
             })
-            .sum();
+            .sum::<Result<_, _>>()?;
         if Point::from_verifying_key(&new_holder.inputs.verifying_key) != vkey {
             // TODO (#113): this is unattributable.
             // Should we add an enum variant to `FinalizeError`?
@@ -390,19 +407,23 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             .inputs
             .old_holders
             .iter()
-            .map(|id| (payloads[id].old_share_id, payloads[id].subshare.clone()))
-            .collect::<BTreeMap<_, _>>();
+            .map(|id| {
+                let payload = payloads
+                    .get(id)
+                    .ok_or_else(|| LocalError::new("id={id:?} is missing from the payloads"))?;
+                Ok((payload.old_share_id, payload.subshare.clone()))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
         let secret_share = shamir_join_scalars(subshares);
 
         // Generate the public shares of all the new holders.
         let public_shares = self
             .new_share_ids
-            .keys()
-            .map(|id| {
-                let share_id = self.new_share_ids[id];
+            .iter()
+            .map(|(id, share_id)| {
                 let public_subshares = payloads
                     .values()
-                    .map(|p| (p.old_share_id, p.public_polynomial.evaluate(&share_id)))
+                    .map(|p| (p.old_share_id, p.public_polynomial.evaluate(share_id)))
                     .collect::<BTreeMap<_, _>>();
                 let public_share = shamir_join_points(&public_subshares);
                 (id.clone(), public_share)
@@ -442,8 +463,8 @@ mod tests {
         let new_holders = BTreeSet::from([ids[1], ids[2], ids[3]]);
 
         let old_key_shares =
-            ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &old_holders, 2, None);
-        let old_vkey = old_key_shares[&ids[0]].verifying_key();
+            ThresholdKeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &old_holders, 2, None).unwrap();
+        let old_vkey = old_key_shares[&ids[0]].verifying_key().unwrap();
         let new_threshold = 2;
 
         let party0 = KeyResharing::new(

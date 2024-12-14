@@ -26,7 +26,10 @@ where
     fn from(val: Bounded<T>) -> Self {
         let repr = val.as_ref().to_be_bytes();
         let bound_bytes = (val.bound() + 7) / 8;
-        let slice = &repr.as_ref()[(repr.as_ref().len() - bound_bytes as usize)..];
+        let slice = repr
+            .as_ref()
+            .get((repr.as_ref().len() - bound_bytes as usize)..)
+            .expect("val has a valid bound that was checked when it was created");
         Self {
             bound: val.bound(),
             bytes: slice.into(),
@@ -51,7 +54,10 @@ where
             ));
         }
 
-        repr.as_mut()[(repr_len - bytes_len)..].copy_from_slice(&val.bytes);
+        repr.as_mut()
+            .get_mut((repr_len - bytes_len)..)
+            .expect("Just checked that val's data all fit in a T")
+            .copy_from_slice(&val.bytes);
         let abs_value = T::from_be_bytes(repr);
 
         Self::new(abs_value, val.bound).ok_or_else(|| "Invalid values for the signed integer".into())

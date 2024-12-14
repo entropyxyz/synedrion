@@ -1,8 +1,10 @@
 use alloc::{
     collections::{BTreeMap, BTreeSet},
+    format,
     vec::Vec,
 };
 use core::{fmt::Debug, marker::PhantomData};
+use manul::session::LocalError;
 
 use k256::ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
@@ -125,23 +127,43 @@ pub(crate) struct PresigningValues<P: SchemeParams> {
 
 impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
     /// Updates a key share with a change obtained from KeyRefresh protocol.
-    pub fn update(self, change: KeyShareChange<P, I>) -> Self {
-        // TODO (#68): check that party_idx is the same for both, and the number of parties is the same
-        assert_eq!(self.owner, change.owner);
+    pub fn update(self, change: KeyShareChange<P, I>) -> Result<Self, LocalError> {
+        if self.owner != change.owner {
+            return Err(LocalError::new(format!(
+                "Owning party mismatch. self.owner={:?}, change.owner={:?}",
+                self.owner, change.owner
+            )));
+        }
+        if self.public_shares.len() != change.public_share_changes.len() {
+            return Err(LocalError::new(format!(
+                "Inconsistent number of public key shares in updated share set (expected {}, was {})",
+                self.public_shares.len(),
+                change.public_share_changes.len()
+            )));
+        }
 
         let secret_share = self.secret_share + change.secret_share_change;
         let public_shares = self
             .public_shares
             .iter()
-            .map(|(id, public_share)| (id.clone(), *public_share + change.public_share_changes[id]))
-            .collect();
+            .map(|(id, public_share)| {
+                Ok((
+                    id.clone(),
+                    *public_share
+                        + *change
+                            .public_share_changes
+                            .get(id)
+                            .ok_or_else(|| LocalError::new("id={id:?} is missing in public_share_changes"))?,
+                ))
+            })
+            .collect::<Result<_, LocalError>>()?;
 
-        Self {
+        Ok(Self {
             owner: self.owner,
             secret_share,
             public_shares,
             phantom: PhantomData,
-        }
+        })
     }
 
     /// Creates a set of random self-consistent key shares

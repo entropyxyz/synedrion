@@ -12,7 +12,7 @@ use crate::{
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
     loop {
         let prime = P::HalfUint::generate_prime_with_rng(rng, P::PRIME_BITS);
-        if prime.as_ref()[0].0 & 3 == 3 {
+        if prime.as_ref().first().expect("First Limb exists").0 & 3 == 3 {
             return prime;
         }
     }
@@ -32,8 +32,14 @@ pub(crate) struct SecretPrimesWire<P: PaillierParams> {
 impl<P: PaillierParams> SecretPrimesWire<P> {
     /// A single constructor to check the invariants
     fn new(p: Secret<P::HalfUint>, q: Secret<P::HalfUint>) -> Self {
-        debug_assert!(p.expose_secret().as_ref()[0].0 & 3 == 3, "p must be 3 mod 4");
-        debug_assert!(q.expose_secret().as_ref()[0].0 & 3 == 3, "q must be 3 mod 4");
+        debug_assert!(
+            p.expose_secret().as_ref().first().expect("First Limb exists").0 & 3 == 3,
+            "p must be 3 mod 4"
+        );
+        debug_assert!(
+            q.expose_secret().as_ref().first().expect("First Limb exists").0 & 3 == 3,
+            "q must be 3 mod 4"
+        );
         Self { p, q }
     }
 

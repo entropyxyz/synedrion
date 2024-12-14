@@ -3,6 +3,7 @@ use alloc::{
     vec::Vec,
 };
 use core::ops::{Add, Mul};
+use manul::session::LocalError;
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -33,23 +34,25 @@ fn evaluate_polynomial<T>(coeffs: &[T], x: &Scalar) -> T
 where
     T: Copy + Add<T, Output = T> + for<'a> Mul<&'a Scalar, Output = T>,
 {
+    assert!(coeffs.len() > 1, "Expected coefficients to be non-empty");
     // Evaluate in reverse to save on multiplications.
     // Basically: a0 + a1 x + a2 x^2 + a3 x^3 == (((a3 x) + a2) x + a1) x + a0
-    let mut res = coeffs[coeffs.len() - 1];
-    for i in (0..(coeffs.len() - 1)).rev() {
-        res = res * x + coeffs[i];
-    }
-    res
+
+    let (acc, coeffs) = coeffs.split_last().expect("Coefficients is not empty");
+    coeffs.iter().rev().fold(*acc, |mut acc, coeff| {
+        acc = acc * x + *coeff;
+        acc
+    })
 }
 
 fn evaluate_polynomial_secret(coeffs: &[Secret<Scalar>], x: &Scalar) -> Secret<Scalar> {
     // Evaluate in reverse to save on multiplications.
     // Basically: a0 + a1 x + a2 x^2 + a3 x^3 == (((a3 x) + a2) x + a1) x + a0
-    let mut res = coeffs[coeffs.len() - 1].clone();
-    for i in (0..(coeffs.len() - 1)).rev() {
-        res = res * x + coeffs[i].expose_secret();
-    }
-    res
+    let (acc, coeffs) = coeffs.split_last().expect("Coefficients is not empty");
+    coeffs.iter().rev().fold(acc.clone(), |mut acc, coeff| {
+        acc = acc * x + coeff.expose_secret();
+        acc
+    })
 }
 
 #[derive(Debug)]
@@ -87,8 +90,10 @@ impl PublicPolynomial {
         evaluate_polynomial(&self.0, &x.0)
     }
 
-    pub fn coeff0(&self) -> Point {
-        self.0[0]
+    pub fn coeff0(&self) -> Result<&Point, LocalError> {
+        self.0
+            .first()
+            .ok_or_else(|| LocalError::new("Invalid PublicPolynomial"))
     }
 }
 

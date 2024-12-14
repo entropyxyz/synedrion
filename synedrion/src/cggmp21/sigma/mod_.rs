@@ -79,14 +79,15 @@ impl<P: SchemeParams> ModProof<P> {
 
         let (omega_mod_p, omega_mod_q) = sk.rns_split(&commitment.0);
 
-        let proof = (0..challenge.0.len())
-            .map(|i| {
+        let proof = challenge
+            .0
+            .iter()
+            .map(|y| {
                 let mut y_sqrt = None;
                 let mut found_a = false;
                 let mut found_b = false;
                 for (a, b) in [(false, false), (false, true), (true, false), (true, true)].iter() {
-                    let y = challenge.0[i];
-                    let (mut y_mod_p, mut y_mod_q) = sk.rns_split(&y);
+                    let (mut y_mod_p, mut y_mod_q) = sk.rns_split(y);
                     if *a {
                         y_mod_p = -y_mod_p;
                         y_mod_q = -y_mod_q;
@@ -113,7 +114,7 @@ impl<P: SchemeParams> ModProof<P> {
 
                 let y_4th = sk.rns_join(&y_4th_parts);
 
-                let y = challenge.0[i].to_montgomery(pk.monty_params_mod_n());
+                let y = y.to_montgomery(pk.monty_params_mod_n());
                 let sk_inv_modulus = sk.inv_modulus();
                 let z = y.pow_bounded(sk_inv_modulus.expose_secret());
 
