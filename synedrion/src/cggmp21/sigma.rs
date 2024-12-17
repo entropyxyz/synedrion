@@ -11,7 +11,7 @@ mod mul_star;
 mod prm;
 mod sch;
 
-pub(crate) use aff_g::AffGProof;
+pub(crate) use aff_g::{AffGProof, AffGPublicInputs, AffGSecretInputs};
 pub(crate) use dec::DecProof;
 pub(crate) use enc::EncProof;
 pub(crate) use fac::FacProof;
