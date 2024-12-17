@@ -23,7 +23,10 @@ use super::{
     },
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues, PublicAuxInfoPrecomputed},
     params::SchemeParams,
-    sigma::{AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, EncProof, LogStarProof, MulProof, MulStarProof},
+    sigma::{
+        AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, EncProof,
+        LogStarProof, MulProof, MulStarProof,
+    },
 };
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},
@@ -1045,18 +1048,24 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         for id_j in self.context.other_ids.iter() {
             let p_dec = DecProof::<P>::new(
                 rng,
-                &self.delta,
-                &rho,
-                pk,
-                scalar_delta.expose_secret(),
-                &ciphertext,
+                DecSecretInputs {
+                    y: &self.delta,
+                    rho: &rho,
+                },
+                DecPublicInputs {
+                    pk0: pk,
+                    x: scalar_delta.expose_secret(),
+                    cap_c: &ciphertext,
+                },
                 &self.public_aux(id_j)?.rp_params,
                 &aux,
             );
             assert!(p_dec.verify(
-                pk,
-                scalar_delta.expose_secret(),
-                &ciphertext,
+                DecPublicInputs {
+                    pk0: pk,
+                    x: scalar_delta.expose_secret(),
+                    cap_c: &ciphertext
+                },
                 &self.public_aux(id_j)?.rp_params,
                 &aux
             ));
@@ -1291,15 +1300,27 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
             let paux = self.context.public_aux(id_l)?;
             let p_dec = DecProof::<P>::new(
                 rng,
-                &s_part_nonreduced,
-                &rho,
-                pk,
-                &self.sigma,
-                &ciphertext,
+                DecSecretInputs {
+                    y: &s_part_nonreduced,
+                    rho: &rho,
+                },
+                DecPublicInputs {
+                    pk0: pk,
+                    x: &self.sigma,
+                    cap_c: &ciphertext,
+                },
                 &paux.rp_params,
                 &aux,
             );
-            assert!(p_dec.verify(pk, &self.sigma, &ciphertext, &paux.rp_params, &aux,));
+            assert!(p_dec.verify(
+                DecPublicInputs {
+                    pk0: pk,
+                    x: &self.sigma,
+                    cap_c: &ciphertext
+                },
+                &paux.rp_params,
+                &aux,
+            ));
             dec_proofs.push((id_l.clone(), p_dec));
         }
 
