@@ -304,49 +304,23 @@ impl<P: PaillierParams> Ciphertext<P> {
     // compared to what we would get if we used the signed `rhs` faithfully in the original formula.
     // So if we want to replicate the Paillier encryption manually and get the same ciphertext
     // (e.g. in the P_enc sigma-protocol), we need to process the sign correctly.
-    fn homomorphic_mul(self, rhs: &SecretSigned<P::Uint>) -> Self {
+    fn homomorphic_mul<V>(self, rhs: &V) -> Self
+    where
+        P::WideUintMod: Exponentiable<V>,
+    {
         Self {
             pk: self.pk,
-            ciphertext: self.ciphertext.pow(&rhs.to_wide()),
-        }
-    }
-
-    fn homomorphic_mul_ref_public(&self, rhs: &PublicSigned<P::Uint>) -> Self {
-        Self {
-            pk: self.pk.clone(),
-            ciphertext: self.ciphertext.pow(&rhs.to_wide()),
-        }
-    }
-
-    fn homomorphic_mul_public(self, rhs: &PublicSigned<P::Uint>) -> Self {
-        Self {
-            pk: self.pk,
-            ciphertext: self.ciphertext.pow(&rhs.to_wide()),
-        }
-    }
-
-    fn homomorphic_mul_ref(&self, rhs: &SecretSigned<P::Uint>) -> Self {
-        Self {
-            pk: self.pk.clone(),
-            ciphertext: self.ciphertext.pow(&rhs.to_wide()),
-        }
-    }
-
-    pub fn homomorphic_mul_wide_public(&self, rhs: &PublicSigned<P::WideUint>) -> Self {
-        // Unfortunately we cannot implement `Mul` for `SecretSigned<P::Uint>` and `SecretSigned<P::WideUint>`
-        // at the same time, since they can be the same type.
-        // But this method is only used once, so it's not a problem to spell it out.
-        Self {
-            pk: self.pk.clone(),
             ciphertext: self.ciphertext.pow(rhs),
         }
     }
 
-    fn homomorphic_mul_unsigned_ref(&self, rhs: &SecretUnsigned<P::Uint>) -> Self {
-        let rhs_wide = rhs.to_wide();
+    fn homomorphic_mul_ref<V>(&self, rhs: &V) -> Self
+    where
+        P::WideUintMod: Exponentiable<V>,
+    {
         Self {
             pk: self.pk.clone(),
-            ciphertext: self.ciphertext.pow(&rhs_wide),
+            ciphertext: self.ciphertext.pow(rhs),
         }
     }
 
@@ -406,45 +380,23 @@ impl<P: PaillierParams> Add<&Ciphertext<P>> for Ciphertext<P> {
     }
 }
 
-impl<P: PaillierParams> Mul<&PublicSigned<P::Uint>> for Ciphertext<P> {
+impl<P: PaillierParams, V> Mul<&V> for Ciphertext<P>
+where
+    P::WideUintMod: Exponentiable<V>,
+{
     type Output = Ciphertext<P>;
-    fn mul(self, rhs: &PublicSigned<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_public(rhs)
+    fn mul(self, rhs: &V) -> Ciphertext<P> {
+        self.homomorphic_mul(rhs)
     }
 }
 
-impl<P: PaillierParams> Mul<&PublicSigned<P::Uint>> for &Ciphertext<P> {
+impl<P: PaillierParams, V> Mul<&V> for &Ciphertext<P>
+where
+    P::WideUintMod: Exponentiable<V>,
+{
     type Output = Ciphertext<P>;
-    fn mul(self, rhs: &PublicSigned<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_ref_public(rhs)
-    }
-}
-
-impl<P: PaillierParams> Mul<SecretSigned<P::Uint>> for Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, rhs: SecretSigned<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul(&rhs)
-    }
-}
-
-impl<P: PaillierParams> Mul<SecretSigned<P::Uint>> for &Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, rhs: SecretSigned<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_ref(&rhs)
-    }
-}
-
-impl<'a, P: PaillierParams> Mul<&'a SecretSigned<P::Uint>> for &Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, rhs: &'a SecretSigned<P::Uint>) -> Ciphertext<P> {
+    fn mul(self, rhs: &V) -> Ciphertext<P> {
         self.homomorphic_mul_ref(rhs)
-    }
-}
-
-impl<'a, P: PaillierParams> Mul<&'a SecretUnsigned<P::Uint>> for &Ciphertext<P> {
-    type Output = Ciphertext<P>;
-    fn mul(self, rhs: &'a SecretUnsigned<P::Uint>) -> Ciphertext<P> {
-        self.homomorphic_mul_unsigned_ref(rhs)
     }
 }
 
@@ -556,7 +508,7 @@ mod tests {
         let ciphertext = Ciphertext::<PaillierTest>::new(&mut OsRng, pk, &plaintext);
 
         let coeff = SecretSigned::random_in_exp_range(&mut OsRng, <PaillierTest as PaillierParams>::Uint::BITS - 2);
-        let new_ciphertext = ciphertext * coeff.clone();
+        let new_ciphertext = ciphertext * &coeff;
         let new_plaintext = new_ciphertext.decrypt(&sk);
 
         assert_eq!(
@@ -615,7 +567,7 @@ mod tests {
 
         let ciphertext1 = Ciphertext::<PaillierTest>::new(&mut OsRng, pk, &plaintext1);
         let ciphertext3 = Ciphertext::<PaillierTest>::new(&mut OsRng, pk, &plaintext3);
-        let result = ciphertext1 * plaintext2.clone() + ciphertext3;
+        let result = ciphertext1 * &plaintext2 + ciphertext3;
 
         let plaintext_back = result.decrypt(&sk);
         assert_eq!(

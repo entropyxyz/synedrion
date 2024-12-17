@@ -496,7 +496,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             .all_cap_k
             .get(destination)
             .ok_or(LocalError::new("Missing destination={destination:?} in all_cap_k"))?
-            * secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
+            * &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
             + Ciphertext::new_with_randomizer_signed(target_pk, &-&hat_beta, &hat_s);
 
         let rp = &self.context.public_aux(destination)?.rp_params;

@@ -89,6 +89,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
 
     /// A modulo-residue counterpart of `WideUint`.
     type WideUintMod: Monty<Integer = Self::WideUint>
+        + PowBoundedExp<Self::Uint>
         + PowBoundedExp<Self::WideUint>
         + ConditionallyNegatable
         + ConditionallySelectable

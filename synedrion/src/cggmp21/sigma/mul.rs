@@ -134,11 +134,7 @@ impl<P: SchemeParams> MulProof<P> {
         }
 
         // Y^z u^N = A * C^e \mod N^2
-        if cap_y
-            .homomorphic_mul_wide_public(&self.z)
-            .mul_masked_randomizer(&self.u)
-            != self.cap_a.to_precomputed(pk) + cap_c * &e
-        {
+        if (cap_y * &self.z).mul_masked_randomizer(&self.u) != self.cap_a.to_precomputed(pk) + cap_c * &e {
             return false;
         }
 
