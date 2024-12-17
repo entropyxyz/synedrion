@@ -26,7 +26,7 @@ use super::{
     sigma::{
         AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, EncProof,
         EncPublicInputs, EncSecretInputs, LogStarProof, LogStarPublicInputs, LogStarSecretInputs, MulProof,
-        MulStarProof,
+        MulPublicInputs, MulSecretInputs, MulStarProof,
     },
 };
 use crate::{
@@ -1045,16 +1045,28 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let p_mul = MulProof::<P>::new(
             rng,
-            &secret_signed_from_scalar::<P>(&self.context.k),
-            &self.context.rho,
-            &rho,
-            pk,
-            cap_k,
-            cap_g,
-            &cap_h,
+            MulSecretInputs {
+                x: &secret_signed_from_scalar::<P>(&self.context.k),
+                rho_x: &self.context.rho,
+                rho: &rho,
+            },
+            MulPublicInputs {
+                pk,
+                cap_x: cap_k,
+                cap_y: cap_g,
+                cap_c: &cap_h,
+            },
             &aux,
         );
-        assert!(p_mul.verify(pk, cap_k, cap_g, &cap_h, &aux));
+        assert!(p_mul.verify(
+            MulPublicInputs {
+                pk,
+                cap_x: cap_k,
+                cap_y: cap_g,
+                cap_c: &cap_h
+            },
+            &aux
+        ));
 
         // Dec proof
 
