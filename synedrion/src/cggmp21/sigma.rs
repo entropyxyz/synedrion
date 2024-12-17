@@ -18,6 +18,6 @@ pub(crate) use fac::FacProof;
 pub(crate) use log_star::{LogStarProof, LogStarPublicInputs, LogStarSecretInputs};
 pub(crate) use mod_::ModProof;
 pub(crate) use mul::{MulProof, MulPublicInputs, MulSecretInputs};
-pub(crate) use mul_star::MulStarProof;
+pub(crate) use mul_star::{MulStarProof, MulStarPublicInputs, MulStarSecretInputs};
 pub(crate) use prm::PrmProof;
 pub(crate) use sch::{SchCommitment, SchProof, SchSecret};

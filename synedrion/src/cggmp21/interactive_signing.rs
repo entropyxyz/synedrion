@@ -26,7 +26,7 @@ use super::{
     sigma::{
         AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, EncProof,
         EncPublicInputs, EncSecretInputs, LogStarProof, LogStarPublicInputs, LogStarSecretInputs, MulProof,
-        MulPublicInputs, MulSecretInputs, MulStarProof,
+        MulPublicInputs, MulSecretInputs, MulStarProof, MulStarPublicInputs, MulStarSecretInputs,
     },
 };
 use crate::{
@@ -1297,17 +1297,30 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
             let paux = self.context.public_aux(id_l)?;
             let p_mul = MulStarProof::<P>::new(
                 rng,
-                &secret_signed_from_scalar::<P>(x),
-                &rho,
-                pk,
-                &self.presigning.cap_k,
-                &hat_cap_h,
-                cap_x,
+                MulStarSecretInputs {
+                    x: &secret_signed_from_scalar::<P>(x),
+                    rho: &rho,
+                },
+                MulStarPublicInputs {
+                    pk0: pk,
+                    cap_c: &self.presigning.cap_k,
+                    cap_d: &hat_cap_h,
+                    cap_x,
+                },
                 &paux.rp_params,
                 &aux,
             );
 
-            assert!(p_mul.verify(pk, &self.presigning.cap_k, &hat_cap_h, cap_x, &paux.rp_params, &aux,));
+            assert!(p_mul.verify(
+                MulStarPublicInputs {
+                    pk0: pk,
+                    cap_c: &self.presigning.cap_k,
+                    cap_d: &hat_cap_h,
+                    cap_x
+                },
+                &paux.rp_params,
+                &aux,
+            ));
 
             mul_star_proofs.push((id_l.clone(), p_mul));
         }

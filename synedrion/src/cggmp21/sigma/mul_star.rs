@@ -19,20 +19,25 @@ use crate::{
 
 const HASH_TAG: &[u8] = b"P_mul*";
 
-/**
-ZK proof: Multiplication Paillier vs Group.
+pub(crate) struct MulStarSecretInputs<'a, P: SchemeParams> {
+    /// $x \in +- 2^\ell$.
+    pub x: &'a SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    /// $\rho$, a Paillier randomizer for the public key $N_0$.
+    pub rho: &'a Randomizer<P::Paillier>,
+}
 
-Secret inputs:
-- $x \in +- 2^\ell$,
-- $\rho$, a Paillier randomizer for the public key $N_0$.
+pub(crate) struct MulStarPublicInputs<'a, P: SchemeParams> {
+    /// Paillier public key $N_0$.
+    pub pk0: &'a PublicKeyPaillier<P::Paillier>,
+    /// Paillier ciphertext $C$ encrypted with $N_0$.
+    pub cap_c: &'a Ciphertext<P::Paillier>,
+    /// Paillier ciphertext $D = (C (*) x) * \rho^{N_0} \mod N_0^2$.
+    pub cap_d: &'a Ciphertext<P::Paillier>,
+    /// Point $X = g * x$, where $g$ is the curve generator.
+    pub cap_x: &'a Point,
+}
 
-Public inputs:
-- Paillier public key $N_0$,
-- Paillier ciphertext $C$ encrypted with $N_0$,
-- Paillier ciphertext $D = (C (*) x) * \rho^{N_0} \mod N_0^2$,
-- Point $X = g * x$, where $g$ is the curve generator,
-- Setup parameters ($\hat{N}$, $s$, $t$).
-*/
+/// ZK proof: Multiplication Paillier vs Group.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulStarProof<P: SchemeParams> {
     e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
@@ -49,12 +54,8 @@ impl<P: SchemeParams> MulStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        x: &SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-        rho: &Randomizer<P::Paillier>,
-        pk0: &PublicKeyPaillier<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
-        cap_d: &Ciphertext<P::Paillier>,
-        cap_x: &Point,
+        secret: MulStarSecretInputs<'_, P>,
+        public: MulStarPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
@@ -65,21 +66,21 @@ impl<P: SchemeParams> MulStarProof<P> {
         - $\beta$ used to create $A$ is not mentioned anywhere else - a typo, it is effectively == 0
         */
 
-        x.assert_exponent_range(P::L_BOUND);
-        assert_eq!(cap_c.public_key(), pk0);
-        assert_eq!(cap_d.public_key(), pk0);
+        secret.x.assert_exponent_range(P::L_BOUND);
+        assert_eq!(public.cap_c.public_key(), public.pk0);
+        assert_eq!(public.cap_d.public_key(), public.pk0);
 
         let hat_cap_n = setup.modulus(); // $\hat{N}$
 
-        let r = Randomizer::random(rng, pk0);
+        let r = Randomizer::random(rng, public.pk0);
         let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
         let gamma = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let m = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        let cap_a = (cap_c * &alpha).mul_randomizer(&r).to_wire();
+        let cap_a = (public.cap_c * &alpha).mul_randomizer(&r).to_wire();
         let cap_b_x = secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
         let cap_e = setup.commit(&alpha, &gamma).to_wire();
-        let cap_s = setup.commit(x, &m).to_wire();
+        let cap_s = setup.commit(secret.x, &m).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -88,10 +89,10 @@ impl<P: SchemeParams> MulStarProof<P> {
             .chain(&cap_e)
             .chain(&cap_s)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(&cap_c.to_wire())
-            .chain(&cap_d.to_wire())
-            .chain(cap_x)
+            .chain(public.pk0.as_wire())
+            .chain(&public.cap_c.to_wire())
+            .chain(&public.cap_d.to_wire())
+            .chain(public.cap_x)
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
@@ -99,9 +100,9 @@ impl<P: SchemeParams> MulStarProof<P> {
         // Non-interactive challenge
         let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let z1 = (alpha + x * e).to_public();
+        let z1 = (alpha + secret.x * e).to_public();
         let z2 = (gamma + m * e.to_wide()).to_public();
-        let omega = rho.to_masked(&r, &e);
+        let omega = secret.rho.to_masked(&r, &e);
 
         Self {
             e,
@@ -119,15 +120,12 @@ impl<P: SchemeParams> MulStarProof<P> {
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        pk0: &PublicKeyPaillier<P::Paillier>,
-        cap_c: &Ciphertext<P::Paillier>,
-        cap_d: &Ciphertext<P::Paillier>,
-        cap_x: &Point,
+        public: MulStarPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
-        assert_eq!(cap_c.public_key(), pk0);
-        assert_eq!(cap_d.public_key(), pk0);
+        assert_eq!(public.cap_c.public_key(), public.pk0);
+        assert_eq!(public.cap_d.public_key(), public.pk0);
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -136,10 +134,10 @@ impl<P: SchemeParams> MulStarProof<P> {
             .chain(&self.cap_e)
             .chain(&self.cap_s)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(&cap_c.to_wire())
-            .chain(&cap_d.to_wire())
-            .chain(cap_x)
+            .chain(public.pk0.as_wire())
+            .chain(&public.cap_c.to_wire())
+            .chain(&public.cap_d.to_wire())
+            .chain(public.cap_x)
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
@@ -157,12 +155,16 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
 
         // C (*) z_1 * \omega^{N_0} == A (+) D (*) e
-        if (cap_c * &self.z1).mul_masked_randomizer(&self.omega) != self.cap_a.to_precomputed(pk0) + cap_d * &e {
+        if (public.cap_c * &self.z1).mul_masked_randomizer(&self.omega)
+            != self.cap_a.to_precomputed(public.pk0) + public.cap_d * &e
+        {
             return false;
         }
 
         // g^{z_1} == B_x X^e
-        if scalar_from_signed::<P>(&self.z1).mul_by_generator() != self.cap_b_x + cap_x * &scalar_from_signed::<P>(&e) {
+        if scalar_from_signed::<P>(&self.z1).mul_by_generator()
+            != self.cap_b_x + public.cap_x * &scalar_from_signed::<P>(&e)
+        {
             return false;
         }
 
@@ -181,7 +183,7 @@ impl<P: SchemeParams> MulStarProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::MulStarProof;
+    use super::{MulStarProof, MulStarPublicInputs, MulStarSecretInputs};
     use crate::{
         cggmp21::{conversion::secret_scalar_from_signed, SchemeParams, TestParams},
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
@@ -207,7 +209,27 @@ mod tests {
         let cap_d = (&cap_c * &x).mul_randomizer(&rho);
         let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
 
-        let proof = MulStarProof::<Params>::new(&mut OsRng, &x, &rho, pk, &cap_c, &cap_d, &cap_x, &setup, &aux);
-        assert!(proof.verify(pk, &cap_c, &cap_d, &cap_x, &setup, &aux));
+        let proof = MulStarProof::<Params>::new(
+            &mut OsRng,
+            MulStarSecretInputs { x: &x, rho: &rho },
+            MulStarPublicInputs {
+                pk0: pk,
+                cap_c: &cap_c,
+                cap_d: &cap_d,
+                cap_x: &cap_x,
+            },
+            &setup,
+            &aux,
+        );
+        assert!(proof.verify(
+            MulStarPublicInputs {
+                pk0: pk,
+                cap_c: &cap_c,
+                cap_d: &cap_d,
+                cap_x: &cap_x
+            },
+            &setup,
+            &aux
+        ));
     }
 }
