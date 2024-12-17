@@ -25,7 +25,7 @@ use super::{
     params::SchemeParams,
     sigma::{
         AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, EncProof,
-        LogStarProof, MulProof, MulStarProof,
+        EncPublicInputs, EncSecretInputs, LogStarProof, MulProof, MulStarProof,
     },
 };
 use crate::{
@@ -302,10 +302,14 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let aux = (&self.context.ssid_hash, &destination);
         let psi0 = EncProof::new(
             rng,
-            &secret_signed_from_scalar::<P>(&self.context.k),
-            &self.context.rho,
-            self.context.aux_info.secret_aux.paillier_sk.public_key(),
-            &self.cap_k,
+            EncSecretInputs {
+                k: &secret_signed_from_scalar::<P>(&self.context.k),
+                rho: &self.context.rho,
+            },
+            EncPublicInputs {
+                pk0: self.context.aux_info.secret_aux.paillier_sk.public_key(),
+                cap_k: &self.cap_k,
+            },
             &self.public_aux(destination)?.rp_params,
             &aux,
         );
@@ -334,8 +338,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let from_pk = &self.public_aux(from)?.paillier_pk;
 
         if !direct_message.psi0.verify(
-            from_pk,
-            &echo_broadcast.cap_k.to_precomputed(from_pk),
+            EncPublicInputs {
+                pk0: from_pk,
+                cap_k: &echo_broadcast.cap_k.to_precomputed(from_pk),
+            },
             &public_aux.rp_params,
             &aux,
         ) {

@@ -15,18 +15,21 @@ use crate::{
 
 const HASH_TAG: &[u8] = b"P_enc";
 
-/**
-ZK proof: Paillier encryption in range.
+pub struct EncSecretInputs<'a, P: SchemeParams> {
+    /// $k \in \pm 2^\ell$.
+    pub k: &'a SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    /// $\rho$, a Paillier randomizer for the public key $N_0$.
+    pub rho: &'a Randomizer<P::Paillier>,
+}
 
-Secret inputs:
-- $k \in \pm 2^\ell$,
-- $\rho$, a Paillier randomizer for the public key $N_0$.
+pub struct EncPublicInputs<'a, P: SchemeParams> {
+    /// Paillier public key $N_0$.
+    pub pk0: &'a PublicKeyPaillier<P::Paillier>,
+    /// Paillier ciphertext $K = enc_0(k, \rho)$.
+    pub cap_k: &'a Ciphertext<P::Paillier>,
+}
 
-Public inputs:
-- Paillier public key $N_0$,
-- Paillier ciphertext $K = enc_0(k, \rho)$,
-- Setup parameters ($\hat{N}$, $s$, $t$).
-*/
+/// ZK proof: Paillier encryption in range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct EncProof<P: SchemeParams> {
     e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
@@ -41,15 +44,13 @@ pub(crate) struct EncProof<P: SchemeParams> {
 impl<P: SchemeParams> EncProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        k: &SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-        rho: &Randomizer<P::Paillier>,
-        pk0: &PublicKeyPaillier<P::Paillier>,
-        cap_k: &Ciphertext<P::Paillier>,
+        secret: EncSecretInputs<'_, P>,
+        public: EncPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        k.assert_exponent_range(P::L_BOUND);
-        assert_eq!(cap_k.public_key(), pk0);
+        secret.k.assert_exponent_range(P::L_BOUND);
+        assert_eq!(public.cap_k.public_key(), public.pk0);
 
         let hat_cap_n = setup.modulus(); // $\hat{N}$
 
@@ -57,11 +58,11 @@ impl<P: SchemeParams> EncProof<P> {
         // This will ensure that the range check on the prover side will pass.
         let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
-        let r = Randomizer::random(rng, pk0);
+        let r = Randomizer::random(rng, public.pk0);
         let gamma = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        let cap_s = setup.commit(k, &mu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r).to_wire();
+        let cap_s = setup.commit(secret.k, &mu).to_wire();
+        let cap_a = Ciphertext::new_with_randomizer_signed(public.pk0, &alpha, &r).to_wire();
         let cap_c = setup.commit(&alpha, &gamma).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -70,8 +71,8 @@ impl<P: SchemeParams> EncProof<P> {
             .chain(&cap_a)
             .chain(&cap_c)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(&cap_k.to_wire())
+            .chain(public.pk0.as_wire())
+            .chain(&public.cap_k.to_wire())
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
@@ -79,8 +80,8 @@ impl<P: SchemeParams> EncProof<P> {
         // Non-interactive challenge
         let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let z1 = (alpha + k * e).to_public();
-        let z2 = rho.to_masked(&r, &e);
+        let z1 = (alpha + secret.k * e).to_public();
+        let z2 = secret.rho.to_masked(&r, &e);
         let z3 = (gamma + mu * e.to_wide()).to_public();
 
         Self {
@@ -94,14 +95,8 @@ impl<P: SchemeParams> EncProof<P> {
         }
     }
 
-    pub fn verify(
-        &self,
-        pk0: &PublicKeyPaillier<P::Paillier>,
-        cap_k: &Ciphertext<P::Paillier>,
-        setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
-    ) -> bool {
-        assert_eq!(cap_k.public_key(), pk0);
+    pub fn verify(&self, public: EncPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
+        assert_eq!(public.cap_k.public_key(), public.pk0);
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -109,8 +104,8 @@ impl<P: SchemeParams> EncProof<P> {
             .chain(&self.cap_a)
             .chain(&self.cap_c)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(&cap_k.to_wire())
+            .chain(public.pk0.as_wire())
+            .chain(&public.cap_k.to_wire())
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
@@ -128,8 +123,8 @@ impl<P: SchemeParams> EncProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) K (*) e
-        let c = Ciphertext::new_public_with_randomizer_signed(pk0, &self.z1, &self.z2);
-        if c != self.cap_a.to_precomputed(pk0) + cap_k * &e {
+        let c = Ciphertext::new_public_with_randomizer_signed(public.pk0, &self.z1, &self.z2);
+        if c != self.cap_a.to_precomputed(public.pk0) + public.cap_k * &e {
             return false;
         }
 
@@ -148,7 +143,7 @@ impl<P: SchemeParams> EncProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::EncProof;
+    use super::{EncProof, EncPublicInputs, EncSecretInputs};
     use crate::{
         cggmp21::{SchemeParams, TestParams},
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
@@ -171,7 +166,26 @@ mod tests {
         let randomizer = Randomizer::random(&mut OsRng, pk);
         let ciphertext = Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer);
 
-        let proof = EncProof::<Params>::new(&mut OsRng, &secret, &randomizer, pk, &ciphertext, &setup, &aux);
-        assert!(proof.verify(pk, &ciphertext, &setup, &aux));
+        let proof = EncProof::<Params>::new(
+            &mut OsRng,
+            EncSecretInputs {
+                k: &secret,
+                rho: &randomizer,
+            },
+            EncPublicInputs {
+                pk0: pk,
+                cap_k: &ciphertext,
+            },
+            &setup,
+            &aux,
+        );
+        assert!(proof.verify(
+            EncPublicInputs {
+                pk0: pk,
+                cap_k: &ciphertext
+            },
+            &setup,
+            &aux
+        ));
     }
 }
