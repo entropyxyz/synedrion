@@ -111,12 +111,18 @@ impl<P: SchemeParams> FacProof<P> {
 
         let p_wide = sk0.p_wide_signed();
 
-        let hat_sigma = sigma - (p_wide * &nu).to_public().to_wide();
+        let hat_sigma = sigma
+            .checked_sub(&(p_wide * &nu).to_public().to_wide())
+            .expect("doesn't overflow by construction");
         let z1 = (alpha + (p * e).to_wide()).to_public();
         let z2 = (beta + (q * e).to_wide()).to_public();
         let omega1 = (x + mu * e_wide).to_public();
         let omega2 = (nu * e_wide + y).to_public();
-        let v = (r + (hat_sigma * e_wide.to_wide())).to_public();
+        let v = (r
+            + (hat_sigma
+                .checked_mul(&e_wide.to_wide())
+                .expect("doesn't overflow by construction")))
+        .to_public();
 
         Self {
             e,

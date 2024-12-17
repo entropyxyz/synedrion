@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, format, string::String};
-use core::ops::{Mul, Neg, Sub};
+use core::ops::Neg;
 
 use crypto_bigint::{Bounded, Encoding, Integer, NonZero};
 use digest::XofReader;
@@ -142,7 +142,7 @@ where
         self.abs() <= T::one() << bound_bits
     }
 
-    fn checked_sub(&self, rhs: &Self) -> Option<Self> {
+    pub fn checked_sub(&self, rhs: &Self) -> Option<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound) + 1;
         if bound < T::BITS {
             Some(Self {
@@ -158,7 +158,7 @@ where
     /// use [`Signed::mul_wide`] if widening is desired.
     /// Note: when multiplying two [`PublicSigned`], the bound on the result
     /// is equal to the sum of the bounds of the operands.
-    fn checked_mul(&self, rhs: &Self) -> Option<Self> {
+    pub fn checked_mul(&self, rhs: &Self) -> Option<Self> {
         let bound = self.bound + rhs.bound;
         if bound < T::BITS {
             Some(Self {
@@ -227,29 +227,5 @@ where
 
     fn neg(self) -> Self::Output {
         PublicSigned::neg(&self)
-    }
-}
-
-impl<T> Sub<PublicSigned<T>> for PublicSigned<T>
-where
-    T: Integer + Bounded,
-{
-    type Output = PublicSigned<T>;
-
-    fn sub(self, rhs: PublicSigned<T>) -> Self::Output {
-        self.checked_sub(&rhs)
-            .expect("the calling code ensured the bound is not overflown")
-    }
-}
-
-impl<T> Mul<PublicSigned<T>> for PublicSigned<T>
-where
-    T: Integer + Bounded,
-{
-    type Output = PublicSigned<T>;
-
-    fn mul(self, rhs: PublicSigned<T>) -> Self::Output {
-        self.checked_mul(&rhs)
-            .expect("the calling code ensured the bound is not overflown")
     }
 }
