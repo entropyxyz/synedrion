@@ -25,7 +25,8 @@ use super::{
     params::SchemeParams,
     sigma::{
         AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, EncProof,
-        EncPublicInputs, EncSecretInputs, LogStarProof, MulProof, MulStarProof,
+        EncPublicInputs, EncSecretInputs, LogStarProof, LogStarPublicInputs, LogStarSecretInputs, MulProof,
+        MulStarProof,
     },
 };
 use crate::{
@@ -504,6 +505,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let hat_cap_d = others_cap_k * &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
             + Ciphertext::new_with_randomizer_signed(target_pk, &-&hat_beta, &hat_s);
 
+        let cap_g = self.all_cap_g.get(&self.context.my_id).ok_or(LocalError::new(format!(
+            "my_id={:?} is missing in all_cap_g",
+            &self.context.my_id
+        )))?;
+
         let rp = &self.context.public_aux(destination)?.rp_params;
 
         let psi = AffGProof::new(
@@ -548,15 +554,16 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let hat_psi_prime = LogStarProof::new(
             rng,
-            &gamma,
-            &self.context.nu,
-            pk,
-            self.all_cap_g.get(&self.context.my_id).ok_or(LocalError::new(format!(
-                "my_id={:?} is missing in all_cap_g",
-                &self.context.my_id
-            )))?,
-            &Point::GENERATOR,
-            &cap_gamma,
+            LogStarSecretInputs {
+                x: &gamma,
+                rho: &self.context.nu,
+            },
+            LogStarPublicInputs {
+                pk0: pk,
+                cap_c: cap_g,
+                g: &Point::GENERATOR,
+                cap_x: &cap_gamma,
+            },
             rp,
             &aux,
         );
@@ -658,10 +665,16 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             )));
         }
 
-        if !direct_message
-            .hat_psi_prime
-            .verify(from_pk, cap_g, &Point::GENERATOR, &direct_message.cap_gamma, rp, &aux)
-        {
+        if !direct_message.hat_psi_prime.verify(
+            LogStarPublicInputs {
+                pk0: from_pk,
+                cap_c: cap_g,
+                g: &Point::GENERATOR,
+                cap_x: &direct_message.cap_gamma,
+            },
+            rp,
+            &aux,
+        ) {
             return Err(ReceiveError::protocol(InteractiveSigningError::Round2(
                 "Failed to verify LogStarProof".into(),
             )));
@@ -803,17 +816,23 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let rp = &self.public_aux(destination)?.rp_params;
 
+        let cap_k = self.all_cap_k.get(&self.context.my_id).ok_or(LocalError::new(format!(
+            "my_id={:?} is missing in all_cap_k",
+            &self.context.my_id
+        )))?;
+
         let psi_pprime = LogStarProof::new(
             rng,
-            &secret_signed_from_scalar::<P>(&self.context.k),
-            &self.context.rho,
-            pk,
-            self.all_cap_k.get(&self.context.my_id).ok_or(LocalError::new(format!(
-                "my_id={:?} is missing in all_cap_k",
-                &self.context.my_id
-            )))?,
-            &self.cap_gamma,
-            &self.cap_delta,
+            LogStarSecretInputs {
+                x: &secret_signed_from_scalar::<P>(&self.context.k),
+                rho: &self.context.rho,
+            },
+            LogStarPublicInputs {
+                pk0: pk,
+                cap_c: cap_k,
+                g: &self.cap_gamma,
+                cap_x: &self.cap_delta,
+            },
             rp,
             &aux,
         );
@@ -846,15 +865,20 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         let aux = (&self.context.ssid_hash, &from);
         let from_pk = &self.public_aux(from)?.paillier_pk;
 
+        let others_cap_k = self
+            .all_cap_k
+            .get(from)
+            .ok_or(LocalError::new("from={from:?} is missing in all_cap_k"))?;
+
         let rp = &self.public_aux(&self.context.my_id)?.rp_params;
 
         if !direct_message.psi_pprime.verify(
-            from_pk,
-            self.all_cap_k
-                .get(from)
-                .ok_or(LocalError::new("from={from:?} is missing in all_cap_k"))?,
-            &self.cap_gamma,
-            &direct_message.cap_delta,
+            LogStarPublicInputs {
+                pk0: from_pk,
+                cap_c: others_cap_k,
+                g: &self.cap_gamma,
+                cap_x: &direct_message.cap_delta,
+            },
             rp,
             &aux,
         ) {
