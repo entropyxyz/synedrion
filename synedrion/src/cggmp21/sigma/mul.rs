@@ -67,7 +67,7 @@ impl<P: SchemeParams> MulProof<P> {
         let s = Randomizer::random(rng, public.pk);
 
         let cap_a = (public.cap_y * &alpha).mul_randomizer(&r).to_wire();
-        let cap_b = Ciphertext::new_with_randomizer(public.pk, &alpha, &s).to_wire();
+        let cap_b = Ciphertext::new_with_randomizer_unsigned(public.pk, &alpha, &s).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -167,13 +167,13 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let x = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
-        let y = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
+        let x = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
+        let y = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
         let rho_x = Randomizer::random(&mut OsRng, pk);
         let rho = Randomizer::random(&mut OsRng, pk);
 
-        let cap_x = Ciphertext::new_with_randomizer_signed(pk, &x, &rho_x);
-        let cap_y = Ciphertext::new_signed(&mut OsRng, pk, &y);
+        let cap_x = Ciphertext::new_with_randomizer(pk, &x, &rho_x);
+        let cap_y = Ciphertext::new(&mut OsRng, pk, &y);
         let cap_c = (&cap_y * &x).mul_randomizer(&rho);
 
         let proof = MulProof::<Params>::new(
