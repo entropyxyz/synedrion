@@ -23,7 +23,11 @@ use super::{
     },
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues, PublicAuxInfoPrecomputed},
     params::SchemeParams,
-    sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof, MulStarProof},
+    sigma::{
+        AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, EncProof,
+        EncPublicInputs, EncSecretInputs, LogStarProof, LogStarPublicInputs, LogStarSecretInputs, MulProof,
+        MulPublicInputs, MulSecretInputs, MulStarProof, MulStarPublicInputs, MulStarSecretInputs,
+    },
 };
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},
@@ -299,10 +303,14 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let aux = (&self.context.ssid_hash, &destination);
         let psi0 = EncProof::new(
             rng,
-            &secret_signed_from_scalar::<P>(&self.context.k),
-            &self.context.rho,
-            self.context.aux_info.secret_aux.paillier_sk.public_key(),
-            &self.cap_k,
+            EncSecretInputs {
+                k: &secret_signed_from_scalar::<P>(&self.context.k),
+                rho: &self.context.rho,
+            },
+            EncPublicInputs {
+                pk0: self.context.aux_info.secret_aux.paillier_sk.public_key(),
+                cap_k: &self.cap_k,
+            },
             &self.public_aux(destination)?.rp_params,
             &aux,
         );
@@ -331,8 +339,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let from_pk = &self.public_aux(from)?.paillier_pk;
 
         if !direct_message.psi0.verify(
-            from_pk,
-            &echo_broadcast.cap_k.to_precomputed(from_pk),
+            EncPublicInputs {
+                pk0: from_pk,
+                cap_k: &echo_broadcast.cap_k.to_precomputed(from_pk),
+            },
             &public_aux.rp_params,
             &aux,
         ) {
@@ -483,71 +493,77 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let gamma = secret_signed_from_scalar::<P>(&self.context.gamma);
         let x = secret_signed_from_scalar::<P>(&self.context.key_share.secret_share);
 
-        let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r);
-        let cap_d = self
+        let others_cap_k = self
             .all_cap_k
             .get(destination)
-            .ok_or(LocalError::new("Missing destination={destination:?} in all_cap_k"))?
-            * &gamma
-            + Ciphertext::new_with_randomizer_signed(target_pk, &-&beta, &s);
+            .ok_or(LocalError::new("destination={destination:?} is missing in all_cap_k"))?;
+
+        let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r);
+        let cap_d = others_cap_k * &gamma + Ciphertext::new_with_randomizer_signed(target_pk, &-&beta, &s);
 
         let hat_cap_f = Ciphertext::new_with_randomizer_signed(pk, &hat_beta, &hat_r);
-        let hat_cap_d = self
-            .all_cap_k
-            .get(destination)
-            .ok_or(LocalError::new("Missing destination={destination:?} in all_cap_k"))?
-            * &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
+        let hat_cap_d = others_cap_k * &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
             + Ciphertext::new_with_randomizer_signed(target_pk, &-&hat_beta, &hat_s);
+
+        let cap_g = self.all_cap_g.get(&self.context.my_id).ok_or(LocalError::new(format!(
+            "my_id={:?} is missing in all_cap_g",
+            &self.context.my_id
+        )))?;
 
         let rp = &self.context.public_aux(destination)?.rp_params;
 
         let psi = AffGProof::new(
             rng,
-            &gamma,
-            &beta,
-            &s,
-            &r,
-            target_pk,
-            pk,
-            self.all_cap_k
-                .get(destination)
-                .ok_or(LocalError::new("destination={destination:?} is missing in all_cap_k"))?,
-            &cap_d,
-            &cap_f,
-            &cap_gamma,
+            AffGSecretInputs {
+                x: &gamma,
+                y: &beta,
+                rho: &s,
+                rho_y: &r,
+            },
+            AffGPublicInputs {
+                pk0: target_pk,
+                pk1: pk,
+                cap_c: others_cap_k,
+                cap_d: &cap_d,
+                cap_y: &cap_f,
+                cap_x: &cap_gamma,
+            },
             rp,
             &aux,
         );
 
         let hat_psi = AffGProof::new(
             rng,
-            &x,
-            &hat_beta,
-            &hat_s,
-            &hat_r,
-            target_pk,
-            pk,
-            self.all_cap_k
-                .get(destination)
-                .ok_or(LocalError::new("destination={destination:?} is missing in all_cap_k"))?,
-            &hat_cap_d,
-            &hat_cap_f,
-            self.context.public_share(&self.context.my_id)?,
+            AffGSecretInputs {
+                x: &x,
+                y: &hat_beta,
+                rho: &hat_s,
+                rho_y: &hat_r,
+            },
+            AffGPublicInputs {
+                pk0: target_pk,
+                pk1: pk,
+                cap_c: others_cap_k,
+                cap_d: &hat_cap_d,
+                cap_y: &hat_cap_f,
+                cap_x: self.context.public_share(&self.context.my_id)?,
+            },
             rp,
             &aux,
         );
 
         let hat_psi_prime = LogStarProof::new(
             rng,
-            &gamma,
-            &self.context.nu,
-            pk,
-            self.all_cap_g.get(&self.context.my_id).ok_or(LocalError::new(format!(
-                "my_id={:?} is missing in all_cap_g",
-                &self.context.my_id
-            )))?,
-            &Point::GENERATOR,
-            &cap_gamma,
+            LogStarSecretInputs {
+                x: &gamma,
+                rho: &self.context.nu,
+            },
+            LogStarPublicInputs {
+                pk0: pk,
+                cap_c: cap_g,
+                g: &Point::GENERATOR,
+                cap_x: &cap_gamma,
+            },
             rp,
             &aux,
         );
@@ -606,15 +622,24 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let cap_d = direct_message.cap_d.to_precomputed(pk);
         let hat_cap_d = direct_message.hat_cap_d.to_precomputed(pk);
 
+        let my_cap_k = self
+            .all_cap_k
+            .get(&self.context.my_id)
+            .ok_or(LocalError::new("my_id={my_id:?} is missing in all_cap_k"))?;
+        let cap_g = self
+            .all_cap_g
+            .get(from)
+            .ok_or(LocalError::new("from={from:?} is missing in all_cap_g"))?;
+
         if !direct_message.psi.verify(
-            pk,
-            from_pk,
-            self.all_cap_k
-                .get(&self.context.my_id)
-                .ok_or(LocalError::new("my_id={my_id:?} is missing in all_cap_k"))?,
-            &cap_d,
-            &direct_message.cap_f.to_precomputed(from_pk),
-            &direct_message.cap_gamma,
+            AffGPublicInputs {
+                pk0: pk,
+                pk1: from_pk,
+                cap_c: my_cap_k,
+                cap_d: &cap_d,
+                cap_y: &direct_message.cap_f.to_precomputed(from_pk),
+                cap_x: &direct_message.cap_gamma,
+            },
             rp,
             &aux,
         ) {
@@ -624,14 +649,14 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         }
 
         if !direct_message.hat_psi.verify(
-            pk,
-            from_pk,
-            self.all_cap_k
-                .get(&self.context.my_id)
-                .ok_or(LocalError::new("my_id={my_id:?} is missing in all_cap_k"))?,
-            &hat_cap_d,
-            &direct_message.hat_cap_f.to_precomputed(from_pk),
-            cap_x,
+            AffGPublicInputs {
+                pk0: pk,
+                pk1: from_pk,
+                cap_c: my_cap_k,
+                cap_d: &hat_cap_d,
+                cap_y: &direct_message.hat_cap_f.to_precomputed(from_pk),
+                cap_x,
+            },
             rp,
             &aux,
         ) {
@@ -641,12 +666,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         }
 
         if !direct_message.hat_psi_prime.verify(
-            from_pk,
-            self.all_cap_g
-                .get(from)
-                .ok_or(LocalError::new("from={from:?} is missing in all_cap_g"))?,
-            &Point::GENERATOR,
-            &direct_message.cap_gamma,
+            LogStarPublicInputs {
+                pk0: from_pk,
+                cap_c: cap_g,
+                g: &Point::GENERATOR,
+                cap_x: &direct_message.cap_gamma,
+            },
             rp,
             &aux,
         ) {
@@ -791,17 +816,23 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let rp = &self.public_aux(destination)?.rp_params;
 
+        let cap_k = self.all_cap_k.get(&self.context.my_id).ok_or(LocalError::new(format!(
+            "my_id={:?} is missing in all_cap_k",
+            &self.context.my_id
+        )))?;
+
         let psi_pprime = LogStarProof::new(
             rng,
-            &secret_signed_from_scalar::<P>(&self.context.k),
-            &self.context.rho,
-            pk,
-            self.all_cap_k.get(&self.context.my_id).ok_or(LocalError::new(format!(
-                "my_id={:?} is missing in all_cap_k",
-                &self.context.my_id
-            )))?,
-            &self.cap_gamma,
-            &self.cap_delta,
+            LogStarSecretInputs {
+                x: &secret_signed_from_scalar::<P>(&self.context.k),
+                rho: &self.context.rho,
+            },
+            LogStarPublicInputs {
+                pk0: pk,
+                cap_c: cap_k,
+                g: &self.cap_gamma,
+                cap_x: &self.cap_delta,
+            },
             rp,
             &aux,
         );
@@ -834,15 +865,20 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         let aux = (&self.context.ssid_hash, &from);
         let from_pk = &self.public_aux(from)?.paillier_pk;
 
+        let others_cap_k = self
+            .all_cap_k
+            .get(from)
+            .ok_or(LocalError::new("from={from:?} is missing in all_cap_k"))?;
+
         let rp = &self.public_aux(&self.context.my_id)?.rp_params;
 
         if !direct_message.psi_pprime.verify(
-            from_pk,
-            self.all_cap_k
-                .get(from)
-                .ok_or(LocalError::new("from={from:?} is missing in all_cap_k"))?,
-            &self.cap_gamma,
-            &direct_message.cap_delta,
+            LogStarPublicInputs {
+                pk0: from_pk,
+                cap_c: others_cap_k,
+                g: &self.cap_gamma,
+                cap_x: &direct_message.cap_delta,
+            },
             rp,
             &aux,
         ) {
@@ -959,27 +995,33 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
-                    &secret_signed_from_scalar::<P>(&self.context.gamma),
-                    beta,
-                    s,
-                    r,
-                    target_pk,
-                    pk,
-                    cap_c,
-                    &r2_artifacts.cap_d,
-                    &r2_artifacts.cap_f,
-                    &cap_gamma,
+                    AffGSecretInputs {
+                        x: &secret_signed_from_scalar::<P>(&self.context.gamma),
+                        y: beta,
+                        rho: s,
+                        rho_y: r,
+                    },
+                    AffGPublicInputs {
+                        pk0: target_pk,
+                        pk1: pk,
+                        cap_c,
+                        cap_d: &r2_artifacts.cap_d,
+                        cap_y: &r2_artifacts.cap_f,
+                        cap_x: &cap_gamma,
+                    },
                     rp,
                     &aux,
                 );
 
                 assert!(p_aff_g.verify(
-                    target_pk,
-                    pk,
-                    cap_c,
-                    &r2_artifacts.cap_d,
-                    &r2_artifacts.cap_f,
-                    &cap_gamma,
+                    AffGPublicInputs {
+                        pk0: target_pk,
+                        pk1: pk,
+                        cap_c,
+                        cap_d: &r2_artifacts.cap_d,
+                        cap_y: &r2_artifacts.cap_f,
+                        cap_x: &cap_gamma
+                    },
                     rp,
                     &aux,
                 ));
@@ -1003,16 +1045,28 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let p_mul = MulProof::<P>::new(
             rng,
-            &secret_signed_from_scalar::<P>(&self.context.k),
-            &self.context.rho,
-            &rho,
-            pk,
-            cap_k,
-            cap_g,
-            &cap_h,
+            MulSecretInputs {
+                x: &secret_signed_from_scalar::<P>(&self.context.k),
+                rho_x: &self.context.rho,
+                rho: &rho,
+            },
+            MulPublicInputs {
+                pk,
+                cap_x: cap_k,
+                cap_y: cap_g,
+                cap_c: &cap_h,
+            },
             &aux,
         );
-        assert!(p_mul.verify(pk, cap_k, cap_g, &cap_h, &aux));
+        assert!(p_mul.verify(
+            MulPublicInputs {
+                pk,
+                cap_x: cap_k,
+                cap_y: cap_g,
+                cap_c: &cap_h
+            },
+            &aux
+        ));
 
         // Dec proof
 
@@ -1036,18 +1090,24 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         for id_j in self.context.other_ids.iter() {
             let p_dec = DecProof::<P>::new(
                 rng,
-                &self.delta,
-                &rho,
-                pk,
-                scalar_delta.expose_secret(),
-                &ciphertext,
+                DecSecretInputs {
+                    y: &self.delta,
+                    rho: &rho,
+                },
+                DecPublicInputs {
+                    pk0: pk,
+                    x: scalar_delta.expose_secret(),
+                    cap_c: &ciphertext,
+                },
                 &self.public_aux(id_j)?.rp_params,
                 &aux,
             );
             assert!(p_dec.verify(
-                pk,
-                scalar_delta.expose_secret(),
-                &ciphertext,
+                DecPublicInputs {
+                    pk0: pk,
+                    x: scalar_delta.expose_secret(),
+                    cap_c: &ciphertext
+                },
                 &self.public_aux(id_j)?.rp_params,
                 &aux
             ));
@@ -1186,27 +1246,33 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
-                    &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share),
-                    &values.hat_beta,
-                    &values.hat_s,
-                    &values.hat_r,
-                    target_pk,
-                    pk,
-                    &values.cap_k,
-                    &values.hat_cap_d,
-                    &values.hat_cap_f,
-                    self.context.public_share(&my_id)?,
+                    AffGSecretInputs {
+                        x: &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share),
+                        y: &values.hat_beta,
+                        rho: &values.hat_s,
+                        rho_y: &values.hat_r,
+                    },
+                    AffGPublicInputs {
+                        pk0: target_pk,
+                        pk1: pk,
+                        cap_c: &values.cap_k,
+                        cap_d: &values.hat_cap_d,
+                        cap_y: &values.hat_cap_f,
+                        cap_x: self.context.public_share(&my_id)?,
+                    },
                     rp,
                     &aux,
                 );
 
                 assert!(p_aff_g.verify(
-                    target_pk,
-                    pk,
-                    &values.cap_k,
-                    &values.hat_cap_d,
-                    &values.hat_cap_f,
-                    self.context.public_share(&my_id)?,
+                    AffGPublicInputs {
+                        pk0: target_pk,
+                        pk1: pk,
+                        cap_c: &values.cap_k,
+                        cap_d: &values.hat_cap_d,
+                        cap_y: &values.hat_cap_f,
+                        cap_x: self.context.public_share(&my_id)?
+                    },
                     rp,
                     &aux,
                 ));
@@ -1231,17 +1297,30 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
             let paux = self.context.public_aux(id_l)?;
             let p_mul = MulStarProof::<P>::new(
                 rng,
-                &secret_signed_from_scalar::<P>(x),
-                &rho,
-                pk,
-                &self.presigning.cap_k,
-                &hat_cap_h,
-                cap_x,
+                MulStarSecretInputs {
+                    x: &secret_signed_from_scalar::<P>(x),
+                    rho: &rho,
+                },
+                MulStarPublicInputs {
+                    pk0: pk,
+                    cap_c: &self.presigning.cap_k,
+                    cap_d: &hat_cap_h,
+                    cap_x,
+                },
                 &paux.rp_params,
                 &aux,
             );
 
-            assert!(p_mul.verify(pk, &self.presigning.cap_k, &hat_cap_h, cap_x, &paux.rp_params, &aux,));
+            assert!(p_mul.verify(
+                MulStarPublicInputs {
+                    pk0: pk,
+                    cap_c: &self.presigning.cap_k,
+                    cap_d: &hat_cap_h,
+                    cap_x
+                },
+                &paux.rp_params,
+                &aux,
+            ));
 
             mul_star_proofs.push((id_l.clone(), p_mul));
         }
@@ -1276,15 +1355,27 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
             let paux = self.context.public_aux(id_l)?;
             let p_dec = DecProof::<P>::new(
                 rng,
-                &s_part_nonreduced,
-                &rho,
-                pk,
-                &self.sigma,
-                &ciphertext,
+                DecSecretInputs {
+                    y: &s_part_nonreduced,
+                    rho: &rho,
+                },
+                DecPublicInputs {
+                    pk0: pk,
+                    x: &self.sigma,
+                    cap_c: &ciphertext,
+                },
                 &paux.rp_params,
                 &aux,
             );
-            assert!(p_dec.verify(pk, &self.sigma, &ciphertext, &paux.rp_params, &aux,));
+            assert!(p_dec.verify(
+                DecPublicInputs {
+                    pk0: pk,
+                    x: &self.sigma,
+                    cap_c: &ciphertext
+                },
+                &paux.rp_params,
+                &aux,
+            ));
             dec_proofs.push((id_l.clone(), p_dec));
         }
 

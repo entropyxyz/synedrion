@@ -19,20 +19,24 @@ use crate::{
 
 const HASH_TAG: &[u8] = b"P_dec";
 
-/**
-ZK proof: Paillier decryption modulo $q$.
+pub(crate) struct DecSecretInputs<'a, P: SchemeParams> {
+    /// $y$ (technically any integer since it will be implicitly reduced modulo $q$ or $\phi(N_0)$,
+    /// but we limit its size to `Uint` since that's what we use in this library).
+    pub y: &'a SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    /// $\rho$, a Paillier randomizer for the public key $N_0$.
+    pub rho: &'a Randomizer<P::Paillier>,
+}
 
-Secret inputs:
-- $y$ (technically any integer since it will be implicitly reduced modulo $q$ or $\phi(N_0)$,
-  but we limit its size to `Uint` since that's what we use in this library),
-- $\rho$, a Paillier randomizer for the public key $N_0$.
+pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
+    /// Paillier public key $N_0$.
+    pub pk0: &'a PublicKeyPaillier<P::Paillier>,
+    /// Scalar $x = y \mod q$, where $q$ is the curve order.
+    pub x: &'a Scalar,
+    /// Paillier ciphertext $C = enc_0(y, \rho)$.
+    pub cap_c: &'a Ciphertext<P::Paillier>,
+}
 
-Public inputs:
-- Paillier public key $N_0$,
-- scalar $x = y \mod q$, where $q$ is the curve order,
-- Paillier ciphertext $C = enc_0(y, \rho)$,
-- Setup parameters ($\hat{N}$, $s$, $t$).
-*/
+/// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
     e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
@@ -46,29 +50,25 @@ pub(crate) struct DecProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> DecProof<P> {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        y: &SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-        rho: &Randomizer<P::Paillier>,
-        pk0: &PublicKeyPaillier<P::Paillier>,
-        x: &Scalar,
-        cap_c: &Ciphertext<P::Paillier>,
+        secret: DecSecretInputs<'_, P>,
+        public: DecPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        assert_eq!(cap_c.public_key(), pk0);
+        assert_eq!(public.cap_c.public_key(), public.pk0);
 
         let hat_cap_n = setup.modulus(); // $\hat{N}$
 
         let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
         let nu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let r = Randomizer::random(rng, pk0);
+        let r = Randomizer::random(rng, public.pk0);
 
-        let cap_s = setup.commit(y, &mu).to_wire();
+        let cap_s = setup.commit(secret.y, &mu).to_wire();
         let cap_t = setup.commit(&alpha, &nu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(pk0, &alpha, &r).to_wire();
+        let cap_a = Ciphertext::new_with_randomizer_signed(public.pk0, &alpha, &r).to_wire();
 
         // `alpha` is secret, but `gamma` only uncovers $\ell$ bits of `alpha`'s full $\ell + \eps$ bits,
         // and it's transmitted to another node, so it can be considered public.
@@ -84,9 +84,9 @@ impl<P: SchemeParams> DecProof<P> {
             .chain(&cap_a)
             .chain(&gamma)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(x)
-            .chain(&cap_c.to_wire())
+            .chain(public.pk0.as_wire())
+            .chain(public.x)
+            .chain(&public.cap_c.to_wire())
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
@@ -94,10 +94,10 @@ impl<P: SchemeParams> DecProof<P> {
         // Non-interactive challenge
         let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
 
-        let z1 = (alpha.to_wide() + y.mul_wide(&e)).to_public();
+        let z1 = (alpha.to_wide() + secret.y.mul_wide(&e)).to_public();
         let z2 = (nu + mu * e.to_wide()).to_public();
 
-        let omega = rho.to_masked(&r, &e);
+        let omega = secret.rho.to_masked(&r, &e);
 
         Self {
             e,
@@ -111,15 +111,8 @@ impl<P: SchemeParams> DecProof<P> {
         }
     }
 
-    pub fn verify(
-        &self,
-        pk0: &PublicKeyPaillier<P::Paillier>,
-        x: &Scalar,
-        cap_c: &Ciphertext<P::Paillier>,
-        setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
-    ) -> bool {
-        assert_eq!(cap_c.public_key(), pk0);
+    pub fn verify(&self, public: DecPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
+        assert_eq!(public.cap_c.public_key(), public.pk0);
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -128,9 +121,9 @@ impl<P: SchemeParams> DecProof<P> {
             .chain(&self.cap_a)
             .chain(&self.gamma)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(x)
-            .chain(&cap_c.to_wire())
+            .chain(public.pk0.as_wire())
+            .chain(public.x)
+            .chain(&public.cap_c.to_wire())
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
@@ -143,14 +136,14 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // enc(z_1, \omega) == A (+) C (*) e
-        if Ciphertext::new_public_with_randomizer_wide(pk0, &self.z1, &self.omega)
-            != self.cap_a.to_precomputed(pk0) + cap_c * &e
+        if Ciphertext::new_public_with_randomizer_wide(public.pk0, &self.z1, &self.omega)
+            != self.cap_a.to_precomputed(public.pk0) + public.cap_c * &e
         {
             return false;
         }
 
         // z_1 == \gamma + e x \mod q
-        if scalar_from_wide_signed::<P>(&self.z1) != self.gamma + scalar_from_signed::<P>(&e) * *x {
+        if scalar_from_wide_signed::<P>(&self.z1) != self.gamma + scalar_from_signed::<P>(&e) * *public.x {
             return false;
         }
 
@@ -169,7 +162,7 @@ impl<P: SchemeParams> DecProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::DecProof;
+    use super::{DecProof, DecPublicInputs, DecSecretInputs};
     use crate::{
         cggmp21::{conversion::secret_scalar_from_signed, SchemeParams, TestParams},
         paillier::{Ciphertext, PaillierParams, RPParams, Randomizer, SecretKeyPaillierWire},
@@ -195,7 +188,25 @@ mod tests {
         let rho = Randomizer::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho);
 
-        let proof = DecProof::<Params>::new(&mut OsRng, &y, &rho, pk, &x, &cap_c, &setup, &aux);
-        assert!(proof.verify(pk, &x, &cap_c, &setup, &aux));
+        let proof = DecProof::<Params>::new(
+            &mut OsRng,
+            DecSecretInputs { y: &y, rho: &rho },
+            DecPublicInputs {
+                pk0: pk,
+                x: &x,
+                cap_c: &cap_c,
+            },
+            &setup,
+            &aux,
+        );
+        assert!(proof.verify(
+            DecPublicInputs {
+                pk0: pk,
+                x: &x,
+                cap_c: &cap_c
+            },
+            &setup,
+            &aux
+        ));
     }
 }
