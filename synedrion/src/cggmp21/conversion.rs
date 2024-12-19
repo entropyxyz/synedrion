@@ -1,11 +1,11 @@
-use crypto_bigint::{Encoding, Zero};
+use crypto_bigint::{BitOps, Encoding, Zero};
 
 use super::params::SchemeParams;
 use crate::{
     curve::{Scalar, ORDER},
     paillier::PaillierParams,
     tools::Secret,
-    uint::{PublicSigned, SecretSigned, SecretUnsigned},
+    uint::{PublicSigned, SecretSigned},
 };
 
 fn uint_from_scalar<P: SchemeParams>(value: &Scalar) -> <P::Paillier as PaillierParams>::Uint {
@@ -93,9 +93,7 @@ pub(crate) fn scalar_from_wide_signed<P: SchemeParams>(
 }
 
 /// Converts a secret-wrapped uint to a secret-wrapped [`Scalar`], reducing the value modulo curve order.
-pub(crate) fn secret_scalar_from_uint<P: SchemeParams>(
-    value: &Secret<<P::Paillier as PaillierParams>::Uint>,
-) -> Secret<Scalar> {
+fn secret_scalar_from_uint<P: SchemeParams>(value: &Secret<<P::Paillier as PaillierParams>::Uint>) -> Secret<Scalar> {
     let r = value % &P::CURVE_ORDER;
 
     let repr = Secret::init_with(|| r.expose_secret().to_be_bytes());
@@ -130,25 +128,18 @@ fn secret_uint_from_scalar<P: SchemeParams>(value: &Secret<Scalar>) -> Secret<<P
     Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::from_be_bytes(*repr.expose_secret()))
 }
 
-/// Converts a secret-wrapped [`Scalar`] to a [`SecretUnsigned`].
-///
-/// Assumes using a curve whose order fits in a [`PaillierParams::Uint`].
-pub(crate) fn secret_unsigned_from_scalar<P: SchemeParams>(
-    value: &Secret<Scalar>,
-) -> SecretUnsigned<<P::Paillier as PaillierParams>::Uint> {
-    SecretUnsigned::new(secret_uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
-        "a curve scalar value is smaller than the curve order, ",
-        "and the curve order fits in `PaillierParams::Uint`"
-    ])
-}
-
 /// Converts a secret-wrapped [`Scalar`] to a [`SecretSigned`].
 ///
 /// Assumes using a curve whose order is at most the width of `Uint` minus 1 bit.
 pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar>,
 ) -> SecretSigned<<P::Paillier as PaillierParams>::Uint> {
-    SecretSigned::new_positive(secret_uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
+    SecretSigned::new_modulo(
+        secret_uint_from_scalar::<P>(value),
+        &P::CURVE_ORDER,
+        P::CURVE_ORDER.as_ref().bits_vartime(),
+    )
+    .expect(concat![
         "a curve scalar value is smaller than the curve order, ",
         "and the curve order fits in `PaillierParams::Uint`"
     ])

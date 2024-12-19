@@ -20,7 +20,7 @@ The randomness derivation (`\mu` in Output, step 1, in Fig. 6) is overly complic
 
 In `П^{fac}` (Fig. 28), step 2: `q` the curve order, not to be confused with `q` the RSA prime in the Inputs.
 
-In `П^{aff-g}` (Fig. 15) I had to modify the proof to account for how `D` is actually constructed in the Presigning protocol. In the proof it is assumed that `D = C (*) x (+) enc(y)` (where `(*)` and `(+)` are homomorphic operations on Paillier ciphertexts), but in the Presigning it's actually `D = C (*) x (+) enc(-y)` (see Fig. 7, Round 2, step 2). So I had to modify the following:
+In `П^{aff-g}` (Fig. 25) I had to modify the proof to account for how `D` is actually constructed in the Presigning protocol. In the proof it is assumed that `D = C (*) x (+) enc(y)` (where `(*)` and `(+)` are homomorphic operations on Paillier ciphertexts), but in the Presigning it's actually `D = C (*) x (+) enc(-y)` (see Fig. 8, Round 2, step 2). So I had to modify the following:
 - (prover) `T = s^{-y} t^\mu \mod \hat{N}`
 - (prover) `z_2 = \beta - e y`
 - (prover) `\omega_y = r_y \rho_y^{-e} \mod N_1`
