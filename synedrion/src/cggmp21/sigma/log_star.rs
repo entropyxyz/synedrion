@@ -63,13 +63,13 @@ impl<P: SchemeParams> LogStarProof<P> {
 
         let hat_cap_n = setup.modulus(); // $\hat{N}$
 
-        let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
-        let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let alpha = SecretSigned::random_in_exponent_range(rng, P::L_BOUND + P::EPS_BOUND);
+        let mu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
         let r = Randomizer::random(rng, public.pk0);
-        let gamma = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let gamma = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(secret.x, &mu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(public.pk0, &alpha, &r).to_wire();
+        let cap_a = Ciphertext::new_with_randomizer(public.pk0, &alpha, &r).to_wire();
         let cap_y = public.g * secret_scalar_from_signed::<P>(&alpha);
         let cap_d = setup.commit(&alpha, &gamma).to_wire();
 
@@ -144,7 +144,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // enc_0(z1, z2) == A (+) C (*) e
-        let c = Ciphertext::new_public_with_randomizer_signed(public.pk0, &self.z1, &self.z2);
+        let c = Ciphertext::new_public_with_randomizer(public.pk0, &self.z1, &self.z2);
         if c != self.cap_a.to_precomputed(public.pk0) + public.cap_c * &e {
             return false;
         }
@@ -190,9 +190,9 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let g = Point::GENERATOR * Scalar::random(&mut OsRng);
-        let x = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
+        let x = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
         let rho = Randomizer::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho);
+        let cap_c = Ciphertext::new_with_randomizer(pk, &x, &rho);
         let cap_x = g * secret_scalar_from_signed::<Params>(&x);
 
         let proof = LogStarProof::<Params>::new(
