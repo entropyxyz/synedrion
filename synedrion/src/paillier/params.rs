@@ -3,18 +3,22 @@ use core::ops::RemAssign;
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, ConstantTimeGreater, CtOption},
-    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, NonZero, RandomMod,
+    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, NonZero, PowBoundedExp, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-#[cfg(test)]
-use crate::uint::{U1024Mod, U2048Mod, U512Mod, U1024, U2048, U4096, U512};
 use crate::{
     tools::hashing::Hashable,
-    uint::{Exponentiable, HasWide, ToMontgomery},
+    uint::{HasWide, ToMontgomery},
 };
+
+#[cfg(test)]
+use crypto_bigint::{U1024, U2048, U4096, U512};
+
+#[cfg(test)]
+use crate::uint::{U1024Mod, U2048Mod, U512Mod};
 
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.
@@ -61,7 +65,9 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
 
     /// A modulo-residue counterpart of `Uint`.
     type UintMod: ConditionallySelectable
-        + Exponentiable<Self::Uint>
+        + PowBoundedExp<Self::Uint>
+        + PowBoundedExp<Self::WideUint>
+        + PowBoundedExp<Self::ExtraWideUint>
         + Monty<Integer = Self::Uint>
         + Retrieve<Output = Self::Uint>
         + Invert<Output = CtOption<Self::UintMod>>
@@ -83,7 +89,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
 
     /// A modulo-residue counterpart of `WideUint`.
     type WideUintMod: Monty<Integer = Self::WideUint>
-        + Exponentiable<Self::WideUint>
+        + PowBoundedExp<Self::Uint>
+        + PowBoundedExp<Self::WideUint>
         + ConditionallyNegatable
         + ConditionallySelectable
         + Invert<Output = CtOption<Self::WideUintMod>>

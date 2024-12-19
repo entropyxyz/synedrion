@@ -8,6 +8,7 @@
 //! refers to the version of the paper published at <https://eprint.iacr.org/2021/060.pdf>
 
 mod aux_gen;
+mod conversion;
 mod entities;
 mod interactive_signing;
 mod key_init;

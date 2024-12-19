@@ -1,7 +1,7 @@
 use alloc::{format, string::String, vec, vec::Vec};
 use core::{
     default::Default,
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    ops::{Add, Mul, Neg, Sub},
 };
 
 use digest::Digest;
@@ -260,90 +260,88 @@ impl Neg for Scalar {
 impl Add<Scalar> for Scalar {
     type Output = Scalar;
 
-    fn add(self, other: Scalar) -> Scalar {
-        Scalar(self.0.add(&other.0))
+    fn add(self, rhs: Scalar) -> Scalar {
+        Scalar(self.0.add(&rhs.0))
     }
 }
 
 impl Add<&Scalar> for &Scalar {
     type Output = Scalar;
 
-    fn add(self, other: &Scalar) -> Scalar {
-        Scalar(self.0.add(&other.0))
+    fn add(self, rhs: &Scalar) -> Scalar {
+        Scalar(self.0.add(&rhs.0))
     }
 }
 
-impl AddAssign<&Scalar> for Scalar {
-    fn add_assign(&mut self, other: &Scalar) {
-        self.0.add_assign(&other.0)
+impl Add<&Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn add(self, rhs: &Scalar) -> Scalar {
+        Scalar(self.0.add(&rhs.0))
     }
 }
 
 impl Add<Point> for Point {
     type Output = Point;
 
-    fn add(self, other: Point) -> Point {
-        Point(self.0.add(&(other.0)))
+    fn add(self, rhs: Point) -> Point {
+        Point(self.0.add(&(rhs.0)))
     }
 }
 
 impl Sub<Scalar> for Scalar {
     type Output = Scalar;
 
-    fn sub(self, other: Scalar) -> Scalar {
-        Scalar(self.0.sub(&(other.0)))
+    fn sub(self, rhs: Scalar) -> Scalar {
+        Scalar(self.0.sub(&(rhs.0)))
     }
 }
 
-impl SubAssign<&Scalar> for Scalar {
-    fn sub_assign(&mut self, other: &Scalar) {
-        self.0.sub_assign(&other.0)
+impl Sub<&Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn sub(self, rhs: &Scalar) -> Scalar {
+        Scalar(self.0.sub(&(rhs.0)))
     }
 }
 
 impl Mul<Scalar> for Point {
     type Output = Point;
 
-    fn mul(self, other: Scalar) -> Point {
-        Point(self.0.mul(&(other.0)))
+    fn mul(self, rhs: Scalar) -> Point {
+        Point(self.0.mul(&(rhs.0)))
     }
 }
 
 impl Mul<&Scalar> for Point {
     type Output = Point;
 
-    fn mul(self, other: &Scalar) -> Point {
-        Point(self.0.mul(&(other.0)))
+    fn mul(self, rhs: &Scalar) -> Point {
+        Point(self.0.mul(&(rhs.0)))
     }
 }
 
 impl Mul<&Scalar> for &Point {
     type Output = Point;
 
-    fn mul(self, other: &Scalar) -> Point {
-        Point(self.0.mul(&(other.0)))
+    fn mul(self, rhs: &Scalar) -> Point {
+        Point(self.0.mul(&(rhs.0)))
     }
 }
 
 impl Mul<Scalar> for Scalar {
     type Output = Scalar;
 
-    fn mul(self, other: Scalar) -> Scalar {
-        Scalar(self.0.mul(&(other.0)))
+    fn mul(self, rhs: Scalar) -> Scalar {
+        Scalar(self.0.mul(&(rhs.0)))
     }
 }
 
 impl Mul<&Scalar> for Scalar {
     type Output = Scalar;
 
-    fn mul(self, other: &Scalar) -> Scalar {
-        Scalar(self.0.mul(&(other.0)))
-    }
-}
-
-impl MulAssign<&Scalar> for Scalar {
-    fn mul_assign(&mut self, other: &Scalar) {
-        self.0.mul_assign(&other.0)
+    fn mul(self, rhs: &Scalar) -> Scalar {
+        Scalar(self.0.mul(&(rhs.0)))
     }
 }
 

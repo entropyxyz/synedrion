@@ -18,7 +18,7 @@ use crate::{
         SecretKeyPaillier, SecretKeyPaillierWire,
     },
     tools::Secret,
-    uint::Signed,
+    uint::SecretSigned,
 };
 
 /// The result of the KeyInit protocol.
@@ -103,7 +103,7 @@ pub(crate) struct PresigningData<P: SchemeParams, I> {
 
     // Values generated during presigning,
     // kept in case we need to generate a proof of correctness.
-    pub(crate) product_share_nonreduced: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    pub(crate) product_share_nonreduced: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
 
     // $K_i$.
     pub(crate) cap_k: Ciphertext<P::Paillier>,
@@ -114,7 +114,7 @@ pub(crate) struct PresigningData<P: SchemeParams, I> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PresigningValues<P: SchemeParams> {
-    pub(crate) hat_beta: Secret<Signed<<P::Paillier as PaillierParams>::Uint>>,
+    pub(crate) hat_beta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     pub(crate) hat_r: Randomizer<P::Paillier>,
     pub(crate) hat_s: Randomizer<P::Paillier>,
     pub(crate) cap_k: Ciphertext<P::Paillier>,

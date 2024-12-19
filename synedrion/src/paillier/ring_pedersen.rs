@@ -1,7 +1,7 @@
 /// Implements the Definition 3.3 from the CGGMP'21 paper and related operations.
 use core::ops::Mul;
 
-use crypto_bigint::{Monty, NonZero, RandomMod, ShrVartime};
+use crypto_bigint::{modular::Retrieve, Monty, NonZero, RandomMod, ShrVartime};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -11,14 +11,14 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Bounded, Exponentiable, Retrieve, Signed, ToMontgomery},
+    uint::{Exponentiable, SecretUnsigned, ToMontgomery},
 };
 
 /// Ring-Pedersen secret.
 #[derive(Debug, Clone)]
 pub(crate) struct RPSecret<P: PaillierParams> {
     primes: SecretPrimes<P>,
-    lambda: Secret<Bounded<P::Uint>>,
+    lambda: SecretUnsigned<P::Uint>,
 }
 
 impl<P: PaillierParams> RPSecret<P> {
@@ -29,19 +29,20 @@ impl<P: PaillierParams> RPSecret<P> {
             NonZero::new(primes.totient().expose_secret().wrapping_shr_vartime(2))
                 .expect("totient / 4 is still non-zero because p, q >= 5")
         });
-        let lambda = Secret::init_with(|| {
-            Bounded::new(P::Uint::random_mod(rng, bound.expose_secret()), P::MODULUS_BITS - 2)
-                .expect("totient < N < 2^MODULUS_BITS, so totient / 4 < 2^(MODULUS_BITS - 2)")
-        });
+        let lambda = SecretUnsigned::new(
+            Secret::init_with(|| P::Uint::random_mod(rng, bound.expose_secret())),
+            P::MODULUS_BITS - 2,
+        )
+        .expect("totient < N < 2^MODULUS_BITS, so totient / 4 < 2^(MODULUS_BITS - 2)");
 
         Self { primes, lambda }
     }
 
-    pub fn lambda(&self) -> &Secret<Bounded<P::Uint>> {
+    pub fn lambda(&self) -> &SecretUnsigned<P::Uint> {
         &self.lambda
     }
 
-    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> Bounded<P::Uint> {
+    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> SecretUnsigned<P::Uint> {
         self.primes.random_residue_mod_totient(rng)
     }
 
@@ -78,7 +79,7 @@ impl<P: PaillierParams> RPParams<P> {
         let modulus = secret.primes.modulus_wire().into_precomputed();
 
         let base_randomizer = modulus.random_quadratic_residue(rng); // $t$
-        let base_value = base_randomizer.pow_bounded(secret.lambda.expose_secret()); // $s$
+        let base_value = base_randomizer.pow(&secret.lambda); // $s$
 
         Self {
             modulus,
@@ -99,61 +100,24 @@ impl<P: PaillierParams> RPParams<P> {
         self.modulus.modulus()
     }
 
-    pub fn modulus_bounded(&self) -> Bounded<P::Uint> {
-        self.modulus.modulus_bounded()
-    }
-
     pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
         self.modulus.monty_params_mod_n()
     }
 
     /// Creates a commitment for a secret `value` with a secret `randomizer`.
-    pub fn commit(&self, value: &Secret<Signed<P::Uint>>, randomizer: &Secret<Signed<P::WideUint>>) -> RPCommitment<P> {
-        RPCommitment(
-            self.base_value.pow_signed(value.expose_secret())
-                * self.base_randomizer.pow_signed_wide(randomizer.expose_secret()),
-        )
-    }
-
-    /// Creates a commitment for a secret `value` with a secret `randomizer`.
-    pub fn commit_wide(
-        &self,
-        value: &Secret<Signed<P::WideUint>>,
-        randomizer: &Secret<Signed<P::WideUint>>,
-    ) -> RPCommitment<P> {
-        RPCommitment(
-            self.base_value.pow_signed_wide(value.expose_secret())
-                * self.base_randomizer.pow_signed_wide(randomizer.expose_secret()),
-        )
+    pub fn commit<V, R>(&self, value: &V, randomizer: &R) -> RPCommitment<P>
+    where
+        P::UintMod: Exponentiable<V> + Exponentiable<R>,
+    {
+        RPCommitment(self.base_value.pow(value) * self.base_randomizer.pow(randomizer))
     }
 
     /// Creates a commitment for a secret `randomizer` and the value 0.
-    pub fn commit_zero_xwide(&self, randomizer: &Secret<Signed<P::ExtraWideUint>>) -> RPCommitment<P> {
-        RPCommitment(self.base_randomizer.pow_signed_extra_wide(randomizer.expose_secret()))
-    }
-
-    /// Creates a commitment for a public `value` with a public `randomizer`.
-    pub fn commit_public(&self, value: &Signed<P::Uint>, randomizer: &Signed<P::WideUint>) -> RPCommitment<P> {
-        RPCommitment(self.base_value.pow_signed(value) * self.base_randomizer.pow_signed_wide(randomizer))
-    }
-
-    /// Creates a commitment for a public `value` with a public `randomizer`.
-    pub fn commit_public_wide(&self, value: &Signed<P::WideUint>, randomizer: &Signed<P::WideUint>) -> RPCommitment<P> {
-        RPCommitment(self.base_value.pow_signed_wide(value) * self.base_randomizer.pow_signed_wide(randomizer))
-    }
-
-    /// Creates a commitment for a public `value` with a public `randomizer`.
-    pub fn commit_public_xwide(
-        &self,
-        value: &Bounded<P::Uint>,
-        randomizer: &Signed<P::ExtraWideUint>,
-    ) -> RPCommitment<P> {
-        RPCommitment(self.base_value.pow_bounded(value) * self.base_randomizer.pow_signed_extra_wide(randomizer))
-    }
-
-    /// Creates a commitment for a public `randomizer` and the value 0.
-    pub fn commit_public_base_xwide(&self, randomizer: &Signed<P::ExtraWideUint>) -> RPCommitment<P> {
-        RPCommitment(self.base_randomizer.pow_signed_extra_wide(randomizer))
+    pub fn commit_zero<R>(&self, randomizer: &R) -> RPCommitment<P>
+    where
+        P::UintMod: Exponentiable<R>,
+    {
+        RPCommitment(self.base_randomizer.pow(randomizer))
     }
 
     pub fn to_wire(&self) -> RPParamsWire<P> {
@@ -201,22 +165,11 @@ impl<P: PaillierParams> RPCommitment<P> {
     }
 
     /// Raise to the power of `exponent`.
-    ///
-    /// Note: this is variable time in `exponent`.
-    pub fn pow_signed_vartime(&self, exponent: &Signed<P::Uint>) -> Self {
-        Self(self.0.pow_signed_vartime(exponent))
-    }
-
-    /// Raise to the power of `exponent`.
-    ///
-    /// Note: this is variable time in `exponent`.
-    pub fn pow_signed_wide_vartime(&self, exponent: &Signed<P::WideUint>) -> Self {
-        Self(self.0.pow_signed_wide_vartime(exponent))
-    }
-
-    /// Raise to the power of `exponent`.
-    pub fn pow_signed_wide(&self, exponent: &Secret<Signed<P::WideUint>>) -> Self {
-        Self(self.0.pow_signed_wide(exponent.expose_secret()))
+    pub fn pow<V>(&self, exponent: &V) -> Self
+    where
+        P::UintMod: Exponentiable<V>,
+    {
+        Self(self.0.pow(exponent))
     }
 }
 

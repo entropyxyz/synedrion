@@ -1,12 +1,12 @@
 use core::{
     fmt::Debug,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, Neg, Rem, RemAssign, Sub},
 };
 
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    Encoding, Integer, Monty, NonZero,
+    Integer, Monty, NonZero, WrappingAdd, WrappingMul, WrappingNeg, WrappingSub,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -14,7 +14,7 @@ use zeroize::Zeroize;
 
 use crate::{
     curve::{Point, Scalar},
-    uint::{Bounded, Exponentiable, HasWide, Signed},
+    uint::{Exponentiable, HasWide},
 };
 
 /// A helper wrapper for managing secret values.
@@ -49,12 +49,6 @@ impl<T: Zeroize + Clone> Secret<T> {
     }
 }
 
-impl<T: Zeroize + Clone + Default> Default for Secret<T> {
-    fn default() -> Self {
-        Self::init_with(|| T::default())
-    }
-}
-
 impl<T: Zeroize + Clone> Clone for Secret<T> {
     fn clone(&self) -> Self {
         Self::init_with(|| self.0.expose_secret().clone())
@@ -79,6 +73,37 @@ impl<T: Zeroize> Debug for Secret<T> {
     }
 }
 
+impl<T: Zeroize + Clone + Neg<Output = T>> Neg for &Secret<T> {
+    type Output = Secret<T>;
+    fn neg(self) -> Self::Output {
+        Secret::init_with(|| self.expose_secret().clone().neg())
+    }
+}
+
+impl<T: Zeroize + Clone + WrappingNeg> WrappingNeg for Secret<T> {
+    fn wrapping_neg(&self) -> Self {
+        Secret::init_with(|| self.expose_secret().wrapping_neg())
+    }
+}
+
+impl<T: Zeroize + Clone + WrappingAdd + for<'a> Add<&'a T, Output = T>> WrappingAdd for Secret<T> {
+    fn wrapping_add(&self, rhs: &Self) -> Self {
+        Secret::init_with(|| self.expose_secret().wrapping_add(rhs.expose_secret()))
+    }
+}
+
+impl<T: Zeroize + Clone + WrappingSub + for<'a> Sub<&'a T, Output = T>> WrappingSub for Secret<T> {
+    fn wrapping_sub(&self, rhs: &Self) -> Self {
+        Secret::init_with(|| self.expose_secret().wrapping_sub(rhs.expose_secret()))
+    }
+}
+
+impl<T: Zeroize + Clone + WrappingMul + for<'a> Mul<&'a T, Output = T>> WrappingMul for Secret<T> {
+    fn wrapping_mul(&self, rhs: &Self) -> Self {
+        Secret::init_with(|| self.expose_secret().wrapping_mul(rhs.expose_secret()))
+    }
+}
+
 impl<T> Secret<T>
 where
     T: Zeroize + Clone + HasWide,
@@ -87,205 +112,140 @@ where
     pub fn to_wide(&self) -> Secret<<T as HasWide>::Wide> {
         Secret::init_with(|| self.expose_secret().to_wide())
     }
-
-    pub fn mul_wide(&self, rhs: &T) -> Secret<T::Wide> {
-        Secret::init_with(|| self.expose_secret().mul_wide(rhs))
-    }
-}
-
-impl<T> Secret<Signed<T>>
-where
-    T: Zeroize + Clone + Encoding + Integer + HasWide + ConditionallySelectable + crypto_bigint::Bounded,
-    T::Wide: ConditionallySelectable + crypto_bigint::Bounded + Zeroize,
-{
-    pub fn to_wide(&self) -> Secret<Signed<<T as HasWide>::Wide>> {
-        Secret::init_with(|| self.expose_secret().to_wide())
-    }
-
-    pub fn mul_wide(&self, rhs: &Signed<T>) -> Secret<Signed<T::Wide>> {
-        Secret::init_with(|| self.expose_secret().mul_wide(rhs))
-    }
-}
-
-impl<T> Secret<Bounded<T>>
-where
-    T: Zeroize + Clone + Encoding + Integer + HasWide + crypto_bigint::Bounded,
-    T::Wide: crypto_bigint::Bounded + Zeroize,
-{
-    pub fn to_wide(&self) -> Secret<Bounded<<T as HasWide>::Wide>> {
-        Secret::init_with(|| self.expose_secret().to_wide())
-    }
-
-    pub fn to_signed(&self) -> Option<Secret<Signed<T>>> {
-        Secret::maybe_init_with(|| self.expose_secret().clone().into_signed())
-    }
 }
 
 // Addition
 
-impl<'a, T: Zeroize + AddAssign<&'a T>> AddAssign<&'a T> for Secret<T> {
-    fn add_assign(&mut self, other: &'a T) {
-        self.expose_secret_mut().add_assign(other);
+impl<T: Zeroize + Clone + for<'a> Add<&'a T, Output = T>> AddAssign<Secret<T>> for Secret<T> {
+    fn add_assign(&mut self, rhs: Secret<T>) {
+        // Can be done without reallocation when Integer is bound on AddAssign.
+        // See https://github.com/RustCrypto/crypto-bigint/pull/716
+        *self = &*self + &rhs
     }
 }
 
-impl<'a, T: Zeroize + AddAssign<&'a T>> AddAssign<&'a Secret<T>> for Secret<T> {
-    fn add_assign(&mut self, other: &'a Secret<T>) {
-        self.add_assign(other.expose_secret());
-    }
-}
-
-impl<'a, T: Zeroize + AddAssign<&'a T>> Add<&'a T> for Secret<T> {
+impl<'a, T: Zeroize + Clone + Add<&'a T, Output = T>> Add<&'a T> for &Secret<T> {
     type Output = Secret<T>;
-
-    fn add(mut self, other: &'a T) -> Self::Output {
-        self += other;
-        self
+    fn add(self, rhs: &'a T) -> Self::Output {
+        Secret::init_with(|| self.expose_secret().clone() + rhs)
     }
 }
 
-impl<T: Zeroize + for<'a> AddAssign<&'a T>> Add<Secret<T>> for Secret<T> {
+impl<'a, T: Zeroize + Clone + Add<&'a T, Output = T>> Add<&'a T> for Secret<T> {
     type Output = Secret<T>;
-
-    fn add(mut self, other: Secret<T>) -> Self::Output {
-        self += &other;
-        self
+    fn add(self, rhs: &'a T) -> Self::Output {
+        &self + rhs
     }
 }
 
-impl<'a, T: Zeroize + AddAssign<&'a T>> Add<&'a Secret<T>> for Secret<T> {
+impl<T: Zeroize + Clone + for<'a> Add<&'a T, Output = T>> Add<Secret<T>> for Secret<T> {
     type Output = Secret<T>;
-
-    fn add(mut self, other: &'a Secret<T>) -> Self::Output {
-        self += other.expose_secret();
-        self
+    fn add(self, rhs: Secret<T>) -> Self::Output {
+        &self + rhs.expose_secret()
     }
 }
 
-impl<T: Zeroize + for<'a> AddAssign<&'a T>> Add<Secret<T>> for &Secret<T> {
+impl<'a, T: Zeroize + Clone + Add<&'a T, Output = T>> Add<&'a Secret<T>> for Secret<T> {
     type Output = Secret<T>;
-
-    fn add(self, other: Secret<T>) -> Self::Output {
-        let mut result = other;
-        result += self;
-        result
+    fn add(self, rhs: &'a Secret<T>) -> Self::Output {
+        &self + rhs.expose_secret()
     }
 }
 
-// Negation
-
-impl<T: Zeroize + Clone + Neg<Output = T>> Neg for &Secret<T> {
+impl<T: Zeroize + Clone + for<'a> Add<&'a T, Output = T>> Add<Secret<T>> for &Secret<T> {
     type Output = Secret<T>;
-    fn neg(self) -> Self::Output {
-        Secret::init_with(|| self.expose_secret().clone().neg())
+    fn add(self, rhs: Secret<T>) -> Self::Output {
+        self + rhs.expose_secret()
+    }
+}
+
+impl<'a, T: Zeroize + Clone + Add<&'a T, Output = T>> Add<&'a Secret<T>> for &Secret<T> {
+    type Output = Secret<T>;
+    fn add(self, rhs: &'a Secret<T>) -> Self::Output {
+        self + rhs.expose_secret()
     }
 }
 
 // Subtraction
 
-impl<'a, T: Zeroize + SubAssign<&'a T>> SubAssign<&'a T> for Secret<T> {
-    fn sub_assign(&mut self, other: &'a T) {
-        self.expose_secret_mut().sub_assign(other);
-    }
-}
-
-impl<'a, T: Zeroize + SubAssign<&'a T>> SubAssign<&'a Secret<T>> for Secret<T> {
-    fn sub_assign(&mut self, other: &'a Secret<T>) {
-        self.sub_assign(other.expose_secret());
-    }
-}
-
-impl<'a, T: Zeroize + SubAssign<&'a T>> Sub<&'a T> for Secret<T> {
+impl<'a, T: Zeroize + Clone + Sub<&'a T, Output = T>> Sub<&'a T> for &Secret<T> {
     type Output = Secret<T>;
-
-    fn sub(mut self, other: &'a T) -> Self::Output {
-        self -= other;
-        self
+    fn sub(self, rhs: &'a T) -> Self::Output {
+        Secret::init_with(|| self.expose_secret().clone() - rhs)
     }
 }
 
-impl<T: Zeroize + for<'a> SubAssign<&'a T>> Sub<Secret<T>> for Secret<T> {
+impl<'a, T: Zeroize + Clone + Sub<&'a T, Output = T>> Sub<&'a T> for Secret<T> {
     type Output = Secret<T>;
+    fn sub(self, rhs: &'a T) -> Self::Output {
+        &self - rhs
+    }
+}
 
-    fn sub(mut self, other: Secret<T>) -> Self::Output {
-        self -= &other;
-        self
+impl<T: Zeroize + Clone + for<'a> Sub<&'a T, Output = T>> Sub<Secret<T>> for Secret<T> {
+    type Output = Secret<T>;
+    fn sub(self, rhs: Secret<T>) -> Self::Output {
+        &self - rhs.expose_secret()
     }
 }
 
 // Multiplication
 
-impl<'a, T: Zeroize + MulAssign<&'a T>> MulAssign<&'a T> for Secret<T> {
-    fn mul_assign(&mut self, other: &'a T) {
-        self.expose_secret_mut().mul_assign(other)
-    }
-}
-
-impl<'a, T: Zeroize + MulAssign<&'a T>> MulAssign<&'a Secret<T>> for Secret<T> {
-    fn mul_assign(&mut self, other: &'a Secret<T>) {
-        self.mul_assign(other.expose_secret())
-    }
-}
-
-impl<'a, T: Zeroize + MulAssign<&'a T>> Mul<&'a T> for Secret<T> {
+impl<'a, T: Zeroize + Clone + Mul<&'a T, Output = T>> Mul<&'a T> for &Secret<T> {
     type Output = Secret<T>;
-
-    fn mul(mut self, other: &'a T) -> Self::Output {
-        self *= other;
-        self
+    fn mul(self, rhs: &'a T) -> Self::Output {
+        Secret::init_with(|| self.expose_secret().clone() * rhs)
     }
 }
 
-impl<T: Zeroize + Clone + for<'a> MulAssign<&'a T>> Mul<T> for Secret<T> {
+impl<T: Zeroize + Clone + for<'a> Mul<&'a T, Output = T>> Mul<T> for &Secret<T> {
     type Output = Secret<T>;
-
-    fn mul(mut self, other: T) -> Self::Output {
-        self *= &other;
-        self
+    fn mul(self, rhs: T) -> Self::Output {
+        Secret::init_with(|| self.expose_secret().clone() * &rhs)
     }
 }
 
-impl<T: Zeroize + Clone + for<'a> MulAssign<&'a T>> Mul<T> for &Secret<T> {
+impl<'a, T: Zeroize + Clone + Mul<&'a T, Output = T>> Mul<&'a T> for Secret<T> {
     type Output = Secret<T>;
-
-    fn mul(self, other: T) -> Self::Output {
-        let mut result: Secret<T> = self.clone();
-        result *= &other;
-        result
+    fn mul(self, rhs: &'a T) -> Self::Output {
+        &self * rhs
     }
 }
 
-impl<T: Zeroize + for<'a> MulAssign<&'a T>> Mul<Secret<T>> for Secret<T> {
+impl<T: Zeroize + Clone + for<'a> Mul<&'a T, Output = T>> Mul<T> for Secret<T> {
     type Output = Secret<T>;
-
-    fn mul(mut self, other: Secret<T>) -> Self::Output {
-        self *= &other;
-        self
+    fn mul(self, rhs: T) -> Self::Output {
+        &self * &rhs
     }
 }
 
-impl<'a, T: Zeroize + MulAssign<&'a T>> Mul<&'a Secret<T>> for Secret<T> {
+impl<T: Zeroize + Clone + for<'a> Mul<&'a T, Output = T>> Mul<Secret<T>> for Secret<T> {
     type Output = Secret<T>;
+    fn mul(self, rhs: Secret<T>) -> Self::Output {
+        &self * rhs.expose_secret()
+    }
+}
 
-    fn mul(mut self, other: &'a Secret<T>) -> Self::Output {
-        self *= other.expose_secret();
-        self
+impl<'a, T: Zeroize + Clone + Mul<&'a T, Output = T>> Mul<&'a Secret<T>> for Secret<T> {
+    type Output = Secret<T>;
+    fn mul(self, rhs: &'a Secret<T>) -> Self::Output {
+        &self * rhs.expose_secret()
     }
 }
 
 // Division
 
 impl<'a, T: Zeroize + DivAssign<&'a NonZero<T>>> DivAssign<&'a NonZero<T>> for Secret<T> {
-    fn div_assign(&mut self, other: &'a NonZero<T>) {
-        self.expose_secret_mut().div_assign(other)
+    fn div_assign(&mut self, rhs: &'a NonZero<T>) {
+        self.expose_secret_mut().div_assign(rhs)
     }
 }
 
 impl<T: Zeroize + for<'a> DivAssign<&'a NonZero<T>>> Div<NonZero<T>> for Secret<T> {
     type Output = Secret<T>;
 
-    fn div(mut self, other: NonZero<T>) -> Self::Output {
-        self /= &other;
+    fn div(mut self, rhs: NonZero<T>) -> Self::Output {
+        self /= &rhs;
         self
     }
 }
@@ -293,32 +253,75 @@ impl<T: Zeroize + for<'a> DivAssign<&'a NonZero<T>>> Div<NonZero<T>> for Secret<
 // Remainder
 
 impl<'a, T: Zeroize + Clone + RemAssign<&'a NonZero<T>>> RemAssign<&'a NonZero<T>> for Secret<T> {
-    fn rem_assign(&mut self, other: &'a NonZero<T>) {
-        self.expose_secret_mut().rem_assign(other)
+    fn rem_assign(&mut self, rhs: &'a NonZero<T>) {
+        self.expose_secret_mut().rem_assign(rhs)
     }
 }
 
 impl<'a, T: Zeroize + Clone + RemAssign<&'a NonZero<T>>> Rem<&'a NonZero<T>> for &Secret<T> {
     type Output = Secret<T>;
 
-    fn rem(self, other: &'a NonZero<T>) -> Self::Output {
+    fn rem(self, rhs: &'a NonZero<T>) -> Self::Output {
         let mut result = self.clone();
-        result %= other;
+        result %= rhs;
         result
     }
 }
 
-// Summation
-
-impl<T: Zeroize + Clone + for<'a> AddAssign<&'a T> + Default> core::iter::Sum for Secret<T> {
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(Add::add).unwrap_or(Secret::<T>::default())
+impl<T: Zeroize + Retrieve<Output: Zeroize + Clone>> Retrieve for Secret<T> {
+    type Output = Secret<T::Output>;
+    fn retrieve(&self) -> Self::Output {
+        Secret::init_with(|| self.expose_secret().retrieve())
     }
 }
 
-impl<'b, T: Zeroize + Clone + for<'a> AddAssign<&'a T> + Default> core::iter::Sum<&'b Secret<T>> for Secret<T> {
-    fn sum<I: Iterator<Item = &'b Secret<T>>>(iter: I) -> Self {
-        iter.fold(Secret::<T>::default(), |accum, x| accum + x)
+impl<T: Zeroize + Clone> Secret<T> {
+    pub fn pow<V>(&self, exponent: &V) -> Self
+    where
+        T: Exponentiable<V>,
+    {
+        // TODO: do we need to implement our own windowed exponentiation to hide the secret?
+        // The exponent will be put in a stack array when it's decomposed with a small radix
+        // for windowed exponentiation. So if it's secret, it's going to leave traces on the stack.
+        // With the multiplication, for example, there's less danger since Uints implement *Assign traits which we use,
+        // so theoretically anything secret will be overwritten.
+        Secret::init_with(|| self.expose_secret().pow(exponent))
+    }
+}
+
+impl<T: Zeroize + Integer<Monty: Zeroize>> Secret<T> {
+    pub fn to_montgomery(&self, params: &<T::Monty as Monty>::Params) -> Secret<T::Monty> {
+        // `self` has to be cloned and passed by value, which means it may be retained on the stack.
+        // Can't help it with the current `Monty::new()` signature.
+        // TODO (#162): `params` is cloned here and can remain on the stack.
+        Secret::init_with(|| <T::Monty as Monty>::new(self.expose_secret().clone(), params.clone()))
+    }
+}
+
+// Can't implement `ConditionallySelectable` itself since it is bounded on `Copy`.
+impl<T: Zeroize + ConditionallySelectable> Secret<T> {
+    pub fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        Secret::init_with(|| T::conditional_select(a.expose_secret(), b.expose_secret(), choice))
+    }
+}
+
+impl<T: Zeroize + ConditionallyNegatable> ConditionallyNegatable for Secret<T> {
+    fn conditional_negate(&mut self, choice: Choice) {
+        self.0.expose_secret_mut().conditional_negate(choice)
+    }
+}
+
+// Scalar-specific impls
+
+impl core::iter::Sum<Secret<Scalar>> for Secret<Scalar> {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(Add::add).unwrap_or(Secret::init_with(|| Scalar::ZERO))
+    }
+}
+
+impl<'a> core::iter::Sum<&'a Secret<Scalar>> for Secret<Scalar> {
+    fn sum<I: Iterator<Item = &'a Secret<Scalar>>>(iter: I) -> Self {
+        iter.fold(Secret::init_with(|| Scalar::ZERO), |accum, x| accum + x)
     }
 }
 
@@ -350,57 +353,5 @@ impl Mul<Secret<Scalar>> for &Point {
     type Output = Point;
     fn mul(self, scalar: Secret<Scalar>) -> Self::Output {
         self * scalar.expose_secret()
-    }
-}
-
-impl<T: Zeroize + Retrieve<Output: Zeroize + Clone>> Retrieve for Secret<T> {
-    type Output = Secret<T::Output>;
-    fn retrieve(&self) -> Self::Output {
-        Secret::init_with(|| self.expose_secret().retrieve())
-    }
-}
-
-impl<T: Zeroize> Secret<T> {
-    pub fn pow_bounded<V>(&self, exponent: &Bounded<V>) -> Self
-    where
-        T: Exponentiable<V>,
-        V: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
-    {
-        // TODO: do we need to implement our own windowed exponentiation to hide the secret?
-        Secret::init_with(|| self.expose_secret().pow_bounded(exponent))
-    }
-
-    pub fn pow_signed_vartime<V>(&self, exponent: &Signed<V>) -> Self
-    where
-        T: Exponentiable<V>,
-        V: Integer + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
-    {
-        // TODO: do we need to implement our own windowed exponentiation to hide the secret?
-        // The exponent will be put in a stack array when it's decomposed with a small radix
-        // for windowed exponentiation. So if it's secret, it's going to leave traces on the stack.
-        // With the multiplication, for example, there's less danger since Uints implement *Assign traits which we use,
-        // so theoretically anything secret will be overwritten.
-        Secret::init_with(|| self.expose_secret().pow_signed_vartime(exponent))
-    }
-}
-
-impl<T: Zeroize + Integer<Monty: Zeroize>> Secret<T> {
-    pub fn to_montgomery(&self, params: &<T::Monty as Monty>::Params) -> Secret<T::Monty> {
-        // `self` has to be cloned and passed by value, which means it may be retained on the stack.
-        // Can't help it with the current `Monty::new()` signature.
-        Secret::init_with(|| <T::Monty as Monty>::new(self.expose_secret().clone(), params.clone()))
-    }
-}
-
-// Can't implement `ConditionallySelectable` itself since it is bounded on `Copy`.
-impl<T: Zeroize + ConditionallySelectable> Secret<T> {
-    pub fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        Secret::init_with(|| T::conditional_select(a.expose_secret(), b.expose_secret(), choice))
-    }
-}
-
-impl<T: Zeroize + ConditionallyNegatable> ConditionallyNegatable for Secret<T> {
-    fn conditional_negate(&mut self, choice: Choice) {
-        self.0.expose_secret_mut().conditional_negate(choice)
     }
 }

@@ -20,8 +20,9 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    conversion::{secret_scalar_from_uint, secret_unsigned_from_scalar},
     entities::{AuxInfo, KeyShareChange, PublicAuxInfo, SecretAuxInfo},
-    params::{secret_scalar_from_uint, secret_uint_from_scalar, SchemeParams},
+    params::SchemeParams,
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 use crate::{
@@ -619,7 +620,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .cap_x_to_send
             .get(destination_idx)
             .ok_or_else(|| LocalError::new("destination_idx={destination_idx} is missing in cap_x_to_send"))?;
-        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &secret_uint_from_scalar::<P>(x_secret));
+        let ciphertext = Ciphertext::new(rng, &data.paillier_pk, &secret_unsigned_from_scalar::<P>(x_secret));
         let proof_secret = self
             .context
             .tau_x

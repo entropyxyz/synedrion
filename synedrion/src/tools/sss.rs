@@ -124,7 +124,7 @@ pub(crate) fn shamir_join_scalars(pairs: BTreeMap<ShareId, Secret<Scalar>>) -> S
     let mut sum = Secret::init_with(|| Scalar::ZERO);
 
     for (share_id, val) in pairs.into_iter() {
-        sum += &(val * interpolation_coeff(&share_ids, &share_id));
+        sum += val * interpolation_coeff(&share_ids, &share_id);
     }
 
     sum
