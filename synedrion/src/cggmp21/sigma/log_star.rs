@@ -4,7 +4,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
-    params::{scalar_from_signed, secret_scalar_from_signed},
+    conversion::{scalar_from_signed, secret_scalar_from_signed},
     SchemeParams,
 };
 use crate::{
@@ -174,7 +174,7 @@ mod tests {
 
     use super::LogStarProof;
     use crate::{
-        cggmp21::{params::secret_scalar_from_signed, SchemeParams, TestParams},
+        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams, TestParams},
         curve::{Point, Scalar},
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
         uint::SecretSigned,

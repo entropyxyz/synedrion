@@ -20,8 +20,9 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    conversion::{secret_scalar_from_uint, secret_unsigned_from_scalar},
     entities::{AuxInfo, KeyShareChange, PublicAuxInfo, SecretAuxInfo},
-    params::{secret_scalar_from_uint, secret_unsigned_from_scalar, SchemeParams},
+    params::SchemeParams,
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 use crate::{

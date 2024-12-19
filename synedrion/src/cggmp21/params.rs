@@ -4,18 +4,15 @@ use core::fmt::Debug;
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{Encoding, NonZero, Uint, Zero, U1024, U2048, U4096, U512, U8192};
+use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
 use k256::elliptic_curve::bigint::Uint as K256Uint;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    curve::{Curve, Scalar, ORDER},
+    curve::{Curve, ORDER},
     paillier::PaillierParams,
-    tools::{
-        hashing::{Chain, HashableType},
-        Secret,
-    },
-    uint::{PublicSigned, SecretSigned, SecretUnsigned, U1024Mod, U2048Mod, U4096Mod, U512Mod},
+    tools::hashing::{Chain, HashableType},
+    uint::{U1024Mod, U2048Mod, U4096Mod, U512Mod},
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,151 +123,6 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     /// plus one bit (so that any curve scalar still represents a positive value
     /// when treated as a 2-complement signed integer).
     type Paillier: PaillierParams;
-}
-
-/// Converts a curve scalar to the associated integer type.
-pub(crate) fn uint_from_scalar<P: SchemeParams>(value: &Scalar) -> <P::Paillier as PaillierParams>::Uint {
-    let scalar_bytes = value.to_be_bytes();
-    let mut repr = <P::Paillier as PaillierParams>::Uint::zero().to_be_bytes();
-
-    let uint_len = repr.as_ref().len();
-    let scalar_len = scalar_bytes.len();
-
-    repr.as_mut()
-        .get_mut(uint_len - scalar_len..)
-        .expect("PaillierParams::Uint is expected to be bigger than a Scalar")
-        .copy_from_slice(&scalar_bytes);
-    <P::Paillier as PaillierParams>::Uint::from_be_bytes(repr)
-}
-
-/// Converts a curve scalar to the associated integer type, wrapped in `Signed`.
-pub(crate) fn public_signed_from_scalar<P: SchemeParams>(
-    value: &Scalar,
-) -> PublicSigned<<P::Paillier as PaillierParams>::Uint> {
-    PublicSigned::new_positive(uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
-        "a curve scalar value is smaller than the half of `PaillierParams::Uint` range, ",
-        "so it is still positive when treated as a 2-complement signed value"
-    ])
-}
-
-/// Converts an integer to the associated curve scalar type.
-pub(crate) fn scalar_from_uint<P: SchemeParams>(value: &<P::Paillier as PaillierParams>::Uint) -> Scalar {
-    let r = *value % P::CURVE_ORDER;
-
-    let repr = r.to_be_bytes();
-    let uint_len = repr.as_ref().len();
-    let scalar_len = Scalar::repr_len();
-
-    // Can unwrap here since the value is within the Scalar range
-    Scalar::try_from_be_bytes(
-        repr.as_ref()
-            .get(uint_len - scalar_len..)
-            .expect("Uint is assumed to be bigger than Scalar"),
-    )
-    .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
-}
-
-/// Converts a `Signed`-wrapped integer to the associated curve scalar type.
-pub(crate) fn scalar_from_signed<P: SchemeParams>(
-    value: &PublicSigned<<P::Paillier as PaillierParams>::Uint>,
-) -> Scalar {
-    let abs_value = scalar_from_uint::<P>(&value.abs());
-    if value.is_negative() {
-        -abs_value
-    } else {
-        abs_value
-    }
-}
-
-/// Converts a wide integer to the associated curve scalar type.
-pub(crate) fn scalar_from_wide_uint<P: SchemeParams>(value: &<P::Paillier as PaillierParams>::WideUint) -> Scalar {
-    let r = *value % P::CURVE_ORDER_WIDE;
-
-    let repr = r.to_be_bytes();
-    let uint_len = repr.as_ref().len();
-    let scalar_len = Scalar::repr_len();
-
-    // Can unwrap here since the value is within the Scalar range
-    Scalar::try_from_be_bytes(
-        repr.as_ref()
-            .get(uint_len - scalar_len..)
-            .expect("WideUint is assumed to be bigger than Scalar"),
-    )
-    .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
-}
-
-/// Converts a `Signed`-wrapped wide integer to the associated curve scalar type.
-pub(crate) fn scalar_from_wide_signed<P: SchemeParams>(
-    value: &PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-) -> Scalar {
-    let abs_value = scalar_from_wide_uint::<P>(&value.abs());
-    if value.is_negative() {
-        -abs_value
-    } else {
-        abs_value
-    }
-}
-
-pub(crate) fn secret_scalar_from_uint<P: SchemeParams>(
-    value: &Secret<<P::Paillier as PaillierParams>::Uint>,
-) -> Secret<Scalar> {
-    let r = value % &P::CURVE_ORDER;
-
-    let repr = Secret::init_with(|| r.expose_secret().to_be_bytes());
-    let uint_len = repr.expose_secret().as_ref().len();
-    let scalar_len = Scalar::repr_len();
-
-    // Can unwrap here since the value is within the Scalar range
-    Secret::init_with(|| {
-        Scalar::try_from_be_bytes(
-            repr.expose_secret()
-                .as_ref()
-                .get(uint_len - scalar_len..)
-                .expect("Uint is assumed to be bigger than Scalar"),
-        )
-        .expect("the value was reduced modulo `CURVE_ORDER`, so it's a valid curve scalar")
-    })
-}
-
-fn secret_uint_from_scalar<P: SchemeParams>(value: &Secret<Scalar>) -> Secret<<P::Paillier as PaillierParams>::Uint> {
-    let scalar_bytes = Secret::init_with(|| value.expose_secret().to_be_bytes());
-    let mut repr = Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::zero().to_be_bytes());
-
-    let uint_len = repr.expose_secret().as_ref().len();
-    let scalar_len = scalar_bytes.expose_secret().len();
-
-    debug_assert!(uint_len >= scalar_len);
-    repr.expose_secret_mut()
-        .as_mut()
-        .get_mut(uint_len - scalar_len..)
-        .expect("<P::Paillier as PaillierParams>::Uint is assumed to be configured to be bigger than Scalar")
-        .copy_from_slice(scalar_bytes.expose_secret());
-    Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::from_be_bytes(*repr.expose_secret()))
-}
-
-pub(crate) fn secret_unsigned_from_scalar<P: SchemeParams>(
-    value: &Secret<Scalar>,
-) -> SecretUnsigned<<P::Paillier as PaillierParams>::Uint> {
-    SecretUnsigned::new(secret_uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
-        "a curve scalar value is smaller than the curve order, ",
-        "and the curve order fits in `PaillierParams::Uint`"
-    ])
-}
-
-pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
-    value: &Secret<Scalar>,
-) -> SecretSigned<<P::Paillier as PaillierParams>::Uint> {
-    SecretSigned::new_positive(secret_uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
-        "a curve scalar value is smaller than the curve order, ",
-        "and the curve order fits in `PaillierParams::Uint`"
-    ])
-}
-
-pub(crate) fn secret_scalar_from_signed<P: SchemeParams>(
-    value: &SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-) -> Secret<Scalar> {
-    let abs_value = secret_scalar_from_uint::<P>(&value.abs_value());
-    Secret::<Scalar>::conditional_select(&abs_value, &-&abs_value, value.is_negative())
 }
 
 impl<P: SchemeParams> HashableType for P {

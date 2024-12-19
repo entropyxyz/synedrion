@@ -18,11 +18,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues, PublicAuxInfoPrecomputed},
-    params::{
+    conversion::{
         public_signed_from_scalar, secret_scalar_from_signed, secret_signed_from_scalar, secret_unsigned_from_scalar,
-        SchemeParams,
     },
+    entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues, PublicAuxInfoPrecomputed},
+    params::SchemeParams,
     sigma::{AffGProof, DecProof, EncProof, LogStarProof, MulProof, MulStarProof},
 };
 use crate::{
