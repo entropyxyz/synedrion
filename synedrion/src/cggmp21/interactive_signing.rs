@@ -19,9 +19,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    conversion::{
-        public_signed_from_scalar, secret_scalar_from_signed, secret_signed_from_scalar, secret_unsigned_from_scalar,
-    },
+    conversion::{public_signed_from_scalar, secret_scalar_from_signed, secret_signed_from_scalar},
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues, PublicAuxInfoPrecomputed},
     params::SchemeParams,
     sigma::{
@@ -186,10 +184,10 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         let pk = aux_info.secret_aux.paillier_sk.public_key();
 
         let nu = Randomizer::<P::Paillier>::random(rng, pk);
-        let cap_g = Ciphertext::new_with_randomizer(pk, &secret_unsigned_from_scalar::<P>(&gamma), &nu);
+        let cap_g = Ciphertext::new_with_randomizer(pk, &secret_signed_from_scalar::<P>(&gamma), &nu);
 
         let rho = Randomizer::<P::Paillier>::random(rng, pk);
-        let cap_k = Ciphertext::new_with_randomizer(pk, &secret_unsigned_from_scalar::<P>(&k), &rho);
+        let cap_k = Ciphertext::new_with_randomizer(pk, &secret_signed_from_scalar::<P>(&k), &rho);
 
         Ok(BoxedRound::new_dynamic(Round1 {
             context: Context {
@@ -504,8 +502,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let target_pk = &self.context.public_aux(destination)?.paillier_pk;
 
-        let beta = SecretSigned::random_in_exp_range(rng, P::LP_BOUND);
-        let hat_beta = SecretSigned::random_in_exp_range(rng, P::LP_BOUND);
+        let beta = SecretSigned::random_in_exponent_range(rng, P::LP_BOUND);
+        let hat_beta = SecretSigned::random_in_exponent_range(rng, P::LP_BOUND);
         let r = Randomizer::random(rng, pk);
         let s = Randomizer::random(rng, target_pk);
         let hat_r = Randomizer::random(rng, pk);
@@ -519,12 +517,12 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             .get(destination)
             .ok_or(LocalError::new("destination={destination:?} is missing in all_cap_k"))?;
 
-        let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r);
-        let cap_d = others_cap_k * &gamma + Ciphertext::new_with_randomizer_signed(target_pk, &-&beta, &s);
+        let cap_f = Ciphertext::new_with_randomizer(pk, &beta, &r);
+        let cap_d = others_cap_k * &gamma + Ciphertext::new_with_randomizer(target_pk, &-&beta, &s);
 
-        let hat_cap_f = Ciphertext::new_with_randomizer_signed(pk, &hat_beta, &hat_r);
+        let hat_cap_f = Ciphertext::new_with_randomizer(pk, &hat_beta, &hat_r);
         let hat_cap_d = others_cap_k * &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
-            + Ciphertext::new_with_randomizer_signed(target_pk, &-&hat_beta, &hat_s);
+            + Ciphertext::new_with_randomizer(target_pk, &-&hat_beta, &hat_s);
 
         let cap_g = self.all_cap_g.get(&self.context.my_id).ok_or(LocalError::new(format!(
             "my_id={:?} is missing in all_cap_g",
@@ -698,8 +696,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             )));
         }
 
-        let alpha = cap_d.decrypt_signed(&self.context.aux_info.secret_aux.paillier_sk);
-        let hat_alpha = hat_cap_d.decrypt_signed(&self.context.aux_info.secret_aux.paillier_sk);
+        let alpha = cap_d.decrypt(&self.context.aux_info.secret_aux.paillier_sk);
+        let hat_alpha = hat_cap_d.decrypt(&self.context.aux_info.secret_aux.paillier_sk);
 
         // `alpha == x * y + z` where `0 <= x, y < q`, and `-2^l' <= z <= 2^l'`,
         // where `q` is the curve order.
@@ -1056,7 +1054,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .all_cap_g
             .get(my_id)
             .ok_or_else(|| LocalError::new("my_id={my_id:?} is missing in all_cap_g"))?;
-        let cap_h = (cap_g * &secret_unsigned_from_scalar::<P>(&self.context.k)).mul_randomizer(&rho);
+        let cap_h = (cap_g * &secret_signed_from_scalar::<P>(&self.context.k)).mul_randomizer(&rho);
 
         let p_mul = MulProof::<P>::new(
             rng,
@@ -1299,7 +1297,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         let cap_x = self.context.public_share(&my_id)?;
 
         let rho = Randomizer::random(rng, pk);
-        let hat_cap_h = (&self.presigning.cap_k * &secret_unsigned_from_scalar::<P>(x)).mul_randomizer(&rho);
+        let hat_cap_h = (&self.presigning.cap_k * &secret_signed_from_scalar::<P>(x)).mul_randomizer(&rho);
 
         let aux = (&self.context.ssid_hash, &my_id);
 

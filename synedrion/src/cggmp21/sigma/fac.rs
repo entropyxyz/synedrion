@@ -59,27 +59,27 @@ impl<P: SchemeParams> FacProof<P> {
         let sqrt_cap_n =
             <P::Paillier as PaillierParams>::Uint::one() << (<P::Paillier as PaillierParams>::PRIME_BITS - 2);
 
-        let alpha = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
-        let beta = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
-        let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
-        let nu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let alpha = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
+        let beta = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, &sqrt_cap_n);
+        let mu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let nu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
 
         // N_0 \hat{N}
         let scale = pk0.modulus().mul_wide(hat_cap_n);
 
-        let sigma = SecretSigned::<<P::Paillier as PaillierParams>::Uint>::random_in_exp_range_scaled_wide(
+        let sigma = SecretSigned::<<P::Paillier as PaillierParams>::Uint>::random_in_exponent_range_scaled_wide(
             rng,
             P::L_BOUND,
             &scale,
         )
         .to_public();
-        let r = SecretSigned::<<P::Paillier as PaillierParams>::Uint>::random_in_exp_range_scaled_wide(
+        let r = SecretSigned::<<P::Paillier as PaillierParams>::Uint>::random_in_exponent_range_scaled_wide(
             rng,
             P::L_BOUND + P::EPS_BOUND,
             &scale,
         );
-        let x = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let y = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let x = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let y = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let p = sk0.p_signed();
         let q = sk0.q_signed();
@@ -106,7 +106,7 @@ impl<P: SchemeParams> FacProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.to_wide();
 
         let p_wide = sk0.p_wide_signed();
@@ -161,7 +161,7 @@ impl<P: SchemeParams> FacProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -197,7 +197,7 @@ impl<P: SchemeParams> FacProof<P> {
         // z1 \in \pm \sqrt{N_0} 2^{\ell + \eps}
         if !self
             .z1
-            .in_range_bits(P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2)
+            .is_in_exponent_range(P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2)
         {
             return false;
         }
@@ -205,7 +205,7 @@ impl<P: SchemeParams> FacProof<P> {
         // z2 \in \pm \sqrt{N_0} 2^{\ell + \eps}
         if !self
             .z2
-            .in_range_bits(P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2)
+            .is_in_exponent_range(P::L_BOUND + P::EPS_BOUND + <P::Paillier as PaillierParams>::PRIME_BITS - 2)
         {
             return false;
         }
