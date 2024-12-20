@@ -2,6 +2,7 @@
 
 mod aff_g;
 mod dec;
+mod dec_new;
 mod enc;
 mod fac;
 mod log_star;
