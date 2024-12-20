@@ -5,6 +5,7 @@ mod dec;
 mod dec_new;
 mod elog;
 mod enc;
+mod enc_elg;
 mod fac;
 mod log_star;
 mod mod_;
