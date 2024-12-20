@@ -165,7 +165,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         }
 
         // g^{z_1} == B_x X^e
-        if scalar_from_signed::<P>(&self.z1).mul_by_generator() != self.cap_b_x + public.cap_x * &e_scalar {
+        if scalar_from_signed::<P>(&self.z1).mul_by_generator() != self.cap_b_x + public.cap_x * e_scalar {
             return false;
         }
 

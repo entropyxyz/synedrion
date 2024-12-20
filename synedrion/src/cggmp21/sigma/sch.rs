@@ -83,7 +83,7 @@ impl SchProof {
 
     pub fn verify(&self, commitment: &SchCommitment, cap_x: &Point, aux: &impl Hashable) -> bool {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        challenge == self.challenge && self.proof.mul_by_generator() == commitment.0 + cap_x * &challenge.0
+        challenge == self.challenge && self.proof.mul_by_generator() == commitment.0 + cap_x * challenge.0
     }
 }
 

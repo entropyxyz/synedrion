@@ -320,6 +320,14 @@ impl Mul<&Scalar> for Point {
     }
 }
 
+impl Mul<Scalar> for &Point {
+    type Output = Point;
+
+    fn mul(self, rhs: Scalar) -> Point {
+        Point(self.0.mul(&(rhs.0)))
+    }
+}
+
 impl Mul<&Scalar> for &Point {
     type Output = Point;
 

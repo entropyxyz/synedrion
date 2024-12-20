@@ -168,7 +168,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                     .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
                 Ok((
                     id.clone(),
-                    public_share * &interpolation_coeff(&share_ids_set, this_share_id),
+                    public_share * interpolation_coeff(&share_ids_set, this_share_id),
                 ))
             })
             .collect::<Result<_, LocalError>>()?;
@@ -208,7 +208,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                     .public_shares
                     .get(id)
                     .expect("There is one public share (Point) for each party")
-                    * &interpolation_coeff(&share_ids_set, share_id)
+                    * interpolation_coeff(&share_ids_set, share_id)
                         .invert()
                         .expect("the interpolation coefficient is a non-zero scalar");
                 (id.clone(), public_share)

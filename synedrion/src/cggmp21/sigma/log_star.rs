@@ -153,7 +153,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // g^{z_1} == Y X^e
-        if public.g * &scalar_from_signed::<P>(&self.z1) != self.cap_y + public.cap_x * &e_scalar {
+        if public.g * scalar_from_signed::<P>(&self.z1) != self.cap_y + public.cap_x * e_scalar {
             return false;
         }
 
