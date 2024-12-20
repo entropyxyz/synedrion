@@ -412,7 +412,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                 payload
                     .public_polynomial
                     .coeff0()
-                    .map(|coeff0| coeff0 * &interpolation_coeff(&old_share_ids, &payload.old_share_id))
+                    .map(|coeff0| coeff0 * interpolation_coeff(&old_share_ids, &payload.old_share_id))
             })
             .sum::<Result<_, _>>()?;
         if Point::from_verifying_key(&new_holder.inputs.verifying_key) != vkey {
