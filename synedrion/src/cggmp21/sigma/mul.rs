@@ -3,8 +3,9 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
+use super::super::{conversion::public_signed_from_scalar, SchemeParams};
 use crate::{
+    curve::Scalar,
     paillier::{Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, Randomizer},
     tools::{
         hashing::{Chain, Hashable, XofHasher},
@@ -38,7 +39,7 @@ pub(crate) struct MulPublicInputs<'a, P: SchemeParams> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MulProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    e: Scalar,
     cap_a: CiphertextWire<P::Paillier>,
     cap_b: CiphertextWire<P::Paillier>,
     z: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
@@ -82,7 +83,8 @@ impl<P: SchemeParams> MulProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         let z = (alpha
             .to_wide()
@@ -94,7 +96,7 @@ impl<P: SchemeParams> MulProof<P> {
         let v = secret.rho_x.to_masked(&s, &e);
 
         Self {
-            e,
+            e: e_scalar,
             cap_a,
             cap_b,
             z,
@@ -121,11 +123,13 @@ impl<P: SchemeParams> MulProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
 
-        if e != self.e {
+        if e_scalar != self.e {
             return false;
         }
+
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         // Y^z u^N = A * C^e \mod N^2
         if (public.cap_y * &self.z).mul_masked_randomizer(&self.u)
