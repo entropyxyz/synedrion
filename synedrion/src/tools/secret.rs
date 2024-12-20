@@ -355,3 +355,10 @@ impl Mul<Secret<Scalar>> for &Point {
         self * scalar.expose_secret()
     }
 }
+
+impl Mul<&Secret<Scalar>> for &Point {
+    type Output = Point;
+    fn mul(self, scalar: &Secret<Scalar>) -> Self::Output {
+        self * scalar.expose_secret()
+    }
+}
