@@ -4,8 +4,9 @@ use crypto_bigint::Integer;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
+use super::super::{conversion::public_signed_from_scalar, SchemeParams};
 use crate::{
+    curve::Scalar,
     paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{HasWide, PublicSigned, SecretSigned},
@@ -25,7 +26,7 @@ Public inputs:
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FacProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    e: Scalar,
     cap_p: RPCommitmentWire<P::Paillier>,
     cap_q: RPCommitmentWire<P::Paillier>,
     cap_a: RPCommitmentWire<P::Paillier>,
@@ -106,7 +107,8 @@ impl<P: SchemeParams> FacProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = public_signed_from_scalar::<P>(&e_scalar);
         let e_wide = e.to_wide();
 
         let p_wide = sk0.p_wide_signed();
@@ -125,7 +127,7 @@ impl<P: SchemeParams> FacProof<P> {
         .to_public();
 
         Self {
-            e,
+            e: e_scalar,
             cap_p,
             cap_q,
             cap_a,
@@ -161,11 +163,13 @@ impl<P: SchemeParams> FacProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
 
-        if e != self.e {
+        if e_scalar != self.e {
             return false;
         }
+
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         // R = s^{N_0} t^\sigma
         let cap_r = &setup.commit(&pk0.modulus_signed(), &self.sigma);

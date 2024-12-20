@@ -4,11 +4,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
-    conversion::{scalar_from_signed, secret_scalar_from_signed},
+    conversion::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed},
     SchemeParams,
 };
 use crate::{
-    curve::Point,
+    curve::{Point, Scalar},
     paillier::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
         Randomizer,
@@ -40,7 +40,7 @@ pub(crate) struct LogStarPublicInputs<'a, P: SchemeParams> {
 /// ZK proof: Knowledge of Exponent vs Paillier Encryption.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LogStarProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    e: Scalar,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
     cap_y: Point,
@@ -89,14 +89,15 @@ impl<P: SchemeParams> LogStarProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         let z1 = (alpha + secret.x * e).to_public();
         let z2 = secret.rho.to_masked(&r, &e);
         let z3 = (gamma + mu * e.to_wide()).to_public();
 
         Self {
-            e,
+            e: e_scalar,
             cap_s,
             cap_a,
             cap_y,
@@ -132,11 +133,13 @@ impl<P: SchemeParams> LogStarProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
 
-        if e != self.e {
+        if e_scalar != self.e {
             return false;
         }
+
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         // Range check
         if !self.z1.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
@@ -150,7 +153,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         }
 
         // g^{z_1} == Y X^e
-        if public.g * &scalar_from_signed::<P>(&self.z1) != self.cap_y + public.cap_x * &scalar_from_signed::<P>(&e) {
+        if public.g * &scalar_from_signed::<P>(&self.z1) != self.cap_y + public.cap_x * &e_scalar {
             return false;
         }
 

@@ -1,13 +1,11 @@
 use alloc::{boxed::Box, format, string::String};
 use core::ops::Neg;
 
-use crypto_bigint::{Bounded, Encoding, Integer, NonZero};
-use digest::XofReader;
+use crypto_bigint::{Bounded, Encoding, Integer};
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
 use super::HasWide;
-use crate::tools::hashing::uint_from_xof;
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound set much lower than the full size of the integer,
@@ -183,32 +181,6 @@ where
             value: T::zero().wrapping_sub(&self.value),
             bound: self.bound,
         }
-    }
-}
-
-impl<T> PublicSigned<T>
-where
-    T: Integer + Bounded + Encoding,
-{
-    /// Returns a value in range `±range` derived from an extendable-output hash.
-    ///
-    /// Note that in the paper's definitions, `±x` is equivalent to `[-(x-1)/2, (x-1)/2]` if `x` is odd,
-    /// and `[-x/2+1, x/2]` when `x` is even (see Section 3, Groups & Fields).
-    ///
-    /// This method should be used for deriving non-interactive challenges,
-    /// since it is guaranteed to produce the same results on 32- and 64-bit platforms.
-    pub fn from_xof_reader_in_range(rng: &mut impl XofReader, range: &NonZero<T>) -> Self {
-        let bound_bits = range.as_ref().bits_vartime() - 1;
-        assert!(bound_bits < <T as Bounded>::BITS);
-        // Regardless of whether `range` is odd or even, the number of integers in the range is equal to `range`.
-        let positive_result = uint_from_xof(rng, range);
-        let shift = range
-            .as_ref()
-            .checked_sub(&T::one())
-            .expect("range is non-zero")
-            .wrapping_shr_vartime(1); // if `range == 1`, this will still produce the correct shift (0).
-        Self::new_from_unsigned(positive_result.wrapping_sub(&shift), bound_bits)
-            .expect("Guaranteed to be Some because we checked the bounds just above")
     }
 }
 

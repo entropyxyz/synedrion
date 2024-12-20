@@ -4,7 +4,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
-    conversion::{scalar_from_signed, scalar_from_wide_signed, secret_scalar_from_signed},
+    conversion::{public_signed_from_scalar, scalar_from_wide_signed, secret_scalar_from_signed},
     SchemeParams,
 };
 use crate::{
@@ -39,7 +39,7 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
 /// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    e: Scalar,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_t: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
@@ -92,7 +92,8 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         let z1 = (alpha.to_wide() + secret.y.mul_wide(&e)).to_public();
         let z2 = (nu + mu * e.to_wide()).to_public();
@@ -100,7 +101,7 @@ impl<P: SchemeParams> DecProof<P> {
         let omega = secret.rho.to_masked(&r, &e);
 
         Self {
-            e,
+            e: e_scalar,
             cap_s,
             cap_t,
             cap_a,
@@ -129,11 +130,13 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
 
-        if e != self.e {
+        if e_scalar != self.e {
             return false;
         }
+
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         // enc(z_1, \omega) == A (+) C (*) e
         if Ciphertext::new_public_with_randomizer_wide(public.pk0, &self.z1, &self.omega)
@@ -143,7 +146,7 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // z_1 == \gamma + e x \mod q
-        if scalar_from_wide_signed::<P>(&self.z1) != self.gamma + scalar_from_signed::<P>(&e) * *public.x {
+        if scalar_from_wide_signed::<P>(&self.z1) != self.gamma + e_scalar * *public.x {
             return false;
         }
 

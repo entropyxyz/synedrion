@@ -4,11 +4,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
-    conversion::{scalar_from_signed, secret_scalar_from_signed},
+    conversion::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed},
     SchemeParams,
 };
 use crate::{
-    curve::Point,
+    curve::{Point, Scalar},
     paillier::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
         Randomizer,
@@ -52,7 +52,7 @@ pub(crate) struct AffGPublicInputs<'a, P: SchemeParams> {
 /// ZK proof: Paillier Affine Operation with Group Commitment in Range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    e: Scalar,
     cap_a: CiphertextWire<P::Paillier>,
     cap_b_x: Point,
     cap_b_y: CiphertextWire<P::Paillier>,
@@ -128,7 +128,8 @@ impl<P: SchemeParams> AffGProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = public_signed_from_scalar::<P>(&e_scalar);
         let e_wide = e.to_wide();
 
         let z1 = (alpha + secret.x * e).to_public();
@@ -150,7 +151,7 @@ impl<P: SchemeParams> AffGProof<P> {
         let omega_y = secret.rho_y.to_masked(&r_y, &-e);
 
         Self {
-            e,
+            e: e_scalar,
             cap_a,
             cap_b_x,
             cap_b_y,
@@ -194,11 +195,13 @@ impl<P: SchemeParams> AffGProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
 
-        if e != self.e {
+        if e_scalar != self.e {
             return false;
         }
+
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         // Range checks
 
@@ -219,9 +222,7 @@ impl<P: SchemeParams> AffGProof<P> {
         }
 
         // g^{z_1} = B_x X^e
-        if scalar_from_signed::<P>(&self.z1).mul_by_generator()
-            != self.cap_b_x + public.cap_x * &scalar_from_signed::<P>(&e)
-        {
+        if scalar_from_signed::<P>(&self.z1).mul_by_generator() != self.cap_b_x + public.cap_x * &e_scalar {
             return false;
         }
 

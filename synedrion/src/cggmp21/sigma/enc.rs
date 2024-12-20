@@ -3,8 +3,9 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
+use super::super::{conversion::public_signed_from_scalar, SchemeParams};
 use crate::{
+    curve::Scalar,
     paillier::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
         Randomizer,
@@ -32,7 +33,7 @@ pub struct EncPublicInputs<'a, P: SchemeParams> {
 /// ZK proof: Paillier encryption in range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct EncProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    e: Scalar,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
     cap_c: RPCommitmentWire<P::Paillier>,
@@ -78,14 +79,15 @@ impl<P: SchemeParams> EncProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         let z1 = (alpha + secret.k * e).to_public();
         let z2 = secret.rho.to_masked(&r, &e);
         let z3 = (gamma + mu * e.to_wide()).to_public();
 
         Self {
-            e,
+            e: e_scalar,
             cap_s,
             cap_a,
             cap_c,
@@ -111,11 +113,13 @@ impl<P: SchemeParams> EncProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
 
-        if e != self.e {
+        if e_scalar != self.e {
             return false;
         }
+
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         // z_1 \in \pm 2^{\ell + \eps}
         if !self.z1.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
