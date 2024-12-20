@@ -1,4 +1,4 @@
-//! Paillier Affine Operation with Group Commitment in Range ($\Pi^{aff-g}$, Section 6.2, Fig. 15)
+//! Paillier Affine Operation with Group Commitment in Range ($\Pi^{aff-g}$, Fig. 25)
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -20,9 +20,9 @@ use crate::{
 const HASH_TAG: &[u8] = b"P_aff_g";
 
 pub(crate) struct AffGSecretInputs<'a, P: SchemeParams> {
-    /// $x \in \pm 2^\ell$.
+    /// $x ∈ ±2^\ell$.
     pub x: &'a SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    /// $y \in \pm 2^{\ell^\prime}$.
+    /// $y ∈ ±2^{\ell^\prime}$.
     pub y: &'a SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     /// $\rho$, a Paillier randomizer for the public key $N_0$.
     pub rho: &'a Randomizer<P::Paillier>,
@@ -64,8 +64,8 @@ pub(crate) struct AffGProof<P: SchemeParams> {
     z2: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     z3: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     z4: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-    omega: MaskedRandomizer<P::Paillier>,
-    omega_y: MaskedRandomizer<P::Paillier>,
+    w: MaskedRandomizer<P::Paillier>,
+    w_y: MaskedRandomizer<P::Paillier>,
 }
 
 impl<P: SchemeParams> AffGProof<P> {
@@ -143,12 +143,12 @@ impl<P: SchemeParams> AffGProof<P> {
         let z3 = (gamma + m * e_wide).to_public();
         let z4 = (delta + mu * e_wide).to_public();
 
-        let omega = secret.rho.to_masked(&r, &e);
+        let w = secret.rho.to_masked(&r, &e);
 
         // NOTE: deviation from the paper to support a different $D$
         // (see the comment in `AffGPublicInputs`)
         // Original: $\rho_y^e$. Modified: $\rho_y^{-e}$.
-        let omega_y = secret.rho_y.to_masked(&r_y, &-e);
+        let w_y = secret.rho_y.to_masked(&r_y, &-e);
 
         Self {
             e: e_scalar,
@@ -163,8 +163,8 @@ impl<P: SchemeParams> AffGProof<P> {
             z2,
             z3,
             z4,
-            omega,
-            omega_y,
+            w,
+            w_y,
         }
     }
 
@@ -213,15 +213,14 @@ impl<P: SchemeParams> AffGProof<P> {
             return false;
         }
 
-        // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
-        // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
-        if public.cap_c * &self.z1 + Ciphertext::new_public_with_randomizer(public.pk0, &self.z2, &self.omega)
+        // C (*) z_1 (+) enc_0(z_2, w) == A (+) D (*) e
+        if public.cap_c * &self.z1 + Ciphertext::new_public_with_randomizer(public.pk0, &self.z2, &self.w)
             != public.cap_d * &e + self.cap_a.to_precomputed(public.pk0)
         {
             return false;
         }
 
-        // g^{z_1} = B_x X^e
+        // g^{z_1} == B_x X^e
         if scalar_from_signed::<P>(&self.z1).mul_by_generator() != self.cap_b_x + public.cap_x * e_scalar {
             return false;
         }
@@ -229,22 +228,22 @@ impl<P: SchemeParams> AffGProof<P> {
         // NOTE: deviation from the paper to support a different `D`
         // (see the comment in `AffGPublicInputs`)
         // Original: `Y^e`. Modified `Y^{-e}`.
-        // (1 + N_1)^{z_2} \omega_y^{N_1} = B_y Y^(-e) \mod N_1^2
-        // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
-        if Ciphertext::new_public_with_randomizer(public.pk1, &self.z2, &self.omega_y)
+        //
+        // enc_1(z_2, w_y) == B_y (+) Y (*) (-e)
+        if Ciphertext::new_public_with_randomizer(public.pk1, &self.z2, &self.w_y)
             != public.cap_y * &(-e) + self.cap_b_y.to_precomputed(public.pk1)
         {
             return false;
         }
 
-        // s^{z_1} t^{z_3} = E S^e \mod \hat{N}
+        // s^{z_1} t^{z_3} == E S^e \mod \hat{N}
         let cap_e = self.cap_e.to_precomputed(setup);
         let cap_s = self.cap_s.to_precomputed(setup);
         if setup.commit(&self.z1, &self.z3) != &cap_e * &cap_s.pow(&e) {
             return false;
         }
 
-        // s^{z_2} t^{z_4} = F T^e \mod \hat{N}
+        // s^{z_2} t^{z_4} == F T^e \mod \hat{N}
         let cap_f = self.cap_f.to_precomputed(setup);
         let cap_t = self.cap_t.to_precomputed(setup);
         if setup.commit(&self.z2, &self.z4) != &cap_f * &cap_t.pow(&e) {
