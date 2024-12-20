@@ -1,6 +1,7 @@
 //! Sigma-protocols
 
 mod aff_g;
+mod aff_g_star;
 mod dec;
 mod dec_new;
 mod elog;
