@@ -84,20 +84,20 @@ impl<P: SchemeParams> AffGProof<P> {
 
         let hat_cap_n = setup.modulus();
 
-        let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
-        let beta = SecretSigned::random_in_exp_range(rng, P::LP_BOUND + P::EPS_BOUND);
+        let alpha = SecretSigned::random_in_exponent_range(rng, P::L_BOUND + P::EPS_BOUND);
+        let beta = SecretSigned::random_in_exponent_range(rng, P::LP_BOUND + P::EPS_BOUND);
 
         let r = Randomizer::random(rng, public.pk0);
         let r_y = Randomizer::random(rng, public.pk1);
 
-        let gamma = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let m = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
-        let delta = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let gamma = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let m = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let delta = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let mu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
 
-        let cap_a = (public.cap_c * &alpha + Ciphertext::new_with_randomizer_signed(public.pk0, &beta, &r)).to_wire();
+        let cap_a = (public.cap_c * &alpha + Ciphertext::new_with_randomizer(public.pk0, &beta, &r)).to_wire();
         let cap_b_x = secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
-        let cap_b_y = Ciphertext::new_with_randomizer_signed(public.pk1, &beta, &r_y).to_wire();
+        let cap_b_y = Ciphertext::new_with_randomizer(public.pk1, &beta, &r_y).to_wire();
         let cap_e = setup.commit(&alpha, &gamma).to_wire();
         let cap_s = setup.commit(secret.x, &m).to_wire();
         let cap_f = setup.commit(&beta, &delta).to_wire();
@@ -128,7 +128,7 @@ impl<P: SchemeParams> AffGProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
         let e_wide = e.to_wide();
 
         let z1 = (alpha + secret.x * e).to_public();
@@ -194,7 +194,7 @@ impl<P: SchemeParams> AffGProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -202,17 +202,17 @@ impl<P: SchemeParams> AffGProof<P> {
 
         // Range checks
 
-        if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {
+        if !self.z1.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
             return false;
         }
 
-        if !self.z2.in_range_bits(P::LP_BOUND + P::EPS_BOUND) {
+        if !self.z2.is_in_exponent_range(P::LP_BOUND + P::EPS_BOUND) {
             return false;
         }
 
         // C^{z_1} (1 + N_0)^{z_2} \omega^{N_0} = A D^e \mod N_0^2
         // => C (*) z_1 (+) encrypt_0(z_2, \omega) = A (+) D (*) e
-        if public.cap_c * &self.z1 + Ciphertext::new_public_with_randomizer_signed(public.pk0, &self.z2, &self.omega)
+        if public.cap_c * &self.z1 + Ciphertext::new_public_with_randomizer(public.pk0, &self.z2, &self.omega)
             != public.cap_d * &e + self.cap_a.to_precomputed(public.pk0)
         {
             return false;
@@ -230,7 +230,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // Original: `Y^e`. Modified `Y^{-e}`.
         // (1 + N_1)^{z_2} \omega_y^{N_1} = B_y Y^(-e) \mod N_1^2
         // => encrypt_1(z_2, \omega_y) = B_y (+) Y (*) (-e)
-        if Ciphertext::new_public_with_randomizer_signed(public.pk1, &self.z2, &self.omega_y)
+        if Ciphertext::new_public_with_randomizer(public.pk1, &self.z2, &self.omega_y)
             != public.cap_y * &(-e) + self.cap_b_y.to_precomputed(public.pk1)
         {
             return false;
@@ -280,16 +280,16 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let x = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
-        let y = SecretSigned::random_in_exp_range(&mut OsRng, Params::LP_BOUND);
+        let x = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
+        let y = SecretSigned::random_in_exponent_range(&mut OsRng, Params::LP_BOUND);
 
         let rho = Randomizer::random(&mut OsRng, pk0);
         let rho_y = Randomizer::random(&mut OsRng, pk1);
-        let secret = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
-        let cap_c = Ciphertext::new_signed(&mut OsRng, pk0, &secret);
+        let secret = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
+        let cap_c = Ciphertext::new(&mut OsRng, pk0, &secret);
 
-        let cap_d = &cap_c * &x + Ciphertext::new_with_randomizer_signed(pk0, &-&y, &rho);
-        let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y);
+        let cap_d = &cap_c * &x + Ciphertext::new_with_randomizer(pk0, &-&y, &rho);
+        let cap_y = Ciphertext::new_with_randomizer(pk1, &y, &rho_y);
         let cap_x = secret_scalar_from_signed::<TestParams>(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(

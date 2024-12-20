@@ -248,7 +248,7 @@ where
             .expect("Will not overflow since 0 <= x < q, and 0 <= a < p.")
     }
 
-    /// Returns a random $w \in [0, N)$ such that $w$ is not a square modulo $N$,
+    /// Returns a random $w ∈ [0, N)$ such that $w$ is not a square modulo $N$,
     /// where $N$ is the public key
     /// (or, equivalently, such that the Jacobi symbol $(w|N) = -1$).
     pub fn random_nonsquare_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
@@ -258,7 +258,7 @@ where
         Recall that `nonsquare_sampling_constant` $u$ is such that
         $u = -1 \mod p$ and $u = 1 \mod q$, so $u^2 = 1 \mod N$.
 
-        For an $x \in \mathbb{Z}_N^*$ (that is, an invertible element),
+        For an $x ∈ \mathbb{Z}_N^*$ (that is, an invertible element),
         consider the set $S_x = {x, -x, u x, -u x}$.
         For any $x$ and $x^\prime$, then either $S_x = S_{x^\prime}$, or $S_x$ and $S_{x^\prime}$
         are completely disjoint: the sets $S_x$ make a partition of $\mathbb{Z}_N^*$.
