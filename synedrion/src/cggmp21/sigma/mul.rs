@@ -90,7 +90,7 @@ impl<P: SchemeParams> MulProof<P> {
             .to_wide()
             .into_signed()
             .expect("conversion to `WideUint` provides enough space for a sign bit")
-            + secret.x.mul_wide(&e))
+            + secret.x.mul_wide_public(&e))
         .to_public();
         let u = secret.rho.to_masked(&r, &e);
         let v = secret.rho_x.to_masked(&s, &e);

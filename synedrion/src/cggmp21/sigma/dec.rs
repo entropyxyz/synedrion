@@ -95,7 +95,7 @@ impl<P: SchemeParams> DecProof<P> {
         let e_scalar = Scalar::from_xof_reader(&mut reader);
         let e = public_signed_from_scalar::<P>(&e_scalar);
 
-        let z1 = (alpha.to_wide() + secret.y.mul_wide(&e)).to_public();
+        let z1 = (alpha.to_wide() + secret.y.mul_wide_public(&e)).to_public();
         let z2 = (nu + mu * e.to_wide()).to_public();
 
         let omega = secret.rho.to_masked(&r, &e);

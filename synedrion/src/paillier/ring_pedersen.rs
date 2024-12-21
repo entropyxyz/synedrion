@@ -113,11 +113,19 @@ impl<P: PaillierParams> RPParams<P> {
     }
 
     /// Creates a commitment for a secret `randomizer` and the value 0.
-    pub fn commit_zero<R>(&self, randomizer: &R) -> RPCommitment<P>
+    pub fn commit_zero_value<R>(&self, randomizer: &R) -> RPCommitment<P>
     where
         P::UintMod: Exponentiable<R>,
     {
         RPCommitment(self.base_randomizer.pow(randomizer))
+    }
+
+    /// Creates a commitment for a secret `randomizer` and the value 0.
+    pub fn commit_zero_randomizer<R>(&self, value: &R) -> RPCommitment<P>
+    where
+        P::UintMod: Exponentiable<R>,
+    {
+        RPCommitment(self.base_value.pow(value))
     }
 
     pub fn to_wire(&self) -> RPParamsWire<P> {
