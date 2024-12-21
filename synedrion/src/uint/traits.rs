@@ -1,21 +1,40 @@
 use crypto_bigint::{
     modular::MontyForm,
     subtle::{ConditionallySelectable, CtOption},
-    Bounded, ConcatMixed, Encoding, Integer, Invert, Limb, PowBoundedExp, RandomMod, SplitMixed, WideningMul, Zero,
-    U1024, U2048, U4096, U512, U8192,
+    Bounded, ConcatMixed, Encoding, Gcd, Integer, Invert, Limb, Monty, PowBoundedExp, RandomMod, SplitMixed,
+    WideningMul, Zero, U1024, U2048, U4096, U512, U8192,
 };
 use zeroize::Zeroize;
 
 use crate::uint::{PublicSigned, SecretSigned, SecretUnsigned};
 
-pub trait ToMontgomery: Integer {
-    fn to_montgomery(
-        self,
-        params: &<<Self as Integer>::Monty as crypto_bigint::Monty>::Params,
-    ) -> <Self as Integer>::Monty {
-        <<Self as Integer>::Monty as crypto_bigint::Monty>::new(self, params.clone())
+pub trait IsInvertible {
+    /// Returns `true` if `self` is invertible modulo `modulus`.
+    fn is_invertible(&self, modulus: &Self) -> bool;
+}
+
+impl<T> IsInvertible for T
+where
+    T: Integer + Gcd<Output = Self>,
+{
+    fn is_invertible(&self, modulus: &Self) -> bool {
+        // There are technically two ways to check for that, one via `gcd()`,
+        // and the other by trying `invert()` on the Montgomery form and checking if it succeeds.
+        // For U1024, there is currently no detectable difference, since they're using the same algorithm underneath,
+        // and conversion to Montgomery takes negligible time (the actual inversion/gcd is ~1000x slower).
+        //
+        // So we just pick one method, and isolate it in this function.
+        self.gcd(modulus) == Self::one()
     }
 }
+
+pub trait ToMontgomery: Integer {
+    fn to_montgomery(self, params: &<Self::Monty as Monty>::Params) -> Self::Monty {
+        <Self::Monty as Monty>::new(self, params.clone())
+    }
+}
+
+impl<T> ToMontgomery for T where T: Integer {}
 
 /// Exponentiation to the power of bounded integers.
 ///
@@ -122,9 +141,3 @@ pub type U512Mod = MontyForm<{ 512u32.div_ceil(Limb::BITS) as usize }>;
 pub type U1024Mod = MontyForm<{ 1024u32.div_ceil(Limb::BITS) as usize }>;
 pub type U2048Mod = MontyForm<{ 2048u32.div_ceil(Limb::BITS) as usize }>;
 pub type U4096Mod = MontyForm<{ 4096u32.div_ceil(Limb::BITS) as usize }>;
-
-impl ToMontgomery for U512 {}
-impl ToMontgomery for U1024 {}
-impl ToMontgomery for U2048 {}
-impl ToMontgomery for U4096 {}
-impl ToMontgomery for U8192 {}
