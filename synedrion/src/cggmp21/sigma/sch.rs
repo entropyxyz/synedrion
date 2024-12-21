@@ -1,7 +1,7 @@
-//! Schnorr proof of knowledge ($\Pi^{sch}$, Section C.1, Fig. 22).
+//! Schnorr proof of knowledge ($\Pi^{sch}$, Section A.1, Fig. 22).
 //!
 //! Publish $X$ and prove that we know a secret $x$ such that $g^x = X$,
-//! where $g$ is a EC generator.
+//! where $g$ is the EC generator.
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,7 @@ const HASH_TAG: &[u8] = b"P_sch";
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone)]
 pub(crate) struct SchSecret(
-    /// `\alpha`
+    /// $\alpha$
     Secret<Scalar>,
 );
 
@@ -53,15 +53,7 @@ impl SchChallenge {
     }
 }
 
-/**
-ZK proof: Schnorr proof of knowledge.
-
-Secret inputs:
-- scalar $x$.
-
-Public inputs:
-- Point $X = g * x$, where $g$ is the curve generator.
-*/
+/// ZK proof: Schnorr proof of knowledge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SchProof {
     challenge: SchChallenge,
