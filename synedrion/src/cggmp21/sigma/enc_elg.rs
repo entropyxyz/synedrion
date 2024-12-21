@@ -1,4 +1,6 @@
-//! Knowledge of Exponent vs Paillier Encryption ($\Pi^{log*}$, Section C.2, Fig. 25)
+//! Range Proof w/ EL-Gamal Commitment ($\Pi^{enc-elg}$, Section A.2, Fig. 24)
+
+#![allow(dead_code)]
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -13,48 +15,59 @@ use crate::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
         Randomizer,
     },
-    tools::hashing::{Chain, Hashable, XofHasher},
+    tools::{
+        hashing::{Chain, Hashable, XofHasher},
+        Secret,
+    },
     uint::{PublicSigned, SecretSigned},
 };
 
-const HASH_TAG: &[u8] = b"P_log*";
+const HASH_TAG: &[u8] = b"P_enc_elg";
 
-pub(crate) struct LogStarSecretInputs<'a, P: SchemeParams> {
-    /// $x \in \pm 2^\ell$.
+pub struct EncElgSecretInputs<'a, P: SchemeParams> {
+    /// $x ∈ ±2^\ell$.
     pub x: &'a SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     /// $\rho$, a Paillier randomizer for the public key $N_0$.
     pub rho: &'a Randomizer<P::Paillier>,
+    /// Scalar $a$.
+    pub a: &'a Secret<Scalar>,
+    /// Scalar $b$.
+    pub b: &'a Secret<Scalar>,
 }
 
-pub(crate) struct LogStarPublicInputs<'a, P: SchemeParams> {
+pub struct EncElgPublicInputs<'a, P: SchemeParams> {
     /// Paillier public key $N_0$.
     pub pk0: &'a PublicKeyPaillier<P::Paillier>,
     /// Paillier ciphertext $C = enc_0(x, \rho)$.
     pub cap_c: &'a Ciphertext<P::Paillier>,
-    /// Point $g$.
-    pub g: &'a Point,
-    /// Point $X = g * x$.
+    /// Point $A = g^a$, where $g$ is the curve generator.
+    pub cap_a: &'a Point,
+    /// Point $B = g^b$, where $g$ is the curve generator.
+    pub cap_b: &'a Point,
+    /// Point $X = g^(a b + x)$, where $g$ is the curve generator.
     pub cap_x: &'a Point,
 }
 
-/// ZK proof: Knowledge of Exponent vs Paillier Encryption.
+/// ZK proof: Paillier encryption in range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct LogStarProof<P: SchemeParams> {
+pub(crate) struct EncElgProof<P: SchemeParams> {
     e: Scalar,
     cap_s: RPCommitmentWire<P::Paillier>,
-    cap_a: CiphertextWire<P::Paillier>,
+    cap_d: CiphertextWire<P::Paillier>,
     cap_y: Point,
-    cap_d: RPCommitmentWire<P::Paillier>,
+    cap_z: Point,
+    cap_t: RPCommitmentWire<P::Paillier>,
     z1: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    w: Scalar,
     z2: MaskedRandomizer<P::Paillier>,
     z3: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
 }
 
-impl<P: SchemeParams> LogStarProof<P> {
+impl<P: SchemeParams> EncElgProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        secret: LogStarSecretInputs<'_, P>,
-        public: LogStarPublicInputs<'_, P>,
+        secret: EncElgSecretInputs<'_, P>,
+        public: EncElgPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
@@ -66,52 +79,58 @@ impl<P: SchemeParams> LogStarProof<P> {
         let alpha = SecretSigned::random_in_exponent_range(rng, P::L_BOUND + P::EPS_BOUND);
         let mu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
         let r = Randomizer::random(rng, public.pk0);
+        let beta = Secret::init_with(|| Scalar::random(rng));
         let gamma = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(secret.x, &mu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer(public.pk0, &alpha, &r).to_wire();
-        let cap_y = public.g * secret_scalar_from_signed::<P>(&alpha);
-        let cap_d = setup.commit(&alpha, &gamma).to_wire();
+        let cap_d = Ciphertext::new_with_randomizer(public.pk0, &alpha, &r).to_wire();
+        let cap_y = public.cap_a * &beta + secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
+        let cap_z = beta.mul_by_generator();
+        let cap_t = setup.commit(&alpha, &gamma).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_s)
-            .chain(&cap_a)
-            .chain(&cap_y)
             .chain(&cap_d)
+            .chain(&cap_y)
+            .chain(&cap_z)
+            .chain(&cap_t)
             // public parameters
             .chain(public.pk0.as_wire())
             .chain(&public.cap_c.to_wire())
-            .chain(public.g)
-            .chain(public.cap_x)
+            .chain(&public.cap_a)
+            .chain(&public.cap_b)
+            .chain(&public.cap_x)
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e_scalar = Scalar::from_xof_reader(&mut reader);
-        let e = public_signed_from_scalar::<P>(&e_scalar);
+        let e = Scalar::from_xof_reader(&mut reader);
+        let e_signed = public_signed_from_scalar::<P>(&e);
 
-        let z1 = (alpha + secret.x * e).to_public();
-        let z2 = secret.rho.to_masked(&r, &e);
-        let z3 = (gamma + mu * e.to_wide()).to_public();
+        let z1 = (alpha + secret.x * e_signed).to_public();
+        let w = *(beta + secret.b * e).expose_secret();
+        let z2 = secret.rho.to_masked(&r, &e_signed);
+        let z3 = (gamma + mu * e_signed.to_wide()).to_public();
 
         Self {
-            e: e_scalar,
+            e,
             cap_s,
-            cap_a,
-            cap_y,
             cap_d,
+            cap_y,
+            cap_z,
+            cap_t,
             z1,
+            w,
             z2,
             z3,
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
-        public: LogStarPublicInputs<'_, P>,
+        public: EncElgPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
@@ -120,47 +139,56 @@ impl<P: SchemeParams> LogStarProof<P> {
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_s)
-            .chain(&self.cap_a)
-            .chain(&self.cap_y)
             .chain(&self.cap_d)
+            .chain(&self.cap_y)
+            .chain(&self.cap_z)
+            .chain(&self.cap_t)
             // public parameters
             .chain(public.pk0.as_wire())
             .chain(&public.cap_c.to_wire())
-            .chain(public.g)
-            .chain(public.cap_x)
+            .chain(&public.cap_a)
+            .chain(&public.cap_b)
+            .chain(&public.cap_x)
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = Scalar::from_xof_reader(&mut reader);
 
-        if e_scalar != self.e {
+        if e != self.e {
             return false;
         }
 
-        let e = public_signed_from_scalar::<P>(&e_scalar);
+        let e_signed = public_signed_from_scalar::<P>(&e);
 
-        // Range check
+        // z_1 ∈ ±2^{\ell + \eps}
         if !self.z1.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
             return false;
         }
 
-        // enc_0(z1, z2) == A (+) C (*) e
+        // enc_0(z_1, z_2) == D (+) C (*) e
         let c = Ciphertext::new_public_with_randomizer(public.pk0, &self.z1, &self.z2);
-        if c != self.cap_a.to_precomputed(public.pk0) + public.cap_c * &e {
+        let cap_d = self.cap_d.to_precomputed(public.pk0);
+        if c != cap_d + public.cap_c * &e_signed {
             return false;
         }
 
-        // g^{z_1} == Y X^e
-        if public.g * scalar_from_signed::<P>(&self.z1) != self.cap_y + public.cap_x * e_scalar {
+        // A^w g^{z_1} == Y X^e
+        if public.cap_a * self.w + scalar_from_signed::<P>(&self.z1).mul_by_generator() != self.cap_y + public.cap_x * e
+        {
             return false;
         }
 
-        // s^{z_1} t^{z_3} == D S^e \mod \hat{N}
-        let cap_d = self.cap_d.to_precomputed(setup);
+        // g^w == Z B^e
+        if self.w.mul_by_generator() != self.cap_z + public.cap_b * e {
+            return false;
+        }
+
+        // s^{z_1} t^{z_3} == T S^e \mod \hat{N}
+        let cap_t = self.cap_t.to_precomputed(setup);
         let cap_s = self.cap_s.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.z3) != &cap_d * &cap_s.pow(&e) {
+        if setup.commit(&self.z1, &self.z3) != &cap_t * &cap_s.pow(&e_signed) {
             return false;
         }
 
@@ -172,11 +200,12 @@ impl<P: SchemeParams> LogStarProof<P> {
 mod tests {
     use rand_core::OsRng;
 
-    use super::{LogStarProof, LogStarPublicInputs, LogStarSecretInputs};
+    use super::{EncElgProof, EncElgPublicInputs, EncElgSecretInputs};
     use crate::{
         cggmp21::{conversion::secret_scalar_from_signed, SchemeParams, TestParams},
-        curve::{Point, Scalar},
+        curve::Scalar,
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
+        tools::Secret,
         uint::SecretSigned,
     };
 
@@ -192,30 +221,41 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let g = Point::GENERATOR * Scalar::random(&mut OsRng);
         let x = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
         let rho = Randomizer::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer(pk, &x, &rho);
-        let cap_x = g * secret_scalar_from_signed::<Params>(&x);
+        let a = Secret::init_with(|| Scalar::random(&mut OsRng));
+        let b = Secret::init_with(|| Scalar::random(&mut OsRng));
 
-        let proof = LogStarProof::<Params>::new(
+        let cap_c = Ciphertext::new_with_randomizer(pk, &x, &rho);
+        let cap_a = a.mul_by_generator();
+        let cap_b = b.mul_by_generator();
+        let cap_x = (&a * &b + secret_scalar_from_signed::<Params>(&x)).mul_by_generator();
+
+        let proof = EncElgProof::<Params>::new(
             &mut OsRng,
-            LogStarSecretInputs { x: &x, rho: &rho },
-            LogStarPublicInputs {
+            EncElgSecretInputs {
+                x: &x,
+                rho: &rho,
+                a: &a,
+                b: &b,
+            },
+            EncElgPublicInputs {
                 pk0: pk,
                 cap_c: &cap_c,
-                g: &g,
+                cap_a: &cap_a,
+                cap_b: &cap_b,
                 cap_x: &cap_x,
             },
             &setup,
             &aux,
         );
         assert!(proof.verify(
-            LogStarPublicInputs {
+            EncElgPublicInputs {
                 pk0: pk,
                 cap_c: &cap_c,
-                g: &g,
-                cap_x: &cap_x
+                cap_a: &cap_a,
+                cap_b: &cap_b,
+                cap_x: &cap_x,
             },
             &setup,
             &aux

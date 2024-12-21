@@ -4,9 +4,9 @@ use core::{
     ops::{Add, Mul, Neg, Sub},
 };
 
-use digest::Digest;
+use digest::XofReader;
 use k256::elliptic_curve::{
-    bigint::U256, // Note that this type is different from typenum::U256
+    bigint::{U256, U512}, // Note that this type is different from typenum::U256
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     ops::Reduce,
     point::AffineCoordinates,
@@ -81,11 +81,10 @@ impl Scalar {
         self.0.invert().map(Self)
     }
 
-    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<Secp256k1>>) -> Self {
-        // There's currently no way to make the required digest output size
-        // depend on the target scalar size, so we are hardcoding it to 256 bit
-        // (that is, equal to the scalar size).
-        Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&d.finalize()))
+    pub fn from_xof_reader(reader: &mut impl XofReader) -> Self {
+        let mut bytes = k256::WideBytes::default();
+        reader.read(&mut bytes);
+        Self(<BackendScalar as Reduce<U512>>::reduce_bytes(&bytes))
     }
 
     /// Convert a 32-byte hash digest into a scalar as per SEC1:
@@ -317,6 +316,14 @@ impl Mul<&Scalar> for Point {
     type Output = Point;
 
     fn mul(self, rhs: &Scalar) -> Point {
+        Point(self.0.mul(&(rhs.0)))
+    }
+}
+
+impl Mul<Scalar> for &Point {
+    type Output = Point;
+
+    fn mul(self, rhs: Scalar) -> Point {
         Point(self.0.mul(&(rhs.0)))
     }
 }

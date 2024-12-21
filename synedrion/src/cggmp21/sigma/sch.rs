@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     curve::{Point, Scalar},
     tools::{
-        hashing::{Chain, FofHasher, Hashable},
+        hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
 };
@@ -44,13 +44,12 @@ struct SchChallenge(Scalar);
 
 impl SchChallenge {
     fn new(public: &Point, commitment: &SchCommitment, aux: &impl Hashable) -> Self {
-        Self(
-            FofHasher::new_with_dst(HASH_TAG)
-                .chain(aux)
-                .chain(public)
-                .chain(commitment)
-                .finalize_to_scalar(),
-        )
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .chain(public)
+            .chain(commitment)
+            .finalize_to_reader();
+        Self(Scalar::from_xof_reader(&mut reader))
     }
 }
 
@@ -84,7 +83,7 @@ impl SchProof {
 
     pub fn verify(&self, commitment: &SchCommitment, cap_x: &Point, aux: &impl Hashable) -> bool {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        challenge == self.challenge && self.proof.mul_by_generator() == commitment.0 + cap_x * &challenge.0
+        challenge == self.challenge && self.proof.mul_by_generator() == commitment.0 + cap_x * challenge.0
     }
 }
 

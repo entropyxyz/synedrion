@@ -4,7 +4,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
-    conversion::{scalar_from_signed, scalar_from_wide_signed, secret_scalar_from_signed},
+    conversion::{public_signed_from_scalar, scalar_from_wide_signed, secret_scalar_from_signed},
     SchemeParams,
 };
 use crate::{
@@ -39,7 +39,7 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
 /// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    e: Scalar,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_t: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
@@ -61,14 +61,14 @@ impl<P: SchemeParams> DecProof<P> {
 
         let hat_cap_n = setup.modulus(); // $\hat{N}$
 
-        let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
-        let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
-        let nu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let alpha = SecretSigned::random_in_exponent_range(rng, P::L_BOUND + P::EPS_BOUND);
+        let mu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let nu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let r = Randomizer::random(rng, public.pk0);
 
         let cap_s = setup.commit(secret.y, &mu).to_wire();
         let cap_t = setup.commit(&alpha, &nu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(public.pk0, &alpha, &r).to_wire();
+        let cap_a = Ciphertext::new_with_randomizer(public.pk0, &alpha, &r).to_wire();
 
         // `alpha` is secret, but `gamma` only uncovers $\ell$ bits of `alpha`'s full $\ell + \eps$ bits,
         // and it's transmitted to another node, so it can be considered public.
@@ -92,15 +92,16 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
-        let z1 = (alpha.to_wide() + secret.y.mul_wide(&e)).to_public();
+        let z1 = (alpha.to_wide() + secret.y.mul_wide_public(&e)).to_public();
         let z2 = (nu + mu * e.to_wide()).to_public();
 
         let omega = secret.rho.to_masked(&r, &e);
 
         Self {
-            e,
+            e: e_scalar,
             cap_s,
             cap_t,
             cap_a,
@@ -129,11 +130,13 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
 
-        if e != self.e {
+        if e_scalar != self.e {
             return false;
         }
+
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         // enc(z_1, \omega) == A (+) C (*) e
         if Ciphertext::new_public_with_randomizer_wide(public.pk0, &self.z1, &self.omega)
@@ -143,7 +146,7 @@ impl<P: SchemeParams> DecProof<P> {
         }
 
         // z_1 == \gamma + e x \mod q
-        if scalar_from_wide_signed::<P>(&self.z1) != self.gamma + scalar_from_signed::<P>(&e) * *public.x {
+        if scalar_from_wide_signed::<P>(&self.z1) != self.gamma + e_scalar * *public.x {
             return false;
         }
 
@@ -182,11 +185,11 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         // We need something within the range -N/2..N/2 so that it doesn't wrap around.
-        let y = SecretSigned::random_in_exp_range(&mut OsRng, Paillier::PRIME_BITS * 2 - 2);
+        let y = SecretSigned::random_in_exponent_range(&mut OsRng, Paillier::PRIME_BITS * 2 - 2);
         let x = *secret_scalar_from_signed::<Params>(&y).expose_secret();
 
         let rho = Randomizer::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho);
+        let cap_c = Ciphertext::new_with_randomizer(pk, &y, &rho);
 
         let proof = DecProof::<Params>::new(
             &mut OsRng,

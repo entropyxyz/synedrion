@@ -3,8 +3,9 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
+use super::super::{conversion::public_signed_from_scalar, SchemeParams};
 use crate::{
+    curve::Scalar,
     paillier::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
         Randomizer,
@@ -32,7 +33,7 @@ pub struct EncPublicInputs<'a, P: SchemeParams> {
 /// ZK proof: Paillier encryption in range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct EncProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    e: Scalar,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
     cap_c: RPCommitmentWire<P::Paillier>,
@@ -56,13 +57,13 @@ impl<P: SchemeParams> EncProof<P> {
 
         // TODO (#86): should we instead sample in range $+- 2^{\ell + \eps} - q 2^\ell$?
         // This will ensure that the range check on the prover side will pass.
-        let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
-        let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let alpha = SecretSigned::random_in_exponent_range(rng, P::L_BOUND + P::EPS_BOUND);
+        let mu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
         let r = Randomizer::random(rng, public.pk0);
-        let gamma = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let gamma = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
         let cap_s = setup.commit(secret.k, &mu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(public.pk0, &alpha, &r).to_wire();
+        let cap_a = Ciphertext::new_with_randomizer(public.pk0, &alpha, &r).to_wire();
         let cap_c = setup.commit(&alpha, &gamma).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
@@ -78,14 +79,15 @@ impl<P: SchemeParams> EncProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
+        let e = public_signed_from_scalar::<P>(&e_scalar);
 
         let z1 = (alpha + secret.k * e).to_public();
         let z2 = secret.rho.to_masked(&r, &e);
         let z3 = (gamma + mu * e.to_wide()).to_public();
 
         Self {
-            e,
+            e: e_scalar,
             cap_s,
             cap_a,
             cap_c,
@@ -111,19 +113,21 @@ impl<P: SchemeParams> EncProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e_scalar = Scalar::from_xof_reader(&mut reader);
 
-        if e != self.e {
+        if e_scalar != self.e {
             return false;
         }
 
+        let e = public_signed_from_scalar::<P>(&e_scalar);
+
         // z_1 \in \pm 2^{\ell + \eps}
-        if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {
+        if !self.z1.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
             return false;
         }
 
         // enc_0(z1, z2) == A (+) K (*) e
-        let c = Ciphertext::new_public_with_randomizer_signed(public.pk0, &self.z1, &self.z2);
+        let c = Ciphertext::new_public_with_randomizer(public.pk0, &self.z1, &self.z2);
         if c != self.cap_a.to_precomputed(public.pk0) + public.cap_k * &e {
             return false;
         }
@@ -162,9 +166,9 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let secret = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
+        let secret = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
         let randomizer = Randomizer::random(&mut OsRng, pk);
-        let ciphertext = Ciphertext::new_with_randomizer_signed(pk, &secret, &randomizer);
+        let ciphertext = Ciphertext::new_with_randomizer(pk, &secret, &randomizer);
 
         let proof = EncProof::<Params>::new(
             &mut OsRng,
