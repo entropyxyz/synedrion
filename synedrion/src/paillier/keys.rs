@@ -6,6 +6,7 @@ use crypto_bigint::{
     CheckedAdd, CheckedSub, Integer, InvMod, Invert, Monty, NonZero, Odd, PowBoundedExp, ShrVartime, Square,
     WrappingAdd,
 };
+use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -244,7 +245,7 @@ where
             .expect("Will not overflow since 0 <= x < q, and 0 <= a < p.")
     }
 
-    /// Returns a random $w ∈ [0, N)$ such that $w$ is not a square modulo $N$,
+    /// Returns a random invertible $w ∈ [0, N)$ such that $w$ is not a square modulo $N$,
     /// where $N$ is the public key
     /// (or, equivalently, such that the Jacobi symbol $(w|N) = -1$).
     pub fn random_nonsquare_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
@@ -270,6 +271,10 @@ where
         let y = self.public_key.modulus.random_quadratic_residue(rng);
         let b = Choice::from(rng.next_u32() as u8 & 1);
         let w = y * self.nonsquare_sampling_constant.expose_secret();
+
+        // Note that since `y` and `u` are invertible
+        // (`y` is selected that way, and `u` is not a multiple of either `p` or `q`),
+        // the result will be invertible as well.
         P::UintMod::conditional_select(&w, &-w, b).retrieve()
     }
 }
@@ -352,10 +357,15 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
         &self.monty_params_mod_n_squared
     }
 
-    /// Finds an invertible group element via rejection sampling. Returns the
-    /// element in Montgomery form.
+    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
     pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
         self.modulus.random_invertible_residue(rng)
+    }
+
+    /// Returns a number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form,
+    /// deterministically derived from an extensible output hash function.
+    pub fn invertible_residue_from_xof_reader(&self, reader: &mut impl XofReader) -> P::Uint {
+        self.modulus.invertible_residue_from_xof_reader(reader)
     }
 }
 
