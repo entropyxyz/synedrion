@@ -1,4 +1,4 @@
-use crypto_bigint::{Bounded, Encoding, Integer, NonZero};
+use crypto_bigint::{Bounded, Encoding, Integer};
 use digest::{Digest, ExtendableOutput, Update, XofReader};
 use hashing_serializer::HashingSerializer;
 use serde::{Deserialize, Serialize};
@@ -167,42 +167,4 @@ where
         Some(byte)
     });
     T::from_le_bytes(bytes)
-}
-
-/// Build a `T` integer from an extendable Reader function. The resulting `T` is guaranteed to be
-/// smaller than the modulus (uses rejection sampling).
-pub(crate) fn uint_from_xof_modulo<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
-where
-    T: Integer + Encoding,
-{
-    let backend_modulus = modulus.as_ref();
-
-    let n_bits = backend_modulus.bits_vartime();
-    let n_bytes = n_bits.div_ceil(8) as usize;
-
-    // If the number of bits is not a multiple of 8, use a mask to zeroize the high bits in the
-    // gererated random bytestring, so that we don't have to reject too much.
-    let mask = if n_bits & 7 != 0 {
-        (1 << (n_bits & 7)) - 1
-    } else {
-        u8::MAX
-    };
-
-    let mut bytes = T::zero().to_le_bytes();
-    loop {
-        let buf = bytes
-            .as_mut()
-            .get_mut(0..n_bytes)
-            .expect("The modulus is a T and has at least n_bytes that can be read.");
-        reader.read(buf);
-        bytes.as_mut().last_mut().map(|byte| {
-            *byte &= mask;
-            Some(byte)
-        });
-        let n = T::from_le_bytes(bytes);
-
-        if n.ct_lt(backend_modulus).into() {
-            return n;
-        }
-    }
 }
