@@ -56,3 +56,9 @@ bench = true
 name = "bench"
 harness = false
 path = "benches/bench.rs"
+
+[[bench]]
+bench = true
+name = "pow"
+harness = false
+path = "benches/pow.rs"
