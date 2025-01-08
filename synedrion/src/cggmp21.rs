@@ -14,7 +14,7 @@ mod interactive_signing;
 mod key_init;
 mod key_refresh;
 mod params;
-mod sigma;
+pub(crate) mod sigma;
 
 #[cfg(test)]
 mod signing_malicious;
@@ -25,3 +25,6 @@ pub use interactive_signing::{InteractiveSigning, InteractiveSigningProtocol, Pr
 pub use key_init::{KeyInit, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshProtocol};
 pub use params::{ProductionParams, SchemeParams, TestParams};
+
+#[cfg(feature = "private_benches")]
+pub(crate) use params::PaillierProduction;
