@@ -3,7 +3,12 @@ mod bench {
     use criterion::{criterion_group, Criterion};
     use rand::SeedableRng;
     use synedrion::private_benches::*;
+    use tracing_subscriber::EnvFilter;
     fn bench_fac_proof(c: &mut Criterion) {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .init();
+
         let mut group = c.benchmark_group("fac proof");
         group.sample_size(10);
 
