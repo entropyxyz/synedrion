@@ -59,7 +59,6 @@ pub mod fac_proof {
 }
 
 pub mod aff_g_proof {
-
     use super::*;
     use crate::{
         cggmp21::{
@@ -199,6 +198,96 @@ pub mod aff_g_proof {
                     };
 
                     black_box(proof.verify(pub_inputs, &rp_params, &aux))
+                },
+                BatchSize::SmallInput,
+            );
+        }
+    }
+}
+
+pub mod dec_proof {
+    use crate::{
+        cggmp21::{
+            conversion::secret_scalar_from_signed,
+            sigma::{DecProof, DecPublicInputs, DecSecretInputs},
+        },
+        paillier::{Ciphertext, Randomizer},
+        uint::SecretSigned,
+    };
+
+    use super::*;
+    pub fn dec_proof_prove<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
+        move |b: &mut Bencher<'_>| {
+            b.iter_batched(
+                || {
+                    let sk = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
+                    let pk = sk.public_key();
+
+                    let setup = RPParams::random(&mut rng);
+
+                    let aux: &[u8] = b"abcde";
+                    let y = SecretSigned::random_in_exp_range(&mut rng, Paillier::PRIME_BITS * 2 - 2);
+                    let x = *secret_scalar_from_signed::<Params>(&y).expose_secret();
+
+                    let rho = Randomizer::random(&mut rng, pk);
+                    let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho);
+
+                    (rng.clone(), y, rho, pk.clone(), x, cap_c, setup, aux)
+                },
+                |(mut rng, y, rho, pk, x, cap_c, setup, aux)| {
+                    black_box(DecProof::<Params>::new(
+                        &mut rng,
+                        DecSecretInputs { y: &y, rho: &rho },
+                        DecPublicInputs {
+                            pk0: &pk,
+                            x: &x,
+                            cap_c: &cap_c,
+                        },
+                        &setup,
+                        &aux,
+                    ))
+                },
+                BatchSize::SmallInput,
+            );
+        }
+    }
+    pub fn dec_proof_verify<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
+        move |b: &mut Bencher<'_>| {
+            b.iter_batched(
+                || {
+                    let sk = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
+                    let pk = sk.public_key();
+
+                    let setup = RPParams::random(&mut rng);
+
+                    let aux: &[u8] = b"abcde";
+                    let y = SecretSigned::random_in_exp_range(&mut rng, Paillier::PRIME_BITS * 2 - 2);
+                    let x = *secret_scalar_from_signed::<Params>(&y).expose_secret();
+
+                    let rho = Randomizer::random(&mut rng, pk);
+                    let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho);
+
+                    let pub_inputs = DecPublicInputs {
+                        pk0: &pk,
+                        x: &x,
+                        cap_c: &cap_c,
+                    };
+                    let proof = DecProof::<Params>::new(
+                        &mut rng,
+                        DecSecretInputs { y: &y, rho: &rho },
+                        pub_inputs,
+                        &setup,
+                        &aux,
+                    );
+                    (proof, pk.clone(), x.clone(), cap_c.clone(), setup)
+                },
+                |(proof, pk, x, cap_c, rp_params)| {
+                    let pub_inputs = DecPublicInputs {
+                        pk0: &pk,
+                        x: &x,
+                        cap_c: &cap_c,
+                    };
+                    black_box(proof.verify(pub_inputs, &rp_params, b"abcde"));
                 },
                 BatchSize::SmallInput,
             );
