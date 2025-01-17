@@ -71,6 +71,8 @@ pub mod aff_g_proof {
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
         uint::SecretSigned,
     };
+
+    #[allow(clippy::type_complexity)]
     fn proof_inputs(
         mut rng: impl CryptoRngCore + 'static,
     ) -> (
@@ -88,7 +90,6 @@ pub mod aff_g_proof {
         RPParams<Paillier>,
         &'static [u8],
     ) {
-        // let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
         let sk0 = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
         let pk0 = sk0.public_key().clone();
 
@@ -182,7 +183,7 @@ pub mod aff_g_proof {
                         cap_c.clone(),
                         cap_d.clone(),
                         cap_y.clone(),
-                        cap_x.clone(),
+                        cap_x,
                     );
                     let rp_params2 = rp_params.clone();
                     (proof, inputs, rp_params2, aux)
