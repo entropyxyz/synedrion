@@ -146,16 +146,6 @@ where
         masked.is_zero()
     }
 
-    /// Asserts that the absolute value is within the bit bound `bound`.
-    /// If that is the case, returns the value with the bound set to it.
-    pub fn ensure_bound(&self, bound: u32) -> CtOption<Self> {
-        let value = Self {
-            value: self.value.clone(),
-            bound,
-        };
-        CtOption::new(value, self.is_in_bound(bound))
-    }
-
     /// Asserts that the value is within the interval the paper denotes as $±2^exp$.
     /// Panics if it is not the case.
     ///
@@ -662,7 +652,6 @@ mod tests {
         let value = U1024::from_u8(3);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        assert!(bool::from(signed.ensure_bound(bound).is_some()));
         // 4 is too big
         let value = U1024::from_u8(4);
         let signed = test_new_from_unsigned(value, bound);
@@ -673,7 +662,7 @@ mod tests {
         let value = U1024::from_u8(1);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        assert!(bool::from(signed.ensure_bound(bound).is_some()));
+
         // 2 is too big
         let value = U1024::from_u8(2);
         let signed = test_new_from_unsigned(value, bound);
@@ -684,7 +673,7 @@ mod tests {
         let value = U1024::from_u8(0);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        assert!(bool::from(signed.ensure_bound(bound).is_some()));
+
         // 1 is too big
         let value = U1024::from_u8(1);
         let signed = test_new_from_unsigned(value, bound);

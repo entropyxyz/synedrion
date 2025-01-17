@@ -19,7 +19,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    entities::{AuxInfo, KeyShareChange, PublicAuxInfo, SecretAuxInfo},
+    entities::{AuxInfo, KeyShareChange, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
     params::SchemeParams,
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
@@ -1117,8 +1117,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
         let aux_info = AuxInfo {
             owner: my_id.clone(),
-            secret_aux,
-            public_aux,
+            secret: secret_aux,
+            public: PublicAuxInfos(public_aux),
         };
 
         Ok(FinalizeOutcome::Result((key_share_change, aux_info)))

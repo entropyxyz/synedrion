@@ -167,14 +167,6 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Encrypts the plaintext with the provided randomizer.
-    pub fn new_with_randomizer_unsigned(
-        pk: &PublicKeyPaillier<P>,
-        plaintext: &SecretUnsigned<P::Uint>,
-        randomizer: &Randomizer<P>,
-    ) -> Self {
-        Self::new_with_randomizer_inner(pk, plaintext, randomizer, Choice::from(0))
-    }
-
     pub fn new_with_randomizer(
         pk: &PublicKeyPaillier<P>,
         plaintext: &SecretSigned<P::Uint>,
@@ -189,16 +181,6 @@ impl<P: PaillierParams> Ciphertext<P> {
         randomizer: &MaskedRandomizer<P>,
     ) -> Self {
         Self::new_public_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())
-    }
-
-    pub fn new_public_with_randomizer_wide(
-        pk: &PublicKeyPaillier<P>,
-        plaintext: &PublicSigned<P::WideUint>,
-        randomizer: &MaskedRandomizer<P>,
-    ) -> Self {
-        let plaintext_reduced = P::Uint::try_from_wide(&(plaintext.abs() % pk.modulus_wide_nonzero()))
-            .expect("the number within range after reducing modulo N");
-        Self::new_public_with_randomizer_inner(pk, &plaintext_reduced, randomizer, plaintext.is_negative())
     }
 
     /// Encrypts the plaintext with a random randomizer.
@@ -308,29 +290,11 @@ impl<P: PaillierParams> Ciphertext<P> {
         }
     }
 
-    pub fn mul_masked_randomizer(self, randomizer: &MaskedRandomizer<P>) -> Self {
-        let randomizer_mod = randomizer
-            .0
-            .to_wide()
-            .to_montgomery(self.pk.monty_params_mod_n_squared());
-        let pk_modulus = self.pk.modulus_signed();
-        let ciphertext = self.ciphertext * randomizer_mod.pow(&pk_modulus);
+    fn homomorphic_add_ref(&self, rhs: &Self) -> Self {
+        assert!(self.pk == rhs.pk);
         Self {
-            pk: self.pk,
-            ciphertext,
-        }
-    }
-
-    pub fn mul_randomizer(self, randomizer: &Randomizer<P>) -> Self {
-        let randomizer_mod = randomizer
-            .randomizer
-            .to_wide()
-            .to_montgomery(self.pk.monty_params_mod_n_squared());
-        let pk_modulus = self.pk.modulus_signed();
-        let ciphertext = self.ciphertext * randomizer_mod.pow(&pk_modulus).expose_secret();
-        Self {
-            pk: self.pk,
-            ciphertext,
+            pk: self.pk.clone(),
+            ciphertext: self.ciphertext * rhs.ciphertext,
         }
     }
 
@@ -360,6 +324,13 @@ impl<P: PaillierParams> Sub<&Ciphertext<P>> for Ciphertext<P> {
     type Output = Ciphertext<P>;
     fn sub(self, rhs: &Ciphertext<P>) -> Ciphertext<P> {
         self.homomorphic_add(&rhs.homomorphic_neg())
+    }
+}
+
+impl<P: PaillierParams> Add<&Ciphertext<P>> for &Ciphertext<P> {
+    type Output = Ciphertext<P>;
+    fn add(self, rhs: &Ciphertext<P>) -> Ciphertext<P> {
+        self.homomorphic_add_ref(rhs)
     }
 }
 

@@ -17,7 +17,7 @@ mod params;
 mod sigma;
 
 #[cfg(test)]
-mod signing_malicious;
+mod interactive_signing_tests;
 
 #[cfg(test)]
 mod key_init_tests;

@@ -3,7 +3,7 @@ use core::ops::BitAnd;
 use crypto_bigint::{subtle::Choice, Bounded, Integer, Monty, NonZero};
 use zeroize::Zeroize;
 
-use super::{HasWide, SecretSigned};
+use super::HasWide;
 use crate::tools::Secret;
 
 /// A bounded unsigned integer with sensitive data.
@@ -47,10 +47,6 @@ where
             }),
             bound: modulus.expose_secret().bits(),
         }
-    }
-
-    pub fn into_signed(self) -> Option<SecretSigned<T>> {
-        SecretSigned::new_positive(self.value, self.bound)
     }
 
     pub fn expose_secret(&self) -> &T {

@@ -63,35 +63,6 @@ pub(crate) fn scalar_from_signed<P: SchemeParams>(
     }
 }
 
-/// Converts a wide integer to the associated curve scalar type.
-pub(crate) fn scalar_from_wide_uint<P: SchemeParams>(value: &<P::Paillier as PaillierParams>::WideUint) -> Scalar {
-    let r = *value % P::CURVE_ORDER_WIDE;
-
-    let repr = r.to_be_bytes();
-    let uint_len = repr.as_ref().len();
-    let scalar_len = Scalar::repr_len();
-
-    // Can unwrap here since the value is within the Scalar range
-    Scalar::try_from_be_bytes(
-        repr.as_ref()
-            .get(uint_len - scalar_len..)
-            .expect("WideUint is assumed to be bigger than Scalar"),
-    )
-    .expect("the value was reduced modulo curve order, so it's a valid curve scalar")
-}
-
-/// Converts a `PublicSigned`-wrapped wide integer to the associated curve scalar type.
-pub(crate) fn scalar_from_wide_signed<P: SchemeParams>(
-    value: &PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-) -> Scalar {
-    let abs_value = scalar_from_wide_uint::<P>(&value.abs());
-    if value.is_negative() {
-        -abs_value
-    } else {
-        abs_value
-    }
-}
-
 /// Converts a secret-wrapped uint to a secret-wrapped [`Scalar`], reducing the value modulo curve order.
 fn secret_scalar_from_uint<P: SchemeParams>(value: &Secret<<P::Paillier as PaillierParams>::Uint>) -> Secret<Scalar> {
     let r = value % &P::CURVE_ORDER;
