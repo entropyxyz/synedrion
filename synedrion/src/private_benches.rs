@@ -4,18 +4,17 @@ use rand_core::CryptoRngCore;
 use crate::{
     cggmp21::{
         conversion::secret_scalar_from_signed,
-        sigma::FacProof,
-        sigma::ModProof,
-        sigma::{AffGProof, AffGPublicInputs, AffGSecretInputs},
-        sigma::{DecProof, DecPublicInputs, DecSecretInputs},
-        sigma::{EncProof, EncPublicInputs, EncSecretInputs},
-        sigma::{LogStarProof, LogStarPublicInputs, LogStarSecretInputs},
-        sigma::{MulProof, MulPublicInputs, MulSecretInputs},
-        sigma::{MulStarProof, MulStarPublicInputs, MulStarSecretInputs},
+        sigma::{
+            AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, EncProof,
+            EncPublicInputs, EncSecretInputs, FacProof, LogStarProof, LogStarPublicInputs, LogStarSecretInputs,
+            ModProof, MulProof, MulPublicInputs, MulSecretInputs, MulStarProof, MulStarPublicInputs,
+            MulStarSecretInputs, PrmProof, SchCommitment, SchProof, SchSecret,
+        },
         PaillierProduction, ProductionParams,
     },
     curve::{Point, Scalar},
-    paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, RPParams, Randomizer, SecretKeyPaillierWire},
+    paillier::{Ciphertext, PaillierParams, PublicKeyPaillier, RPParams, RPSecret, Randomizer, SecretKeyPaillierWire},
+    tools::Secret,
     uint::SecretSigned,
     SchemeParams,
 };
@@ -671,6 +670,87 @@ pub mod paillier_mul_proof {
                     };
                     black_box(proof.verify(pub_inputs, &aux))
                 },
+                BatchSize::SmallInput,
+            );
+        }
+    }
+}
+
+pub mod prm_proof {
+    use super::*;
+
+    pub fn prm_proof_prove<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
+        move |b: &mut Bencher<'_>| {
+            b.iter_batched(
+                || {
+                    let secret = RPSecret::random(&mut rng);
+                    let setup = RPParams::random_with_secret(&mut rng, &secret);
+
+                    let aux: &[u8] = b"abcde";
+
+                    (rng.clone(), secret, setup, aux)
+                },
+                |(mut rng, secret, setup, aux)| black_box(PrmProof::<Params>::new(&mut rng, &secret, &setup, &aux)),
+                BatchSize::SmallInput,
+            );
+        }
+    }
+
+    pub fn prm_proof_verify<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
+        move |b: &mut Bencher<'_>| {
+            b.iter_batched(
+                || {
+                    let secret = RPSecret::random(&mut rng);
+                    let setup = RPParams::random_with_secret(&mut rng, &secret);
+
+                    let aux: &[u8] = b"abcde";
+                    let proof = PrmProof::<Params>::new(&mut rng, &secret, &setup, &aux);
+                    (proof, setup, aux)
+                },
+                |(proof, setup, aux)| black_box(proof.verify(&setup, &aux)),
+                BatchSize::SmallInput,
+            );
+        }
+    }
+}
+
+pub mod sch_proof {
+    use super::*;
+
+    pub fn sch_proof_prove<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
+        move |b: &mut Bencher<'_>| {
+            b.iter_batched(
+                || {
+                    let secret = Secret::init_with(|| Scalar::random(&mut rng));
+                    let public = secret.mul_by_generator();
+                    let aux: &[u8] = b"abcde";
+
+                    let proof_secret = SchSecret::random(&mut rng);
+                    let commitment = SchCommitment::new(&proof_secret);
+                    (proof_secret, secret, commitment, public, aux)
+                },
+                |(proof_secret, secret, commitment, public, aux)| {
+                    black_box(SchProof::new(&proof_secret, &secret, &commitment, &public, &aux))
+                },
+                BatchSize::SmallInput,
+            );
+        }
+    }
+
+    pub fn sch_proof_verify<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
+        move |b: &mut Bencher<'_>| {
+            b.iter_batched(
+                || {
+                    let secret = Secret::init_with(|| Scalar::random(&mut rng));
+                    let public = secret.mul_by_generator();
+                    let aux: &[u8] = b"abcde";
+
+                    let proof_secret = SchSecret::random(&mut rng);
+                    let commitment = SchCommitment::new(&proof_secret);
+                    let proof = SchProof::new(&proof_secret, &secret, &commitment, &public, &aux);
+                    (proof, commitment, public, aux)
+                },
+                |(proof, commitment, public, aux)| black_box(proof.verify(&commitment, &public, &aux)),
                 BatchSize::SmallInput,
             );
         }

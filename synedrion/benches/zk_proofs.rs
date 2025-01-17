@@ -125,6 +125,36 @@ mod bench {
         group.bench_function("verify", paillier_mul_proof_verify(rng));
     }
 
+    fn bench_prm(c: &mut Criterion) {
+        use prm_proof::*;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+        let mut group = c.benchmark_group("Pedersen Ring params (prm) proof");
+        group.sample_size(10);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("prove", prm_proof_prove(rng));
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("verify", prm_proof_verify(rng));
+    }
+
+    fn bench_sch(c: &mut Criterion) {
+        use sch_proof::*;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+        let mut group = c.benchmark_group("Schnorr (sch) proof");
+        group.sample_size(10);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("prove", sch_proof_prove(rng));
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("verify", sch_proof_verify(rng));
+    }
+
     criterion_group!(
         benches,
         bench_fac,
@@ -135,6 +165,8 @@ mod bench {
         bench_paillier_blum_modulus,
         bench_mul_star,
         bench_paillier_mul,
+        bench_prm,
+        bench_sch
     );
 }
 
