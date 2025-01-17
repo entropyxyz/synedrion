@@ -4,10 +4,11 @@ mod bench {
     use rand::SeedableRng;
     use synedrion::private_benches::*;
     use tracing_subscriber::EnvFilter;
-    fn bench_fac_proof(c: &mut Criterion) {
-        tracing_subscriber::fmt()
+    fn bench_fac(c: &mut Criterion) {
+        use fac_proof::*;
+        let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
-            .init();
+            .try_init();
 
         let mut group = c.benchmark_group("fac proof");
         group.sample_size(10);
@@ -19,7 +20,22 @@ mod bench {
         group.bench_function("verify", fac_proof_verify(rng));
     }
 
-    criterion_group!(benches, bench_fac_proof);
+    fn bench_aff_g(c: &mut Criterion) {
+        use aff_g_proof::*;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+        let mut group = c.benchmark_group("AffG proof");
+        group.sample_size(10);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("prove", aff_g_proof_prove(rng));
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("verify", aff_g_proof_verify(rng));
+    }
+
+    criterion_group!(benches, bench_fac, bench_aff_g);
 }
 
 // Running benchmarks without the test harness requires a main function at the top level, leading to

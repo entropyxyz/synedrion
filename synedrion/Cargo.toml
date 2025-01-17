@@ -70,5 +70,5 @@ path = "benches/pow.rs"
 
 [[bench]]
 bench = true
-name = "fac_proof"
+name = "zk_proofs"
 harness = false
