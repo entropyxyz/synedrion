@@ -50,7 +50,22 @@ mod bench {
         group.bench_function("verify", dec_proof_verify(rng));
     }
 
-    criterion_group!(benches, bench_fac, bench_aff_g, bench_dec);
+    fn bench_enc(c: &mut Criterion) {
+        use enc_proof::*;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+        let mut group = c.benchmark_group("Enc proof");
+        group.sample_size(10);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("prove", enc_proof_prove(rng));
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("verify", enc_proof_verify(rng));
+    }
+
+    criterion_group!(benches, bench_fac, bench_aff_g, bench_dec, bench_enc);
 }
 
 // Running benchmarks without the test harness requires a main function at the top level, leading to
