@@ -264,7 +264,7 @@ pub mod dec_proof {
                     let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho);
 
                     let pub_inputs = DecPublicInputs {
-                        pk0: &pk,
+                        pk0: pk,
                         x: &x,
                         cap_c: &cap_c,
                     };
@@ -275,7 +275,7 @@ pub mod dec_proof {
                         &setup,
                         &aux,
                     );
-                    (proof, pk.clone(), x.clone(), cap_c.clone(), setup)
+                    (proof, pk.clone(), x, cap_c.clone(), setup)
                 },
                 |(proof, pk, x, cap_c, rp_params)| {
                     let pub_inputs = DecPublicInputs {
@@ -557,7 +557,7 @@ pub mod mul_star_proof {
                         &mut rng,
                         MulStarSecretInputs { x: &x, rho: &rho },
                         MulStarPublicInputs {
-                            pk0: &pk,
+                            pk0: pk,
                             cap_c: &cap_c,
                             cap_d: &cap_d,
                             cap_x: &cap_x,
@@ -653,7 +653,7 @@ pub mod paillier_mul_proof {
                             rho: &rho,
                         },
                         MulPublicInputs {
-                            pk: &pk,
+                            pk: pk,
                             cap_x: &cap_x,
                             cap_y: &cap_y,
                             cap_c: &cap_c,
