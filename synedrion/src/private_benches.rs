@@ -653,7 +653,7 @@ pub mod paillier_mul_proof {
                             rho: &rho,
                         },
                         MulPublicInputs {
-                            pk: pk,
+                            pk,
                             cap_x: &cap_x,
                             cap_y: &cap_y,
                             cap_c: &cap_c,
