@@ -165,7 +165,8 @@ mod bench {
         bench_paillier_blum_modulus,
         bench_mul_star,
         bench_paillier_mul,
-        bench_prm,
+        // Broken code, see #174
+        // bench_prm,
         bench_sch
     );
 }
