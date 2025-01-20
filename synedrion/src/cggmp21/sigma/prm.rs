@@ -126,7 +126,6 @@ impl<P: SchemeParams> PrmProof<P> {
             let pwr = setup.base_randomizer().pow_bounded_exp(z, z.bits_vartime());
             let test = if *e { pwr == a * setup.base_value() } else { pwr == a };
             if !test {
-                // TODO(dp): Should we make this CT perhaps?
                 return false;
             }
         }
