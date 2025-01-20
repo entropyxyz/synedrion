@@ -125,6 +125,7 @@ mod bench {
         group.bench_function("verify", paillier_mul_proof_verify(rng));
     }
 
+    #[allow(unused, reason = "TODO: remove once #174 is sorted")]
     fn bench_prm(c: &mut Criterion) {
         use prm_proof::*;
         let _ = tracing_subscriber::fmt()
