@@ -5,7 +5,7 @@
 
 use alloc::{vec, vec::Vec};
 
-use crypto_bigint::modular::Retrieve;
+use crypto_bigint::{modular::Retrieve, BitOps, PowBoundedExp};
 use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, RPParams, RPSecret},
     tools::hashing::{Chain, Hashable, XofHasher},
-    uint::{Exponentiable, PublicSigned, SecretUnsigned, ToMontgomery},
+    uint::{Exponentiable, SecretUnsigned, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_prm";
@@ -75,12 +75,12 @@ Public inputs:
 pub(crate) struct PrmProof<P: SchemeParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
-    proof: Vec<PublicSigned<<P::Paillier as PaillierParams>::Uint>>,
+    proof: Vec<<P::Paillier as PaillierParams>::Uint>,
 }
 
 impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
-    /// (the power that was used to create RP parameters).
+    /// (i.e. lambda, the power that was used to create RP parameters).
     pub fn new(
         rng: &mut impl CryptoRngCore,
         secret: &RPSecret<P::Paillier>,
@@ -97,13 +97,12 @@ impl<P: SchemeParams> PrmProof<P> {
             .0
             .iter()
             .zip(challenge.0.iter())
-            .map(|(a, e)| {
+            .map(|(a, e): (&SecretUnsigned<_>, &bool)| {
                 let x = a.add_mod(secret.lambda(), &totient);
 
                 let p = if *e { x.expose_secret() } else { a.expose_secret() };
-
-                PublicSigned::new_positive(*p, P::Paillier::MODULUS_BITS)
-                    .expect("the value is modulo totient and therefore fits the bound")
+                // a/x are positive and smaller than the totient by construction
+                *p
             })
             .collect();
         Self {
@@ -124,9 +123,10 @@ impl<P: SchemeParams> PrmProof<P> {
 
         for ((e, z), a) in challenge.0.iter().zip(self.proof.iter()).zip(self.commitment.0.iter()) {
             let a = a.to_montgomery(monty_params);
-            let pwr = setup.base_randomizer().pow(z);
+            let pwr = setup.base_randomizer().pow_bounded_exp(z, z.bits_vartime());
             let test = if *e { pwr == a * setup.base_value() } else { pwr == a };
             if !test {
+                // TODO(dp): Should we make this CT perhaps?
                 return false;
             }
         }
