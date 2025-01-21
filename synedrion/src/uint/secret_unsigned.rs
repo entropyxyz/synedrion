@@ -76,7 +76,7 @@ where
     T: Zeroize + Integer<Monty: Zeroize> + Bounded + DefaultIsZeroes,
 {
     pub fn to_montgomery(&self, params: &<T::Monty as Monty>::Params) -> Secret<T::Monty> {
-        Secret::init_with(|| <T::Monty as Monty>::new(self.expose_secret().clone(), params.clone()))
+        Secret::init_with(|| <T::Monty as Monty>::new(*self.expose_secret(), params.clone()))
     }
 }
 
