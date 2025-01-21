@@ -107,6 +107,7 @@ where
     pub fn new_from_unsigned(value: Secret<T>, bound: u32) -> Option<Self> {
         let is_negative = Choice::from(value.expose_secret().bit_vartime(T::BITS - 1) as u8);
         let abs = Secret::<T>::conditional_select(&value, &value.wrapping_neg(), is_negative);
+        // Reserving one bit as the sign bit (MSB)
         if bound >= T::BITS || abs.expose_secret().bits() > bound {
             return None;
         }
@@ -666,6 +667,31 @@ mod tests {
         let value = U1024::from_u8(1);
         let signed = test_new_from_unsigned(value, bound);
         assert!(signed.is_none());
+    }
+
+    #[test]
+    fn signed_with_high_bounds() {
+        // Bound is too big
+        let bound = 128;
+        let value = U128::ONE << 10;
+        let signed = test_new_from_unsigned(value, bound);
+        assert!(signed.is_none(), "No 128 bit unsigned should fit in a 128-bit signed");
+
+        let bound = 127;
+        let signed = test_new_from_unsigned(value, bound);
+        assert!(signed.is_some(), "2^10 should fit in a 128-bit signed");
+
+        let bound = 127;
+        // The last bit will be interpreted as the sign, so will become a negative number.
+        let value = U128::MAX;
+        let signed = test_new_from_unsigned(value, bound);
+        assert!(signed.is_some());
+        assert!(bool::from(signed.unwrap().is_negative()));
+
+        let bound = 127;
+        let value = U128::MAX >> 1;
+        let signed = test_new_from_unsigned(value, bound);
+        assert!(signed.is_some(), "A 127-bit unsigned should fit in a 128-bit signed");
     }
 
     #[test]
