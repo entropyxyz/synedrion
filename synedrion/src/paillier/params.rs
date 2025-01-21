@@ -7,7 +7,7 @@ use crypto_bigint::{
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
+use zeroize::{DefaultIsZeroes, Zeroize};
 
 use crate::{
     tools::hashing::Hashable,
@@ -53,15 +53,14 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Encoding<Repr: Zeroize>
         + Hashable
         + HasWide<Wide = Self::WideUint>
-        // TODO: remove when https://github.com/RustCrypto/crypto-bigint/pull/709 is merged
-        + for<'a> RemAssign<&'a NonZero<Self::Uint>>
-        + InvMod
+        + InvMod<Output = Self::Uint>
         + RandomMod
         + RandomPrimeWithRng
         + Serialize
         + for<'de> Deserialize<'de>
         + ToMontgomery
-        + Zeroize;
+        + Zeroize
+        + DefaultIsZeroes;
 
     /// A modulo-residue counterpart of `Uint`.
     type UintMod: ConditionallySelectable
@@ -85,7 +84,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Serialize
         + for<'de> Deserialize<'de>
         + ToMontgomery
-        + Zeroize;
+        + Zeroize
+        + DefaultIsZeroes;
 
     /// A modulo-residue counterpart of `WideUint`.
     type WideUintMod: Monty<Integer = Self::WideUint>
@@ -110,7 +110,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + RandomMod
         + Serialize
         + for<'de> Deserialize<'de>
-        + Zeroize;
+        + Zeroize
+        + DefaultIsZeroes;
 }
 
 /// Paillier parameters for unit tests in this submodule.

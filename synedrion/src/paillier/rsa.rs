@@ -250,7 +250,7 @@ impl<P: PaillierParams> PublicModulus<P> {
     pub fn modulus_signed(&self) -> PublicSigned<P::WideUint> {
         // Have to return WideUint, since Uint::BITS == P::MODULUS_BITS, so it won't fit in a Signed<Uint>.
         PublicSigned::new_positive(self.modulus.0.to_wide(), P::MODULUS_BITS)
-            .expect("the modulus can be bounded by 2^MODULUS_BITS")
+            .expect("the modulus fits in 2*MODULUS_BITS bits")
     }
 
     pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {

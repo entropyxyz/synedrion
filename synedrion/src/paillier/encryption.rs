@@ -406,7 +406,7 @@ mod tests {
         subtle::ConditionallySelectable, Encoding, Integer, NonZero, RandomMod, ShrVartime, WrappingSub,
     };
     use rand_core::OsRng;
-    use zeroize::Zeroize;
+    use zeroize::{DefaultIsZeroes, Zeroize};
 
     use super::{
         super::{params::PaillierTest, PaillierParams, SecretKeyPaillierWire},
@@ -419,7 +419,7 @@ mod tests {
 
     fn mul_mod<T>(lhs: &T, rhs: &SecretSigned<T>, modulus: &NonZero<T>) -> T
     where
-        T: Zeroize + Integer + HasWide + crypto_bigint::Bounded + Encoding + ConditionallySelectable,
+        T: Zeroize + Integer + HasWide + crypto_bigint::Bounded + Encoding + ConditionallySelectable + DefaultIsZeroes,
     {
         // There may be more efficient ways to do this (e.g. Barrett reduction),
         // but it's only used in tests.

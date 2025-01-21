@@ -1,7 +1,7 @@
 use core::ops::BitAnd;
 
 use crypto_bigint::{subtle::Choice, Bounded, Integer, Monty, NonZero};
-use zeroize::Zeroize;
+use zeroize::{DefaultIsZeroes, Zeroize};
 
 use super::{HasWide, SecretSigned};
 use crate::tools::Secret;
@@ -16,7 +16,7 @@ pub(crate) struct SecretUnsigned<T: Zeroize> {
 
 impl<T> SecretUnsigned<T>
 where
-    T: Zeroize + Integer + Bounded,
+    T: Zeroize + Integer + Bounded + DefaultIsZeroes,
 {
     pub fn is_zero(&self) -> Choice {
         self.value.expose_secret().is_zero()
@@ -73,7 +73,7 @@ where
 
 impl<T> SecretUnsigned<T>
 where
-    T: Zeroize + Integer<Monty: Zeroize> + Bounded,
+    T: Zeroize + Integer<Monty: Zeroize> + Bounded + DefaultIsZeroes,
 {
     pub fn to_montgomery(&self, params: &<T::Monty as Monty>::Params) -> Secret<T::Monty> {
         Secret::init_with(|| <T::Monty as Monty>::new(self.expose_secret().clone(), params.clone()))
@@ -83,7 +83,7 @@ where
 impl<T> SecretUnsigned<T>
 where
     T: Zeroize + Integer + Bounded + HasWide,
-    T::Wide: Zeroize + Integer + Bounded,
+    T::Wide: Zeroize + Integer + Bounded + DefaultIsZeroes,
 {
     pub fn mul_wide(&self, rhs: &T) -> SecretUnsigned<T::Wide> {
         SecretUnsigned::new(

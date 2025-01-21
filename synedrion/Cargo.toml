@@ -26,7 +26,7 @@ tracing = { version = "0.1.41", default-features = false }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
-crypto-bigint = { version = "0.6.0-rc.6", default-features = false, features = [
+crypto-bigint = { version = "0.6.0-rc.8", default-features = false, features = [
 	"serde",
 	"alloc",
 	"rand_core",

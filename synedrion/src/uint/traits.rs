@@ -4,7 +4,7 @@ use crypto_bigint::{
     Bounded, ConcatMixed, Encoding, Integer, Invert, Limb, PowBoundedExp, RandomMod, SplitMixed, WideningMul, Zero,
     U1024, U2048, U4096, U512, U8192,
 };
-use zeroize::Zeroize;
+use zeroize::{DefaultIsZeroes, Zeroize};
 
 use crate::uint::{PublicSigned, SecretSigned, SecretUnsigned};
 
@@ -31,7 +31,7 @@ pub trait Exponentiable<Exponent> {
 impl<T, V> Exponentiable<SecretSigned<V>> for T
 where
     T: ConditionallySelectable + PowBoundedExp<V> + Invert<Output = CtOption<T>>,
-    V: ConditionallySelectable + Zeroize + Integer + Bounded,
+    V: ConditionallySelectable + Zeroize + Integer + Bounded + DefaultIsZeroes,
 {
     fn pow(&self, exp: &SecretSigned<V>) -> Self {
         let abs_exp = exp.abs();
@@ -44,7 +44,7 @@ where
 impl<T, V> Exponentiable<SecretUnsigned<V>> for T
 where
     T: PowBoundedExp<V> + Invert<Output = CtOption<T>>,
-    V: ConditionallySelectable + Zeroize + Integer + Bounded,
+    V: ConditionallySelectable + Zeroize + Integer + Bounded + DefaultIsZeroes,
 {
     fn pow(&self, exp: &SecretUnsigned<V>) -> Self {
         self.pow_bounded_exp(exp.expose_secret(), exp.bound())

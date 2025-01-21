@@ -7,6 +7,7 @@ use crypto_bigint::{
     BitOps, Bounded, CheckedAdd, CheckedMul, CheckedSub, Integer, NonZero, RandomMod, ShlVartime, WrappingAdd,
     WrappingMul, WrappingNeg, WrappingSub,
 };
+use zeroize::DefaultIsZeroes;
 
 use super::{HasWide, PublicSigned, SecretUnsigned};
 use crate::tools::Secret;
@@ -79,7 +80,7 @@ where
 
 impl<T> SecretSigned<T>
 where
-    T: ConditionallySelectable + Zeroize + Integer + Bounded,
+    T: ConditionallySelectable + Zeroize + Integer + Bounded + DefaultIsZeroes,
 {
     pub fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Self {
@@ -158,8 +159,8 @@ where
 
 impl<T> SecretSigned<T>
 where
-    T: ConditionallySelectable + Zeroize + Bounded + HasWide,
-    T::Wide: ConditionallySelectable + Zeroize + Bounded,
+    T: ConditionallySelectable + Zeroize + Bounded + HasWide + DefaultIsZeroes,
+    T::Wide: ConditionallySelectable + Zeroize + Bounded + DefaultIsZeroes,
 {
     /// Returns a [`SecretSigned`] with the same value, but twice the bit-width.
     pub fn to_wide(&self) -> SecretSigned<T::Wide> {
@@ -537,7 +538,7 @@ mod tests {
     };
     use rand::SeedableRng;
     use rand_chacha::{self, ChaCha8Rng};
-    use zeroize::Zeroize;
+    use zeroize::{DefaultIsZeroes, Zeroize};
 
     use super::SecretSigned;
     use crate::{tools::Secret, uint::PublicSigned};
@@ -546,14 +547,14 @@ mod tests {
 
     fn test_new_from_abs<T>(abs_value: T, bound: u32, is_negative: bool) -> Option<SecretSigned<T>>
     where
-        T: Zeroize + ConditionallySelectable + Integer + Bounded,
+        T: Zeroize + ConditionallySelectable + Integer + Bounded + DefaultIsZeroes,
     {
         SecretSigned::new_from_abs(Secret::init_with(|| abs_value), bound, Choice::from(is_negative as u8))
     }
 
     fn test_new_from_unsigned<T>(abs_value: T, bound: u32) -> Option<SecretSigned<T>>
     where
-        T: Zeroize + ConditionallySelectable + Integer + Bounded,
+        T: Zeroize + ConditionallySelectable + Integer + Bounded + DefaultIsZeroes,
     {
         SecretSigned::new_from_unsigned(Secret::init_with(|| abs_value), bound)
     }
