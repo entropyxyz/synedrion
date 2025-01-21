@@ -4,6 +4,9 @@ use alloc::vec::Vec;
 
 use crypto_bigint::{modular::Retrieve, Square};
 use crypto_primes::RandomPrimeWithRng;
+use digest::XofReader;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -135,26 +138,20 @@ impl<P: SchemeParams> ModProof<P> {
         }
     }
 
-    pub fn verify(
-        &self,
-        rng: &mut impl CryptoRngCore,
-        pk: &PublicKeyPaillier<P::Paillier>,
-        aux: &impl Hashable,
-    ) -> bool {
+    pub fn verify(&self, pk: &PublicKeyPaillier<P::Paillier>, aux: &impl Hashable) -> bool {
         let challenge = ModChallenge::new(pk, &self.commitment, aux);
         if challenge != self.challenge {
             return false;
         }
 
+        let mut reader = XofHasher::new_with_dst(b"P_mod RNG").chain(aux).finalize_to_reader();
+        let mut seed = <ChaCha8Rng as SeedableRng>::Seed::default();
+        reader.read(&mut seed);
+        let mut rng = ChaCha8Rng::from_seed(seed);
+
         // The paper requires checking that `N` is odd here,
         // but it is already an invariant of `PublicKeyPaillier`.
-
-        // Note: I think we can get away with using the default RNG here
-        // since the result is RNG-independent (or at least supposed to be).
-        // It is possible to pass the external RNG similarly to how it's done for `new()`,
-        // but it would require quite a bit of changes because an external RNG is not accessible
-        // at the callsite.
-        if (*pk.modulus()).is_prime_with_rng(rng) {
+        if (*pk.modulus()).is_prime_with_rng(&mut rng) {
             return false;
         }
 
@@ -205,6 +202,6 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let proof = ModProof::<Params>::new(&mut OsRng, &sk, &aux);
-        assert!(proof.verify(&mut OsRng, pk, &aux));
+        assert!(proof.verify(pk, &aux));
     }
 }

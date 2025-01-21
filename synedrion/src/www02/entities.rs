@@ -324,7 +324,7 @@ mod tests {
     use k256::ecdsa::SigningKey;
     use manul::{
         dev::{TestSigner, TestVerifier},
-        session::signature::Keypair,
+        signature::Keypair,
     };
     use rand_core::OsRng;
 

@@ -5,10 +5,9 @@ use manul::{
     combinators::misbehave::{Misbehaving, MisbehavingEntryPoint},
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     protocol::{
-        BoxedRound, Deserializer, EntryPoint, LocalError, NormalBroadcast, PartyId, ProtocolMessagePart, RoundId,
-        Serializer,
+        BoxedRound, Deserializer, EntryPoint, LocalError, NormalBroadcast, PartyId, ProtocolMessagePart, Serializer,
     },
-    session::signature::Keypair,
+    signature::Keypair,
 };
 use rand_core::{CryptoRngCore, OsRng, RngCore};
 
@@ -39,7 +38,7 @@ impl<P: SchemeParams, Id: PartyId> Misbehaving<Id, Behavior> for MaliciousSignin
         _deserializer: &Deserializer,
         normal_broadcast: NormalBroadcast,
     ) -> Result<NormalBroadcast, LocalError> {
-        let bc = if round.id() == RoundId::new(4) {
+        let bc = if round.id() == 4 {
             match behavior {
                 Behavior::InvalidSigma => {
                     let message = Round4Message {

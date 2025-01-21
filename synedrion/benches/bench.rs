@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-    session::signature::Keypair,
+    signature::Keypair,
 };
 use rand_core::OsRng;
 use synedrion::{AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, TestParams};
