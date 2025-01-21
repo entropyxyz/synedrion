@@ -44,7 +44,7 @@ impl<P: PaillierParams> SecretPrimesWire<P> {
     }
 
     /// Creates the primes for a Paillier-Blum modulus,
-    /// that is `p` and `q` are regular primes with an additional condition `p, q mod 3 = 4`.
+    /// that is `p` and `q` are regular primes with an additional condition `p, q mod 4 = 3`.
     pub fn random_paillier_blum(rng: &mut impl CryptoRngCore) -> Self {
         Self::new(
             Secret::init_with(|| random_paillier_blum_prime::<P>(rng)),
