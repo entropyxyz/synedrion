@@ -65,7 +65,6 @@ pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
 impl<P> SecretKeyPaillier<P>
 where
     P: PaillierParams,
-    // <P::Uint as InvMod>::Output: DefaultIsZeroes + Integer + Bounded,
 {
     fn new(secret_key: SecretKeyPaillierWire<P>) -> Self {
         let primes = secret_key.primes.into_precomputed();
