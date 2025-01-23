@@ -162,10 +162,6 @@ where
         self.primes.q_signed()
     }
 
-    pub fn p_wide_signed(&self) -> SecretSigned<P::WideUint> {
-        self.primes.p_wide_signed()
-    }
-
     /// Returns Euler's totient function (`φ(n)`) of the modulus, wrapped in a [`Secret`].
     pub fn totient_wide_unsigned(&self) -> SecretUnsigned<P::WideUint> {
         self.primes.totient_wide_unsigned()

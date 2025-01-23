@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
-    tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher},
+    tools::hashing::{uint_from_xof_modulo, Chain, Hashable, XofHasher},
     uint::{Exponentiable, ToMontgomery},
 };
 
@@ -41,7 +41,7 @@ impl<P: SchemeParams> ModChallenge<P> {
 
         let modulus = pk.modulus_nonzero();
         let ys = (0..P::SECURITY_PARAMETER)
-            .map(|_| uint_from_xof(&mut reader, &modulus))
+            .map(|_| uint_from_xof_modulo(&mut reader, &modulus))
             .collect();
         Self(ys)
     }

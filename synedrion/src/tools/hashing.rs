@@ -1,4 +1,4 @@
-use crypto_bigint::{Encoding, Integer, NonZero};
+use crypto_bigint::{Bounded, Encoding, Integer, NonZero};
 use digest::{Digest, ExtendableOutput, Update, XofReader};
 use hashing_serializer::HashingSerializer;
 use serde::{Deserialize, Serialize};
@@ -141,9 +141,37 @@ impl<T: Serialize> Hashable for T {
     }
 }
 
+pub(crate) fn uint_from_xof<T>(reader: &mut impl XofReader, n_bits: u32) -> T
+where
+    T: Integer + Bounded + Encoding,
+{
+    assert!(n_bits <= T::BITS);
+    let n_bytes = n_bits.div_ceil(8) as usize;
+
+    // If the number of bits is not a multiple of 8, use a mask to zeroize the high bits in the
+    // gererated random bytestring, so that we don't have to reject too much.
+    let mask = if n_bits & 7 != 0 {
+        (1 << (n_bits & 7)) - 1
+    } else {
+        u8::MAX
+    };
+
+    let mut bytes = T::zero().to_le_bytes();
+    let buf = bytes
+        .as_mut()
+        .get_mut(0..n_bytes)
+        .expect("`n_bytes` does not exceed `T::BYTES` as asserted above");
+    reader.read(buf);
+    bytes.as_mut().last_mut().map(|byte| {
+        *byte &= mask;
+        Some(byte)
+    });
+    T::from_le_bytes(bytes)
+}
+
 /// Build a `T` integer from an extendable Reader function. The resulting `T` is guaranteed to be
 /// smaller than the modulus (uses rejection sampling).
-pub(crate) fn uint_from_xof<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
+pub(crate) fn uint_from_xof_modulo<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
 where
     T: Integer + Encoding,
 {
