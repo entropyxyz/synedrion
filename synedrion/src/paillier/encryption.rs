@@ -6,7 +6,7 @@ use core::{
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{Choice, ConditionallyNegatable, ConstantTimeGreater},
-    Monty, ShrVartime,
+    Monty, Pow, PowBoundedExp, ShrVartime,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Exponentiable, HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    uint::{HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 /// A public randomizer-like quantity used in ZK proofs.
@@ -294,7 +294,10 @@ impl<P: PaillierParams> Ciphertext<P> {
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
         let sk_inv_modulus = sk.inv_modulus();
-        let randomizer_mod = Secret::init_with(|| ciphertext_mod_n.pow(sk_inv_modulus));
+        // let randomizer_mod = Secret::init_with(|| ciphertext_mod_n.pow(sk_inv_modulus));
+        let randomizer_mod = Secret::init_with(|| {
+            ciphertext_mod_n.pow_bounded_exp(sk_inv_modulus.expose_secret(), sk_inv_modulus.bound())
+        });
 
         Randomizer::new_mod(randomizer_mod)
     }
@@ -306,7 +309,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     // (e.g. in the P_enc sigma-protocol), we need to process the sign correctly.
     fn homomorphic_mul<V>(self, rhs: &V) -> Self
     where
-        P::WideUintMod: Exponentiable<V>,
+        P::WideUintMod: Pow<V>,
     {
         Self {
             pk: self.pk,
@@ -316,7 +319,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     fn homomorphic_mul_ref<V>(&self, rhs: &V) -> Self
     where
-        P::WideUintMod: Exponentiable<V>,
+        P::WideUintMod: Pow<V>,
     {
         Self {
             pk: self.pk.clone(),
@@ -382,7 +385,7 @@ impl<P: PaillierParams> Add<&Ciphertext<P>> for Ciphertext<P> {
 
 impl<P: PaillierParams, V> Mul<&V> for Ciphertext<P>
 where
-    P::WideUintMod: Exponentiable<V>,
+    P::WideUintMod: Pow<V>,
 {
     type Output = Ciphertext<P>;
     fn mul(self, rhs: &V) -> Ciphertext<P> {
@@ -392,7 +395,7 @@ where
 
 impl<P: PaillierParams, V> Mul<&V> for &Ciphertext<P>
 where
-    P::WideUintMod: Exponentiable<V>,
+    P::WideUintMod: Pow<V>,
 {
     type Output = Ciphertext<P>;
     fn mul(self, rhs: &V) -> Ciphertext<P> {
