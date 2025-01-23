@@ -290,7 +290,7 @@ mod tests {
 
         let cap_d = &cap_c * &x + Ciphertext::new_with_randomizer_signed(pk0, &-&y, &rho);
         let cap_y = Ciphertext::new_with_randomizer_signed(pk1, &y, &rho_y);
-        let cap_x = secret_scalar_from_signed::<TestParams>(&x).mul_by_generator();
+        let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(
             &mut OsRng,

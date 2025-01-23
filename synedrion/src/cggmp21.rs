@@ -8,13 +8,13 @@
 //! refers to the version of the paper published at <https://eprint.iacr.org/2021/060.pdf>
 
 mod aux_gen;
-mod conversion;
+pub(crate) mod conversion;
 mod entities;
 mod interactive_signing;
 mod key_init;
 mod key_refresh;
 mod params;
-mod sigma;
+pub(crate) mod sigma;
 
 #[cfg(test)]
 mod signing_malicious;
@@ -25,3 +25,6 @@ pub use interactive_signing::{InteractiveSigning, InteractiveSigningProtocol, Pr
 pub use key_init::{KeyInit, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshProtocol};
 pub use params::{ProductionParams, SchemeParams, TestParams};
+
+#[cfg(feature = "private_benches")]
+pub(crate) use params::PaillierProduction;
