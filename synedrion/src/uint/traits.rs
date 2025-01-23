@@ -1,8 +1,6 @@
 use crypto_bigint::{
-    modular::MontyForm,
-    subtle::{ConditionallySelectable, CtOption},
-    Bounded, ConcatMixed, Encoding, Integer, Invert, Limb, Pow, PowBoundedExp, RandomMod, SplitMixed, WideningMul,
-    Zero, U1024, U2048, U4096, U512, U8192,
+    modular::MontyForm, subtle::ConditionallySelectable, Bounded, ConcatMixed, Encoding, Integer, Invert, Limb, Pow,
+    PowBoundedExp, RandomMod, SplitMixed, WideningMul, Zero, U1024, U2048, U4096, U512, U8192,
 };
 use zeroize::Zeroize;
 
@@ -17,167 +15,65 @@ pub trait ToMontgomery: Integer {
     }
 }
 
-impl<V> Pow<SecretSigned<V>> for U1024Mod
-where
-    Self: PowBoundedExp<V>,
-    V: ConditionallySelectable + Zeroize + Integer + Bounded,
-{
-    fn pow(&self, exp: &SecretSigned<V>) -> Self {
-        let abs_exp = exp.abs();
-        let abs_result = <Self as PowBoundedExp<V>>::pow_bounded_exp(self, abs_exp.expose_secret(), exp.bound());
-        let inv_result = abs_result.invert().expect("`self` is assumed to be invertible");
-        Self::conditional_select(&abs_result, &inv_result, exp.is_negative())
-    }
-}
-
-impl<V> Pow<SecretSigned<V>> for U2048Mod
-where
-    Self: PowBoundedExp<V>,
-    V: ConditionallySelectable + Zeroize + Integer + Bounded,
-{
-    fn pow(&self, exp: &SecretSigned<V>) -> Self {
-        let abs_exp = exp.abs();
-        let abs_result = <Self as PowBoundedExp<V>>::pow_bounded_exp(self, abs_exp.expose_secret(), exp.bound());
-        let inv_result = abs_result.invert().expect("`self` is assumed to be invertible");
-        Self::conditional_select(&abs_result, &inv_result, exp.is_negative())
-    }
-}
-impl<V> Pow<SecretSigned<V>> for U4096Mod
-where
-    Self: PowBoundedExp<V>,
-    V: ConditionallySelectable + Zeroize + Integer + Bounded,
-{
-    fn pow(&self, exp: &SecretSigned<V>) -> Self {
-        let abs_exp = exp.abs();
-        let abs_result = <Self as PowBoundedExp<V>>::pow_bounded_exp(self, abs_exp.expose_secret(), exp.bound());
-        let inv_result = abs_result.invert().expect("`self` is assumed to be invertible");
-        Self::conditional_select(&abs_result, &inv_result, exp.is_negative())
-    }
-}
-
-impl<V> Pow<SecretUnsigned<V>> for U1024Mod
-where
-    Self: PowBoundedExp<V>,
-    V: Zeroize + Integer + Bounded,
-{
-    fn pow(&self, exp: &SecretUnsigned<V>) -> Self {
-        <Self as PowBoundedExp<V>>::pow_bounded_exp(self, exp.expose_secret(), exp.bound())
-    }
-}
-impl<V> Pow<SecretUnsigned<V>> for U2048Mod
-where
-    Self: PowBoundedExp<V>,
-    V: Zeroize + Integer + Bounded,
-{
-    fn pow(&self, exp: &SecretUnsigned<V>) -> Self {
-        <Self as PowBoundedExp<V>>::pow_bounded_exp(self, exp.expose_secret(), exp.bound())
-    }
-}
-impl<V> Pow<SecretUnsigned<V>> for U4096Mod
-where
-    Self: PowBoundedExp<V>,
-    V: Zeroize + Integer + Bounded,
-{
-    fn pow(&self, exp: &SecretUnsigned<V>) -> Self {
-        <Self as PowBoundedExp<V>>::pow_bounded_exp(self, exp.expose_secret(), exp.bound())
-    }
-}
-
-impl<V> Pow<PublicSigned<V>> for U1024Mod
-where
-    Self: PowBoundedExp<V>,
-    V: Integer + Bounded,
-{
-    fn pow(&self, exp: &PublicSigned<V>) -> Self {
-        let abs_exp = exp.abs();
-        let abs_result = <Self as PowBoundedExp<V>>::pow_bounded_exp(self, &abs_exp, exp.bound());
-        if exp.is_negative() {
-            abs_result.invert().expect("`self` is assumed invertible")
-        } else {
-            abs_result
+macro_rules! impl_pow {
+    ($uintmod:ident) => {
+        /// Exponentiation to the power of secret signed integers.
+        ///
+        /// Constant-time for secret exponents, although not constant-time wrt the bound.
+        ///
+        /// Assumes that the result exists, panics otherwise (e.g., when trying to raise 0 to a negative power).
+        impl<V> Pow<SecretSigned<V>> for $uintmod
+        where
+            Self: PowBoundedExp<V>,
+            V: ConditionallySelectable + Zeroize + Integer + Bounded,
+        {
+            fn pow(&self, exp: &SecretSigned<V>) -> Self {
+                let abs_exp = exp.abs();
+                let abs_result =
+                    <Self as PowBoundedExp<V>>::pow_bounded_exp(self, abs_exp.expose_secret(), exp.bound());
+                let inv_result = abs_result.invert().expect("`self` is assumed to be invertible");
+                Self::conditional_select(&abs_result, &inv_result, exp.is_negative())
+            }
         }
-    }
-}
-impl<V> Pow<PublicSigned<V>> for U2048Mod
-where
-    Self: PowBoundedExp<V>,
-    V: Integer + Bounded,
-{
-    fn pow(&self, exp: &PublicSigned<V>) -> Self {
-        let abs_exp = exp.abs();
-        let abs_result = <Self as PowBoundedExp<V>>::pow_bounded_exp(self, &abs_exp, exp.bound());
-        if exp.is_negative() {
-            abs_result.invert().expect("`self` is assumed invertible")
-        } else {
-            abs_result
+
+        /// Exponentiation to the power of secret unsigned integers.
+        ///
+        /// Constant-time for secret exponents, although not constant-time wrt the bound.
+        impl<V> Pow<SecretUnsigned<V>> for $uintmod
+        where
+            Self: PowBoundedExp<V>,
+            V: Zeroize + Integer + Bounded,
+        {
+            fn pow(&self, exp: &SecretUnsigned<V>) -> Self {
+                <Self as PowBoundedExp<V>>::pow_bounded_exp(self, exp.expose_secret(), exp.bound())
+            }
         }
-    }
-}
-impl<V> Pow<PublicSigned<V>> for U4096Mod
-where
-    Self: PowBoundedExp<V>,
-    V: Integer + Bounded,
-{
-    fn pow(&self, exp: &PublicSigned<V>) -> Self {
-        let abs_exp = exp.abs();
-        let abs_result = <Self as PowBoundedExp<V>>::pow_bounded_exp(self, &abs_exp, exp.bound());
-        if exp.is_negative() {
-            abs_result.invert().expect("`self` is assumed invertible")
-        } else {
-            abs_result
+
+        /// Exponentiation to the power of public signed integers.
+        impl<V> Pow<PublicSigned<V>> for $uintmod
+        where
+            Self: PowBoundedExp<V>,
+            V: Integer + Bounded,
+        {
+            fn pow(&self, exp: &PublicSigned<V>) -> Self {
+                let abs_exp = exp.abs();
+                let abs_result = <Self as PowBoundedExp<V>>::pow_bounded_exp(self, &abs_exp, exp.bound());
+                if exp.is_negative() {
+                    abs_result.invert().expect("`self` is assumed invertible")
+                } else {
+                    abs_result
+                }
+            }
         }
-    }
-}
 
-/// Exponentiation to the power of bounded integers.
-///
-/// Constant-time for secret exponents, although not constant-time wrt the bound.
-///
-/// Assumes that the result exists, panics otherwise (e.g., when trying to raise 0 to a negative power).
-// We cannot use the `crypto_bigint::Pow` trait since we cannot implement it for the foreign types
-// (namely, `crypto_bigint::modular::MontyForm`).
-pub trait Exponentiable<Exponent> {
-    fn pppow(&self, exp: &Exponent) -> Self;
+    };
+    ([ $($uintmod:ident), + ]) => {
+        $(
+            impl_pow!($uintmod);
+        )+
+    };
 }
-
-impl<T, V> Exponentiable<SecretSigned<V>> for T
-where
-    T: ConditionallySelectable + PowBoundedExp<V> + Invert<Output = CtOption<T>>,
-    V: ConditionallySelectable + Zeroize + Integer + Bounded,
-{
-    fn pppow(&self, exp: &SecretSigned<V>) -> Self {
-        let abs_exp = exp.abs();
-        let abs_result = self.pow_bounded_exp(abs_exp.expose_secret(), exp.bound());
-        let inv_result = abs_result.invert().expect("`self` is assumed to be invertible");
-        Self::conditional_select(&abs_result, &inv_result, exp.is_negative())
-    }
-}
-
-impl<T, V> Exponentiable<SecretUnsigned<V>> for T
-where
-    T: PowBoundedExp<V> + Invert<Output = CtOption<T>>,
-    V: ConditionallySelectable + Zeroize + Integer + Bounded,
-{
-    fn pppow(&self, exp: &SecretUnsigned<V>) -> Self {
-        self.pow_bounded_exp(exp.expose_secret(), exp.bound())
-    }
-}
-
-impl<T, V> Exponentiable<PublicSigned<V>> for T
-where
-    T: PowBoundedExp<V> + Invert<Output = CtOption<T>>,
-    V: Integer + Bounded,
-{
-    fn pppow(&self, exp: &PublicSigned<V>) -> Self {
-        let abs_exp = exp.abs();
-        let abs_result = self.pow_bounded_exp(&abs_exp, exp.bound());
-        if exp.is_negative() {
-            abs_result.invert().expect("`self` is assumed invertible")
-        } else {
-            abs_result
-        }
-    }
-}
+impl_pow!([U1024Mod, U2048Mod, U4096Mod]);
 
 pub trait HasWide:
     Sized + Zero + Integer + for<'a> WideningMul<&'a Self, Output = Self::Wide> + ConcatMixed<MixedOutput = Self::Wide>

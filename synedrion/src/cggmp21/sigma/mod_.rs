@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use crypto_bigint::{modular::Retrieve, Square};
+use crypto_bigint::{modular::Retrieve, Pow, Square};
 use crypto_primes::RandomPrimeWithRng;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher},
-    uint::{Exponentiable, ToMontgomery},
+    uint::ToMontgomery,
 };
 
 const HASH_TAG: &[u8] = b"P_mod";
@@ -117,7 +117,7 @@ impl<P: SchemeParams> ModProof<P> {
 
                 let y = y.to_montgomery(pk.monty_params_mod_n());
                 let sk_inv_modulus = sk.inv_modulus();
-                let z = y.pppow(sk_inv_modulus);
+                let z = y.pow(sk_inv_modulus);
 
                 ModProofElem {
                     x: y_4th,
@@ -164,7 +164,7 @@ impl<P: SchemeParams> ModProof<P> {
             let z_m = elem.z.to_montgomery(monty_params);
             let mut y_m = y.to_montgomery(monty_params);
             let pk_modulus = pk.modulus_signed();
-            if z_m.pppow(&pk_modulus) != y_m {
+            if z_m.pow(&pk_modulus) != y_m {
                 return false;
             }
 
