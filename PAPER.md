@@ -24,6 +24,8 @@ In `П^{aff-g}` (Fig. 25) I had to modify the proof to account for how `D` is ac
 - (prover) `\omega_y = r_y \rho_y^{-e} \mod N_1`
 - (verifier checks) `enc_1(z_2, w_y) = B_y (+) Y (*) (-e)`
 
+Same applies to `П^{aff-g*}` (Fig. 27).
+
 In Presigning (Fig. 8), Round 2, step 2 `r_{i,j}` and `\hat{r}_{i,j}` should be drawn from `\mathbb{Z}_{N_i}`, and not `N_j`, judging by how they are used later.
 
 
