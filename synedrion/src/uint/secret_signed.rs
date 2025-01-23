@@ -13,7 +13,7 @@ use crate::tools::Secret;
 
 /// A wrapper over secret unsigned integers that treats two's complement numbers as negative.
 #[derive(Debug, Clone)]
-pub(crate) struct SecretSigned<T: Zeroize> {
+pub struct SecretSigned<T: Zeroize> {
     /// Bound on the bit size of the absolute value (that is, `abs(value) < 2^bound`).
     bound: u32,
     value: Secret<T>,

@@ -5,7 +5,7 @@
 
 use alloc::{vec, vec::Vec};
 
-use crypto_bigint::{modular::Retrieve, BitOps, PowBoundedExp};
+use crypto_bigint::{modular::Retrieve, BitOps, Pow, PowBoundedExp};
 use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, RPParams, RPSecret},
     tools::hashing::{Chain, Hashable, XofHasher},
-    uint::{Exponentiable, SecretUnsigned, ToMontgomery},
+    uint::{SecretUnsigned, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_prm";

@@ -75,7 +75,7 @@ where
     into = "PackedSigned",
     bound = "T: Integer + Encoding + Bounded"
 )]
-pub(crate) struct PublicSigned<T> {
+pub struct PublicSigned<T> {
     /// bound on the bit size of the absolute value
     bound: u32,
     value: T,
