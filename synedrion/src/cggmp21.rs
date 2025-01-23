@@ -22,6 +22,9 @@ mod signing_malicious;
 #[cfg(test)]
 mod key_init_tests;
 
+#[cfg(test)]
+mod key_refresh_tests;
+
 pub use aux_gen::{AuxGen, AuxGenProtocol};
 pub use entities::{AuxInfo, KeyShare, KeyShareChange};
 pub use interactive_signing::{InteractiveSigning, InteractiveSigningProtocol, PrehashedMessage};

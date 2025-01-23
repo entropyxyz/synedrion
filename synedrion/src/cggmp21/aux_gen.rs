@@ -609,7 +609,6 @@ impl<P: SchemeParams, I: PartyId + Serialize> Round<I> for Round3<P, I> {
                 (
                     id,
                     PublicAuxInfo {
-                        el_gamal_pk: data.data.cap_y,
                         paillier_pk: data.paillier_pk.into_wire(),
                         rp_params: data.rp_params.to_wire(),
                     },
@@ -619,7 +618,6 @@ impl<P: SchemeParams, I: PartyId + Serialize> Round<I> for Round3<P, I> {
 
         let secret_aux = SecretAuxInfo {
             paillier_sk: self.context.paillier_sk.into_wire(),
-            el_gamal_sk: self.context.y,
         };
 
         let aux_info = AuxInfo {
@@ -661,18 +659,9 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let aux_infos = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
+        let _aux_infos = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
             .unwrap()
             .results()
             .unwrap();
-
-        for (id, aux_info) in aux_infos.iter() {
-            for other_aux_info in aux_infos.values() {
-                assert_eq!(
-                    aux_info.secret_aux.el_gamal_sk.mul_by_generator(),
-                    other_aux_info.public_aux[id].el_gamal_pk
-                );
-            }
-        }
     }
 }
