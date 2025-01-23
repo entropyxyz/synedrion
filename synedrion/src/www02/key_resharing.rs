@@ -25,8 +25,9 @@ use super::ThresholdKeyShare;
 use crate::{
     curve::{Point, Scalar},
     tools::{
+        protocol_shortcuts::{DowncastMap, Without},
         sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},
-        DowncastMap, Secret, Without,
+        Secret,
     },
     SchemeParams,
 };
