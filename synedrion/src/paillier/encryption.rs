@@ -6,7 +6,7 @@ use core::{
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{Choice, ConditionallyNegatable, ConstantTimeGreater},
-    Monty, Pow, PowBoundedExp, ShrVartime,
+    Monty, Pow, ShrVartime,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -294,9 +294,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // To isolate `rho`, calculate `(rho^N)^(N^(-1)) mod N`.
         // The order of `Z_N` is `phi(N)`, so the inversion in the exponent is modulo `phi(N)`.
         let sk_inv_modulus = sk.inv_modulus();
-        let randomizer_mod = Secret::init_with(|| {
-            ciphertext_mod_n.pow_bounded_exp(sk_inv_modulus.expose_secret(), sk_inv_modulus.bound())
-        });
+        let randomizer_mod = Secret::init_with(|| ciphertext_mod_n.pow(sk_inv_modulus));
 
         Randomizer::new_mod(randomizer_mod)
     }
