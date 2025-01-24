@@ -10,6 +10,7 @@ Replies from Nikos Makriyannis are marked as (NM)
 - In Definition 3.2, the `\rho` argument is the randomizer - it should be freshly sampled each time (and therefore it is omitted as an argument when `enc()` is used later in the protocol)
 - Intervals: `I = ±2^l`, `J = ±2^l_prime`, `I_eps = ±2^(l + eps)`, `J_eps = ±2^(l_prime + eps)` (See Nota Bene just before Section 4.1)
 - The subscript `j` in `П^{enc-elg}`, `П^log` etc (e.g. in Fig. 8) indicates which party's Pedersen parameters -- the tuple `(\hat{N}, s, t)` -- should be used when generating the proof.
+- Not notation from the paper per se, but used throughout the code: `(+)` and `(*)` stand for the homomorphic addition of Paillier ciphertexts and the homomorphic multiplication of a ciphertext and a plaintext. That is, `A (+) B == A B mod N^2` and `A (*) x == A^x mod N^2`, where `N` is the Paillier modulus.
 
 
 # Typos
@@ -21,7 +22,7 @@ Also in `П^{dec}`: In Fig. 8 and 9, and in Section 4.3.1, where `П^{dec}` is u
 In `П^{aff-g}` (Fig. 25) I had to modify the proof to account for how `D` is actually constructed in the Presigning protocol. In the proof it is assumed that `D = C (*) x (+) enc(y)` (where `(*)` and `(+)` are homomorphic operations on Paillier ciphertexts), but in the Presigning it's actually `D = C (*) x (+) enc(-y)` (see Fig. 8, Round 2, step 2). So I had to modify the following:
 - (prover) `T = s^{-y} t^\mu \mod \hat{N}`
 - (prover) `z_2 = \beta - e y`
-- (prover) `\omega_y = r_y \rho_y^{-e} \mod N_1`
+- (prover) `w_y = r_y \rho_y^{-e} \mod N_1`
 - (verifier checks) `enc_1(z_2, w_y) = B_y (+) Y (*) (-e)`
 
 Same applies to `П^{aff-g*}` (Fig. 27).
@@ -40,7 +41,7 @@ Fig. 9, Output potentially needs `D_{k,j}` for all `k, j` (`k != j`) to calculat
 
 The above item leads to another problem. If those values are indeed echo-broadcasted, what malicious actions of one node can lead to passing the `П^{dec}` check on other nodes, but failing one of the `П^{aff-g*}` ones?
 
-Fig. 8, Round 2, 2b) - `\psi_{j,i}` creation required `F_{i,j}` which are not yet available since they're the ones created on other nodes. The previous paper version has `F_{j,i}` there. Same for `\hat{\psi_{j,i}}`.
+Fig. 8, Round 2, 2b) - `\psi_{j,i}` creation requires `F_{i,j}` which are not yet available since they're the ones created on other nodes. The previous paper version has `F_{j,i}` there. Same for `\hat{\psi_{j,i}}`.
 
 
 # Echo-broadcasting

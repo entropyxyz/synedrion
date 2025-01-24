@@ -282,7 +282,7 @@ impl<P: PaillierParams> PublicModulus<P> {
         &self.monty_params_mod_n
     }
 
-    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
+    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$.
     pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
         let modulus = self.modulus_nonzero();
         loop {
@@ -293,7 +293,7 @@ impl<P: PaillierParams> PublicModulus<P> {
         }
     }
 
-    /// Returns a number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form,
+    /// Returns a number in range $[0, N)$ such that it is invertible modulo $N$,
     /// deterministically derived from an extensible output hash function.
     pub fn invertible_residue_from_xof_reader(&self, reader: &mut impl XofReader) -> P::Uint {
         let modulus_bits = self.modulus().bits_vartime();
@@ -305,7 +305,7 @@ impl<P: PaillierParams> PublicModulus<P> {
         }
     }
 
-    /// Returns a uniformly chosen invertible quadratic residue modulo $N$, in Montgomery form.
+    /// Returns a uniformly chosen invertible quadratic residue modulo $N$.
     pub fn random_quadratic_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
         self.random_invertible_residue(rng)
             .to_montgomery(&self.monty_params_mod_n)

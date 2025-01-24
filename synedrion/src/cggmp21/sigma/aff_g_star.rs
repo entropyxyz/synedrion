@@ -215,7 +215,7 @@ impl<P: SchemeParams> AffGStarProof<P> {
         for ((e_bit, commitment), element) in e
             .bits()
             .iter()
-            .cloned()
+            .copied()
             .zip(self.commitments.iter())
             .zip(self.elements.iter())
         {
