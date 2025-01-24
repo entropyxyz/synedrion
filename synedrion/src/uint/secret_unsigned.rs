@@ -8,7 +8,7 @@ use crate::tools::Secret;
 
 /// A bounded unsigned integer with sensitive data.
 #[derive(Debug, Clone)]
-pub(crate) struct SecretUnsigned<T: Zeroize> {
+pub struct SecretUnsigned<T: Zeroize> {
     /// Bound on the bit size of the value (that is, `value < 2^bound`).
     bound: u32,
     value: Secret<T>,

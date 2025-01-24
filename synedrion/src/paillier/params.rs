@@ -1,7 +1,7 @@
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, ConstantTimeGreater, CtOption},
-    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, PowBoundedExp, RandomMod,
+    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, Pow, PowBoundedExp, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use zeroize::Zeroize;
 
 use crate::{
     tools::hashing::Hashable,
-    uint::{HasWide, ToMontgomery},
+    uint::{HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 #[cfg(test)]
@@ -64,6 +64,13 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + PowBoundedExp<Self::Uint>
         + PowBoundedExp<Self::WideUint>
         + PowBoundedExp<Self::ExtraWideUint>
+        + Pow<SecretUnsigned<Self::Uint>>
+        + Pow<PublicSigned<Self::Uint>>
+        + Pow<PublicSigned<Self::WideUint>>
+        + Pow<PublicSigned<Self::ExtraWideUint>>
+        + Pow<SecretSigned<Self::Uint>>
+        + Pow<SecretSigned<Self::WideUint>>
+        + Pow<SecretSigned<Self::ExtraWideUint>>
         + Monty<Integer = Self::Uint>
         + Retrieve<Output = Self::Uint>
         + Invert<Output = CtOption<Self::UintMod>>
@@ -87,6 +94,11 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     type WideUintMod: Monty<Integer = Self::WideUint>
         + PowBoundedExp<Self::Uint>
         + PowBoundedExp<Self::WideUint>
+        + Pow<SecretSigned<Self::Uint>>
+        + Pow<PublicSigned<Self::Uint>>
+        + Pow<PublicSigned<Self::WideUint>>
+        + Pow<SecretUnsigned<Self::Uint>>
+        + Pow<SecretUnsigned<Self::WideUint>>
         + ConditionallyNegatable
         + ConditionallySelectable
         + Invert<Output = CtOption<Self::WideUintMod>>

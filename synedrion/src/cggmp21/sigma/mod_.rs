@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use crypto_bigint::{modular::Retrieve, Square};
+use crypto_bigint::{modular::Retrieve, Pow, Square};
 use crypto_primes::RandomPrimeWithRng;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     tools::hashing::{uint_from_xof, Chain, Hashable, XofHasher},
-    uint::{Exponentiable, ToMontgomery},
+    uint::ToMontgomery,
 };
 
 const HASH_TAG: &[u8] = b"P_mod";

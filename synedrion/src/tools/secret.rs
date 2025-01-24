@@ -6,7 +6,7 @@ use core::{
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    Integer, Monty, NonZero, WrappingAdd, WrappingMul, WrappingNeg, WrappingSub,
+    Integer, Monty, NonZero, Pow, WrappingAdd, WrappingMul, WrappingNeg, WrappingSub,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -14,7 +14,7 @@ use zeroize::Zeroize;
 
 use crate::{
     curve::{Point, Scalar},
-    uint::{Exponentiable, HasWide},
+    uint::HasWide,
 };
 
 /// A helper wrapper for managing secret values.
@@ -23,7 +23,7 @@ use crate::{
 /// - Safe `Clone` implementation (without needing to impl `CloneableSecret`)
 /// - Safe `Debug` implementation
 /// - Safe serialization/deserialization (down to `serde` API; what happens there we cannot control)
-pub(crate) struct Secret<T: Zeroize>(SecretBox<T>);
+pub struct Secret<T: Zeroize>(SecretBox<T>);
 
 impl<T: Zeroize> Secret<T> {
     pub fn expose_secret(&self) -> &T {
@@ -278,7 +278,7 @@ impl<T: Zeroize + Retrieve<Output: Zeroize + Clone>> Retrieve for Secret<T> {
 impl<T: Zeroize + Clone> Secret<T> {
     pub fn pow<V>(&self, exponent: &V) -> Self
     where
-        T: Exponentiable<V>,
+        T: Pow<V>,
     {
         // TODO: do we need to implement our own windowed exponentiation to hide the secret?
         // The exponent will be put in a stack array when it's decomposed with a small radix

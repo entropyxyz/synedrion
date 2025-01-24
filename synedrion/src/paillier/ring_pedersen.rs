@@ -1,7 +1,7 @@
 /// Implements the Definition 3.3 from the CGGMP'21 paper and related operations.
 use core::ops::Mul;
 
-use crypto_bigint::{modular::Retrieve, Monty, NonZero, RandomMod, ShrVartime};
+use crypto_bigint::{modular::Retrieve, Monty, NonZero, Pow, RandomMod, ShrVartime};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Exponentiable, SecretUnsigned, ToMontgomery},
+    uint::{SecretUnsigned, ToMontgomery},
 };
 
 /// Ring-Pedersen secret.
@@ -107,7 +107,7 @@ impl<P: PaillierParams> RPParams<P> {
     /// Creates a commitment for a secret `value` with a secret `randomizer`.
     pub fn commit<V, R>(&self, value: &V, randomizer: &R) -> RPCommitment<P>
     where
-        P::UintMod: Exponentiable<V> + Exponentiable<R>,
+        P::UintMod: Pow<V> + Pow<R>,
     {
         RPCommitment(self.base_value.pow(value) * self.base_randomizer.pow(randomizer))
     }
@@ -115,7 +115,7 @@ impl<P: PaillierParams> RPParams<P> {
     /// Creates a commitment for a secret `randomizer` and the value 0.
     pub fn commit_zero<R>(&self, randomizer: &R) -> RPCommitment<P>
     where
-        P::UintMod: Exponentiable<R>,
+        P::UintMod: Pow<R>,
     {
         RPCommitment(self.base_randomizer.pow(randomizer))
     }
@@ -167,7 +167,7 @@ impl<P: PaillierParams> RPCommitment<P> {
     /// Raise to the power of `exponent`.
     pub fn pow<V>(&self, exponent: &V) -> Self
     where
-        P::UintMod: Exponentiable<V>,
+        P::UintMod: Pow<V>,
     {
         Self(self.0.pow(exponent))
     }
