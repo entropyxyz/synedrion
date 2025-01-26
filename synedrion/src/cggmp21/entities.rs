@@ -237,7 +237,6 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
         &self.secret
     }
 
-    #[cfg(test)]
     pub(crate) fn public(&self) -> &PublicKeyShares<P, I> {
         &self.public
     }

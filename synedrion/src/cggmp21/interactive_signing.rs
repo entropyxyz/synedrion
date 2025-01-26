@@ -40,22 +40,22 @@ use crate::{
 pub type PrehashedMessage = [u8; 32];
 
 #[derive(Debug, Clone)]
-struct PresigningData<I> {
+struct PresigningData<Id> {
     cap_gamma: Point,
-    tilde_k: Scalar,                      // $k / \delta$
-    tilde_chi: Scalar,                    // $chi / \delta$
-    tilde_cap_deltas: BTreeMap<I, Point>, // $\Delta_j^{\delta^{-1}}$ for all $j$
-    tilde_cap_ss: BTreeMap<I, Point>,     // $S_j^{\delta^{-1}}$ for all $j$
+    tilde_k: Scalar,                       // $k / \delta$
+    tilde_chi: Scalar,                     // $chi / \delta$
+    tilde_cap_deltas: BTreeMap<Id, Point>, // $\Delta_j^{\delta^{-1}}$ for all $j$
+    tilde_cap_ss: BTreeMap<Id, Point>,     // $S_j^{\delta^{-1}}$ for all $j$
 }
 
 /// A protocol for creating all the data necessary for signing
 /// that doesn't require knowing the actual message being signed.
 #[derive(Debug, Clone, Copy)]
-pub struct InteractiveSigningProtocol<P: SchemeParams, I: Debug>(PhantomData<(P, I)>);
+pub struct InteractiveSigningProtocol<P: SchemeParams, Id: Debug>(PhantomData<(P, Id)>);
 
-impl<P: SchemeParams, I: PartyId> Protocol<I> for InteractiveSigningProtocol<P, I> {
+impl<P: SchemeParams, Id: PartyId> Protocol<Id> for InteractiveSigningProtocol<P, Id> {
     type Result = RecoverableSignature;
-    type ProtocolError = InteractiveSigningError<P, I>;
+    type ProtocolError = InteractiveSigningError<P, Id>;
 
     fn verify_direct_message_is_invalid(
         deserializer: &Deserializer,
@@ -80,7 +80,7 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for InteractiveSigningProtocol<P, 
     ) -> Result<(), MessageValidationError> {
         match round_id {
             r if r == &1 => message.verify_is_not::<Round1EchoBroadcast<P>>(deserializer),
-            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast<P, I>>(deserializer),
+            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast<P, Id>>(deserializer),
             r if r == &3 => message.verify_is_not::<Round3EchoBroadcast>(deserializer),
             r if r == &4 => message.verify_is_some(),
             r if r == &5 => message.verify_is_some(),
@@ -96,11 +96,11 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for InteractiveSigningProtocol<P, 
     ) -> Result<(), MessageValidationError> {
         match round_id {
             r if r == &1 => message.verify_is_some(),
-            r if r == &2 => message.verify_is_not::<Round2NormalBroadcast<P, I>>(deserializer),
+            r if r == &2 => message.verify_is_not::<Round2NormalBroadcast<P, Id>>(deserializer),
             r if r == &3 => message.verify_is_not::<Round3NormalBroadcast<P>>(deserializer),
             r if r == &4 => message.verify_is_not::<Round4NormalBroadcast>(deserializer),
-            r if r == &5 => message.verify_is_not::<Round5NormalBroadcast<P, I>>(deserializer),
-            r if r == &6 => message.verify_is_not::<Round6NormalBroadcast<P, I>>(deserializer),
+            r if r == &5 => message.verify_is_not::<Round5NormalBroadcast<P, Id>>(deserializer),
+            r if r == &6 => message.verify_is_not::<Round6NormalBroadcast<P, Id>>(deserializer),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
@@ -108,12 +108,12 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for InteractiveSigningProtocol<P, 
 
 /// Possible verifiable errors of the InteractiveSigning protocol.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct InteractiveSigningError<P, I> {
-    error: Error<I>,
+pub struct InteractiveSigningError<P, Id> {
+    error: Error<Id>,
     phantom: PhantomData<P>,
 }
 
-impl<P, I: Debug> Display for InteractiveSigningError<P, I> {
+impl<P, Id: Debug> Display for InteractiveSigningError<P, Id> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{:?}", self.error)
     }
@@ -121,7 +121,7 @@ impl<P, I: Debug> Display for InteractiveSigningError<P, I> {
 
 /// Possible verifiable errors of the InteractiveSigning protocol.
 #[derive(displaydoc::Display, Debug, Clone, Copy, Serialize, Deserialize)]
-enum Error<I> {
+enum Error<Id> {
     /// Round1: failed to verify `\psi^0` (`enc-elg` proof)
     R1EncElg0Failed,
     /// Round1: failed to verify `\psi^1` (`enc-elg` proof)
@@ -133,9 +133,9 @@ enum Error<I> {
     /// Round2: wrong IDs in `\psi` map (`aff-g` proofs for `D`)
     R2WrongIdsPsi,
     /// Round2: failed to verify `\psi` (`aff-g` proof for `D`)
-    R2AffGPsiFailed { failed_for: I },
+    R2AffGPsiFailed { failed_for: Id },
     /// Round2: failed to verify `\hat{{psi}}` (`aff-g` proof for `\hat{{D}}`)
-    R2AffGHatPsiFailed { failed_for: I },
+    R2AffGHatPsiFailed { failed_for: Id },
     /// Round2: failed to verify `elog` proof
     R2ElogFailed,
     /// Round3: failed to verify `elog` proof
@@ -147,17 +147,17 @@ enum Error<I> {
     /// Round5: wrong IDs in `aff-g*` proof map
     R5WrongIdsPsi,
     /// Round5: `aff-g*` proof verification failed
-    R5AffGStarFailed { failed_for: I },
+    R5AffGStarFailed { failed_for: Id },
     /// Round6: `dec` proof verification failed
     R6DecFailed,
     /// Round6: wrong IDs in `aff-g*` proof map
     R6WrongIdsPsi,
     /// Round6: `aff-g*` proof verification failed
-    R6AffGStarFailed { failed_for: I },
+    R6AffGStarFailed { failed_for: Id },
 }
 
-impl<P, I> From<Error<I>> for InteractiveSigningError<P, I> {
-    fn from(source: Error<I>) -> Self {
+impl<P, Id> From<Error<Id>> for InteractiveSigningError<P, Id> {
+    fn from(source: Error<Id>) -> Self {
         Self {
             error: source,
             phantom: PhantomData,
@@ -165,15 +165,33 @@ impl<P, I> From<Error<I>> for InteractiveSigningError<P, I> {
     }
 }
 
+/// Associated data for InteractiveSigning protocol.
 #[derive(Debug, Clone)]
-pub struct InteractiveSigningAssociatedData<P: SchemeParams, I: PartyId> {
-    pub shares: PublicKeyShares<P, I>,
-    pub aux: PublicAuxInfos<P, I>,
+pub struct InteractiveSigningAssociatedData<P: SchemeParams, Id: PartyId> {
+    /// Public shares of all participating nodes.
+    pub shares: PublicKeyShares<P, Id>,
+    /// Auxiliary data of all participating nodes.
+    pub aux: PublicAuxInfos<P, Id>,
+    /// The message to be signed.
     pub message: PrehashedMessage,
 }
 
-impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P, I> {
-    type AssociatedData = InteractiveSigningAssociatedData<P, I>;
+fn make_epid<P: SchemeParams, Id: PartyId>(
+    shared_randomness: &[u8],
+    associated_data: &InteractiveSigningAssociatedData<P, Id>,
+) -> HashOutput {
+    // TODO: hash in `rid`? Need to save it during KeyInit
+    FofHasher::new_with_dst(b"InteractiveSigning EPID")
+        .chain_type::<P>()
+        .chain(&shared_randomness)
+        .chain(&associated_data.shares)
+        .chain(&associated_data.aux)
+        // TODO: hash in the message too?
+        .finalize()
+}
+
+impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError<P, Id> {
+    type AssociatedData = InteractiveSigningAssociatedData<P, Id>;
 
     fn required_messages(&self) -> RequiredMessages {
         match self.error {
@@ -265,19 +283,14 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
     fn verify_messages_constitute_error(
         &self,
         deserializer: &Deserializer,
-        guilty_party: &I,
+        guilty_party: &Id,
         shared_randomness: &[u8],
         associated_data: &Self::AssociatedData,
         message: ProtocolMessage,
         previous_messages: BTreeMap<RoundId, ProtocolMessage>,
-        combined_echos: BTreeMap<RoundId, BTreeMap<I, EchoBroadcast>>,
+        combined_echos: BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
-        let epid_hash = FofHasher::new_with_dst(b"EPID")
-            .chain_type::<P>()
-            .chain(&shared_randomness)
-            .chain(&associated_data.shares)
-            .chain(&associated_data.aux)
-            .finalize();
+        let epid = make_epid::<P, Id>(shared_randomness, associated_data);
 
         match &self.error {
             Error::R1EncElg0Failed => {
@@ -292,7 +305,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                 let pk = public_aux.paillier_pk.clone().into_precomputed();
                 let rp = public_aux.rp_params.to_precomputed();
 
-                let aux = (&epid_hash, guilty_party);
+                let aux = (&epid, guilty_party);
 
                 verify_that(!r1_dm.psi0.verify(
                     EncElgPublicInputs {
@@ -318,7 +331,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                 let pk = public_aux.paillier_pk.clone().into_precomputed();
                 let rp = public_aux.rp_params.to_precomputed();
 
-                let aux = (&epid_hash, guilty_party);
+                let aux = (&epid, guilty_party);
 
                 verify_that(!r1_dm.psi1.verify(
                     EncElgPublicInputs {
@@ -335,7 +348,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
             Error::R2WrongIdsD => {
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let expected_ids = associated_data
                     .aux
                     .as_ref()
@@ -347,7 +360,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
             Error::R2WrongIdsF => {
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let expected_ids = associated_data
                     .aux
                     .as_ref()
@@ -359,7 +372,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
             Error::R2WrongIdsPsi => {
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
                 let expected_ids = associated_data
                     .aux
                     .as_ref()
@@ -375,16 +388,16 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                     .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
 
                 let failed_for_aux = &associated_data.aux.as_ref().try_get("aux infos", failed_for)?;
                 let guilty_party_aux = &associated_data.aux.as_ref().try_get("aux infos", guilty_party)?;
 
                 let rp = failed_for_aux.rp_params.to_precomputed();
-                let aux = (&epid_hash, guilty_party);
+                let aux = (&epid, guilty_party);
 
                 let for_pk = failed_for_aux.paillier_pk.clone().into_precomputed();
                 let from_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
@@ -414,10 +427,10 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                     .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
 
                 let cap_x = associated_data.shares.as_map().try_get("shares", failed_for)?;
 
@@ -425,7 +438,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                 let guilty_party_aux = &associated_data.aux.as_ref().try_get("aux infos", guilty_party)?;
 
                 let rp = failed_for_aux.rp_params.to_precomputed();
-                let aux = (&epid_hash, guilty_party);
+                let aux = (&epid, guilty_party);
 
                 let for_pk = failed_for_aux.paillier_pk.clone().into_precomputed();
                 let from_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
@@ -461,11 +474,11 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                     .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
-                let aux = (&epid_hash, guilty_party);
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let aux = (&epid, guilty_party);
 
                 verify_that(!r2_nb.psi_elog.verify(
                     ElogPublicInputs {
@@ -486,11 +499,11 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r3_nb = message
                     .normal_broadcast
                     .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
-                let aux = (&epid_hash, guilty_party);
+                let aux = (&epid, guilty_party);
 
                 verify_that(!r3_nb.psi_prime.verify(
                     ElogPublicInputs {
@@ -506,11 +519,11 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
             Error::R4InvalidSignatureShare => {
                 let r2_ebs = combined_echos
                     .get_round(2)?
-                    .deserialize_all::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r3_nb = previous_messages
                     .get_round(3)?
                     .normal_broadcast
@@ -544,18 +557,18 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                     .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
                 let r2_ebs = combined_echos
                     .get_round(2)?
-                    .deserialize_all::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r3_nb = previous_messages
                     .get_round(3)?
                     .normal_broadcast
                     .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
                 let r5_nb = message
                     .normal_broadcast
-                    .deserialize::<Round5NormalBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round5NormalBroadcast<P, Id>>(deserializer)?;
 
                 // Calculate `D_j` where `j = guilty_party`.
                 // `D_j = sum_{l != j}(D_{l,j} + F_{j,l})
@@ -569,7 +582,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                 let public_aux = &associated_data.aux.as_ref().try_get("aux infos", guilty_party)?;
                 let pk = public_aux.paillier_pk.clone().into_precomputed();
                 let rp = public_aux.rp_params.to_precomputed();
-                let aux = (&epid_hash, guilty_party);
+                let aux = (&epid, guilty_party);
 
                 let mut ids = associated_data
                     .aux
@@ -616,7 +629,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
             Error::R5WrongIdsPsi => {
                 let r5_nb = message
                     .normal_broadcast
-                    .deserialize::<Round5NormalBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round5NormalBroadcast<P, Id>>(deserializer)?;
                 let expected_ids = associated_data
                     .aux
                     .as_ref()
@@ -631,14 +644,14 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                     .deserialize_all::<Round1EchoBroadcast<P>>(deserializer)?;
                 let r2_ebs = combined_echos
                     .get_round(2)?
-                    .deserialize_all::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r5_nb = message
                     .normal_broadcast
-                    .deserialize::<Round5NormalBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round5NormalBroadcast<P, Id>>(deserializer)?;
 
                 let failed_for_aux = &associated_data.aux.as_ref().try_get("aux infos", failed_for)?;
                 let guilty_party_aux = &associated_data.aux.as_ref().try_get("aux infos", guilty_party)?;
@@ -646,7 +659,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                 let failed_for_pk = failed_for_aux.paillier_pk.clone().into_precomputed();
 
                 let guilty_party_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
-                let aux = (&epid_hash, guilty_party);
+                let aux = (&epid, guilty_party);
 
                 // l = failed_for
                 // j = guilty_party
@@ -687,18 +700,18 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                     .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
                 let r2_ebs = combined_echos
                     .get_round(2)?
-                    .deserialize_all::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let r3_nb = previous_messages
                     .get_round(3)?
                     .normal_broadcast
                     .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
                 let r5_nb = message
                     .normal_broadcast
-                    .deserialize::<Round5NormalBroadcast<P, I>>(deserializer)?;
+                    .deserialize::<Round5NormalBroadcast<P, Id>>(deserializer)?;
 
                 // Calculate `\hat{D}_j` where `j = guilty_party`.
                 // `\hat{D}_j = sum_{l != j}(\hat{D}_{l,j} + \hat{F}_{j,l})
@@ -712,7 +725,7 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
                 let public_aux = &associated_data.aux.as_ref().try_get("aux infos", guilty_party)?;
                 let pk = public_aux.paillier_pk.clone().into_precomputed();
                 let rp = public_aux.rp_params.to_precomputed();
-                let aux = (&epid_hash, guilty_party);
+                let aux = (&epid, guilty_party);
 
                 let mut ids = associated_data
                     .aux
@@ -770,26 +783,26 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for InteractiveSigningError<P
 
 /// An entry point for the [`InteractiveSigningProtocol`].
 #[derive(Debug, Clone)]
-pub struct InteractiveSigning<P: SchemeParams, I: Ord> {
-    key_share: KeyShare<P, I>,
-    aux_info: AuxInfo<P, I>,
-    scalar_message: Scalar,
+pub struct InteractiveSigning<P: SchemeParams, Id: Ord> {
+    key_share: KeyShare<P, Id>,
+    aux_info: AuxInfo<P, Id>,
+    message: PrehashedMessage,
 }
 
-impl<P: SchemeParams, I: PartyId> InteractiveSigning<P, I> {
+impl<P: SchemeParams, Id: PartyId> InteractiveSigning<P, Id> {
     /// Creates a new entry point given a share of the secret key.
-    pub fn new(message: PrehashedMessage, key_share: KeyShare<P, I>, aux_info: AuxInfo<P, I>) -> Self {
+    pub fn new(message: PrehashedMessage, key_share: KeyShare<P, Id>, aux_info: AuxInfo<P, Id>) -> Self {
         // TODO: check that both are consistent
         Self {
             key_share,
             aux_info,
-            scalar_message: Scalar::from_reduced_bytes(&message),
+            message,
         }
     }
 }
 
-impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn entry_round_id() -> RoundId {
         1.into()
@@ -799,8 +812,8 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         self,
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        id: &I,
-    ) -> Result<BoxedRound<I, Self::Protocol>, LocalError> {
+        id: &Id,
+    ) -> Result<BoxedRound<Id, Self::Protocol>, LocalError> {
         let key_share = self.key_share;
         let aux_info = self.aux_info;
 
@@ -813,15 +826,14 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         let all_ids = key_share.public_shares().keys().cloned().collect::<BTreeSet<_>>();
         let other_ids = all_ids.clone().without(id);
 
-        // This includes the info of $epid$ in the paper
-        // (scheme parameters + public data from all shares), with the session randomness added.
-        // TODO: include `rid`? Need to save it in the KeyInit
-        let epid_hash = FofHasher::new_with_dst(b"EPID")
-            .chain_type::<P>()
-            .chain(&shared_randomness)
-            .chain(&key_share.public_shares())
-            .chain(&aux_info.public())
-            .finalize();
+        let epid = make_epid::<P, Id>(
+            shared_randomness,
+            &InteractiveSigningAssociatedData {
+                shares: key_share.public().clone(),
+                aux: aux_info.public().clone(),
+                message: self.message,
+            },
+        );
 
         let aux_info = aux_info.into_precomputed();
 
@@ -862,8 +874,8 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
 
         Ok(BoxedRound::new_dynamic(Round1 {
             context: Context {
-                scalar_message: self.scalar_message,
-                epid_hash,
+                scalar_message: Scalar::from_reduced_bytes(&self.message),
+                epid,
                 my_id: id.clone(),
                 other_ids,
                 all_ids,
@@ -883,14 +895,14 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
 }
 
 #[derive(Debug)]
-pub(super) struct Context<P: SchemeParams, I: Ord> {
+pub(super) struct Context<P: SchemeParams, Id: Ord> {
     scalar_message: Scalar,
-    pub(super) epid_hash: HashOutput,
-    pub(super) my_id: I,
-    other_ids: BTreeSet<I>,
-    all_ids: BTreeSet<I>,
-    key_share: KeyShare<P, I>,
-    pub(super) aux_info: AuxInfoPrecomputed<P, I>,
+    pub(super) epid: HashOutput,
+    pub(super) my_id: Id,
+    other_ids: BTreeSet<Id>,
+    all_ids: BTreeSet<Id>,
+    key_share: KeyShare<P, Id>,
+    pub(super) aux_info: AuxInfoPrecomputed<P, Id>,
     k: Secret<Scalar>,
     pub(super) gamma: Secret<Scalar>,
     pub(super) y: Secret<Scalar>,
@@ -900,23 +912,23 @@ pub(super) struct Context<P: SchemeParams, I: Ord> {
     nu: Randomizer<P::Paillier>,
 }
 
-impl<P, I> Context<P, I>
+impl<P, Id> Context<P, Id>
 where
     P: SchemeParams,
-    I: Clone + Ord + Debug,
+    Id: Clone + Ord + Debug,
 {
-    pub fn public_share(&self, i: &I) -> Result<&Point, LocalError> {
+    pub fn public_share(&self, i: &Id) -> Result<&Point, LocalError> {
         self.key_share.public_shares().safe_get("public share", i)
     }
 
-    pub fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
+    pub fn public_aux(&self, i: &Id) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
         self.aux_info.public_aux.safe_get("public aux", i)
     }
 }
 
 #[derive(Debug)]
-struct Round1<P: SchemeParams, I: Ord> {
-    context: Context<P, I>,
+struct Round1<P: SchemeParams, Id: Ord> {
+    context: Context<P, Id>,
     r1_echo_broadcast: Round1EchoBroadcast<P>,
 }
 
@@ -951,8 +963,8 @@ pub(super) struct Round1Payload<P: SchemeParams> {
     cap_b2: Point,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         1.into()
@@ -962,11 +974,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         [2.into()].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -982,9 +994,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         &self,
         rng: &mut impl CryptoRngCore,
         serializer: &Serializer,
-        destination: &I,
+        destination: &Id,
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
-        let aux = (&self.context.epid_hash, &destination);
+        let aux = (&self.context.epid, &destination);
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
 
         let psi0 = EncElgProof::new(
@@ -1048,9 +1060,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        from: &I,
+        from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.normal_broadcast.assert_is_none()?;
 
         let direct_message = message
@@ -1060,7 +1072,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             .echo_broadcast
             .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
 
-        let aux = (&self.context.epid_hash, &self.context.my_id);
+        let aux = (&self.context.epid, &self.context.my_id);
 
         let public_aux = self.context.public_aux(&self.context.my_id)?;
 
@@ -1110,9 +1122,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     fn finalize(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         let mut payloads = payloads.downcast_all::<Round1Payload<P>>()?;
 
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
@@ -1128,7 +1140,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
         let cap_gamma = self.context.gamma.mul_by_generator();
 
-        let aux = (&self.context.epid_hash, &self.context.my_id);
+        let aux = (&self.context.epid, &self.context.my_id);
         let psi_elog = ElogProof::new(
             rng,
             ElogSecretInputs {
@@ -1190,7 +1202,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         let x = secret_signed_from_scalar::<P>(self.context.key_share.secret_share());
         let cap_x = self.context.public_share(&self.context.my_id)?;
 
-        let aux = (&self.context.epid_hash, &self.context.my_id);
+        let aux = (&self.context.epid, &self.context.my_id);
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
 
         let mut cap_ds = BTreeMap::new();
@@ -1290,24 +1302,24 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round2<P: SchemeParams, I: Ord> {
-    pub(super) context: Context<P, I>,
-    betas: BTreeMap<I, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
-    rs: BTreeMap<I, Randomizer<P::Paillier>>,
-    ss: BTreeMap<I, Randomizer<P::Paillier>>,
-    hat_betas: BTreeMap<I, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
-    hat_rs: BTreeMap<I, Randomizer<P::Paillier>>,
-    hat_ss: BTreeMap<I, Randomizer<P::Paillier>>,
-    r1_payloads: BTreeMap<I, Round1Payload<P>>,
+pub(super) struct Round2<P: SchemeParams, Id: Ord> {
+    pub(super) context: Context<P, Id>,
+    betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    hat_betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    hat_rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    r1_payloads: BTreeMap<Id, Round1Payload<P>>,
     cap_k: Ciphertext<P::Paillier>,
     pub(super) cap_gamma: Point,
     psi_elog: ElogProof<P>,
-    cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
-    cap_fs: BTreeMap<I, Ciphertext<P::Paillier>>,
-    psis: BTreeMap<I, AffGProof<P>>,
-    hat_cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
-    hat_cap_fs: BTreeMap<I, Ciphertext<P::Paillier>>,
-    hat_psis: BTreeMap<I, AffGProof<P>>,
+    cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    psis: BTreeMap<Id, AffGProof<P>>,
+    hat_cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    hat_cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    hat_psis: BTreeMap<Id, AffGProof<P>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1319,10 +1331,10 @@ pub(super) struct Round2<P: SchemeParams, I: Ord> {
     ElogProof<P>: for<'x> Deserialize<'x>,
     AffGProof<P>: for<'x> Deserialize<'x>,
 "))]
-pub(super) struct Round2NormalBroadcast<P: SchemeParams, I: PartyId> {
+pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) psi_elog: ElogProof<P>,
-    pub(super) psis: BTreeMap<I, AffGProof<P>>,
-    pub(super) hat_psis: BTreeMap<I, AffGProof<P>>,
+    pub(super) psis: BTreeMap<Id, AffGProof<P>>,
+    pub(super) hat_psis: BTreeMap<Id, AffGProof<P>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1332,26 +1344,26 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, I: PartyId> {
 #[serde(bound(deserialize = "
     CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>,
 "))]
-pub(super) struct Round2EchoBroadcast<P: SchemeParams, I: PartyId> {
+pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) cap_gamma: Point,
-    pub(super) cap_ds: BTreeMap<I, CiphertextWire<P::Paillier>>,
-    pub(super) cap_fs: BTreeMap<I, CiphertextWire<P::Paillier>>,
-    pub(super) hat_cap_ds: BTreeMap<I, CiphertextWire<P::Paillier>>,
-    pub(super) hat_cap_fs: BTreeMap<I, CiphertextWire<P::Paillier>>,
+    pub(super) cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
 }
 
-struct Round2Payload<P: SchemeParams, I: PartyId> {
+struct Round2Payload<P: SchemeParams, Id: PartyId> {
     cap_gamma: Point,
     alpha: Secret<Scalar>,
     hat_alpha: Secret<Scalar>,
-    cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
-    cap_fs: BTreeMap<I, Ciphertext<P::Paillier>>,
-    hat_cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
-    hat_cap_fs: BTreeMap<I, Ciphertext<P::Paillier>>,
+    cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    hat_cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    hat_cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         2.into()
@@ -1361,11 +1373,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         [3.into()].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -1376,7 +1388,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     ) -> Result<NormalBroadcast, LocalError> {
         NormalBroadcast::new(
             serializer,
-            Round2NormalBroadcast::<P, I> {
+            Round2NormalBroadcast::<P, Id> {
                 psi_elog: self.psi_elog.clone(),
                 psis: self.psis.clone(),
                 hat_psis: self.hat_psis.clone(),
@@ -1391,7 +1403,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     ) -> Result<EchoBroadcast, LocalError> {
         EchoBroadcast::new(
             serializer,
-            Round2EchoBroadcast::<P, I> {
+            Round2EchoBroadcast::<P, Id> {
                 cap_gamma: self.cap_gamma,
                 cap_ds: self.cap_ds.map_values_ref(|cap_d| cap_d.to_wire()),
                 cap_fs: self.cap_fs.map_values_ref(|cap_f| cap_f.to_wire()),
@@ -1404,18 +1416,18 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        from: &I,
+        from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         let echo_broadcast = message
             .echo_broadcast
-            .deserialize::<Round2EchoBroadcast<P, I>>(deserializer)?;
+            .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
         let normal_broadcast = message
             .normal_broadcast
-            .deserialize::<Round2NormalBroadcast<P, I>>(deserializer)?;
+            .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
         message.direct_message.assert_is_none()?;
 
-        let aux = (&self.context.epid_hash, from);
+        let aux = (&self.context.epid, from);
         let from_pk = &self.context.public_aux(from)?.paillier_pk;
 
         let expected_ids = self.context.all_ids.clone().without(from);
@@ -1525,7 +1537,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let alpha = secret_scalar_from_signed::<P>(&alpha_uint);
         let hat_alpha = secret_scalar_from_signed::<P>(&hat_alpha_uint);
 
-        Ok(Payload::new(Round2Payload::<P, I> {
+        Ok(Payload::new(Round2Payload::<P, Id> {
             cap_gamma: echo_broadcast.cap_gamma,
             alpha,
             hat_alpha,
@@ -1539,10 +1551,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     fn finalize(
         self,
         rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round2Payload<P, I>>()?;
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
+        let payloads = payloads.downcast_all::<Round2Payload<P, Id>>()?;
 
         let mut cap_gammas = payloads.map_values_ref(|payload| payload.cap_gamma);
         cap_gammas.insert(self.context.my_id.clone(), self.cap_gamma);
@@ -1562,7 +1574,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let cap_s = cap_gamma * &chi;
 
-        let aux = (&self.context.epid_hash, &self.context.my_id);
+        let aux = (&self.context.epid, &self.context.my_id);
         let my_r1_payload = self.r1_payloads.safe_get("Round 1 payloads", &self.context.my_id)?;
         let psi_prime = ElogProof::new(
             rng,
@@ -1663,25 +1675,25 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round3<P: SchemeParams, I: Ord> {
-    pub(super) context: Context<P, I>,
+pub(super) struct Round3<P: SchemeParams, Id: Ord> {
+    pub(super) context: Context<P, Id>,
     pub(super) cap_k: Ciphertext<P::Paillier>,
     pub(super) cap_gamma: Point,
     pub(super) chi: Scalar,
-    pub(super) r1_payloads: BTreeMap<I, Round1Payload<P>>,
-    pub(super) cap_gammas: BTreeMap<I, Point>,
-    pub(super) cap_ds: BTreeMap<(I, I), Ciphertext<P::Paillier>>, // $D_{i,j}$ for all $i, j$ where $i != j$.
-    pub(super) cap_fs: BTreeMap<(I, I), Ciphertext<P::Paillier>>, // $F_{i,j}$ for all $i, j$ where $i != j$.
-    pub(super) hat_cap_ds: BTreeMap<(I, I), Ciphertext<P::Paillier>>, // $\hat{D}_{i,j}$ for all $i, j$ where $i != j$.
-    pub(super) hat_cap_fs: BTreeMap<(I, I), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for all $i, j$ where $i != j$.
+    pub(super) r1_payloads: BTreeMap<Id, Round1Payload<P>>,
+    pub(super) cap_gammas: BTreeMap<Id, Point>,
+    pub(super) cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $D_{i,j}$ for all $i, j$ where $i != j$.
+    pub(super) cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $F_{i,j}$ for all $i, j$ where $i != j$.
+    pub(super) hat_cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{D}_{i,j}$ for all $i, j$ where $i != j$.
+    pub(super) hat_cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for all $i, j$ where $i != j$.
     pub(super) r3_echo_broadcast: Round3EchoBroadcast,
     pub(super) r3_normal_broadcast: Round3NormalBroadcast<P>,
-    pub(super) betas: BTreeMap<I, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
-    pub(super) rs: BTreeMap<I, Randomizer<P::Paillier>>,
-    pub(super) ss: BTreeMap<I, Randomizer<P::Paillier>>,
-    pub(super) hat_betas: BTreeMap<I, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
-    pub(super) hat_rs: BTreeMap<I, Randomizer<P::Paillier>>,
-    pub(super) hat_ss: BTreeMap<I, Randomizer<P::Paillier>>,
+    pub(super) betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    pub(super) rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) hat_betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    pub(super) hat_rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1704,8 +1716,8 @@ pub(super) struct Round3Payload {
     pub(super) cap_s: Point,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         3.into()
@@ -1715,11 +1727,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         [4.into(), 5.into(), 6.into()].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -1742,9 +1754,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        from: &I,
+        from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.direct_message.assert_is_none()?;
         let echo_broadcast = message
             .echo_broadcast
@@ -1753,7 +1765,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .normal_broadcast
             .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
 
-        let aux = (&self.context.epid_hash, from);
+        let aux = (&self.context.epid, from);
         let r1_payload = self.r1_payloads.safe_get("Round 1 payload", from)?;
 
         if !normal_broadcast.psi_prime.verify(
@@ -1779,9 +1791,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         let mut payloads = payloads.downcast_all::<Round3Payload>()?;
         let my_payload = Round3Payload {
             delta: self.r3_echo_broadcast.delta,
@@ -1860,9 +1872,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 }
 
 #[derive(Debug)]
-struct Round4<P: SchemeParams, I: Ord> {
-    context: Context<P, I>,
-    presigning_data: PresigningData<I>,
+struct Round4<P: SchemeParams, Id: Ord> {
+    context: Context<P, Id>,
+    presigning_data: PresigningData<Id>,
     sigma: Scalar,
 }
 
@@ -1875,8 +1887,8 @@ struct Round4Payload {
     sigma: Scalar,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         4.into()
@@ -1890,11 +1902,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         true
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -1909,9 +1921,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        from: &I,
+        from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.echo_broadcast.assert_is_none()?;
         message.direct_message.assert_is_none()?;
         let normal_broadcast = message
@@ -1938,9 +1950,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         let payloads = payloads.downcast_all::<Round4Payload>()?;
 
         let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar>() + self.sigma;
@@ -1961,16 +1973,16 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round5<P: SchemeParams, I: PartyId> {
-    pub(super) context: Context<P, I>,
-    pub(super) deltas: BTreeMap<I, Scalar>,
-    pub(super) betas: BTreeMap<I, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
-    pub(super) ss: BTreeMap<I, Randomizer<P::Paillier>>,
-    pub(super) rs: BTreeMap<I, Randomizer<P::Paillier>>,
-    pub(super) cap_gammas: BTreeMap<I, Point>,
-    pub(super) cap_ks: BTreeMap<I, Ciphertext<P::Paillier>>, // $K_i$ for all $i$ ($i$ is locally generated, others received)
-    pub(super) cap_ds: BTreeMap<(I, I), Ciphertext<P::Paillier>>, // $D_{i,j}$ for $j != i$
-    pub(super) cap_fs: BTreeMap<(I, I), Ciphertext<P::Paillier>>, // $F_{i,j}$ for $j != i$
+pub(super) struct Round5<P: SchemeParams, Id: PartyId> {
+    pub(super) context: Context<P, Id>,
+    pub(super) deltas: BTreeMap<Id, Scalar>,
+    pub(super) betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    pub(super) ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) cap_gammas: BTreeMap<Id, Point>,
+    pub(super) cap_ks: BTreeMap<Id, Ciphertext<P::Paillier>>, // $K_i$ for all $i$ ($i$ is locally generated, others received)
+    pub(super) cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $D_{i,j}$ for $j != i$
+    pub(super) cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $F_{i,j}$ for $j != i$
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1982,13 +1994,13 @@ pub(super) struct Round5<P: SchemeParams, I: PartyId> {
     DecProof<P>: for<'x> Deserialize<'x>,
     AffGStarProof<P>: for<'x> Deserialize<'x>,
 "))]
-pub(super) struct Round5NormalBroadcast<P: SchemeParams, I: PartyId> {
+pub(super) struct Round5NormalBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) psi_star: DecProof<P>,
-    pub(super) psis: BTreeMap<I, AffGStarProof<P>>,
+    pub(super) psis: BTreeMap<Id, AffGStarProof<P>>,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round5<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         5.into()
@@ -1998,11 +2010,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round5<P, I> {
         [].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -2012,7 +2024,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round5<P, I> {
         serializer: &Serializer,
     ) -> Result<NormalBroadcast, LocalError> {
         let my_id = self.context.my_id.clone();
-        let aux = (&self.context.epid_hash, &my_id);
+        let aux = (&self.context.epid, &my_id);
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
         let rp = &self.context.public_aux(&self.context.my_id)?.rp_params;
 
@@ -2086,23 +2098,23 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round5<P, I> {
             psis.insert(id.clone(), psi);
         }
 
-        NormalBroadcast::new(serializer, Round5NormalBroadcast::<P, I> { psi_star, psis })
+        NormalBroadcast::new(serializer, Round5NormalBroadcast::<P, Id> { psi_star, psis })
     }
 
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        from: &I,
+        from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.echo_broadcast.assert_is_none()?;
         message.direct_message.assert_is_none()?;
         let normal_broadcast = message
             .normal_broadcast
-            .deserialize::<Round5NormalBroadcast<P, I>>(deserializer)?;
+            .deserialize::<Round5NormalBroadcast<P, Id>>(deserializer)?;
 
         let my_id = self.context.my_id.clone();
-        let aux = (&self.context.epid_hash, from);
+        let aux = (&self.context.epid, from);
 
         let sender_pk = &self.context.public_aux(from)?.paillier_pk;
         let sender_rp = &self.context.public_aux(from)?.rp_params;
@@ -2168,9 +2180,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round5<P, I> {
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        _payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        _payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         Err(LocalError::new(
             "One of the messages should have been missing or invalid",
         ))
@@ -2178,16 +2190,16 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round5<P, I> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round6<P: SchemeParams, I: PartyId> {
-    pub(super) context: Context<P, I>,
+pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
+    pub(super) context: Context<P, Id>,
     pub(super) cap_gamma: Point,
-    pub(super) hat_betas: BTreeMap<I, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
-    pub(super) hat_ss: BTreeMap<I, Randomizer<P::Paillier>>,
-    pub(super) hat_rs: BTreeMap<I, Randomizer<P::Paillier>>,
-    pub(super) cap_ks: BTreeMap<I, Ciphertext<P::Paillier>>, // $K_i$ for all $i$ ($i$ is locally generated, others received)
-    pub(super) cap_ss: BTreeMap<I, Point>,
-    pub(super) hat_cap_ds: BTreeMap<(I, I), Ciphertext<P::Paillier>>, // $\hat{D}_{i,j}$ for $j != i$
-    pub(super) hat_cap_fs: BTreeMap<(I, I), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for $j != i$
+    pub(super) hat_betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    pub(super) hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) hat_rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) cap_ks: BTreeMap<Id, Ciphertext<P::Paillier>>, // $K_i$ for all $i$ ($i$ is locally generated, others received)
+    pub(super) cap_ss: BTreeMap<Id, Point>,
+    pub(super) hat_cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{D}_{i,j}$ for $j != i$
+    pub(super) hat_cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for $j != i$
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2199,13 +2211,13 @@ pub(super) struct Round6<P: SchemeParams, I: PartyId> {
     DecProof<P>: for<'x> Deserialize<'x>,
     AffGStarProof<P>: for<'x> Deserialize<'x>,
 "))]
-pub(super) struct Round6NormalBroadcast<P: SchemeParams, I: PartyId> {
+pub(super) struct Round6NormalBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psi_star: DecProof<P>,
-    pub(super) hat_psis: BTreeMap<I, AffGStarProof<P>>,
+    pub(super) hat_psis: BTreeMap<Id, AffGStarProof<P>>,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round6<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         6.into()
@@ -2215,11 +2227,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round6<P, I> {
         [].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -2229,7 +2241,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round6<P, I> {
         serializer: &Serializer,
     ) -> Result<NormalBroadcast, LocalError> {
         let my_id = self.context.my_id.clone();
-        let aux = (&self.context.epid_hash, &my_id);
+        let aux = (&self.context.epid, &my_id);
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
         let rp = &self.context.public_aux(&self.context.my_id)?.rp_params;
 
@@ -2286,19 +2298,6 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round6<P, I> {
             &aux,
         );
 
-        assert!(hat_psi_star.verify(
-            DecPublicInputs {
-                pk0: pk,
-                cap_k,
-                cap_x: cap_xs.safe_get("`X` map", &self.context.my_id)?,
-                cap_d: &hat_cap_d,
-                cap_s: self.cap_ss.safe_get("`S` map", &self.context.my_id)?,
-                cap_g: &self.cap_gamma,
-            },
-            rp,
-            &aux,
-        ));
-
         let mut hat_psis = BTreeMap::new();
         for id in self.context.other_ids.iter() {
             let hat_psi = AffGStarProof::new(
@@ -2343,22 +2342,23 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round6<P, I> {
             hat_psis.insert(id.clone(), hat_psi);
         }
 
-        NormalBroadcast::new(serializer, Round6NormalBroadcast::<P, I> { hat_psi_star, hat_psis })
+        NormalBroadcast::new(serializer, Round6NormalBroadcast::<P, Id> { hat_psi_star, hat_psis })
     }
 
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        from: &I,
+        from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.echo_broadcast.assert_is_none()?;
         message.direct_message.assert_is_none()?;
         let normal_broadcast = message
             .normal_broadcast
-            .deserialize::<Round6NormalBroadcast<P, I>>(deserializer)?;
+            .deserialize::<Round6NormalBroadcast<P, Id>>(deserializer)?;
 
-        let aux = (&self.context.epid_hash, from);
+        let my_id = self.context.my_id.clone();
+        let aux = (&self.context.epid, from);
 
         let sender_pk = &self.context.public_aux(from)?.paillier_pk;
         let sender_rp = &self.context.public_aux(from)?.rp_params;
@@ -2405,21 +2405,20 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round6<P, I> {
             return Err(ReceiveError::protocol(Error::R6WrongIdsPsi.into()));
         }
 
-        /*
-        for (id, psi) in normal_broadcast.psis.iter() {
+        for (id, hat_psi) in normal_broadcast.hat_psis.iter() {
             if id == &my_id {
                 continue;
             }
 
             let pk = &self.context.public_aux(id)?.paillier_pk;
-            if !psi.verify(
+            if !hat_psi.verify(
                 AffGStarPublicInputs {
                     pk0: pk,
                     pk1: sender_pk,
                     cap_c: self.cap_ks.safe_get("`K` map", id)?,
-                    cap_d: self.cap_ds.safe_get("`D` map", &(id.clone(), from.clone()))?,
-                    cap_y: self.cap_fs.safe_get("`F` map", &(id.clone(), from.clone()))?,
-                    cap_x: self.cap_gammas.safe_get("`Gamma` map", from)?,
+                    cap_d: self.hat_cap_ds.safe_get("`D` map", &(id.clone(), from.clone()))?,
+                    cap_y: self.hat_cap_fs.safe_get("`F` map", &(id.clone(), from.clone()))?,
+                    cap_x: cap_xs.safe_get("`X` map", from)?,
                 },
                 &aux,
             ) {
@@ -2428,7 +2427,6 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round6<P, I> {
                 ));
             }
         }
-        */
 
         Ok(Payload::empty())
     }
@@ -2436,9 +2434,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round6<P, I> {
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        _payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        _payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         Err(LocalError::new(
             "One of the messages should have been missing or invalid",
         ))

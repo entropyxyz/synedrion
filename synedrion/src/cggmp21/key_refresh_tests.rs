@@ -14,8 +14,8 @@ use rand_core::{CryptoRngCore, OsRng, SeedableRng};
 
 use super::{
     key_refresh::{
-        KeyRefresh, Round1, Round1EchoBroadcast, Round2EchoBroadcast, Round2NormalBroadcast, Round3Broadcast,
-        Round3DirectMessage, Round3EchoBroadcast,
+        KeyRefresh, KeyRefreshAssociatedData, Round1, Round1EchoBroadcast, Round2EchoBroadcast, Round2NormalBroadcast,
+        Round3Broadcast, Round3DirectMessage, Round3EchoBroadcast,
     },
     params::{SchemeParams, TestParams},
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
@@ -35,7 +35,7 @@ type P = TestParams;
 type SP = TestSessionParams<BinaryFormat>;
 
 #[allow(clippy::type_complexity)]
-fn make_entry_points() -> (BTreeSet<Id>, Vec<(TestSigner, KeyRefresh<P, Id>)>) {
+fn make_entry_points() -> (KeyRefreshAssociatedData<Id>, Vec<(TestSigner, KeyRefresh<P, Id>)>) {
     let signers = (0..3).map(TestSigner::new).collect::<Vec<_>>();
     let all_ids = signers.iter().map(TestSigner::verifying_key).collect::<BTreeSet<_>>();
 
@@ -43,7 +43,7 @@ fn make_entry_points() -> (BTreeSet<Id>, Vec<(TestSigner, KeyRefresh<P, Id>)>) {
         .into_iter()
         .map(|signer| (signer, KeyRefresh::new(all_ids.clone()).unwrap()))
         .collect();
-    (all_ids, entry_points)
+    (KeyRefreshAssociatedData { ids: all_ids }, entry_points)
 }
 
 fn check_evidence<M>(expected_description: &str) -> Result<(), LocalError>
@@ -214,11 +214,11 @@ fn r2_wrong_ids_x() {
                 // so that in Round 2 the hash check could pass and the execution reaches the IDs check.
                 let round1 = round.downcast_ref::<Round1<P, Id>>()?;
 
-                let mut r2_normal_broadcast = round1.r2_normal_broadcast.clone();
-                r2_normal_broadcast.cap_xs.pop_first();
+                let mut data = round1.public_data.clone();
+                data.cap_xs.pop_first();
 
                 let message = Round1EchoBroadcast {
-                    cap_v: r2_normal_broadcast.hash(&round1.context.sid_hash, &round1.context.my_id),
+                    cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);
@@ -246,6 +246,21 @@ fn r2_wrong_ids_y() {
             deserializer: &Deserializer,
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
+            if round.id() == 1 {
+                // Technically we only need to modify `X`, but we need to substitute the hash in Round 1 too,
+                // so that in Round 2 the hash check could pass and the execution reaches the IDs check.
+                let round1 = round.downcast_ref::<Round1<P, Id>>()?;
+
+                let mut data = round1.public_data.clone();
+                data.cap_ys.pop_first();
+
+                let message = Round1EchoBroadcast {
+                    cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
+                };
+                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                return Ok(echo_broadcast);
+            }
+
             if round.id() == 2 {
                 let mut message = echo_broadcast
                     .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)
@@ -303,12 +318,12 @@ fn r2_wrong_ids_a() {
                 // so that in Round 2 the hash check could pass and the execution reaches the IDs check.
                 let round1 = round.downcast_ref::<Round1<P, Id>>()?;
 
-                let mut r2_normal_broadcast = round1.r2_normal_broadcast.clone();
+                let mut data = round1.public_data.clone();
 
-                r2_normal_broadcast.cap_as.pop_first();
+                data.cap_as.pop_first();
 
                 let message = Round1EchoBroadcast {
-                    cap_v: r2_normal_broadcast.hash(&round1.context.sid_hash, &round1.context.my_id),
+                    cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);
@@ -364,10 +379,10 @@ fn r2_paillier_modulus_too_small() {
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
                 let round1 = round.downcast_ref::<Round1<P, Id>>()?;
-                let mut r2_normal_broadcast = round1.r2_normal_broadcast.clone();
-                r2_normal_broadcast.paillier_pk = make_small_modulus_pk::<<P as SchemeParams>::Paillier>();
+                let mut data = round1.public_data.clone();
+                data.paillier_pk = make_small_modulus_pk::<<P as SchemeParams>::Paillier>().into_precomputed();
                 let message = Round1EchoBroadcast {
-                    cap_v: r2_normal_broadcast.hash(&round1.context.sid_hash, &round1.context.my_id),
+                    cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);
@@ -400,6 +415,21 @@ fn r2_rp_modulus_too_small() {
             deserializer: &Deserializer,
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
+            if round.id() == 1 {
+                // Technically we only need to modify `X`, but we need to substitute the hash in Round 1 too,
+                // so that in Round 2 the hash check could pass and the execution reaches the IDs check.
+                let round1 = round.downcast_ref::<Round1<P, Id>>()?;
+
+                let mut data = round1.public_data.clone();
+                data.rp_params = make_small_modulus_rp_params::<<P as SchemeParams>::Paillier>().to_precomputed();
+
+                let message = Round1EchoBroadcast {
+                    cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
+                };
+                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                return Ok(echo_broadcast);
+            }
+
             if round.id() == 2 {
                 let mut message = echo_broadcast
                     .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)
@@ -433,16 +463,14 @@ fn r2_non_zero_sum_of_changes() {
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
                 let round1 = round.downcast_ref::<Round1<P, Id>>()?;
-                let mut r2_normal_broadcast = round1.r2_normal_broadcast.clone();
+                let mut data = round1.public_data.clone();
 
-                let (id, _point) = r2_normal_broadcast.cap_xs.pop_first().unwrap();
+                let (id, _point) = data.cap_xs.pop_first().unwrap();
                 let mut rng = ChaCha8Rng::seed_from_u64(123);
-                r2_normal_broadcast
-                    .cap_xs
-                    .insert(id, Scalar::random(&mut rng).mul_by_generator());
+                data.cap_xs.insert(id, Scalar::random(&mut rng).mul_by_generator());
 
                 let message = Round1EchoBroadcast {
-                    cap_v: r2_normal_broadcast.hash(&round1.context.sid_hash, &round1.context.my_id),
+                    cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);
@@ -496,15 +524,15 @@ fn r2_prm_failed() {
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
                 let round1 = round.downcast_ref::<Round1<P, Id>>()?;
-                let mut r2_normal_broadcast = round1.r2_normal_broadcast.clone();
+                let mut data = round1.public_data.clone();
 
                 let mut rng = ChaCha8Rng::seed_from_u64(123);
                 let secret = RPSecret::random(&mut rng);
                 let rp_params = RPParams::random_with_secret(&mut rng, &secret);
-                r2_normal_broadcast.psi = PrmProof::new(&mut rng, &secret, &rp_params, &1u8);
+                data.psi = PrmProof::new(&mut rng, &secret, &rp_params, &1u8);
 
                 let message = Round1EchoBroadcast {
-                    cap_v: r2_normal_broadcast.hash(&round1.context.sid_hash, &round1.context.my_id),
+                    cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);

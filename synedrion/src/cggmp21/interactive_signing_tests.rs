@@ -345,7 +345,7 @@ fn r2_elog_failed() {
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let round2 = round.downcast_ref::<Round2<P, Id>>()?;
-                let aux = (&round2.context.epid_hash, &round2.context.my_id);
+                let aux = (&round2.context.epid, &round2.context.my_id);
 
                 let cap_y = round2.context.y.mul_by_generator();
                 let cap_b1 = round2.context.b.mul_by_generator();

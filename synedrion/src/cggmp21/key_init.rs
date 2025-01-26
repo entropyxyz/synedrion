@@ -34,10 +34,10 @@ use crate::{
 
 /// A protocol that generates shares of a new secret key on each node.
 #[derive(Debug)]
-pub struct KeyInitProtocol<P: SchemeParams, I: Debug>(PhantomData<(P, I)>);
+pub struct KeyInitProtocol<P: SchemeParams, Id: Debug>(PhantomData<(P, Id)>);
 
-impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyInitProtocol<P, I> {
-    type Result = KeyShare<P, I>;
+impl<P: SchemeParams, Id: PartyId> Protocol<Id> for KeyInitProtocol<P, Id> {
+    type Result = KeyShare<P, Id>;
     type ProtocolError = KeyInitError<P>;
 
     fn verify_direct_message_is_invalid(
@@ -45,10 +45,11 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyInitProtocol<P, I> {
         round_id: &RoundId,
         message: &DirectMessage,
     ) -> Result<(), MessageValidationError> {
-        if round_id == &1 || round_id == &2 || round_id == &3 {
-            message.verify_is_some()
-        } else {
-            Err(MessageValidationError::InvalidEvidence("Invalid round number".into()))
+        match round_id {
+            r if r == &1 => message.verify_is_some(),
+            r if r == &2 => message.verify_is_some(),
+            r if r == &3 => message.verify_is_some(),
+            _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
 
@@ -59,7 +60,7 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyInitProtocol<P, I> {
     ) -> Result<(), MessageValidationError> {
         match round_id {
             r if r == &1 => message.verify_is_not::<Round1EchoBroadcast>(deserializer),
-            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast<P>>(deserializer),
+            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast>(deserializer),
             r if r == &3 => message.verify_is_some(),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
@@ -72,8 +73,8 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyInitProtocol<P, I> {
     ) -> Result<(), MessageValidationError> {
         match round_id {
             r if r == &1 => message.verify_is_some(),
-            r if r == &2 => message.verify_is_some(),
-            r if r == &3 => message.verify_is_not::<Round3Broadcast>(deserializer),
+            r if r == &2 => message.verify_is_not::<Round2NormalBroadcast>(deserializer),
+            r if r == &3 => message.verify_is_not::<Round3NormalBroadcast>(deserializer),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
@@ -109,19 +110,37 @@ enum KeyInitErrorEnum {
     R3InvalidSchProof,
 }
 
-impl<P: SchemeParams, I: PartyId> ProtocolError<I> for KeyInitError<P> {
-    type AssociatedData = ();
+/// Associated data for KeyInit protocol.
+#[derive(Debug, Clone)]
+pub struct KeyInitAssociatedData<Id> {
+    /// IDs of all participating nodes.
+    pub ids: BTreeSet<Id>,
+}
+
+fn make_sid<P: SchemeParams, Id: PartyId>(
+    shared_randomness: &[u8],
+    associated_data: &KeyInitAssociatedData<Id>,
+) -> HashOutput {
+    FofHasher::new_with_dst(b"KeyInit SID")
+        .chain_type::<P>()
+        .chain(&shared_randomness)
+        .chain(&associated_data.ids)
+        .finalize()
+}
+
+impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
+    type AssociatedData = KeyInitAssociatedData<Id>;
 
     fn required_messages(&self) -> RequiredMessages {
         match self.error {
             KeyInitErrorEnum::R2HashMismatch => RequiredMessages::new(
-                RequiredMessageParts::echo_broadcast(),
+                RequiredMessageParts::echo_broadcast().and_normal_broadcast(),
                 Some([(1.into(), RequiredMessageParts::echo_broadcast())].into()),
                 None,
             ),
             KeyInitErrorEnum::R3InvalidSchProof => RequiredMessages::new(
                 RequiredMessageParts::normal_broadcast(),
-                Some([(2.into(), RequiredMessageParts::echo_broadcast())].into()),
+                Some([(2.into(), RequiredMessageParts::echo_broadcast().and_normal_broadcast())].into()),
                 Some([2.into()].into()),
             ),
         }
@@ -130,85 +149,95 @@ impl<P: SchemeParams, I: PartyId> ProtocolError<I> for KeyInitError<P> {
     fn verify_messages_constitute_error(
         &self,
         deserializer: &Deserializer,
-        guilty_party: &I,
+        guilty_party: &Id,
         shared_randomness: &[u8],
-        _associated_data: &Self::AssociatedData,
+        associated_data: &Self::AssociatedData,
         message: ProtocolMessage,
         previous_messages: BTreeMap<RoundId, ProtocolMessage>,
-        combined_echos: BTreeMap<RoundId, BTreeMap<I, EchoBroadcast>>,
+        combined_echos: BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
-        let sid_hash = FofHasher::new_with_dst(b"SID")
-            .chain_type::<P>()
-            .chain(&shared_randomness)
-            .finalize();
+        let sid = make_sid::<P, Id>(shared_randomness, associated_data);
 
         match self.error {
             KeyInitErrorEnum::R2HashMismatch => {
-                let r1_message = previous_messages
+                let r1_eb = previous_messages
                     .get_round(1)?
                     .echo_broadcast
                     .deserialize::<Round1EchoBroadcast>(deserializer)?;
-                let r2_message = message
+                let r2_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast>(deserializer)?;
+                let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P>>(deserializer)?;
-                verify_that(r2_message.data.hash(&sid_hash, guilty_party) != r1_message.cap_v)
+                    .deserialize::<Round2EchoBroadcast>(deserializer)?;
+                let data = PublicData {
+                    cap_x: r2_nb.cap_x,
+                    cap_a: r2_nb.cap_a,
+                    u: r2_nb.u,
+                    rho: r2_eb.rho,
+                };
+                verify_that(data.hash(&sid, guilty_party) != r1_eb.cap_v)
             }
             KeyInitErrorEnum::R3InvalidSchProof => {
-                let r2_messages = combined_echos
+                let r2_ebs = combined_echos
                     .get_round(2)?
-                    .deserialize_all::<Round2EchoBroadcast<P>>(deserializer)?;
-                let r2_message = previous_messages
+                    .deserialize_all::<Round2EchoBroadcast>(deserializer)?;
+                let r2_nb = previous_messages
+                    .get_round(2)?
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast>(deserializer)?;
+                let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P>>(deserializer)?;
-                let r3_message = message.normal_broadcast.deserialize::<Round3Broadcast>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast>(deserializer)?;
+                let r3_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round3NormalBroadcast>(deserializer)?;
 
-                let mut rho = r2_message.data.rho;
-                for message in r2_messages.values() {
-                    rho ^= &message.data.rho;
+                let mut rho = r2_eb.rho;
+                for message in r2_ebs.values() {
+                    rho ^= &message.rho;
                 }
 
-                let aux = (&sid_hash, guilty_party, &rho);
-                verify_that(
-                    !r3_message
-                        .psi
-                        .verify(&r2_message.data.cap_a, &r2_message.data.cap_x, &aux),
-                )
+                let aux = (&sid, guilty_party, &rho);
+                verify_that(!r3_nb.psi.verify(&r2_nb.cap_a, &r2_nb.cap_x, &aux))
             }
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct PublicData<P: SchemeParams> {
-    pub(super) cap_x: Point,
+#[derive(Debug, Clone)]
+pub(super) struct PublicData {
+    cap_x: Point,
     pub(super) cap_a: SchCommitment,
-    pub(super) rho: BitVec,
-    pub(super) u: BitVec,
-    pub(super) phantom: PhantomData<P>,
+    rho: BitVec,
+    u: BitVec,
 }
 
-impl<P: SchemeParams> PublicData<P> {
-    fn hash<I: Serialize>(&self, sid_hash: &HashOutput, id: I) -> HashOutput {
+impl PublicData {
+    fn hash<Id: Serialize>(&self, sid: &HashOutput, id: &Id) -> HashOutput {
         FofHasher::new_with_dst(b"KeyInit")
-            .chain(sid_hash)
-            .chain(&id)
-            .chain(self)
+            .chain(sid)
+            .chain(id)
+            .chain(&self.cap_x)
+            .chain(&self.cap_a)
+            .chain(&self.rho)
+            .chain(&self.u)
             .finalize()
     }
 }
 
 /// An entry point for the [`KeyInitProtocol`].
 #[derive(Debug, Clone)]
-pub struct KeyInit<P, I> {
-    all_ids: BTreeSet<I>,
+pub struct KeyInit<P, Id> {
+    all_ids: BTreeSet<Id>,
     phantom: PhantomData<P>,
 }
 
-impl<P, I: PartyId> KeyInit<P, I> {
+impl<P, Id: PartyId> KeyInit<P, Id> {
     /// Creates a new entry point given the set of the participants' IDs
     /// (including this node's).
-    pub fn new(all_ids: BTreeSet<I>) -> Result<Self, LocalError> {
+    pub fn new(all_ids: BTreeSet<Id>) -> Result<Self, LocalError> {
         Ok(Self {
             all_ids,
             phantom: PhantomData,
@@ -216,8 +245,8 @@ impl<P, I: PartyId> KeyInit<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
-    type Protocol = KeyInitProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for KeyInit<P, Id> {
+    type Protocol = KeyInitProtocol<P, Id>;
 
     fn entry_round_id() -> RoundId {
         1.into()
@@ -227,18 +256,20 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
         self,
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        id: &I,
-    ) -> Result<BoxedRound<I, Self::Protocol>, LocalError> {
+        id: &Id,
+    ) -> Result<BoxedRound<Id, Self::Protocol>, LocalError> {
         if !self.all_ids.contains(id) {
             return Err(LocalError::new("The given node IDs must contain this node's ID"));
         }
 
         let other_ids = self.all_ids.clone().without(id);
 
-        let sid_hash = FofHasher::new_with_dst(b"SID")
-            .chain_type::<P>()
-            .chain(&shared_randomness)
-            .finalize();
+        let sid = make_sid::<P, Id>(
+            shared_randomness,
+            &KeyInitAssociatedData {
+                ids: self.all_ids.clone(),
+            },
+        );
 
         // The secret share
         let x = Secret::init_with(|| Scalar::random(rng));
@@ -250,13 +281,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
         let cap_a = SchCommitment::new(&tau);
         let u = BitVec::random(rng, P::SECURITY_PARAMETER);
 
-        let public_data = PublicData {
-            cap_x,
-            cap_a,
-            rho,
-            u,
-            phantom: PhantomData,
-        };
+        let public_data = PublicData { cap_x, cap_a, rho, u };
 
         let context = Context {
             other_ids,
@@ -264,7 +289,8 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
             x,
             tau,
             public_data,
-            sid_hash,
+            sid,
+            phantom: PhantomData,
         };
 
         Ok(BoxedRound::new_dynamic(Round1 { context }))
@@ -272,18 +298,19 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
 }
 
 #[derive(Debug)]
-pub(super) struct Context<P: SchemeParams, I> {
-    pub(super) other_ids: BTreeSet<I>,
-    pub(super) my_id: I,
+pub(super) struct Context<P, Id> {
+    pub(super) other_ids: BTreeSet<Id>,
+    pub(super) my_id: Id,
     pub(super) x: Secret<Scalar>,
     pub(super) tau: SchSecret,
-    pub(super) public_data: PublicData<P>,
-    pub(super) sid_hash: HashOutput,
+    pub(super) public_data: PublicData,
+    pub(super) sid: HashOutput,
+    phantom: PhantomData<P>,
 }
 
 #[derive(Debug)]
-struct Round1<P: SchemeParams, I> {
-    context: Context<P, I>,
+struct Round1<P: SchemeParams, Id> {
+    context: Context<P, Id>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,8 +322,8 @@ struct Round1Payload {
     cap_v: HashOutput,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
-    type Protocol = KeyInitProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
+    type Protocol = KeyInitProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         1.into()
@@ -306,11 +333,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         [2.into()].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -319,63 +346,69 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         _rng: &mut impl CryptoRngCore,
         serializer: &Serializer,
     ) -> Result<EchoBroadcast, LocalError> {
-        let cap_v = self
-            .context
-            .public_data
-            .hash(&self.context.sid_hash, &self.context.my_id);
+        let cap_v = self.context.public_data.hash(&self.context.sid, &self.context.my_id);
         EchoBroadcast::new(serializer, Round1EchoBroadcast { cap_v })
     }
 
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        _from: &I,
+        _from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.normal_broadcast.assert_is_none()?;
         message.direct_message.assert_is_none()?;
-        let echo = message
+        let echo_broadcast = message
             .echo_broadcast
             .deserialize::<Round1EchoBroadcast>(deserializer)?;
-        Ok(Payload::new(Round1Payload { cap_v: echo.cap_v }))
+        Ok(Payload::new(Round1Payload {
+            cap_v: echo_broadcast.cap_v,
+        }))
     }
 
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         let payloads = payloads.downcast_all::<Round1Payload>()?;
-        let others_cap_v = payloads.map_values(|payload| payload.cap_v);
+        let cap_vs = payloads.map_values(|payload| payload.cap_v);
         Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round2 {
-            others_cap_v,
             context: self.context,
+            cap_vs,
             phantom: PhantomData,
         })))
     }
 }
 
 #[derive(Debug)]
-struct Round2<P: SchemeParams, I> {
-    context: Context<P, I>,
-    others_cap_v: BTreeMap<I, HashOutput>,
+struct Round2<P: SchemeParams, Id> {
+    context: Context<P, Id>,
+    cap_vs: BTreeMap<Id, HashOutput>,
     phantom: PhantomData<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicData<P>: Serialize"))]
-#[serde(bound(deserialize = "PublicData<P>: for<'x> Deserialize<'x>"))]
-pub(super) struct Round2EchoBroadcast<P: SchemeParams> {
-    pub(super) data: PublicData<P>,
+struct Round2EchoBroadcast {
+    rho: BitVec,
 }
 
-struct Round2Payload<P: SchemeParams> {
-    data: PublicData<P>,
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct Round2NormalBroadcast {
+    cap_x: Point,
+    cap_a: SchCommitment,
+    pub(super) u: BitVec,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
-    type Protocol = KeyInitProtocol<P, I>;
+struct Round2Payload {
+    cap_x: Point,
+    cap_a: SchCommitment,
+    rho: BitVec,
+}
+
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
+    type Protocol = KeyInitProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         2.into()
@@ -385,11 +418,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         [3.into()].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -401,7 +434,22 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         EchoBroadcast::new(
             serializer,
             Round2EchoBroadcast {
-                data: self.context.public_data.clone(),
+                rho: self.context.public_data.rho.clone(),
+            },
+        )
+    }
+
+    fn make_normal_broadcast(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
+    ) -> Result<NormalBroadcast, LocalError> {
+        NormalBroadcast::new(
+            serializer,
+            Round2NormalBroadcast {
+                cap_x: self.context.public_data.cap_x,
+                cap_a: self.context.public_data.cap_a.clone(),
+                u: self.context.public_data.u.clone(),
             },
         )
     }
@@ -409,65 +457,78 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        from: &I,
+        from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        message.normal_broadcast.assert_is_none()?;
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.direct_message.assert_is_none()?;
-        let echo = message
+        let normal_broadcast = message
+            .normal_broadcast
+            .deserialize::<Round2NormalBroadcast>(deserializer)?;
+        let echo_broadcast = message
             .echo_broadcast
-            .deserialize::<Round2EchoBroadcast<P>>(deserializer)?;
-        let cap_v = self.others_cap_v.safe_get("vector `V`", from)?;
+            .deserialize::<Round2EchoBroadcast>(deserializer)?;
 
-        if &echo.data.hash(&self.context.sid_hash, from) != cap_v {
+        let cap_v = self.cap_vs.safe_get("vector `V`", from)?;
+        let data = PublicData {
+            cap_x: normal_broadcast.cap_x,
+            cap_a: normal_broadcast.cap_a,
+            u: normal_broadcast.u,
+            rho: echo_broadcast.rho,
+        };
+
+        if &data.hash(&self.context.sid, from) != cap_v {
             return Err(ReceiveError::protocol(KeyInitError::new(
                 KeyInitErrorEnum::R2HashMismatch,
             )));
         }
 
-        Ok(Payload::new(Round2Payload { data: echo.data }))
+        Ok(Payload::new(Round2Payload {
+            cap_x: data.cap_x,
+            rho: data.rho,
+            cap_a: data.cap_a,
+        }))
     }
 
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let mut rho = self.context.public_data.rho.clone();
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
+        let payloads = payloads.downcast_all::<Round2Payload>()?;
 
-        let payloads = payloads.downcast_all::<Round2Payload<P>>()?;
-
+        let mut rho_combined = self.context.public_data.rho.clone();
         for payload in payloads.values() {
-            rho ^= &payload.data.rho;
+            rho_combined ^= &payload.rho;
         }
 
-        let others_data = payloads.map_values(|payload| payload.data);
+        let cap_xs = payloads.map_values_ref(|payload| payload.cap_x);
+        let cap_as = payloads.map_values_ref(|payload| payload.cap_a.clone());
 
         Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round3 {
             context: self.context,
-            others_data,
-            rho,
-            phantom: PhantomData,
+            cap_xs,
+            cap_as,
+            rho_combined,
         })))
     }
 }
 
 #[derive(Debug)]
-pub(super) struct Round3<P: SchemeParams, I> {
-    pub(super) context: Context<P, I>,
-    pub(super) others_data: BTreeMap<I, PublicData<P>>,
-    pub(super) rho: BitVec,
-    pub(super) phantom: PhantomData<P>,
+pub(super) struct Round3<P: SchemeParams, Id> {
+    pub(super) context: Context<P, Id>,
+    pub(super) cap_xs: BTreeMap<Id, Point>,
+    pub(super) cap_as: BTreeMap<Id, SchCommitment>,
+    pub(super) rho_combined: BitVec,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(super) struct Round3Broadcast {
+pub(super) struct Round3NormalBroadcast {
     pub(super) psi: SchProof,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
-    type Protocol = KeyInitProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
+    type Protocol = KeyInitProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
         3.into()
@@ -481,11 +542,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         true
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -494,7 +555,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         _rng: &mut impl CryptoRngCore,
         serializer: &Serializer,
     ) -> Result<NormalBroadcast, LocalError> {
-        let aux = (&self.context.sid_hash, &self.context.my_id, &self.rho);
+        let aux = (&self.context.sid, &self.context.my_id, &self.rho_combined);
         let psi = SchProof::new(
             &self.context.tau,
             &self.context.x,
@@ -502,23 +563,26 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             &self.context.public_data.cap_x,
             &aux,
         );
-        NormalBroadcast::new(serializer, Round3Broadcast { psi })
+        NormalBroadcast::new(serializer, Round3NormalBroadcast { psi })
     }
 
     fn receive_message(
         &self,
         deserializer: &Deserializer,
-        from: &I,
+        from: &Id,
         message: ProtocolMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.echo_broadcast.assert_is_none()?;
         message.direct_message.assert_is_none()?;
-        let bc = message.normal_broadcast.deserialize::<Round3Broadcast>(deserializer)?;
+        let normal_broadcast = message
+            .normal_broadcast
+            .deserialize::<Round3NormalBroadcast>(deserializer)?;
 
-        let data = self.others_data.safe_get("other nodes' public data", from)?;
+        let cap_a = self.cap_as.safe_get("`A` map", from)?;
+        let cap_x = self.cap_xs.safe_get("`X` map", from)?;
 
-        let aux = (&self.context.sid_hash, from, &self.rho);
-        if !bc.psi.verify(&data.cap_a, &data.cap_x, &aux) {
+        let aux = (&self.context.sid, from, &self.rho_combined);
+        if !normal_broadcast.psi.verify(cap_a, cap_x, &aux) {
             return Err(ReceiveError::protocol(KeyInitError::new(
                 KeyInitErrorEnum::R3InvalidSchProof,
             )));
@@ -529,17 +593,17 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        _payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        _payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         let my_id = self.context.my_id.clone();
-        let mut public_shares = self.others_data.map_values(|data| data.cap_x);
+        let mut public_shares = self.cap_xs;
         public_shares.insert(my_id.clone(), self.context.public_data.cap_x);
 
         // This can fail if the shares add up to zero.
         // Can't really protect from it, and it should be extremely rare.
         // If that happens one can only restart the whole thing.
-        let key_share = KeyShare::<P, I>::new(my_id, self.context.x, public_shares)?;
+        let key_share = KeyShare::<P, Id>::new(my_id, self.context.x, public_shares)?;
 
         Ok(FinalizeOutcome::Result(key_share))
     }

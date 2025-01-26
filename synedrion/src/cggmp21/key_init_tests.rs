@@ -3,16 +3,13 @@ use alloc::collections::BTreeSet;
 use manul::{
     combinators::misbehave::Misbehaving,
     dev::{BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-    protocol::{
-        BoxedRound, Deserializer, EchoBroadcast, EntryPoint, LocalError, NormalBroadcast, ProtocolMessagePart,
-        Serializer,
-    },
+    protocol::{BoxedRound, Deserializer, EntryPoint, LocalError, NormalBroadcast, ProtocolMessagePart, Serializer},
     signature::Keypair,
 };
 use rand_core::{CryptoRngCore, OsRng};
 
 use super::{
-    key_init::{KeyInit, Round2EchoBroadcast, Round3, Round3Broadcast},
+    key_init::{KeyInit, KeyInitAssociatedData, Round2NormalBroadcast, Round3, Round3NormalBroadcast},
     params::TestParams,
     sigma::SchProof,
 };
@@ -29,108 +26,120 @@ type Id = TestVerifier;
 type P = TestParams;
 type SP = TestSessionParams<BinaryFormat>;
 
-fn make_entry_points() -> Vec<(TestSigner, KeyInit<P, Id>)> {
+#[allow(clippy::type_complexity)]
+fn make_entry_points() -> (KeyInitAssociatedData<Id>, Vec<(TestSigner, KeyInit<P, Id>)>) {
     let signers = (0..3).map(TestSigner::new).collect::<Vec<_>>();
     let all_ids = signers
         .iter()
         .map(|signer| signer.verifying_key())
         .collect::<BTreeSet<_>>();
 
-    signers
+    let entry_points = signers
         .into_iter()
         .map(|signer| (signer, KeyInit::new(all_ids.clone()).unwrap()))
-        .collect()
+        .collect();
+
+    (KeyInitAssociatedData { ids: all_ids }, entry_points)
 }
 
 fn check_evidence<M>(expected_description: &str) -> Result<(), LocalError>
 where
     M: Misbehaving<Id, (), EntryPoint = KeyInit<P, Id>>,
 {
-    check_evidence_with_behavior::<SP, M, _>(&mut OsRng, make_entry_points().clone(), &(), &(), expected_description)
+    let (associated_data, entry_points) = make_entry_points();
+    check_evidence_with_behavior::<SP, M, _>(
+        &mut OsRng,
+        entry_points.clone(),
+        &(),
+        &associated_data,
+        expected_description,
+    )
 }
 
 #[test]
 fn invalid_messages() {
+    let (associated_data, entry_points) = make_entry_points();
+
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         1,
         CheckPart::EchoBroadcast,
-        &(),
+        &associated_data,
         true,
     )
     .unwrap();
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         2,
         CheckPart::EchoBroadcast,
-        &(),
+        &associated_data,
         true,
     )
     .unwrap();
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         3,
         CheckPart::EchoBroadcast,
-        &(),
+        &associated_data,
         false,
     )
     .unwrap();
 
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         1,
         CheckPart::NormalBroadcast,
-        &(),
+        &associated_data,
         false,
     )
     .unwrap();
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         2,
         CheckPart::NormalBroadcast,
-        &(),
-        false,
+        &associated_data,
+        true,
     )
     .unwrap();
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         3,
         CheckPart::NormalBroadcast,
-        &(),
+        &associated_data,
         true,
     )
     .unwrap();
 
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         1,
         CheckPart::DirectMessage,
-        &(),
+        &associated_data,
         false,
     )
     .unwrap();
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         2,
         CheckPart::DirectMessage,
-        &(),
+        &associated_data,
         false,
     )
     .unwrap();
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
-        make_entry_points().clone(),
+        entry_points.clone(),
         3,
         CheckPart::DirectMessage,
-        &(),
+        &associated_data,
         false,
     )
     .unwrap();
@@ -143,28 +152,26 @@ fn r2_hash_mismatch() {
     impl Misbehaving<Id, ()> for Override {
         type EntryPoint = KeyInit<P, Id>;
 
-        fn modify_echo_broadcast(
+        fn modify_normal_broadcast(
             rng: &mut impl CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
             serializer: &Serializer,
             deserializer: &Deserializer,
-            echo_broadcast: EchoBroadcast,
-        ) -> Result<EchoBroadcast, LocalError> {
+            normal_broadcast: NormalBroadcast,
+        ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
-                let orig_message = echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P>>(deserializer)
+                let mut message = normal_broadcast
+                    .deserialize::<Round2NormalBroadcast>(deserializer)
                     .unwrap();
-                let mut data = orig_message.data;
 
                 // Replace `u` with something other than we committed to when hashing it in Round 1.
-                data.u = BitVec::random(rng, data.u.bits().len());
+                message.u = BitVec::random(rng, message.u.bits().len());
 
-                let message = Round2EchoBroadcast { data };
-                return EchoBroadcast::new(serializer, message);
+                return NormalBroadcast::new(serializer, message);
             }
 
-            Ok(echo_broadcast)
+            Ok(normal_broadcast)
         }
     }
 
@@ -189,7 +196,7 @@ fn r3_invalid_sch_proof() {
             if round.id() == 3 {
                 let round3 = round.downcast_ref::<Round3<P, Id>>()?;
                 let context = &round3.context;
-                let aux = (&context.sid_hash, &context.my_id, &round3.rho);
+                let aux = (&context.sid, &context.my_id, &round3.rho_combined);
 
                 // Make a proof for a random secret. This won't pass verification.
                 let x = Secret::init_with(|| Scalar::random(rng));
@@ -201,7 +208,7 @@ fn r3_invalid_sch_proof() {
                     &aux,
                 );
 
-                let message = Round3Broadcast { psi };
+                let message = Round3NormalBroadcast { psi };
                 return NormalBroadcast::new(serializer, message);
             }
 
