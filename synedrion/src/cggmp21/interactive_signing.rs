@@ -30,7 +30,10 @@ use crate::{
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
     tools::{
         hashing::{Chain, FofHasher, HashOutput},
-        protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
+        protocol_shortcuts::{
+            sum_non_empty, sum_non_empty_ref, verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet,
+            Without,
+        },
         Secret,
     },
     uint::SecretSigned,
@@ -41,9 +44,9 @@ pub type PrehashedMessage = [u8; 32];
 
 #[derive(Debug, Clone)]
 struct PresigningData<Id> {
-    cap_gamma: Point,
-    tilde_k: Scalar,                       // $k / \delta$
-    tilde_chi: Scalar,                     // $chi / \delta$
+    cap_gamma_combined: Point,             // $\Gamma$
+    tilde_k: Secret<Scalar>,               // $k / \delta$
+    tilde_chi: Secret<Scalar>,             // $chi / \delta$
     tilde_cap_deltas: BTreeMap<Id, Point>, // $\Delta_j^{\delta^{-1}}$ for all $j$
     tilde_cap_ss: BTreeMap<Id, Point>,     // $S_j^{\delta^{-1}}$ for all $j$
 }
@@ -180,13 +183,11 @@ fn make_epid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &InteractiveSigningAssociatedData<P, Id>,
 ) -> HashOutput {
-    // TODO: hash in `rid`? Need to save it during KeyInit
     FofHasher::new_with_dst(b"InteractiveSigning EPID")
         .chain_type::<P>()
         .chain(&shared_randomness)
         .chain(&associated_data.shares)
         .chain(&associated_data.aux)
-        // TODO: hash in the message too?
         .finalize()
 }
 
@@ -201,7 +202,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
             Error::R1EncElg1Failed => {
                 RequiredMessages::new(RequiredMessageParts::echo_broadcast().and_direct_message(), None, None)
             }
-            Error::R2WrongIdsD => RequiredMessages::new(RequiredMessageParts::echo_broadcast(), None, None),
+            Error::R2WrongIdsD => RequiredMessages::new(RequiredMessageParts::normal_broadcast(), None, None),
             Error::R2WrongIdsF => RequiredMessages::new(RequiredMessageParts::echo_broadcast(), None, None),
             Error::R2WrongIdsPsi => RequiredMessages::new(RequiredMessageParts::normal_broadcast(), None, None),
             Error::R2AffGPsiFailed { .. } => RequiredMessages::new(
@@ -246,7 +247,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 Some(
                     [
                         (1.into(), RequiredMessageParts::echo_broadcast()),
-                        (2.into(), RequiredMessageParts::echo_broadcast()),
+                        (2.into(), RequiredMessageParts::echo_broadcast().and_normal_broadcast()),
                         (3.into(), RequiredMessageParts::normal_broadcast()),
                     ]
                     .into(),
@@ -256,7 +257,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
             Error::R5WrongIdsPsi => RequiredMessages::new(RequiredMessageParts::normal_broadcast(), None, None),
             Error::R5AffGStarFailed { .. } => RequiredMessages::new(
                 RequiredMessageParts::normal_broadcast(),
-                Some([(2.into(), RequiredMessageParts::echo_broadcast())].into()),
+                Some([(2.into(), RequiredMessageParts::echo_broadcast().and_normal_broadcast())].into()),
                 Some([1.into(), 2.into()].into()),
             ),
             Error::R6DecFailed => RequiredMessages::new(
@@ -264,7 +265,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 Some(
                     [
                         (1.into(), RequiredMessageParts::echo_broadcast()),
-                        (2.into(), RequiredMessageParts::echo_broadcast()),
+                        (2.into(), RequiredMessageParts::echo_broadcast().and_normal_broadcast()),
                         (3.into(), RequiredMessageParts::normal_broadcast()),
                     ]
                     .into(),
@@ -346,16 +347,16 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 ))
             }
             Error::R2WrongIdsD => {
-                let r2_eb = message
-                    .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
                 let expected_ids = associated_data
                     .aux
                     .as_ref()
                     .keys()
                     .collect::<BTreeSet<_>>()
                     .without(&guilty_party);
-                verify_that(r2_eb.cap_ds.keys().collect::<BTreeSet<_>>() != expected_ids)
+                verify_that(r2_nb.cap_ds.keys().collect::<BTreeSet<_>>() != expected_ids)
             }
             Error::R2WrongIdsF => {
                 let r2_eb = message
@@ -403,7 +404,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 let from_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
 
                 let cap_k = r1_eb.cap_k.to_precomputed(&for_pk);
-                let cap_d = r2_eb.cap_ds.safe_get("`D` map", failed_for)?.to_precomputed(&for_pk);
+                let cap_d = r2_nb.cap_ds.safe_get("`D` map", failed_for)?.to_precomputed(&for_pk);
                 let cap_f = r2_eb.cap_fs.safe_get("`F` map", failed_for)?.to_precomputed(&from_pk);
 
                 let psi = r2_nb.psis.try_get("`psi` map", failed_for)?;
@@ -444,7 +445,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 let from_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
 
                 let cap_k = r1_eb.cap_k.to_precomputed(&for_pk);
-                let hat_cap_d = r2_eb
+                let hat_cap_d = r2_nb
                     .hat_cap_ds
                     .safe_get("`\\hat{D}` map", failed_for)?
                     .to_precomputed(&for_pk);
@@ -558,6 +559,10 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 let r2_ebs = combined_echos
                     .get_round(2)?
                     .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = previous_messages
+                    .get_round(2)?
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
@@ -575,7 +580,6 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 //
                 // r2_eb: contains D_{l,j}, F_{l,j} for l != j
                 // => D_{l,j} = r2_eb.cap_ds[l]
-                // TODO: seems like we don't need to echo D?
                 // r2_ebs[i], i != j: contains D_{l,i}, F_{l,i} for l != i
                 // => F_{j,l} = r2_ebs[l].cap_fs[j]
 
@@ -584,32 +588,27 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 let rp = public_aux.rp_params.to_precomputed();
                 let aux = (&epid, guilty_party);
 
-                let mut ids = associated_data
+                let ids = associated_data
                     .aux
                     .as_ref()
                     .keys()
                     .collect::<BTreeSet<_>>()
                     .without(&guilty_party);
-                let first_id = ids
-                    .pop_first()
-                    .ok_or_else(|| LocalError::new("There must be at least two parties"))?;
 
-                let cap_d_lj = r2_eb.cap_ds.try_get("`D` map", first_id)?.to_precomputed(&pk);
-                let cap_f_jl = r2_ebs
-                    .try_get("Round 2 echo broadcasts", first_id)?
-                    .cap_fs
-                    .try_get("`F` map", guilty_party)?
-                    .to_precomputed(&pk);
-                let mut cap_d = cap_d_lj + cap_f_jl;
-                for id in ids {
-                    cap_d = cap_d
-                        + r2_eb.cap_ds.try_get("`D` map", id)?.to_precomputed(&pk)
-                        + r2_ebs
+                let cap_d = sum_non_empty(
+                    ids.iter()
+                        .map(|id| Ok(r2_nb.cap_ds.try_get("`D` map", &id)?.to_precomputed(&pk))),
+                    ProtocolValidationError::InvalidEvidence("There must be at least two parties".into()),
+                )? + sum_non_empty(
+                    ids.iter().map(|id| {
+                        Ok(r2_ebs
                             .try_get("Round 2 echo broadcasts", id)?
                             .cap_fs
                             .try_get("`F` map", guilty_party)?
-                            .to_precomputed(&pk);
-                }
+                            .to_precomputed(&pk))
+                    }),
+                    ProtocolValidationError::InvalidEvidence("There must be at least two parties".into()),
+                )?;
 
                 let cap_k = r1_eb.cap_k.to_precomputed(&pk);
 
@@ -645,6 +644,10 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 let r2_ebs = combined_echos
                     .get_round(2)?
                     .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = previous_messages
+                    .get_round(2)?
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
@@ -665,7 +668,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 // j = guilty_party
                 // i = reported_by
 
-                let cap_d = r2_eb
+                let cap_d = r2_nb
                     .cap_ds
                     .try_get("`D` map", failed_for)?
                     .to_precomputed(&failed_for_pk);
@@ -701,6 +704,10 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 let r2_ebs = combined_echos
                     .get_round(2)?
                     .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = previous_messages
+                    .get_round(2)?
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
@@ -718,7 +725,6 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 //
                 // r2_eb: contains \hat{D}_{l,j}, \hat{F}_{l,j} for l != j
                 // => \hat{D}_{l,j} = r2_eb.hat_cap_ds[l]
-                // TODO: seems like we don't need to echo \hat{D}?
                 // r2_ebs[i], i != j: contains \hat{D}_{l,i}, \hat{F}_{l,i} for l != i
                 // => \hat{F}_{j,l} = r2_ebs[l].hat_cap_fs[j]
 
@@ -727,35 +733,27 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                 let rp = public_aux.rp_params.to_precomputed();
                 let aux = (&epid, guilty_party);
 
-                let mut ids = associated_data
+                let ids = associated_data
                     .aux
                     .as_ref()
                     .keys()
                     .collect::<BTreeSet<_>>()
                     .without(&guilty_party);
-                let first_id = ids
-                    .pop_first()
-                    .ok_or_else(|| LocalError::new("There must be at least two parties"))?;
 
-                let hat_cap_d_lj = r2_eb
-                    .hat_cap_ds
-                    .try_get("`\\hat{D}` map", first_id)?
-                    .to_precomputed(&pk);
-                let hat_cap_f_jl = r2_ebs
-                    .try_get("Round 2 echo broadcasts", first_id)?
-                    .hat_cap_fs
-                    .try_get("`\\hat{F}` map", guilty_party)?
-                    .to_precomputed(&pk);
-                let mut hat_cap_d = hat_cap_d_lj + hat_cap_f_jl;
-                for id in ids {
-                    hat_cap_d = hat_cap_d
-                        + r2_eb.hat_cap_ds.try_get("`\\hat{D}` map", id)?.to_precomputed(&pk)
-                        + r2_ebs
+                let hat_cap_d = sum_non_empty(
+                    ids.iter()
+                        .map(|id| Ok(r2_nb.hat_cap_ds.try_get("`\\hat{D}` map", &id)?.to_precomputed(&pk))),
+                    ProtocolValidationError::InvalidEvidence("There must be at least two parties".into()),
+                )? + sum_non_empty(
+                    ids.iter().map(|id| {
+                        Ok(r2_ebs
                             .try_get("Round 2 echo broadcasts", id)?
                             .hat_cap_fs
                             .try_get("`\\hat{F}` map", guilty_party)?
-                            .to_precomputed(&pk);
-                }
+                            .to_precomputed(&pk))
+                    }),
+                    ProtocolValidationError::InvalidEvidence("There must be at least two parties".into()),
+                )?;
 
                 let cap_k = r1_eb.cap_k.to_precomputed(&pk);
 
@@ -792,7 +790,7 @@ pub struct InteractiveSigning<P: SchemeParams, Id: Ord> {
 impl<P: SchemeParams, Id: PartyId> InteractiveSigning<P, Id> {
     /// Creates a new entry point given a share of the secret key.
     pub fn new(message: PrehashedMessage, key_share: KeyShare<P, Id>, aux_info: AuxInfo<P, Id>) -> Self {
-        // TODO: check that both are consistent
+        // TODO (#68): check that KeyShare is consistent with AuxInfo
         Self {
             key_share,
             aux_info,
@@ -836,8 +834,6 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
         );
 
         let aux_info = aux_info.into_precomputed();
-
-        // TODO (#68): check that KeyShare is consistent with AuxInfo
 
         // The share of an ephemeral scalar
         let k = Secret::init_with(|| Scalar::random(rng));
@@ -1332,6 +1328,8 @@ pub(super) struct Round2<P: SchemeParams, Id: Ord> {
     AffGProof<P>: for<'x> Deserialize<'x>,
 "))]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
+    pub(super) cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
     pub(super) psi_elog: ElogProof<P>,
     pub(super) psis: BTreeMap<Id, AffGProof<P>>,
     pub(super) hat_psis: BTreeMap<Id, AffGProof<P>>,
@@ -1346,9 +1344,7 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
 "))]
 pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) cap_gamma: Point,
-    pub(super) cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
     pub(super) cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
-    pub(super) hat_cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
     pub(super) hat_cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
 }
 
@@ -1389,6 +1385,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
         NormalBroadcast::new(
             serializer,
             Round2NormalBroadcast::<P, Id> {
+                cap_ds: self.cap_ds.map_values_ref(|cap_d| cap_d.to_wire()),
+                hat_cap_ds: self.hat_cap_ds.map_values_ref(|hat_cap_d| hat_cap_d.to_wire()),
                 psi_elog: self.psi_elog.clone(),
                 psis: self.psis.clone(),
                 hat_psis: self.hat_psis.clone(),
@@ -1405,9 +1403,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             serializer,
             Round2EchoBroadcast::<P, Id> {
                 cap_gamma: self.cap_gamma,
-                cap_ds: self.cap_ds.map_values_ref(|cap_d| cap_d.to_wire()),
                 cap_fs: self.cap_fs.map_values_ref(|cap_f| cap_f.to_wire()),
-                hat_cap_ds: self.hat_cap_ds.map_values_ref(|hat_cap_d| hat_cap_d.to_wire()),
                 hat_cap_fs: self.hat_cap_fs.map_values_ref(|hat_cap_f| hat_cap_f.to_wire()),
             },
         )
@@ -1432,7 +1428,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 
         let expected_ids = self.context.all_ids.clone().without(from);
 
-        if echo_broadcast.cap_ds.keys().cloned().collect::<BTreeSet<_>>() != expected_ids {
+        if normal_broadcast.cap_ds.keys().cloned().collect::<BTreeSet<_>>() != expected_ids {
             return Err(ReceiveError::protocol(Error::R2WrongIdsD.into()));
         }
 
@@ -1452,7 +1448,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             let rp = &self.context.public_aux(id)?.rp_params;
             let for_pk = &self.context.public_aux(id)?.paillier_pk;
             let for_payload = self.r1_payloads.safe_get("Round 1 payloads", id)?;
-            let cap_d = echo_broadcast.cap_ds.safe_get("`D` map", id)?.to_precomputed(for_pk);
+            let cap_d = normal_broadcast.cap_ds.safe_get("`D` map", id)?.to_precomputed(for_pk);
             let cap_f = echo_broadcast.cap_fs.safe_get("`F` map", id)?.to_precomputed(from_pk);
 
             if !psi.verify(
@@ -1482,7 +1478,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             let rp = &self.context.public_aux(id)?.rp_params;
             let for_pk = &self.context.public_aux(id)?.paillier_pk;
             let for_payload = self.r1_payloads.safe_get("Round 1 payloads", id)?;
-            let hat_cap_d = echo_broadcast
+            let hat_cap_d = normal_broadcast
                 .hat_cap_ds
                 .safe_get("`D` map", id)?
                 .to_precomputed(for_pk);
@@ -1559,20 +1555,20 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
         let mut cap_gammas = payloads.map_values_ref(|payload| payload.cap_gamma);
         cap_gammas.insert(self.context.my_id.clone(), self.cap_gamma);
 
-        let cap_gamma = cap_gammas.values().sum();
-        let cap_delta = cap_gamma * &self.context.k;
+        let cap_gamma_combined = cap_gammas.values().sum();
+        let cap_delta = cap_gamma_combined * &self.context.k;
 
         let x = self.context.key_share.secret_share();
 
         let alpha_sum: Secret<Scalar> = payloads.values().map(|payload| &payload.alpha).sum();
         let beta_sum: Secret<Scalar> = self.betas.values().map(secret_scalar_from_signed::<P>).sum();
-        let delta = &self.context.gamma * &self.context.k + alpha_sum + beta_sum;
+        let delta = *(&self.context.gamma * &self.context.k + alpha_sum + beta_sum).expose_secret();
 
         let hat_alpha_sum: Secret<Scalar> = payloads.values().map(|payload| &payload.hat_alpha).sum();
         let hat_beta_sum: Secret<Scalar> = self.hat_betas.values().map(secret_scalar_from_signed::<P>).sum();
         let chi = x * &self.context.k + hat_alpha_sum + hat_beta_sum;
 
-        let cap_s = cap_gamma * &chi;
+        let cap_s = cap_gamma_combined * &chi;
 
         let aux = (&self.context.epid, &self.context.my_id);
         let my_r1_payload = self.r1_payloads.safe_get("Round 1 payloads", &self.context.my_id)?;
@@ -1588,14 +1584,12 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
                 cap_m: &my_r1_payload.cap_a2,
                 cap_x: &my_r1_payload.cap_y,
                 cap_y: &cap_delta,
-                h: &cap_gamma,
+                h: &cap_gamma_combined,
             },
             &aux,
         );
 
-        let r3_echo_broadcast = Round3EchoBroadcast {
-            delta: *delta.expose_secret(),
-        };
+        let r3_echo_broadcast = Round3EchoBroadcast { delta };
 
         let r3_normal_broadcast = Round3NormalBroadcast {
             cap_delta,
@@ -1654,8 +1648,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
         Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round3 {
             context: self.context,
             cap_k: self.cap_k,
-            cap_gamma,
-            chi: *chi.expose_secret(),
+            cap_gamma_combined,
+            chi,
             r1_payloads: self.r1_payloads,
             cap_gammas,
             cap_ds,
@@ -1678,8 +1672,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 pub(super) struct Round3<P: SchemeParams, Id: Ord> {
     pub(super) context: Context<P, Id>,
     pub(super) cap_k: Ciphertext<P::Paillier>,
-    pub(super) cap_gamma: Point,
-    pub(super) chi: Scalar,
+    pub(super) cap_gamma_combined: Point,
+    pub(super) chi: Secret<Scalar>,
     pub(super) r1_payloads: BTreeMap<Id, Round1Payload<P>>,
     pub(super) cap_gammas: BTreeMap<Id, Point>,
     pub(super) cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $D_{i,j}$ for all $i, j$ where $i != j$.
@@ -1774,7 +1768,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
                 cap_m: &r1_payload.cap_a2,
                 cap_x: &r1_payload.cap_y,
                 cap_y: &normal_broadcast.cap_delta,
-                h: &self.cap_gamma,
+                h: &self.cap_gamma_combined,
             },
             &aux,
         ) {
@@ -1804,13 +1798,13 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 
         let deltas = payloads.map_values_ref(|payload| payload.delta);
 
-        let delta = deltas.values().sum::<Scalar>();
+        let delta_combined = deltas.values().sum::<Scalar>();
         let cap_delta = payloads.values().map(|payload| payload.cap_delta).sum();
 
         let cap_s = payloads.values().map(|payload| payload.cap_s).sum::<Point>();
         let cap_x = self.context.key_share.verifying_key_as_point();
 
-        if delta.mul_by_generator() != cap_delta {
+        if delta_combined.mul_by_generator() != cap_delta {
             let mut cap_ks = self.r1_payloads.map_values_ref(|payload| payload.cap_k.clone());
             cap_ks.insert(self.context.my_id.clone(), self.cap_k);
 
@@ -1827,7 +1821,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
             })));
         }
 
-        if cap_s != cap_x * delta {
+        if cap_s != cap_x * delta_combined {
             let mut cap_ks = self.r1_payloads.map_values_ref(|payload| payload.cap_k.clone());
             cap_ks.insert(self.context.my_id.clone(), self.cap_k);
 
@@ -1835,7 +1829,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 
             return Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round6 {
                 context: self.context,
-                cap_gamma: self.cap_gamma,
+                cap_gamma_combined: self.cap_gamma_combined,
                 hat_betas: self.hat_betas,
                 hat_ss: self.hat_ss,
                 hat_rs: self.hat_rs,
@@ -1848,20 +1842,20 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 
         // Intentionally making delta = 0 would require coordination from all the participants,
         // so it is very unlikely to happen.
-        let delta_inv = Option::<Scalar>::from(delta.invert())
+        let delta_combined_inv = Option::<Scalar>::from(delta_combined.invert())
             .ok_or_else(|| LocalError::new("The combined delta is not invertible"))?;
 
-        // TODO: this whole thing is probably supposed to be secret?
         let presigning_data = PresigningData {
-            cap_gamma: self.cap_gamma,
-            tilde_k: *self.context.k.expose_secret() * delta_inv,
-            tilde_chi: self.chi * delta_inv,
-            tilde_cap_deltas: payloads.map_values_ref(|payload| payload.cap_delta * delta_inv),
-            tilde_cap_ss: payloads.map_values_ref(|payload| payload.cap_s * delta_inv),
+            cap_gamma_combined: self.cap_gamma_combined,
+            tilde_k: &self.context.k * delta_combined_inv,
+            tilde_chi: self.chi * delta_combined_inv,
+            tilde_cap_deltas: payloads.map_values_ref(|payload| payload.cap_delta * delta_combined_inv),
+            tilde_cap_ss: payloads.map_values_ref(|payload| payload.cap_s * delta_combined_inv),
         };
 
-        let nonce = presigning_data.cap_gamma.x_coordinate();
-        let sigma = presigning_data.tilde_k * self.context.scalar_message + nonce * presigning_data.tilde_chi;
+        let nonce = presigning_data.cap_gamma_combined.x_coordinate();
+        let sigma = *(&presigning_data.tilde_k * self.context.scalar_message + &presigning_data.tilde_chi * nonce)
+            .expose_secret();
 
         Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round4 {
             context: self.context,
@@ -1930,13 +1924,13 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
             .normal_broadcast
             .deserialize::<Round4NormalBroadcast>(deserializer)?;
 
-        let nonce = self.presigning_data.cap_gamma.x_coordinate();
+        let nonce = self.presigning_data.cap_gamma_combined.x_coordinate();
         let tilde_cap_delta = self
             .presigning_data
             .tilde_cap_deltas
             .safe_get("`\\tilde{Delta}` map", from)?;
         let tilde_cap_s = self.presigning_data.tilde_cap_ss.safe_get("`\\tilde{S}` map", from)?;
-        if self.presigning_data.cap_gamma * normal_broadcast.sigma
+        if self.presigning_data.cap_gamma_combined * normal_broadcast.sigma
             != tilde_cap_delta * self.context.scalar_message + tilde_cap_s * nonce
         {
             return Err(ReceiveError::protocol(Error::R4InvalidSignatureShare.into()));
@@ -1958,7 +1952,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
         let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar>() + self.sigma;
 
         let signature = RecoverableSignature::from_scalars(
-            &self.presigning_data.cap_gamma.x_coordinate(),
+            &self.presigning_data.cap_gamma_combined.x_coordinate(),
             &assembled_sigma,
             &self.context.key_share.verifying_key_as_point(),
             &self.context.scalar_message,
@@ -2028,17 +2022,17 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
         let rp = &self.context.public_aux(&self.context.my_id)?.rp_params;
 
-        let mut ids = self.context.other_ids.clone();
-        let first_id = ids
-            .pop_first()
-            .ok_or_else(|| LocalError::new("There must be at least two parties"))?;
-        let mut cap_d = self.cap_ds.safe_get("`D` map", &(my_id.clone(), first_id.clone()))?
-            + self.cap_fs.safe_get("`F` map", &(first_id.clone(), my_id.clone()))?;
-        for id in ids {
-            cap_d = cap_d
-                + self.cap_ds.safe_get("`D` map", &(my_id.clone(), id.clone()))?
-                + self.cap_fs.safe_get("`F` map", &(id.clone(), my_id.clone()))?;
-        }
+        let ids = self.context.other_ids.clone();
+
+        let cap_d = sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.cap_ds.safe_get("`D` map", &(my_id.clone(), id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )? + sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.cap_fs.safe_get("`F` map", &(id.clone(), my_id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )?;
 
         let cap_k = self.cap_ks.safe_get("`K` map", &self.context.my_id)?;
 
@@ -2119,17 +2113,17 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
         let sender_pk = &self.context.public_aux(from)?.paillier_pk;
         let sender_rp = &self.context.public_aux(from)?.rp_params;
 
-        let mut ids = self.context.all_ids.clone().without(from);
-        let first_id = ids
-            .pop_first()
-            .ok_or_else(|| LocalError::new("There must be at least two parties"))?;
-        let mut cap_d = self.cap_ds.safe_get("`D` map", &(from.clone(), first_id.clone()))?
-            + self.cap_fs.safe_get("`F` map", &(first_id.clone(), from.clone()))?;
-        for id in ids {
-            cap_d = cap_d
-                + self.cap_ds.safe_get("`D` map", &(from.clone(), id.clone()))?
-                + self.cap_fs.safe_get("`F` map", &(id.clone(), from.clone()))?;
-        }
+        let ids = self.context.all_ids.clone().without(from);
+
+        let cap_d = sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.cap_ds.safe_get("`D` map", &(from.clone(), id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )? + sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.cap_fs.safe_get("`F` map", &(id.clone(), from.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )?;
 
         if !normal_broadcast.psi_star.verify(
             DecPublicInputs {
@@ -2192,7 +2186,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
 #[derive(Debug)]
 pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
     pub(super) context: Context<P, Id>,
-    pub(super) cap_gamma: Point,
+    pub(super) cap_gamma_combined: Point,
     pub(super) hat_betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
     pub(super) hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
     pub(super) hat_rs: BTreeMap<Id, Randomizer<P::Paillier>>,
@@ -2245,25 +2239,17 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
         let rp = &self.context.public_aux(&self.context.my_id)?.rp_params;
 
-        let mut ids = self.context.other_ids.clone();
-        let first_id = ids
-            .pop_first()
-            .ok_or_else(|| LocalError::new("There must be at least two parties"))?;
-        let mut hat_cap_d = self
-            .hat_cap_ds
-            .safe_get("`\\hat{D}` map", &(my_id.clone(), first_id.clone()))?
-            + self
-                .hat_cap_fs
-                .safe_get("`\\hat{F}` map", &(first_id.clone(), my_id.clone()))?;
-        for id in ids {
-            hat_cap_d = hat_cap_d
-                + self
-                    .hat_cap_ds
-                    .safe_get("`\\hat{D}` map", &(my_id.clone(), id.clone()))?
-                + self
-                    .hat_cap_fs
-                    .safe_get("`\\hat{F}` map", &(id.clone(), my_id.clone()))?;
-        }
+        let ids = self.context.other_ids.clone();
+
+        let hat_cap_d = sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.hat_cap_ds.safe_get("`\\hat{D}` map", &(my_id.clone(), id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )? + sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.hat_cap_fs.safe_get("`\\hat{F}` map", &(id.clone(), my_id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )?;
 
         let cap_k = self.cap_ks.safe_get("`K` map", &self.context.my_id)?;
 
@@ -2292,7 +2278,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
                 cap_x: cap_xs.safe_get("`X` map", &self.context.my_id)?,
                 cap_d: &hat_cap_d,
                 cap_s: self.cap_ss.safe_get("`S` map", &self.context.my_id)?,
-                cap_g: &self.cap_gamma,
+                cap_g: &self.cap_gamma_combined,
             },
             rp,
             &aux,
@@ -2363,25 +2349,17 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
         let sender_pk = &self.context.public_aux(from)?.paillier_pk;
         let sender_rp = &self.context.public_aux(from)?.rp_params;
 
-        let mut ids = self.context.all_ids.clone().without(from);
-        let first_id = ids
-            .pop_first()
-            .ok_or_else(|| LocalError::new("There must be at least two parties"))?;
-        let mut hat_cap_d = self
-            .hat_cap_ds
-            .safe_get("`\\hat{D}` map", &(from.clone(), first_id.clone()))?
-            + self
-                .hat_cap_fs
-                .safe_get("`\\hat{F}` map", &(first_id.clone(), from.clone()))?;
-        for id in ids {
-            hat_cap_d = hat_cap_d
-                + self
-                    .hat_cap_ds
-                    .safe_get("`\\hat{D}` map", &(from.clone(), id.clone()))?
-                + self
-                    .hat_cap_fs
-                    .safe_get("`\\hat{F}` map", &(id.clone(), from.clone()))?;
-        }
+        let ids = self.context.all_ids.clone().without(from);
+
+        let hat_cap_d = sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.hat_cap_ds.safe_get("`\\hat{D}` map", &(from.clone(), id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )? + sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.hat_cap_fs.safe_get("`\\hat{F}` map", &(id.clone(), from.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )?;
 
         let cap_xs = self.context.key_share.public_shares().clone();
 
@@ -2392,7 +2370,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
                 cap_x: cap_xs.safe_get("`X` map", from)?,
                 cap_d: &hat_cap_d,
                 cap_s: self.cap_ss.safe_get("`S` map", from)?,
-                cap_g: &self.cap_gamma,
+                cap_g: &self.cap_gamma_combined,
             },
             sender_rp,
             &aux,

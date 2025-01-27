@@ -170,11 +170,11 @@ fn reconstruct_rid<P: SchemeParams, Id: PartyId>(
         .get_round(2)?
         .echo_broadcast
         .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
-    let mut rid = r2_eb.rid_part;
+    let mut rid_combined = r2_eb.rid;
     for message in r2_ebs.values() {
-        rid ^= &message.rid_part;
+        rid_combined ^= &message.rid;
     }
-    Ok(rid)
+    Ok(rid_combined)
 }
 
 /// Associated data for KeyRefresh protocol.
@@ -286,7 +286,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                     paillier_pk: r2_nb.paillier_pk.into_precomputed(),
                     rp_params: r2_eb.rp_params.to_precomputed(),
                     psi: r2_nb.psi,
-                    rid_part: r2_eb.rid_part,
+                    rid: r2_eb.rid,
                     u: r2_nb.u,
                 };
                 verify_that(data.hash(&sid, guilty_party) != r1_eb.cap_v)
@@ -451,7 +451,7 @@ pub(super) struct PublicData<P: SchemeParams, Id> {
     pub(super) paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
     pub(super) rp_params: RPParams<P::Paillier>, // $\hat{N}_i$, $s_i$, and $t_i$
     pub(super) psi: PrmProof<P>,
-    rid_part: BitVec,
+    rid: BitVec,
     u: BitVec,
 }
 
@@ -466,7 +466,7 @@ impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
             .chain(&self.paillier_pk.clone().into_wire())
             .chain(&self.rp_params.to_wire())
             .chain(&self.psi)
-            .chain(&self.rid_part)
+            .chain(&self.rid)
             .chain(&self.u)
             .finalize()
     }
@@ -556,7 +556,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for KeyRefresh<P, Id> {
         // Schnorr commitments for share changes ($A_{i,j}$ where $i$ is this party's index)
         let cap_as = taus.map_values_ref(SchCommitment::new);
 
-        let rid_part = BitVec::random(rng, P::SECURITY_PARAMETER);
+        let rid = BitVec::random(rng, P::SECURITY_PARAMETER);
         let u = BitVec::random(rng, P::SECURITY_PARAMETER);
 
         // Note: typo in the paper, $V$ hashes in $B_i$ which is not present in the '24 version of the paper.
@@ -567,7 +567,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for KeyRefresh<P, Id> {
             paillier_pk: paillier_pk.into_precomputed(),
             rp_params: rp_params.clone(),
             psi,
-            rid_part,
+            rid,
             u,
         };
 
@@ -713,7 +713,7 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
 pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) rp_params: RPParamsWire<P::Paillier>, // $\hat{N}_i$, $s_i$, and $t_i$
     pub(super) cap_ys: BTreeMap<Id, Point>,          // $Y_{i,j}$ where $i$ is this party's index
-    rid_part: BitVec,
+    rid: BitVec,
 }
 
 #[derive(Debug)]
@@ -723,7 +723,7 @@ struct Round2Payload<P: SchemeParams, Id> {
     cap_ys: BTreeMap<Id, Point>,                 // $Y_{i,j}$ where $i$ is this party's index
     paillier_pk: PublicKeyPaillier<P::Paillier>, // $N_i$
     rp_params: RPParams<P::Paillier>,            // $\hat{N}_i$, $s_i$, and $t_i$
-    rid_part: BitVec,
+    rid: BitVec,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
@@ -767,7 +767,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
     ) -> Result<EchoBroadcast, LocalError> {
         let message = Round2EchoBroadcast::<P, Id> {
             cap_ys: self.public_data.cap_ys.clone(),
-            rid_part: self.public_data.rid_part.clone(),
+            rid: self.public_data.rid.clone(),
             rp_params: self.public_data.rp_params.to_wire(),
         };
         EchoBroadcast::new(serializer, message)
@@ -794,7 +794,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             paillier_pk: normal_broadcast.paillier_pk.into_precomputed(),
             rp_params: echo_broadcast.rp_params.to_precomputed(),
             psi: normal_broadcast.psi,
-            rid_part: echo_broadcast.rid_part,
+            rid: echo_broadcast.rid,
             u: normal_broadcast.u,
         };
 
@@ -855,7 +855,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             cap_ys: data.cap_ys,
             paillier_pk: data.paillier_pk,
             rp_params: data.rp_params,
-            rid_part: data.rid_part,
+            rid: data.rid,
         };
 
         Ok(Payload::new(payload))
@@ -869,9 +869,9 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         let mut payloads = payloads.downcast_all::<Round2Payload<P, Id>>()?;
 
-        let mut rid = self.public_data.rid_part.clone();
+        let mut rid_combined = self.public_data.rid.clone();
         for payload in payloads.values() {
-            rid ^= &payload.rid_part;
+            rid_combined ^= &payload.rid;
         }
 
         // Add in the payload with this node's info, for the sake of uniformity
@@ -881,7 +881,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             cap_ys: self.public_data.cap_ys,
             paillier_pk: self.public_data.paillier_pk,
             rp_params: self.public_data.rp_params,
-            rid_part: self.public_data.rid_part,
+            rid: self.public_data.rid,
         };
         payloads.insert(self.context.my_id.clone(), my_payload);
 
@@ -889,7 +889,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             rng,
             self.context,
             payloads,
-            rid,
+            rid_combined,
         )?)))
     }
 }
@@ -897,7 +897,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 #[derive(Debug)]
 struct Round3<P: SchemeParams, Id> {
     context: Context<P, Id>,
-    rid: BitVec,
+    rid_combined: BitVec,
     r2_payloads: BTreeMap<Id, Round2Payload<P, Id>>,
     psi_prime: ModProof<P>,
     hat_psis: BTreeMap<Id, SchProof>,
@@ -908,10 +908,10 @@ impl<P: SchemeParams, Id: PartyId> Round3<P, Id> {
         rng: &mut impl CryptoRngCore,
         context: Context<P, Id>,
         r2_payloads: BTreeMap<Id, Round2Payload<P, Id>>,
-        rid: BitVec,
+        rid_combined: BitVec,
     ) -> Result<Self, LocalError> {
         let my_id = &context.my_id;
-        let aux = (&context.sid, my_id, &rid);
+        let aux = (&context.sid, my_id, &rid_combined);
         let psi_prime = ModProof::new(rng, &context.paillier_sk, &aux);
 
         let my_r2_payload = r2_payloads.safe_get("Round 2 payloads", my_id)?;
@@ -929,7 +929,7 @@ impl<P: SchemeParams, Id: PartyId> Round3<P, Id> {
         Ok(Self {
             context,
             r2_payloads,
-            rid,
+            rid_combined,
             psi_prime,
             hat_psis,
         })
@@ -1026,7 +1026,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         destination: &Id,
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
         let my_id = &self.context.my_id;
-        let aux = (&self.context.sid, my_id, &self.rid);
+        let aux = (&self.context.sid, my_id, &self.rid_combined);
 
         let r2_payload = self.r2_payloads.safe_get("Round 2 payloads", destination)?;
 
@@ -1036,7 +1036,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         let y = self.context.ys.safe_get("Elgamal secrets", destination)?;
         let mut reader = XofHasher::new_with_dst(b"KeyRefresh Round3")
             .chain(&self.context.sid)
-            .chain(&self.rid)
+            .chain(&self.rid_combined)
             .chain(my_id)
             .chain(&(cap_y * y))
             .finalize_to_reader();
@@ -1072,7 +1072,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         let y = self.context.ys.safe_get("Elgamal secrets", from)?;
         let mut reader = XofHasher::new_with_dst(b"KeyRefresh Round3")
             .chain(&self.context.sid)
-            .chain(&self.rid)
+            .chain(&self.rid_combined)
             .chain(from)
             .chain(&(cap_y * y))
             .finalize_to_reader();
@@ -1089,7 +1089,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
             )));
         }
 
-        let aux = (&self.context.sid, from, &self.rid);
+        let aux = (&self.context.sid, from, &self.rid_combined);
         if !normal_broadcast.psi_prime.verify(&r2_payload.paillier_pk, &aux) {
             return Err(ReceiveError::protocol(KeyRefreshError::new(
                 KeyRefreshErrorEnum::R3ModFailed,

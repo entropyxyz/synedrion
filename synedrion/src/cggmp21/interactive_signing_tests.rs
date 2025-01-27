@@ -185,23 +185,23 @@ fn r2_wrong_ids_d() {
     impl Misbehaving<Id, ()> for Override {
         type EntryPoint = InteractiveSigning<P, Id>;
 
-        fn modify_echo_broadcast(
+        fn modify_normal_broadcast(
             _rng: &mut impl CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
             serializer: &Serializer,
             deserializer: &Deserializer,
-            echo_broadcast: EchoBroadcast,
-        ) -> Result<EchoBroadcast, LocalError> {
+            normal_broadcast: NormalBroadcast,
+        ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
-                let mut message = echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)
+                let mut message = normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
                     .unwrap();
                 message.cap_ds.pop_first();
-                return EchoBroadcast::new(serializer, message);
+                return NormalBroadcast::new(serializer, message);
             }
 
-            Ok(echo_broadcast)
+            Ok(normal_broadcast)
         }
     }
 
@@ -305,23 +305,23 @@ fn r2_aff_g_hat_psi_failed() {
     impl Misbehaving<Id, ()> for Override {
         type EntryPoint = InteractiveSigning<P, Id>;
 
-        fn modify_echo_broadcast(
+        fn modify_normal_broadcast(
             _rng: &mut impl CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
             serializer: &Serializer,
             deserializer: &Deserializer,
-            echo_broadcast: EchoBroadcast,
-        ) -> Result<EchoBroadcast, LocalError> {
+            normal_broadcast: NormalBroadcast,
+        ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
-                let mut message = echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)
+                let mut message = normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
                     .unwrap();
                 message.hat_cap_ds = message.cap_ds.clone();
-                return EchoBroadcast::new(serializer, message);
+                return NormalBroadcast::new(serializer, message);
             }
 
-            Ok(echo_broadcast)
+            Ok(normal_broadcast)
         }
     }
 
@@ -661,7 +661,7 @@ fn force_round6_on_malicious_node(
 
         let outcome = FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round6 {
             context: round3.context,
-            cap_gamma: round3.cap_gamma,
+            cap_gamma_combined: round3.cap_gamma_combined,
             hat_betas: round3.hat_betas,
             hat_ss: round3.hat_ss,
             hat_rs: round3.hat_rs,
