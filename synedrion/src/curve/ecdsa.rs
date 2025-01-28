@@ -1,5 +1,8 @@
 use k256::ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
 
+#[cfg(test)]
+use rand_core::CryptoRngCore;
+
 use super::arithmetic::{Point, Scalar};
 
 /// A wrapper for a signature and public key recovery info.
@@ -10,6 +13,13 @@ pub struct RecoverableSignature {
 }
 
 impl RecoverableSignature {
+    #[cfg(test)]
+    pub(crate) fn random(rng: &mut impl CryptoRngCore) -> Option<Self> {
+        let sk = k256::ecdsa::SigningKey::random(rng);
+        let (signature, recovery_id) = sk.sign_recoverable(b"test message").ok()?;
+        Some(Self { signature, recovery_id })
+    }
+
     pub(crate) fn from_scalars(r: &Scalar, s: &Scalar, vkey: &Point, message: &Scalar) -> Option<Self> {
         let signature = BackendSignature::from_scalars(r.to_backend(), s.to_backend()).ok()?;
 
