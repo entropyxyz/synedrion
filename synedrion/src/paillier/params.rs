@@ -1,9 +1,7 @@
-use core::ops::RemAssign;
-
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, ConstantTimeGreater, CtOption},
-    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, NonZero, PowBoundedExp, RandomMod,
+    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, PowBoundedExp, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
@@ -53,9 +51,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Encoding<Repr: Zeroize>
         + Hashable
         + HasWide<Wide = Self::WideUint>
-        // TODO: remove when https://github.com/RustCrypto/crypto-bigint/pull/709 is merged
-        + for<'a> RemAssign<&'a NonZero<Self::Uint>>
-        + InvMod
+        + InvMod<Output = Self::Uint>
         + RandomMod
         + RandomPrimeWithRng
         + Serialize
