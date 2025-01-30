@@ -22,6 +22,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub(crate) struct RPSecret<P: PaillierParams> {
     primes: SecretPrimes<P>,
+    /// λ is a random number mod ϕ(N)/4
     lambda: SecretUnsigned<P::Uint>,
 }
 
@@ -193,7 +194,7 @@ impl<P: PaillierParams> RPParams<P> {
             (true, false) => {
                 // v neg, r pos => invert self.base_value, then multi-exp
                 [
-                    (self.base_value.invert_vartime().expect("TODO(dp): justify this"), v),
+                    (self.base_value.invert_vartime().expect("base_value is constructed by raising an invertible number to a power; exponentiation preserves invertibility."), v),
                     (self.base_randomizer, r),
                 ]
             }
@@ -206,7 +207,7 @@ impl<P: PaillierParams> RPParams<P> {
                 [
                     (self.base_value, v),
                     (
-                        self.base_randomizer.invert_vartime().expect("TODO(dp): justify this"),
+                        self.base_randomizer.invert_vartime().expect("base_randomizer is a square of an invertible number; exponentiation preserves invertibility."),
                         r,
                     ),
                 ]
@@ -223,7 +224,7 @@ impl<P: PaillierParams> RPParams<P> {
         let mut commitment = P::UintMod::multi_exponentiate_bounded_exp(&bases_and_exponents, bound);
         // If both exponents are negative, we can do the exponentiation with the absolute values and then invert in the end.
         if signs == (true, true) {
-            commitment = commitment.invert_vartime().expect("TODO(dp): justify this")
+            commitment = commitment.invert_vartime().expect("Invertible numbers forms a group; groups are closed under multiplication, so this product is also invertible")
         }
         RPCommitment(commitment)
     }
