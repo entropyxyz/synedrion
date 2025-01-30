@@ -79,8 +79,8 @@ impl<P: SchemeParams> MulStarProof<P> {
 
         let cap_a = (public.cap_c * &alpha).mul_randomizer(&r).to_wire();
         let cap_b_x = secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
-        let cap_e = setup.commit(&alpha, &gamma).to_wire();
-        let cap_s = setup.commit(secret.x, &m).to_wire();
+        let cap_e = setup.commit_secret_mixed(&alpha, &gamma).to_wire();
+        let cap_s = setup.commit_secret_mixed(secret.x, &m).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -171,7 +171,7 @@ impl<P: SchemeParams> MulStarProof<P> {
         // s^{z_1} t^{z_2} == E S^e
         let cap_e = self.cap_e.to_precomputed(setup);
         let cap_s = self.cap_s.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.z2) != &cap_e * &cap_s.pow(&e) {
+        if setup.commit_pub_mixed(&self.z1, &self.z2) != &cap_e * &cap_s.pow(&e) {
             return false;
         }
 

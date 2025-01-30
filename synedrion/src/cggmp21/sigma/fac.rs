@@ -84,10 +84,10 @@ impl<P: SchemeParams> FacProof<P> {
         let p = sk0.p_signed();
         let q = sk0.q_signed();
 
-        let cap_p = setup.commit(&p, &mu).to_wire();
-        let cap_q = setup.commit(&q, &nu);
-        let cap_a = setup.commit(&alpha, &x).to_wire();
-        let cap_b = setup.commit(&beta, &y).to_wire();
+        let cap_p = setup.commit_secret_mixed(&p, &mu).to_wire();
+        let cap_q = setup.commit_secret_mixed(&q, &nu);
+        let cap_a = setup.commit_secret(&alpha, &x).to_wire();
+        let cap_b = setup.commit_secret(&beta, &y).to_wire();
         let cap_t = (&cap_q.pow(&alpha) * &setup.commit_zero(&r)).to_wire();
         let cap_q = cap_q.to_wire();
 
@@ -168,19 +168,19 @@ impl<P: SchemeParams> FacProof<P> {
         }
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &setup.commit(&pk0.modulus_signed(), &self.sigma);
+        let cap_r = &setup.commit_pub_mixed(&pk0.modulus_signed(), &self.sigma);
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a = self.cap_a.to_precomputed(setup);
         let cap_p = self.cap_p.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.omega1) != &cap_a * &cap_p.pow(&e) {
+        if setup.commit_pub(&self.z1, &self.omega1) != &cap_a * &cap_p.pow(&e) {
             return false;
         }
 
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
         let cap_b = self.cap_b.to_precomputed(setup);
         let cap_q = self.cap_q.to_precomputed(setup);
-        if setup.commit(&self.z2, &self.omega2) != &cap_b * &cap_q.pow(&e) {
+        if setup.commit_pub(&self.z2, &self.omega2) != &cap_b * &cap_q.pow(&e) {
             return false;
         }
 
