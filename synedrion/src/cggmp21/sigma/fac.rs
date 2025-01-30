@@ -84,10 +84,10 @@ impl<P: SchemeParams> FacProof<P> {
         let p = sk0.p_signed();
         let q = sk0.q_signed();
 
-        let cap_p = setup.commit(&p, &mu).to_wire();
-        let cap_q = setup.commit(&q, &nu);
-        let cap_a = setup.commit(&alpha, &x).to_wire();
-        let cap_b = setup.commit(&beta, &y).to_wire();
+        let cap_p = setup.commit_secret_mixed(&p, &mu).to_wire();
+        let cap_q = setup.commit_secret_mixed(&q, &nu);
+        let cap_a = setup.commit_secret(&alpha, &x).to_wire();
+        let cap_b = setup.commit_secret(&beta, &y).to_wire();
         let cap_t = (&cap_q.pow(&alpha) * &setup.commit_zero(&r)).to_wire();
         let cap_q = cap_q.to_wire();
 
@@ -168,19 +168,19 @@ impl<P: SchemeParams> FacProof<P> {
         }
 
         // R = s^{N_0} t^\sigma
-        let cap_r = &setup.commit(&pk0.modulus_signed(), &self.sigma);
+        let cap_r = &setup.commit_pub_mixed(&pk0.modulus_signed(), &self.sigma);
 
         // s^{z_1} t^{\omega_1} == A * P^e \mod \hat{N}
         let cap_a = self.cap_a.to_precomputed(setup);
         let cap_p = self.cap_p.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.omega1) != &cap_a * &cap_p.pow(&e) {
+        if setup.commit_pub(&self.z1, &self.omega1) != &cap_a * &cap_p.pow(&e) {
             return false;
         }
 
         // s^{z_2} t^{\omega_2} == B * Q^e \mod \hat{N}
         let cap_b = self.cap_b.to_precomputed(setup);
         let cap_q = self.cap_q.to_precomputed(setup);
-        if setup.commit(&self.z2, &self.omega2) != &cap_b * &cap_q.pow(&e) {
+        if setup.commit_pub(&self.z2, &self.omega2) != &cap_b * &cap_q.pow(&e) {
             return false;
         }
 
@@ -216,6 +216,7 @@ impl<P: SchemeParams> FacProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::FacProof;
@@ -238,5 +239,30 @@ mod tests {
 
         let proof = FacProof::<Params>::new(&mut OsRng, &sk, &setup, &aux);
         assert!(proof.verify(pk, &setup, &aux));
+    }
+
+    #[test_log::test]
+    fn prove_and_verify_wire_payload() {
+        type Params = TestParams;
+        type Paillier = <Params as SchemeParams>::Paillier;
+
+        let sk = SecretKeyPaillierWire::<Paillier>::random(&mut OsRng).into_precomputed();
+        let pk = sk.public_key();
+
+        let setup = RPParams::random(&mut OsRng);
+
+        let aux: &[u8] = b"abcde";
+
+        let proof = FacProof::<Params>::new(&mut OsRng, &sk, &setup, &aux);
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+
+        let rp_params = setup.to_wire().to_precomputed();
+        let pubkey = pk.clone().into_wire().into_precomputed();
+        let proof: FacProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+        assert!(proof.verify(&pubkey, &rp_params, &aux));
     }
 }

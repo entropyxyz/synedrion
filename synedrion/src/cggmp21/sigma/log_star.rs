@@ -68,10 +68,10 @@ impl<P: SchemeParams> LogStarProof<P> {
         let r = Randomizer::random(rng, public.pk0);
         let gamma = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
 
-        let cap_s = setup.commit(secret.x, &mu).to_wire();
+        let cap_s = setup.commit_secret_mixed(secret.x, &mu).to_wire();
         let cap_a = Ciphertext::new_with_randomizer_signed(public.pk0, &alpha, &r).to_wire();
         let cap_y = public.g * secret_scalar_from_signed::<P>(&alpha);
-        let cap_d = setup.commit(&alpha, &gamma).to_wire();
+        let cap_d = setup.commit_secret_mixed(&alpha, &gamma).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -157,7 +157,7 @@ impl<P: SchemeParams> LogStarProof<P> {
         // s^{z_1} t^{z_3} == D S^e \mod \hat{N}
         let cap_d = self.cap_d.to_precomputed(setup);
         let cap_s = self.cap_s.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.z3) != &cap_d * &cap_s.pow(&e) {
+        if setup.commit_pub_mixed(&self.z1, &self.z3) != &cap_d * &cap_s.pow(&e) {
             return false;
         }
 

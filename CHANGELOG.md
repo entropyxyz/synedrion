@@ -8,9 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Switch the protocol framework to `manul`. ([#156])
 - Bumped MSRV to 1.83 ([#176])
+- Faster RP commits with multi-exponentiation ([#184])
 
 [#156]: https://github.com/entropyxyz/synedrion/pull/156
 [#176]: https://github.com/entropyxyz/synedrion/pull/176
+[#184]: https://github.com/entropyxyz/synedrion/pull/184
 
 
 ## [0.2.0] - 2024-11-17

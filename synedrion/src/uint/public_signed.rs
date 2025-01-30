@@ -6,8 +6,8 @@ use digest::XofReader;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use super::HasWide;
 use crate::tools::hashing::uint_from_xof;
+use crate::uint::HasWide;
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound set much lower than the full size of the integer,

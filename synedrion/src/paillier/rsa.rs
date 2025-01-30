@@ -235,29 +235,34 @@ impl<P: PaillierParams> PublicModulus<P> {
         }
     }
 
+    /// Convert this [`PublicModulus`] to its wire-format equivalent.
     pub fn to_wire(&self) -> PublicModulusWire<P> {
         self.modulus.clone()
     }
 
+    /// The base RSA modulus $N$.
     pub fn modulus(&self) -> &P::Uint {
         &self.modulus.0
     }
 
+    /// The base RSA modulus $N$ wrapped in a [`NonZero`].
     pub fn modulus_nonzero(&self) -> NonZero<P::Uint> {
         NonZero::new(self.modulus.0).expect("the modulus is non-zero")
     }
 
+    /// The base RSA modulus $N$ wrapped in a [`PublicSigned`] (and therefore widended to accomodate the sign bit).
     pub fn modulus_signed(&self) -> PublicSigned<P::WideUint> {
         // Have to return WideUint, since Uint::BITS == P::MODULUS_BITS, so it won't fit in a Signed<Uint>.
         PublicSigned::new_positive(self.modulus.0.to_wide(), P::MODULUS_BITS)
             .expect("the modulus can be bounded by 2^MODULUS_BITS")
     }
 
+    /// Montgomery representation parameters for modulo $N$.
     pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
         &self.monty_params_mod_n
     }
 
-    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
+    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$.
     pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
         let modulus = self.modulus_nonzero();
         loop {
