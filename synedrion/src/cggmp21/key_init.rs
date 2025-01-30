@@ -5,15 +5,13 @@
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     format,
-    string::String,
-    vec::Vec,
 };
 use core::{fmt::Debug, marker::PhantomData};
 
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-    NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart, ProtocolValidationError,
-    ReceiveError, Round, RoundId, Serializer,
+    MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
+    ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessages, Round, RoundId, Serializer,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -36,47 +34,60 @@ use crate::{
 #[derive(Debug)]
 pub struct KeyInitProtocol<P: SchemeParams, I: Debug>(PhantomData<(P, I)>);
 
-impl<P: SchemeParams, I: PartyId> Protocol for KeyInitProtocol<P, I> {
+impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyInitProtocol<P, I> {
     type Result = KeyShare<P, I>;
     type ProtocolError = KeyInitError;
+
+    fn verify_direct_message_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &DirectMessage,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
+
+    fn verify_echo_broadcast_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &EchoBroadcast,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
+
+    fn verify_normal_broadcast_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &NormalBroadcast,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
 }
 
 /// Possible verifiable errors of the KeyGen protocol.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(displaydoc::Display, Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum KeyInitError {
     /// A hash mismatch in Round 2.
     R2HashMismatch,
-    /// Failed to verify `П^{sch}` in Round 3.
+    /// Failed to verify `П^sch` in Round 3.
     R3InvalidSchProof,
 }
 
-impl ProtocolError for KeyInitError {
-    fn description(&self) -> String {
-        unimplemented!()
-    }
+impl<I> ProtocolError<I> for KeyInitError {
+    type AssociatedData = ();
 
-    fn required_direct_messages(&self) -> BTreeSet<RoundId> {
-        unimplemented!()
-    }
-
-    fn required_echo_broadcasts(&self) -> BTreeSet<RoundId> {
-        unimplemented!()
-    }
-
-    fn required_combined_echos(&self) -> BTreeSet<RoundId> {
+    fn required_messages(&self) -> RequiredMessages {
         unimplemented!()
     }
 
     fn verify_messages_constitute_error(
         &self,
         _deserializer: &Deserializer,
-        _echo_broadcast: &EchoBroadcast,
-        _normal_broadcat: &NormalBroadcast,
-        _direct_message: &DirectMessage,
-        _echo_broadcasts: &BTreeMap<RoundId, EchoBroadcast>,
-        _normal_broadcasts: &BTreeMap<RoundId, NormalBroadcast>,
-        _direct_messages: &BTreeMap<RoundId, DirectMessage>,
-        _combined_echos: &BTreeMap<RoundId, Vec<EchoBroadcast>>,
+        _guilty_party: &I,
+        _shared_randomness: &[u8],
+        _associated_data: &Self::AssociatedData,
+        _message: ProtocolMessage,
+        _previous_messages: BTreeMap<RoundId, ProtocolMessage>,
+        _combined_echos: BTreeMap<RoundId, BTreeMap<I, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
         unimplemented!()
     }
@@ -121,6 +132,10 @@ impl<P, I: PartyId> KeyInit<P, I> {
 
 impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
     type Protocol = KeyInitProtocol<P, I>;
+
+    fn entry_round_id() -> RoundId {
+        1.into()
+    }
 
     fn make_round(
         self,
@@ -199,11 +214,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Protocol = KeyInitProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(1)
+        1.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(2)])
+        [2.into()].into()
     }
 
     fn message_destinations(&self) -> &BTreeSet<I> {
@@ -228,16 +243,13 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         _from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        normal_broadcast.assert_is_none()?;
-        direct_message.assert_is_none()?;
-        let echo = echo_broadcast.deserialize::<Round1Message>(deserializer)?;
+        message.normal_broadcast.assert_is_none()?;
+        message.direct_message.assert_is_none()?;
+        let echo = message.echo_broadcast.deserialize::<Round1Message>(deserializer)?;
         Ok(Payload::new(Round1Payload { cap_v: echo.cap_v }))
     }
 
@@ -279,11 +291,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     type Protocol = KeyInitProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(2)
+        2.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(3)])
+        [3.into()].into()
     }
 
     fn message_destinations(&self) -> &BTreeSet<I> {
@@ -309,16 +321,13 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        normal_broadcast.assert_is_none()?;
-        direct_message.assert_is_none()?;
-        let echo = echo_broadcast.deserialize::<Round2Message<P>>(deserializer)?;
+        message.normal_broadcast.assert_is_none()?;
+        message.direct_message.assert_is_none()?;
+        let echo = message.echo_broadcast.deserialize::<Round2Message<P>>(deserializer)?;
         let cap_v = self
             .others_cap_v
             .get(from)
@@ -373,11 +382,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     type Protocol = KeyInitProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(3)
+        3.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
+        [].into()
     }
 
     fn may_produce_result(&self) -> bool {
@@ -410,17 +419,14 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        echo_broadcast.assert_is_none()?;
-        direct_message.assert_is_none()?;
+        message.echo_broadcast.assert_is_none()?;
+        message.direct_message.assert_is_none()?;
 
-        let bc = normal_broadcast.deserialize::<Round3Message>(deserializer)?;
+        let bc = message.normal_broadcast.deserialize::<Round3Message>(deserializer)?;
 
         let data = self
             .others_data
@@ -462,7 +468,7 @@ mod tests {
 
     use manul::{
         dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-        session::signature::Keypair,
+        signature::Keypair,
     };
     use rand_core::OsRng;
 

@@ -11,8 +11,9 @@ use core::{fmt::Debug, marker::PhantomData};
 
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-    NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart, ProtocolValidationError,
-    ReceiveError, Round, RoundId, Serializer,
+    MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
+    ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
+    Serializer,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -44,13 +45,37 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct InteractiveSigningProtocol<P: SchemeParams, I: Debug>(PhantomData<(P, I)>);
 
-impl<P: SchemeParams, I: PartyId> Protocol for InteractiveSigningProtocol<P, I> {
+impl<P: SchemeParams, I: PartyId> Protocol<I> for InteractiveSigningProtocol<P, I> {
     type Result = RecoverableSignature;
     type ProtocolError = InteractiveSigningError;
+
+    fn verify_direct_message_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &DirectMessage,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
+
+    fn verify_echo_broadcast_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &EchoBroadcast,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
+
+    fn verify_normal_broadcast_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &NormalBroadcast,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
 }
 
 /// Possible verifiable errors of the Presigning protocol.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(displaydoc::Display, Debug, Clone, Serialize, Deserialize)]
 pub enum InteractiveSigningError {
     /// An error in Round 1.
     Round1(String),
@@ -60,37 +85,28 @@ pub enum InteractiveSigningError {
     Round3(String),
     /// An error in the signing error round.
     SigningError(String),
+    /// `alpha` out of bounds
     OutOfBoundsAlpha,
+    /// `hat_alpha` out of bounds
     OutOfBoundsHatAlpha,
 }
 
-impl ProtocolError for InteractiveSigningError {
-    fn description(&self) -> String {
-        "".into()
-    }
+impl<I> ProtocolError<I> for InteractiveSigningError {
+    type AssociatedData = ();
 
-    fn required_direct_messages(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
-    }
-
-    fn required_echo_broadcasts(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
-    }
-
-    fn required_combined_echos(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
+    fn required_messages(&self) -> RequiredMessages {
+        RequiredMessages::new(RequiredMessageParts::normal_broadcast(), None, None)
     }
 
     fn verify_messages_constitute_error(
         &self,
         _deserializer: &Deserializer,
-        _echo_broadcast: &EchoBroadcast,
-        _normal_broadcat: &NormalBroadcast,
-        _direct_message: &DirectMessage,
-        _echo_broadcasts: &BTreeMap<RoundId, EchoBroadcast>,
-        _normal_broadcasts: &BTreeMap<RoundId, NormalBroadcast>,
-        _direct_messages: &BTreeMap<RoundId, DirectMessage>,
-        _combined_echos: &BTreeMap<RoundId, Vec<EchoBroadcast>>,
+        _guilty_party: &I,
+        _shared_randomness: &[u8],
+        _associated_data: &Self::AssociatedData,
+        _message: ProtocolMessage,
+        _previous_messages: BTreeMap<RoundId, ProtocolMessage>,
+        _combined_echos: BTreeMap<RoundId, BTreeMap<I, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
         Ok(())
     }
@@ -121,6 +137,10 @@ impl<P: SchemeParams, I: Ord> InteractiveSigning<P, I> {
 
 impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
     type Protocol = InteractiveSigningProtocol<P, I>;
+
+    fn entry_round_id() -> RoundId {
+        1.into()
+    }
 
     fn make_round(
         self,
@@ -265,11 +285,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Protocol = InteractiveSigningProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(1)
+        1.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(2)])
+        [2.into()].into()
     }
 
     fn message_destinations(&self) -> &BTreeSet<I> {
@@ -320,17 +340,18 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        normal_broadcast.assert_is_none()?;
+        message.normal_broadcast.assert_is_none()?;
 
-        let direct_message = direct_message.deserialize::<Round1DirectMessage<P>>(deserializer)?;
-        let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
+        let direct_message = message
+            .direct_message
+            .deserialize::<Round1DirectMessage<P>>(deserializer)?;
+        let echo_broadcast = message
+            .echo_broadcast
+            .deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
 
         let aux = (&self.context.ssid_hash, &self.context.my_id);
 
@@ -455,11 +476,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
     type Protocol = InteractiveSigningProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(2)
+        2.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(3)])
+        [3.into()].into()
     }
 
     fn message_destinations(&self) -> &BTreeSet<I> {
@@ -600,16 +621,13 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        echo_broadcast.assert_is_none()?;
-        normal_broadcast.assert_is_none()?;
-        let direct_message = direct_message.deserialize::<Round2Message<P>>(deserializer)?;
+        message.echo_broadcast.assert_is_none()?;
+        message.normal_broadcast.assert_is_none()?;
+        let direct_message = message.direct_message.deserialize::<Round2Message<P>>(deserializer)?;
 
         let aux = (&self.context.ssid_hash, from);
         let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
@@ -790,11 +808,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
     type Protocol = InteractiveSigningProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(3)
+        3.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(4)])
+        [4.into()].into()
     }
 
     fn message_destinations(&self) -> &BTreeSet<I> {
@@ -851,16 +869,13 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        echo_broadcast.assert_is_none()?;
-        normal_broadcast.assert_is_none()?;
-        let direct_message = direct_message.deserialize::<Round3Message<P>>(deserializer)?;
+        message.echo_broadcast.assert_is_none()?;
+        message.normal_broadcast.assert_is_none()?;
+        let direct_message = message.direct_message.deserialize::<Round3Message<P>>(deserializer)?;
 
         let aux = (&self.context.ssid_hash, &from);
         let from_pk = &self.public_aux(from)?.paillier_pk;
@@ -1157,11 +1172,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
     type Protocol = InteractiveSigningProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(4)
+        4.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(5)])
+        [5.into()].into()
     }
 
     fn may_produce_result(&self) -> bool {
@@ -1186,16 +1201,13 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         _from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        echo_broadcast.assert_is_none()?;
-        direct_message.assert_is_none()?;
-        let normal_broadcast = normal_broadcast.deserialize::<Round4Message>(deserializer)?;
+        message.echo_broadcast.assert_is_none()?;
+        message.direct_message.assert_is_none()?;
+        let normal_broadcast = message.normal_broadcast.deserialize::<Round4Message>(deserializer)?;
 
         Ok(Payload::new(Round4Payload {
             sigma: normal_broadcast.sigma,
@@ -1397,11 +1409,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for SigningErrorRound<P, I> {
     type Protocol = InteractiveSigningProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(5)
+        5.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
+        [].into()
     }
 
     fn message_destinations(&self) -> &BTreeSet<I> {
@@ -1422,16 +1434,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for SigningErrorRound<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         _from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        normal_broadcast.assert_is_none()?;
-        direct_message.assert_is_none()?;
-        let _echo_broadcast = echo_broadcast.deserialize::<SigningErrorMessage<P, I>>(deserializer)?;
+        message.normal_broadcast.assert_is_none()?;
+        message.direct_message.assert_is_none()?;
+        let _echo_broadcast = message
+            .echo_broadcast
+            .deserialize::<SigningErrorMessage<P, I>>(deserializer)?;
         Err(ReceiveError::protocol(InteractiveSigningError::SigningError(
             "Signing error stub".into(),
         )))
@@ -1456,7 +1467,7 @@ mod tests {
     use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use manul::{
         dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-        session::signature::Keypair,
+        signature::Keypair,
     };
     use rand_core::{OsRng, RngCore};
 
