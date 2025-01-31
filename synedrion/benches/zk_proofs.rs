@@ -4,21 +4,6 @@ mod bench {
     use rand::SeedableRng;
     use synedrion::private_benches::*;
     use tracing_subscriber::EnvFilter;
-    fn bench_fac(c: &mut Criterion) {
-        use fac_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-
-        let mut group = c.benchmark_group("fac proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", fac_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", fac_proof_verify(rng));
-    }
 
     fn bench_aff_g(c: &mut Criterion) {
         use aff_g_proof::*;
@@ -63,6 +48,22 @@ mod bench {
 
         let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
         group.bench_function("verify", enc_proof_verify(rng));
+    }
+
+    fn bench_fac(c: &mut Criterion) {
+        use fac_proof::*;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+
+        let mut group = c.benchmark_group("Fac proof");
+        group.sample_size(10);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("prove", fac_proof_prove(rng));
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("verify", fac_proof_verify(rng));
     }
 
     fn bench_log_star(c: &mut Criterion) {
@@ -173,7 +174,7 @@ mod bench {
 // Running benchmarks without the test harness requires a main function at the top level, leading to
 // this awkward setup where we get a magic criterion-main() when the feature is active and an empty
 // main() when it's not.
-#[cfg(feature = "private_benches")]
+// #[cfg(feature = "private_benches")]
 criterion::criterion_main!(bench::benches);
-#[cfg(not(feature = "private_benches"))]
-fn main() {}
+// #[cfg(not(feature = "private_benches"))]
+// fn main() {}

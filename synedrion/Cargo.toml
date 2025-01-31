@@ -60,9 +60,10 @@ private_benches = ["criterion"]
 bench = true
 name = "bench"
 harness = false
-path = "benches/bench.rs"
+
 
 [[bench]]
 bench = true
 name = "zk_proofs"
 harness = false
+required-features = ["private_benches"]
