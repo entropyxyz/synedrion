@@ -181,6 +181,7 @@ impl<P: SchemeParams> MulStarProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{MulStarProof, MulStarPublicInputs, MulStarSecretInputs};
@@ -221,6 +222,15 @@ mod tests {
             &setup,
             &aux,
         );
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: MulStarProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+
+        let rp_params = setup.to_wire().to_precomputed();
+
         assert!(proof.verify(
             MulStarPublicInputs {
                 pk0: pk,
@@ -228,7 +238,7 @@ mod tests {
                 cap_d: &cap_d,
                 cap_x: &cap_x
             },
-            &setup,
+            &rp_params,
             &aux
         ));
     }

@@ -167,6 +167,7 @@ impl<P: SchemeParams> LogStarProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{LogStarProof, LogStarPublicInputs, LogStarSecretInputs};
@@ -207,6 +208,15 @@ mod tests {
             &setup,
             &aux,
         );
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: LogStarProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+
+        let rp_params = setup.to_wire().to_precomputed();
+
         assert!(proof.verify(
             LogStarPublicInputs {
                 pk0: pk,
@@ -214,7 +224,7 @@ mod tests {
                 g: &g,
                 cap_x: &cap_x
             },
-            &setup,
+            &rp_params,
             &aux
         ));
     }

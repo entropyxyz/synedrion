@@ -238,31 +238,15 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let proof = FacProof::<Params>::new(&mut OsRng, &sk, &setup, &aux);
-        assert!(proof.verify(pk, &setup, &aux));
-    }
-
-    #[test_log::test]
-    fn prove_and_verify_wire_payload() {
-        type Params = TestParams;
-        type Paillier = <Params as SchemeParams>::Paillier;
-
-        let sk = SecretKeyPaillierWire::<Paillier>::random(&mut OsRng).into_precomputed();
-        let pk = sk.public_key();
-
-        let setup = RPParams::random(&mut OsRng);
-
-        let aux: &[u8] = b"abcde";
-
-        let proof = FacProof::<Params>::new(&mut OsRng, &sk, &setup, &aux);
 
         // Roundtrip works
         let res = BinaryFormat::serialize(proof);
         assert!(res.is_ok());
         let payload = res.unwrap();
+        let proof: FacProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
 
         let rp_params = setup.to_wire().to_precomputed();
         let pubkey = pk.clone().into_wire().into_precomputed();
-        let proof: FacProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
         assert!(proof.verify(&pubkey, &rp_params, &aux));
     }
 }

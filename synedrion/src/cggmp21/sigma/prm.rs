@@ -135,6 +135,7 @@ impl<P: SchemeParams> PrmProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::PrmProof;
@@ -153,6 +154,13 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let proof = PrmProof::<Params>::new(&mut OsRng, &secret, &setup, &aux);
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: PrmProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+
         assert!(proof.verify(&setup, &aux));
     }
 }

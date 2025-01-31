@@ -148,6 +148,7 @@ impl<P: SchemeParams> MulProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{MulProof, MulPublicInputs, MulSecretInputs};
@@ -191,6 +192,13 @@ mod tests {
             },
             &aux,
         );
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: MulProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+
         assert!(proof.verify(
             MulPublicInputs {
                 pk,

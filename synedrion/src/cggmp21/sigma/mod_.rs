@@ -186,6 +186,7 @@ impl<P: SchemeParams> ModProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::ModProof;
@@ -205,6 +206,12 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let proof = ModProof::<Params>::new(&mut OsRng, &sk, &aux);
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: ModProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+
         assert!(proof.verify(&mut OsRng, pk, &aux));
     }
 }

@@ -256,6 +256,7 @@ impl<P: SchemeParams> AffGProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{AffGProof, AffGPublicInputs, AffGSecretInputs};
@@ -311,6 +312,15 @@ mod tests {
             &rp_params,
             &aux,
         );
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: AffGProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+
+        let rp_params = rp_params.to_wire().to_precomputed();
+
         assert!(proof.verify(
             AffGPublicInputs {
                 pk0,
