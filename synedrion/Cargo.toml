@@ -64,11 +64,5 @@ path = "benches/bench.rs"
 
 [[bench]]
 bench = true
-name = "pow"
-harness = false
-path = "benches/pow.rs"
-
-[[bench]]
-bench = true
 name = "zk_proofs"
 harness = false
