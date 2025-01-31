@@ -233,6 +233,13 @@ impl<'a, T: Zeroize + Clone + Mul<&'a T, Output = T>> Mul<&'a Secret<T>> for Sec
     }
 }
 
+impl<'a, T: Zeroize + Clone + Mul<&'a T, Output = T>> Mul<&'a Secret<T>> for &Secret<T> {
+    type Output = Secret<T>;
+    fn mul(self, rhs: &'a Secret<T>) -> Self::Output {
+        self * rhs.expose_secret()
+    }
+}
+
 // Division
 
 impl<'a, T: Zeroize + DivAssign<&'a NonZero<T>>> DivAssign<&'a NonZero<T>> for Secret<T> {

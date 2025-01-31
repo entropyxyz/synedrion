@@ -25,6 +25,8 @@ In `П^{aff-g}` (Fig. 25) I had to modify the proof to account for how `D` is ac
 - (prover) `w_y = r_y \rho_y^{-e} \mod N_1`
 - (verifier checks) `enc_1(z_2, w_y) = B_y (+) Y (*) (-e)`
 
+In `П^{enc-elg}` (Fig. 24) the secret parameter `a` is not actually used in the proof - it is an ephemeral secret.
+
 In Presigning (Fig. 8), Round 2, step 2 `r_{i,j}` and `\hat{r}_{i,j}` should be drawn from `\mathbb{Z}_{N_i}`, and not `N_j`, judging by how they are used later.
 
 
