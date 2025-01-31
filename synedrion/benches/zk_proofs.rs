@@ -171,10 +171,4 @@ mod bench {
     );
 }
 
-// Running benchmarks without the test harness requires a main function at the top level, leading to
-// this awkward setup where we get a magic criterion-main() when the feature is active and an empty
-// main() when it's not.
-// #[cfg(feature = "private_benches")]
 criterion::criterion_main!(bench::benches);
-// #[cfg(not(feature = "private_benches"))]
-// fn main() {}
