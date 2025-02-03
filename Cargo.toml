@@ -1,5 +1,7 @@
 [workspace]
-members = [
-    'synedrion',
-]
+members = ['synedrion']
 resolver = "2"
+
+[patch.crates-io]
+k256 = { path = "../elliptic-curves/k256" }
+elliptic-curve = { path = "../traits/elliptic-curve" }
