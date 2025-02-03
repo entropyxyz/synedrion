@@ -10,13 +10,14 @@ use k256::elliptic_curve::{
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Curve as _, Field, FieldBytesSize, NonZeroScalar, SecretKey,
+    Field, FieldBytesSize, NonZeroScalar, SecretKey,
 };
 use k256::{
     ecdsa::{SigningKey, VerifyingKey},
     elliptic_curve::group::ff::PrimeField,
-    Secp256k1,
 };
+// TODO(dp): should use elliptic-curve crate
+use k256::elliptic_curve::Curve;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_encoded_bytes::{Hex, SliceLike};
@@ -27,10 +28,9 @@ use crate::tools::{
     Secret,
 };
 
-pub(crate) type Curvenono = Secp256k1;
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
-pub(crate) type CompressedPointSize = <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
+pub(crate) type CompressedPointSize = <FieldBytesSize<k256::Secp256k1> as ModulusSize>::CompressedPointSize;
 
 impl HashableType for TinyCurve64 {
     fn chain_type<C: Chain>(digest: C) -> C {
@@ -41,7 +41,7 @@ impl HashableType for TinyCurve64 {
     }
 }
 
-impl HashableType for Curvenono {
+impl HashableType for k256::Secp256k1 {
     fn chain_type<C: Chain>(digest: C) -> C {
         let mut digest = digest;
 
@@ -59,9 +59,9 @@ impl HashableType for Curvenono {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
-pub(crate) struct Scalar(BackendScalar);
+pub(crate) struct Scalarnono(BackendScalar);
 
-impl Scalar {
+impl Scalarnono {
     pub const ZERO: Self = Self(BackendScalar::ZERO);
     pub const ONE: Self = Self(BackendScalar::ONE);
 
@@ -70,7 +70,7 @@ impl Scalar {
     }
 
     pub fn random_nonzero(rng: &mut impl CryptoRngCore) -> Self {
-        Self(*NonZeroScalar::<Secp256k1>::random(rng).as_ref())
+        Self(*NonZeroScalar::<k256::Secp256k1>::random(rng).as_ref())
     }
 
     pub fn mul_by_generator(&self) -> Point {
@@ -82,7 +82,7 @@ impl Scalar {
         self.0.invert().map(Self)
     }
 
-    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<Secp256k1>>) -> Self {
+    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
         // There's currently no way to make the required digest output size
         // depend on the target scalar size, so we are hardcoding it to 256 bit
         // (that is, equal to the scalar size).
@@ -95,7 +95,7 @@ impl Scalar {
     /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
     /// is larger than the modulus.
     pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
-        let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from(*bytes);
+        let arr = GenericArray::<u8, FieldBytesSize<k256::Secp256k1>>::from(*bytes);
         Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr))
     }
 
@@ -105,7 +105,7 @@ impl Scalar {
     }
 
     pub fn repr_len() -> usize {
-        <FieldBytesSize<Secp256k1> as Unsigned>::to_usize()
+        <FieldBytesSize<k256::Secp256k1> as Unsigned>::to_usize()
     }
 
     pub(crate) fn to_backend(self) -> BackendScalar {
@@ -118,7 +118,7 @@ impl Scalar {
 
     /// Attempts to instantiate a `Scalar` from a slice of bytes. Assumes big-endian order.
     pub(crate) fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let arr = GenericArray::<u8, FieldBytesSize<Secp256k1>>::from_exact_iter(bytes.iter().cloned())
+        let arr = GenericArray::<u8, FieldBytesSize<k256::Secp256k1>>::from_exact_iter(bytes.iter().cloned())
             .ok_or("Invalid length of a curve scalar")?;
 
         BackendScalar::from_repr_vartime(arr)
@@ -127,7 +127,7 @@ impl Scalar {
     }
 }
 
-impl Secret<Scalar> {
+impl Secret<Scalarnono> {
     pub fn to_signing_key(&self) -> Option<SigningKey> {
         let nonzero_scalar: Secret<NonZeroScalar<_>> =
             Secret::maybe_init_with(|| Option::from(NonZeroScalar::new(self.expose_secret().0)))?;
@@ -158,8 +158,8 @@ impl<'a> TryFrom<&'a [u8]> for Scalar {
     }
 }
 
-impl From<&NonZeroScalar<Secp256k1>> for Scalar {
-    fn from(val: &NonZeroScalar<Secp256k1>) -> Self {
+impl From<&NonZeroScalar<k256::Secp256k1>> for Scalar {
+    fn from(val: &NonZeroScalar<k256::Secp256k1>) -> Self {
         Self(*val.as_ref())
     }
 }
@@ -206,7 +206,7 @@ impl Point {
     }
 
     pub(crate) fn try_from_compressed_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let ep = EncodedPoint::<Secp256k1>::from_bytes(bytes).map_err(|err| format!("{err}"))?;
+        let ep = EncodedPoint::<k256::Secp256k1>::from_bytes(bytes).map_err(|err| format!("{err}"))?;
 
         // Unwrap CtOption into Option
         let cp_opt: Option<BackendPoint> = BackendPoint::from_encoded_point(&ep).into();
