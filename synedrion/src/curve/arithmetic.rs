@@ -1,22 +1,21 @@
 use alloc::{format, string::String, vec, vec::Vec};
 use core::{
     default::Default,
+    hash::Hash,
     ops::{Add, Mul, Neg, Sub},
 };
+use tiny_curve::TinyCurve64;
 
 use digest::Digest;
 use k256::elliptic_curve::{
-    bigint::U256, // Note that this type is different from typenum::U256
+    self,
+    bigint::{ArrayEncoding, Encoding, U256},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     ops::Reduce,
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Curve as _,
-    Field,
-    FieldBytesSize,
-    NonZeroScalar,
-    SecretKey,
+    Curve as _, Field, FieldBytesSize, NonZeroScalar, SecretKey,
 };
 use k256::{
     ecdsa::{SigningKey, VerifyingKey},
@@ -33,14 +32,23 @@ use crate::tools::{
     Secret,
 };
 
-pub(crate) type Curve = Secp256k1;
+pub(crate) type Curvenono = Secp256k1;
 pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub(crate) type CompressedPointSize = <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
 
 pub(crate) const ORDER: U256 = Secp256k1::ORDER;
 
-impl HashableType for Curve {
+impl HashableType for TinyCurve64 {
+    fn chain_type<C: Chain>(digest: C) -> C {
+        let mut digest = digest;
+        // TODO(dp): pretty sure this is wrong and that this should be simpler. I think `impl<T: elliptic_curve::Curve> HashableType for T` should work.
+        digest = digest.chain(&Self::ORDER.to_le_bytes());
+        digest.chain(&Point::GENERATOR)
+    }
+}
+
+impl HashableType for Curvenono {
     fn chain_type<C: Chain>(digest: C) -> C {
         let mut digest = digest;
 
