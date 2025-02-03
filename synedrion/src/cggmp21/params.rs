@@ -1,16 +1,18 @@
-use core::fmt::Debug;
+use core::{fmt::Debug, ops::Add};
 
 // We're depending on a pre-release `crypto-bigint` version,
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
+use crypto_bigint::{NonZero, Random, Uint, U1024, U2048, U4096, U512, U8192};
+use elliptic_curve::CurveArithmetic;
 use serde::{Deserialize, Serialize};
 
 // TODO(dp): this should really be `elliptic_curve::Curve` and we shouldn't use the re-exported on from k256
 use k256::elliptic_curve::bigint::Uint as K256Uint;
 use k256::elliptic_curve::Curve;
 use tiny_curve::TinyCurve64;
+use zeroize::DefaultIsZeroes;
 
 use crate::{
     paillier::PaillierParams,
@@ -108,8 +110,10 @@ impl PaillierParams for PaillierProduction {
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static {
-    /// Curve bla bla
-    type Curve: Curve + HashableType; // TODO(dp): maybe PrimeCurve as well? And other traits? Tie the Uint type in here somewhere?
+    /// TODO(dp) Curve bla bla
+    type Curve: Curve + CurveArithmetic + HashableType; // TODO(dp): should be PrimeCurve? And other traits? Tie the Uint type in here somewhere?
+    /// TODO(dp) Curve bla bla
+    type Scalar: DefaultIsZeroes + for<'a> Deserialize<'a> + Serialize + Debug + Random + Add<Output = Self::Scalar>; // TODO(dp): we defo need some bounds here, just unsure which
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
@@ -151,6 +155,7 @@ pub struct TestParams;
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
+    type Scalar = <TinyCurve64 as CurveArithmetic>::Scalar;
     const SECURITY_PARAMETER: usize = 10;
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = 256;
@@ -172,7 +177,7 @@ pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {
     type Curve = k256::Secp256k1;
-
+    type Scalar = <k256::Secp256k1 as CurveArithmetic>::Scalar;
     const SECURITY_PARAMETER: usize = 80; // The value is given in Table 2 in the paper
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = Self::L_BOUND * 5;

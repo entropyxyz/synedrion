@@ -4,6 +4,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{fmt::Debug, marker::PhantomData};
+use crypto_bigint::Random;
 use manul::session::LocalError;
 
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
@@ -13,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cggmp21::{KeyShare, SchemeParams},
-    curve::{Point, Scalar},
+    curve::Point,
     tools::{
         hashing::{Chain, FofHasher},
         sss::{interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareId},
@@ -29,7 +30,7 @@ pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
     // (mainly, that the verifying key is not an identity)
     pub(crate) owner: I,
     pub(crate) threshold: u32,
-    pub(crate) secret_share: Secret<Scalar>,
+    pub(crate) secret_share: Secret<P::Scalar>,
     pub(crate) share_ids: BTreeMap<I, ShareId>,
     pub(crate) public_shares: BTreeMap<I, Point>,
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
@@ -65,8 +66,8 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         }
 
         let secret = Secret::init_with(|| match signing_key {
-            None => Scalar::random(rng),
-            Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
+            None => P::Scalar::random(rng),
+            Some(sk) => P::Scalar::from(sk.as_nonzero_scalar()),
         });
 
         let share_ids = shamir_evaluation_points(ids.len());
@@ -233,7 +234,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         // Will fail here if secret share is zero
         let secret_share = self.secret_share.clone().to_signing_key().ok_or(bip32::Error::Crypto)?;
         let secret_share =
-            apply_tweaks_private(secret_share, &tweaks).map(|signing_key| Scalar::from_signing_key(&signing_key))?;
+            apply_tweaks_private(secret_share, &tweaks).map(|signing_key| P::Scalar::from_signing_key(&signing_key))?;
 
         let public_shares = self
             .public_shares
@@ -329,7 +330,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::ThresholdKeyShare;
-    use crate::{cggmp21::TestParams, curve::Scalar};
+    use crate::{cggmp21::TestParams, SchemeParams};
 
     #[test]
     fn threshold_key_share_centralized() {
@@ -355,7 +356,7 @@ mod tests {
 
         assert_eq!(
             nt_share0.secret_share.expose_secret() + nt_share1.secret_share.expose_secret(),
-            Scalar::from(sk.as_nonzero_scalar())
+            <TestParams as SchemeParams>::Scalar::from(sk.as_nonzero_scalar())
         );
         assert_eq!(&nt_share0.verifying_key().unwrap(), sk_verifying_key);
         assert_eq!(&nt_share1.verifying_key().unwrap(), sk_verifying_key);
