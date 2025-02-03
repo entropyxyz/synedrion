@@ -1,8 +1,8 @@
-use crypto_bigint::{Encoding, Zero};
+use crypto_bigint::{BitOps, Encoding, Zero};
 
 use super::params::SchemeParams;
 use crate::{
-    curve::{Scalar, ORDER},
+    curve::Scalar,
     paillier::PaillierParams,
     tools::Secret,
     uint::{PublicSigned, SecretSigned, SecretUnsigned},
@@ -28,7 +28,9 @@ fn uint_from_scalar<P: SchemeParams>(value: &Scalar) -> <P::Paillier as Paillier
 pub(crate) fn public_signed_from_scalar<P: SchemeParams>(
     value: &Scalar,
 ) -> PublicSigned<<P::Paillier as PaillierParams>::Uint> {
-    PublicSigned::new_positive(uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
+    // TODO(dp): the Integer trait from crypto-bigint v.0.5.5 does not implement BitOps so need a solution for that.
+    let order_bits = BitOps::bits_vartime(&P::CURVE_ORDER.get());
+    PublicSigned::new_positive(uint_from_scalar::<P>(value), order_bits).expect(concat![
         "a curve scalar value is smaller than the half of `PaillierParams::Uint` range, ",
         "so it is still positive when treated as a 2-complement signed value"
     ])
@@ -136,7 +138,11 @@ fn secret_uint_from_scalar<P: SchemeParams>(value: &Secret<Scalar>) -> Secret<<P
 pub(crate) fn secret_unsigned_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar>,
 ) -> SecretUnsigned<<P::Paillier as PaillierParams>::Uint> {
-    SecretUnsigned::new(secret_uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
+    // TODO(dp): the Integer trait from crypto-bigint v.0.5.5 does not implement BitOps so we cheat
+    // by going through the upcast `P::CURVE_ORDER`, but this needs to go away and become just
+    // `P::Curve::ORDER.bits_vartime()`.
+    let order_bits = P::CURVE_ORDER.bits_vartime();
+    SecretUnsigned::new(secret_uint_from_scalar::<P>(value), order_bits).expect(concat![
         "a curve scalar value is smaller than the curve order, ",
         "and the curve order fits in `PaillierParams::Uint`"
     ])
@@ -148,7 +154,12 @@ pub(crate) fn secret_unsigned_from_scalar<P: SchemeParams>(
 pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar>,
 ) -> SecretSigned<<P::Paillier as PaillierParams>::Uint> {
-    SecretSigned::new_positive(secret_uint_from_scalar::<P>(value), ORDER.bits_vartime() as u32).expect(concat![
+    // TODO(dp): the Integer trait from crypto-bigint v.0.5.5 does not implement BitOps so we cheat
+    // by going through the upcast `P::CURVE_ORDER`, but this needs to go away and become just
+    // `P::Curve::ORDER.bits_vartime()`.
+    let order_bits = P::CURVE_ORDER.bits_vartime();
+
+    SecretSigned::new_positive(secret_uint_from_scalar::<P>(value), order_bits).expect(concat![
         "a curve scalar value is smaller than the curve order, ",
         "and the curve order fits in `PaillierParams::Uint`"
     ])

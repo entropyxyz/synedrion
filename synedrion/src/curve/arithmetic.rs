@@ -1,15 +1,10 @@
 use alloc::{format, string::String, vec, vec::Vec};
-use core::{
-    default::Default,
-    hash::Hash,
-    ops::{Add, Mul, Neg, Sub},
-};
+use core::ops::{Add, Mul, Neg, Sub};
 use tiny_curve::TinyCurve64;
 
 use digest::Digest;
 use k256::elliptic_curve::{
-    self,
-    bigint::{ArrayEncoding, Encoding, U256},
+    bigint::{Encoding, U256},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     ops::Reduce,
     point::AffineCoordinates,
@@ -37,8 +32,6 @@ pub(crate) type BackendScalar = k256::Scalar;
 pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub(crate) type CompressedPointSize = <FieldBytesSize<Secp256k1> as ModulusSize>::CompressedPointSize;
 
-pub(crate) const ORDER: U256 = Secp256k1::ORDER;
-
 impl HashableType for TinyCurve64 {
     fn chain_type<C: Chain>(digest: C) -> C {
         let mut digest = digest;
@@ -56,7 +49,7 @@ impl HashableType for Curvenono {
         // so we can just chain `ORDER`. For now we have to do it manually.
         // Note that since only `to_words` is available, we need to chain it
         // so that the result is the same on 32- and 64-bit targets - that is, in low-endian order.
-        let words = ORDER.to_words();
+        let words = Self::ORDER.to_words();
         for word in words {
             digest = digest.chain(&word.to_le_bytes());
         }
@@ -395,7 +388,7 @@ mod test {
 
         // Round trip works
         let bytes = s.to_be_bytes();
-        let s_from_bytes = Scalar::try_from_be_bytes(&bytes).expect("bytes are valid");
+        let s_from_bytes = Scalar::try_from_be_bytes(bytes.as_ref()).expect("bytes are valid");
         assert_eq!(s, s_from_bytes);
 
         // …but building a `Scalar` from LE bytes does not.

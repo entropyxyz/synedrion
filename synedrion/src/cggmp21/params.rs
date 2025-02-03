@@ -5,12 +5,14 @@ use core::fmt::Debug;
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
-use k256::elliptic_curve::{self, bigint::Uint as K256Uint};
 use serde::{Deserialize, Serialize};
+
+// TODO(dp): this should really be `elliptic_curve::Curve` and we shouldn't use the re-exported on from k256
+use k256::elliptic_curve::bigint::Uint as K256Uint;
+use k256::elliptic_curve::Curve;
 use tiny_curve::TinyCurve64;
 
 use crate::{
-    curve::{Curvenono, ORDER},
     paillier::PaillierParams,
     tools::hashing::{Chain, HashableType},
     uint::{U1024Mod, U2048Mod, U4096Mod, U512Mod},
@@ -107,7 +109,7 @@ impl PaillierParams for PaillierProduction {
 // but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static {
     /// Curve bla bla
-    type Curve: elliptic_curve::Curve + HashableType; // TODO(dp): maybe PrimeCurve as well? And other traits? Tie the Uint type in here somewhere?
+    type Curve: Curve + HashableType; // TODO(dp): maybe PrimeCurve as well? And other traits? Tie the Uint type in here somewhere?
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
@@ -154,12 +156,14 @@ impl SchemeParams for TestParams {
     const LP_BOUND: u32 = 256;
     const EPS_BOUND: u32 = 320;
     type Paillier = PaillierTest;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
-        .to_nz()
-        .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> = convert_uint(upcast_uint(ORDER))
-        .to_nz()
-        .expect("Correct by construction");
+    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
 }
 
 /// Production strength parameters.
@@ -174,12 +178,14 @@ impl SchemeParams for ProductionParams {
     const LP_BOUND: u32 = Self::L_BOUND * 5;
     const EPS_BOUND: u32 = Self::L_BOUND * 2;
     type Paillier = PaillierProduction;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
-        .to_nz()
-        .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> = convert_uint(upcast_uint(ORDER))
-        .to_nz()
-        .expect("Correct by construction");
+    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
 }
 
 #[cfg(test)]

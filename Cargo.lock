@@ -1690,11 +1690,3 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[patch.unused]]
-name = "elliptic-curve"
-version = "0.14.0-rc.1"
-
-[[patch.unused]]
-name = "k256"
-version = "0.14.0-pre.2"
