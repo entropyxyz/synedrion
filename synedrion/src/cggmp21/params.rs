@@ -5,11 +5,12 @@ use core::fmt::Debug;
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
-use k256::elliptic_curve::bigint::Uint as K256Uint;
+use k256::elliptic_curve::{self, bigint::Uint as K256Uint};
 use serde::{Deserialize, Serialize};
+use tiny_curve::TinyCurve64;
 
 use crate::{
-    curve::{Curve, ORDER},
+    curve::{Curvenono, ORDER},
     paillier::PaillierParams,
     tools::hashing::{Chain, HashableType},
     uint::{U1024Mod, U2048Mod, U4096Mod, U512Mod},
@@ -105,6 +106,8 @@ impl PaillierParams for PaillierProduction {
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static {
+    /// Curve bla bla
+    type Curve: elliptic_curve::Curve + HashableType; // TODO(dp): maybe PrimeCurve as well? And other traits? Tie the Uint type in here somewhere?
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
@@ -127,7 +130,7 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
 
 impl<P: SchemeParams> HashableType for P {
     fn chain_type<C: Chain>(digest: C) -> C {
-        digest.chain_type::<Curve>()
+        digest.chain_type::<P::Curve>()
     }
 }
 
@@ -145,6 +148,7 @@ pub struct TestParams;
 // - Range checks will fail with the probability $q / 2^\eps$, so $\eps$ should be large enough.
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
+    type Curve = TinyCurve64;
     const SECURITY_PARAMETER: usize = 10;
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = 256;
@@ -163,6 +167,8 @@ impl SchemeParams for TestParams {
 pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {
+    type Curve = k256::Secp256k1;
+
     const SECURITY_PARAMETER: usize = 80; // The value is given in Table 2 in the paper
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = Self::L_BOUND * 5;
