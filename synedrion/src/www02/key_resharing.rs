@@ -24,12 +24,12 @@ use serde::{Deserialize, Serialize};
 
 use super::ThresholdKeyShare;
 use crate::{
-    curve::{Point, Scalar},
+    curve::Point,
     tools::{
         sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},
         DowncastMap, Secret, Without,
     },
-    SchemeParams,
+    ScalarSh, SchemeParams,
 };
 
 /// A protocol for modifying the set of owners of a shared secret key.
@@ -238,12 +238,12 @@ struct Round1BroadcastMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Round1DirectMessage {
-    subshare: Secret<Scalar>,
+struct Round1DirectMessage<P: SchemeParams> {
+    subshare: Secret<ScalarSh<P>>,
 }
 
-struct Round1Payload {
-    subshare: Secret<Scalar>,
+struct Round1Payload<P: SchemeParams> {
+    subshare: Secret<ScalarSh<P>>,
     public_polynomial: PublicPolynomial,
     old_share_id: ShareId,
 }
@@ -301,7 +301,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                 destination
             )))?;
 
-            let subshare = old_holder.polynomial.evaluate(their_share_id);
+            let subshare: Secret<ScalarSh<P>> = old_holder.polynomial.evaluate(their_share_id);
             let dm = DirectMessage::new(serializer, Round1DirectMessage { subshare })?;
             Ok((dm, None))
         } else {
@@ -320,7 +320,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
         normal_broadcast.assert_is_none()?;
         let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage>(deserializer)?;
-        let direct_message = direct_message.deserialize::<Round1DirectMessage>(deserializer)?;
+        let direct_message = direct_message.deserialize::<Round1DirectMessage<P>>(deserializer)?;
 
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder.inputs.old_holders.contains(from) {
@@ -359,7 +359,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             None => return Ok(FinalizeOutcome::Result(None)),
         };
 
-        let mut payloads = payloads.downcast_all::<Round1Payload>()?;
+        let mut payloads = payloads.downcast_all::<Round1Payload<P>>()?;
 
         let share_id = self
             .new_share_ids
@@ -370,7 +370,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         // add a simulated payload to the mapping, as if it sent a message to itself.
         if let Some(old_holder) = self.old_holder.as_ref() {
             if self.new_holder.as_ref().is_some() {
-                let subshare = old_holder.polynomial.evaluate(share_id);
+                // TODO(dp): remove explicit type
+                let subshare: Secret<ScalarSh<P>> = old_holder.polynomial.evaluate(share_id);
                 let my_payload = Round1Payload {
                     subshare,
                     public_polynomial: old_holder.public_polynomial.clone(),
@@ -414,7 +415,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                 Ok((payload.old_share_id, payload.subshare.clone()))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
-        let secret_share = shamir_join_scalars(subshares);
+        let secret_share: ScalarSh<P> = shamir_join_scalars(subshares);
 
         // Generate the public shares of all the new holders.
         let public_shares = self

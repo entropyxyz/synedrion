@@ -6,7 +6,7 @@ use serde_encoded_bytes::{ArrayLike, Hex};
 use sha2::Sha256;
 use sha3::{Shake256, Shake256Reader};
 
-use crate::curve::Scalar;
+use crate::{ScalarSh, SchemeParams};
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
@@ -78,8 +78,9 @@ impl FofHasher {
         HashOutput(self.0.finalize().into())
     }
 
-    pub fn finalize_to_scalar(self) -> Scalar {
-        Scalar::from_digest(self.0)
+    pub fn finalize_to_scalar<P: SchemeParams>(self) -> ScalarSh<P> {
+        todo!()
+        // Scalar::from_digest(self.0)
     }
 }
 
