@@ -13,8 +13,6 @@ categories = ["cryptography", "no-std"]
 [dependencies]
 manul = "0.1"
 signature = { version = "2", default-features = false, features = ["alloc"] }
-# TODO(dp): feature gate this
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
 rand_core = { version = "0.6.4", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
@@ -24,9 +22,17 @@ secrecy = { version = "0.10", default-features = false, features = ["serde"] }
 zeroize = { version = "1.8", default-features = false, features = ["alloc", "zeroize_derive"] }
 bip32 = { version = "0.5", default-features = false, features = ["alloc", "secp256k1", "k256"] }
 tracing = { version = "0.1.41", default-features = false }
+
 # TODO(dp): feature gate this
-tiny-curve = "0.1"
-elliptic-curve = { version = "0.13", features = ["arithmetic"] }
+tiny-curve = { version = "0.1", features = [
+	"serde",
+], git = "https://github.com/dvdplm/tiny-curve", branch = "dp-add-serde-feature" }
+# TODO(dp): feature gate this
+k256 = { version = "0.13", default-features = false, features = ["arithmetic", "serde"] }
+# TODO(dp): Should this be `primeorder` instead?
+elliptic-curve = { version = "0.13", features = ["arithmetic", "serde"] }
+# TODO(dp): Cribbed from tiny-curve, but are these the right features?
+ecdsa = { version = "0.16", default-features = false, features = ["arithmetic", "digest", "hazmat"] }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.

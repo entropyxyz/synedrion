@@ -5,14 +5,15 @@ use core::{fmt::Debug, ops::Add};
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::{NonZero, Random, Uint, U1024, U2048, U4096, U512, U8192};
-use elliptic_curve::CurveArithmetic;
+use digest::generic_array::ArrayLength;
+use ecdsa::hazmat::SignPrimitive;
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
+use elliptic_curve::{Curve, CurveArithmetic, PrimeCurve, ScalarPrimitive};
 // TODO(dp): this should really be `elliptic_curve::Curve` and we shouldn't use the re-exported on from k256
 use k256::elliptic_curve::bigint::Uint as K256Uint;
-use k256::elliptic_curve::Curve;
 use tiny_curve::TinyCurve64;
-use zeroize::DefaultIsZeroes;
 
 use crate::{
     paillier::PaillierParams,
@@ -109,11 +110,15 @@ impl PaillierParams for PaillierProduction {
 /// Signing scheme parameters.
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
-pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static {
+pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static
+where
+    <Self::Curve as CurveArithmetic>::Scalar: Serialize + SignPrimitive<Self::Curve> + Random,
+    for<'a> <Self::Curve as CurveArithmetic>::Scalar: Deserialize<'a>,
+    <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
+{
     /// TODO(dp) Curve bla bla
-    type Curve: Curve + CurveArithmetic + HashableType; // TODO(dp): should be PrimeCurve? And other traits? Tie the Uint type in here somewhere?
-    /// TODO(dp) Curve bla bla
-    type Scalar: DefaultIsZeroes + for<'a> Deserialize<'a> + Serialize + Debug + Random + Add<Output = Self::Scalar>; // TODO(dp): we defo need some bounds here, just unsure which
+    // TODO(dp): should be PrimeCurve? And other traits? Tie the Uint type in here somewhere?
+    type Curve: PrimeCurve + CurveArithmetic + HashableType;
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
@@ -133,6 +138,16 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
     /// when treated as a 2-complement signed integer).
     type Paillier: PaillierParams;
 }
+
+pub type ScalarSh<P: SchemeParams> = <P::Curve as CurveArithmetic>::Scalar;
+
+// TODO(dp: can't impl like this
+// impl crypto_bigint::Random for <TinyCurve64 as CurveArithmetic>::Scalar {
+//     fn random(rng: &mut impl CryptoRngCore) -> Self {
+//         todo!()
+//     }
+// }
+// Can't impl Random on `ScalarSh` either. Can I impl Random inside `tiny-curve` perhaps?
 
 impl<P: SchemeParams> HashableType for P {
     fn chain_type<C: Chain>(digest: C) -> C {
@@ -155,7 +170,6 @@ pub struct TestParams;
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
-    type Scalar = <TinyCurve64 as CurveArithmetic>::Scalar;
     const SECURITY_PARAMETER: usize = 10;
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = 256;
@@ -177,7 +191,6 @@ pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {
     type Curve = k256::Secp256k1;
-    type Scalar = <k256::Secp256k1 as CurveArithmetic>::Scalar;
     const SECURITY_PARAMETER: usize = 80; // The value is given in Table 2 in the paper
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = Self::L_BOUND * 5;

@@ -59,9 +59,9 @@ impl HashableType for k256::Secp256k1 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
-pub(crate) struct Scalarnono(BackendScalar);
+pub(crate) struct Scalar(BackendScalar);
 
-impl Scalarnono {
+impl Scalar {
     pub const ZERO: Self = Self(BackendScalar::ZERO);
     pub const ONE: Self = Self(BackendScalar::ONE);
 
@@ -127,7 +127,7 @@ impl Scalarnono {
     }
 }
 
-impl Secret<Scalarnono> {
+impl Secret<Scalar> {
     pub fn to_signing_key(&self) -> Option<SigningKey> {
         let nonzero_scalar: Secret<NonZeroScalar<_>> =
             Secret::maybe_init_with(|| Option::from(NonZeroScalar::new(self.expose_secret().0)))?;

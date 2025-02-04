@@ -886,6 +886,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
 dependencies = [
  "elliptic-curve",
+ "serdect 0.2.0",
 ]
 
 [[package]]
@@ -1242,6 +1243,7 @@ dependencies = [
  "crypto-primes",
  "digest",
  "displaydoc",
+ "ecdsa",
  "elliptic-curve",
  "hashing-serializer",
  "hex",
@@ -1300,12 +1302,12 @@ dependencies = [
 [[package]]
 name = "tiny-curve"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c8f82cb60acfd11519a3c46b5ee686dfbed1971a5d824258ccb87bb2916c171"
+source = "git+https://github.com/dvdplm/tiny-curve?branch=dp-add-serde-feature#3dcd015315df9e11b612d0daab3d6c6c8a1f3a41"
 dependencies = [
  "ecdsa",
  "num-traits",
  "primeorder",
+ "serdect 0.3.0",
  "sha2",
 ]
 

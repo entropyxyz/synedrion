@@ -22,9 +22,10 @@ use super::{
     entities::{AuxInfo, PublicAuxInfo, SecretAuxInfo},
     params::SchemeParams,
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
+    ScalarSh,
 };
 use crate::{
-    curve::{Point, Scalar},
+    curve::Point,
     paillier::{
         PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillier,
         SecretKeyPaillierWire,
@@ -136,7 +137,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
         let paillier_pk = paillier_sk.public_key();
 
         // El-Gamal key
-        let y = Secret::init_with(|| Scalar::random(rng));
+        let y: Secret<ScalarSh<P>> = Secret::init_with(|| ScalarSh::random(rng));
         let cap_y = y.mul_by_generator();
 
         // The secret and the commitment for the Schnorr PoK of the El-Gamal key
@@ -188,7 +189,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
 #[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
 struct PublicData1<P: SchemeParams> {
     cap_y: Point,
-    cap_b: SchCommitment,
+    cap_b: SchCommitment<P>,
     paillier_pk: PublicKeyPaillierWire<P::Paillier>, // $N_i$
     rp_params: RPParamsWire<P::Paillier>,            // $s_i$ and $t_i$
     hat_psi: PrmProof<P>,
@@ -206,8 +207,8 @@ struct PublicData1Precomp<P: SchemeParams> {
 #[derive(Debug)]
 struct Context<P: SchemeParams, I> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
-    y: Secret<Scalar>,
-    tau_y: SchSecret,
+    y: Secret<ScalarSh<P>>,
+    tau_y: SchSecret<P>,
     data_precomp: PublicData1Precomp<P>,
     my_id: I,
     other_ids: BTreeSet<I>,
@@ -435,7 +436,7 @@ struct Round3<P: SchemeParams, I> {
     rho: BitVec,
     others_data: BTreeMap<I, PublicData1Precomp<P>>,
     psi_mod: ModProof<P>,
-    pi: SchProof,
+    pi: SchProof<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -450,7 +451,7 @@ struct Round3<P: SchemeParams, I> {
 struct PublicData2<P: SchemeParams> {
     psi_mod: ModProof<P>, // $\psi_i$, a P^{mod} for the Paillier modulus
     phi: FacProof<P>,
-    pi: SchProof,
+    pi: SchProof<P>,
 }
 
 impl<P: SchemeParams, I: PartyId> Round3<P, I> {
