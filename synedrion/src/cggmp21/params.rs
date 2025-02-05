@@ -112,7 +112,7 @@ impl PaillierParams for PaillierProduction {
 // but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static
 where
-    <Self::Curve as CurveArithmetic>::Scalar: Serialize + SignPrimitive<Self::Curve> + Random,
+    <Self::Curve as CurveArithmetic>::Scalar: Serialize + SignPrimitive<Self::Curve>,
     for<'a> <Self::Curve as CurveArithmetic>::Scalar: Deserialize<'a>,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
 {

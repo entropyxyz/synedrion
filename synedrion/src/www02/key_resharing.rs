@@ -236,8 +236,11 @@ struct Round1BroadcastMessage {
     public_polynomial: PublicPolynomial,
     old_share_id: ShareId,
 }
-
+use elliptic_curve::CurveArithmetic;
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// TODO(dp): This seems to work-ish, but not sure it's actually correct.
+#[serde(bound(serialize = "Round1DirectMessage<P>: Serialize"))]
+#[serde(bound(deserialize = "for<'x> <P::Curve as CurveArithmetic>::Scalar: Deserialize<'x>"))]
 struct Round1DirectMessage<P: SchemeParams> {
     subshare: Secret<ScalarSh<P>>,
 }

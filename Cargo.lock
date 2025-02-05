@@ -1302,12 +1302,12 @@ dependencies = [
 [[package]]
 name = "tiny-curve"
 version = "0.1.0"
-source = "git+https://github.com/dvdplm/tiny-curve?branch=dp-add-serde-feature#3dcd015315df9e11b612d0daab3d6c6c8a1f3a41"
+source = "git+https://github.com/dvdplm/tiny-curve?branch=dp-add-serde-feature#c5615246638eb308b66cc009e92c5d95b9aaf68d"
 dependencies = [
  "ecdsa",
  "num-traits",
  "primeorder",
- "serdect 0.3.0",
+ "serde",
  "sha2",
 ]
 

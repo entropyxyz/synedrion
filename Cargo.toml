@@ -1,3 +1,7 @@
 [workspace]
 members = ['synedrion']
 resolver = "2"
+
+# TODO(dp): remove when #3 lands
+# [patch."https://github.com/dvdplm/tiny-curve"]
+# tiny-curve = { version = "0.1", path = "../tiny-curve", features = ["serde"] }
