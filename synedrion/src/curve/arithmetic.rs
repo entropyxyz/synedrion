@@ -1,35 +1,37 @@
 use alloc::{format, string::String, vec, vec::Vec};
 use core::ops::{Add, Mul, Neg, Sub};
+use crypto_bigint::ConstantTimeSelect;
 use tiny_curve::TinyCurve64;
 
 use digest::Digest;
-use k256::elliptic_curve::{
+use ecdsa::SigningKey;
+use elliptic_curve::{
     bigint::{Encoding, U256},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     ops::Reduce,
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Field, FieldBytesSize, NonZeroScalar, SecretKey,
+    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, Group, NonZeroScalar, PrimeField, ProjectivePoint,
+    ScalarPrimitive, SecretKey,
 };
-use k256::{
-    ecdsa::{SigningKey, VerifyingKey},
-    elliptic_curve::group::ff::PrimeField,
-};
-// TODO(dp): should use elliptic-curve crate
-use k256::elliptic_curve::Curve;
+use k256::ecdsa::{/*SigningKey, */ VerifyingKey};
+
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_encoded_bytes::{Hex, SliceLike};
 use zeroize::Zeroize;
 
-use crate::tools::{
-    hashing::{Chain, HashableType},
-    Secret,
+use crate::{
+    tools::{
+        hashing::{Chain, HashableType},
+        Secret,
+    },
+    ScalarSh, SchemeParams,
 };
 
-pub(crate) type BackendScalar = k256::Scalar;
-pub(crate) type BackendPoint = k256::ProjectivePoint;
+// pub(crate) type BackendScalar = k256::Scalar;
+// pub(crate) type BackendPoint = k256::ProjectivePoint;
 pub(crate) type CompressedPointSize = <FieldBytesSize<k256::Secp256k1> as ModulusSize>::CompressedPointSize;
 
 impl HashableType for TinyCurve64 {
@@ -59,21 +61,21 @@ impl HashableType for k256::Secp256k1 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
-pub(crate) struct Scalar(BackendScalar);
+pub(crate) struct Scalar<P: SchemeParams>(ScalarSh<P>);
 
-impl Scalar {
-    pub const ZERO: Self = Self(BackendScalar::ZERO);
-    pub const ONE: Self = Self(BackendScalar::ONE);
+impl<P: SchemeParams> Scalar<P> {
+    pub const ZERO: Self = Self(ScalarSh::<P>::ZERO);
+    pub const ONE: Self = Self(ScalarSh::<P>::ONE);
 
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        Self(BackendScalar::random(rng))
+        Self(ScalarPrimitive::<P::Curve>::random(rng).into())
     }
 
     pub fn random_nonzero(rng: &mut impl CryptoRngCore) -> Self {
-        Self(*NonZeroScalar::<k256::Secp256k1>::random(rng).as_ref())
+        Self(*NonZeroScalar::<P::Curve>::random(rng).as_ref())
     }
 
-    pub fn mul_by_generator(&self) -> Point {
+    pub fn mul_by_generator(&self) -> Point<P> {
         Point::GENERATOR * self
     }
 
@@ -82,11 +84,15 @@ impl Scalar {
         self.0.invert().map(Self)
     }
 
-    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<k256::Secp256k1>>) -> Self {
+    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<P::Curve>>) -> Self {
         // There's currently no way to make the required digest output size
         // depend on the target scalar size, so we are hardcoding it to 256 bit
         // (that is, equal to the scalar size).
-        Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&d.finalize()))
+        // Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&d.finalize()))
+        // TODO(dp): this should be much less messy. CurveArithmetic::Scalar is Reduce<Self::Uint>
+        Self(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
+            &d.finalize(),
+        ))
     }
 
     /// Convert a 32-byte hash digest into a scalar as per SEC1:
@@ -94,41 +100,45 @@ impl Scalar {
     ///
     /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
     /// is larger than the modulus.
-    pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
-        let arr = GenericArray::<u8, FieldBytesSize<k256::Secp256k1>>::from(*bytes);
-        Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&arr))
+    // TODO(dp): Have to rework this, can't assume 32 bytes.
+    // pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
+    pub fn from_reduced_bytes(bytes: impl AsRef<[u8]>) -> Self {
+        // let arr = GenericArray::<u8, FieldBytesSize<P::Curve>>::from(bytes);
+        Self(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
+            bytes.as_ref().into(),
+        ))
     }
 
     /// Returns the SEC1 encoding of this scalar (big endian order).
-    pub fn to_be_bytes(self) -> k256::FieldBytes {
-        self.0.to_bytes()
+    pub fn to_be_bytes(self) -> FieldBytes<P::Curve> {
+        self.0.into()
     }
 
     pub fn repr_len() -> usize {
-        <FieldBytesSize<k256::Secp256k1> as Unsigned>::to_usize()
+        <FieldBytesSize<P::Curve> as Unsigned>::to_usize()
     }
 
-    pub(crate) fn to_backend(self) -> BackendScalar {
+    pub(crate) fn to_backend(self) -> ScalarSh<P> {
         self.0
     }
 
-    pub fn from_signing_key(sk: &SigningKey) -> Secret<Self> {
+    pub fn from_signing_key(sk: &SigningKey<P::Curve>) -> Secret<Self> {
         Secret::init_with(|| Self(*sk.as_nonzero_scalar().as_ref()))
     }
 
     /// Attempts to instantiate a `Scalar` from a slice of bytes. Assumes big-endian order.
     pub(crate) fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let arr = GenericArray::<u8, FieldBytesSize<k256::Secp256k1>>::from_exact_iter(bytes.iter().cloned())
+        let arr = GenericArray::<u8, FieldBytesSize<P::Curve>>::from_exact_iter(bytes.iter().cloned())
             .ok_or("Invalid length of a curve scalar")?;
 
-        BackendScalar::from_repr_vartime(arr)
+        ScalarSh::<P>::from_repr_vartime(arr)
             .map(Self)
             .ok_or_else(|| "Invalid curve scalar representation".into())
     }
 }
 
-impl Secret<Scalar> {
-    pub fn to_signing_key(&self) -> Option<SigningKey> {
+impl<P: SchemeParams> Secret<Scalar<P>> {
+    pub fn to_signing_key(&self) -> Option<SigningKey<P::Curve>> {
         let nonzero_scalar: Secret<NonZeroScalar<_>> =
             Secret::maybe_init_with(|| Option::from(NonZeroScalar::new(self.expose_secret().0)))?;
         // SigningKey can be instantiated from NonZeroScalar directly, but that method takes it by value,
@@ -138,7 +148,11 @@ impl Secret<Scalar> {
     }
 }
 
-pub(crate) fn secret_split(rng: &mut impl CryptoRngCore, scalar: Secret<Scalar>, num: usize) -> Vec<Secret<Scalar>> {
+pub(crate) fn secret_split<P: SchemeParams>(
+    rng: &mut impl CryptoRngCore,
+    scalar: Secret<Scalar<P>>,
+    num: usize,
+) -> Vec<Secret<Scalar<P>>> {
     if num == 1 {
         return vec![scalar];
     }
@@ -146,47 +160,77 @@ pub(crate) fn secret_split(rng: &mut impl CryptoRngCore, scalar: Secret<Scalar>,
     let mut parts = (0..(num - 1))
         .map(|_| Secret::init_with(|| Scalar::random_nonzero(rng)))
         .collect::<Vec<_>>();
-    let partial_sum: Secret<Scalar> = parts.iter().cloned().sum();
+    let partial_sum: Secret<Scalar<P>> = parts.iter().cloned().sum();
     parts.push(scalar - partial_sum);
     parts
 }
 
-impl<'a> TryFrom<&'a [u8]> for Scalar {
+impl<'a, P> TryFrom<&'a [u8]> for Scalar<P>
+where
+    P: SchemeParams,
+{
     type Error = String;
     fn try_from(val: &'a [u8]) -> Result<Self, Self::Error> {
         Self::try_from_be_bytes(val)
     }
 }
 
-impl From<&NonZeroScalar<k256::Secp256k1>> for Scalar {
-    fn from(val: &NonZeroScalar<k256::Secp256k1>) -> Self {
+impl<P> From<&NonZeroScalar<P::Curve>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    fn from(val: &NonZeroScalar<P::Curve>) -> Self {
         Self(*val.as_ref())
     }
 }
 
-impl ConditionallySelectable for Scalar {
-    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        Self(BackendScalar::conditional_select(&a.0, &b.0, choice))
+// TODO(dp): ConditionallySelectable requires Copy, which I don't think we want to impose so need to switch to ConstantTimeSelect instead.
+impl<P> ConstantTimeSelect for Scalar<P>
+where
+    P: SchemeParams,
+{
+    fn ct_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        Self(<P::Curve as CurveArithmetic>::Scalar::conditional_select(
+            &a.0, &b.0, choice,
+        ))
     }
 }
 
-impl Serialize for Scalar {
+// impl<P> ConditionallySelectable for Scalar<P>
+// where
+//     P: SchemeParams,
+// {
+//     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+//         Self(BackendScalar::conditional_select(&a.0, &b.0, choice))
+//     }
+// }
+
+impl<P> Serialize for Scalar<P>
+where
+    P: SchemeParams,
+{
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        SliceLike::<Hex>::serialize(&self.to_be_bytes(), serializer)
+        SliceLike::<Hex>::serialize(&self.clone().to_be_bytes(), serializer)
     }
 }
 
-impl<'de> Deserialize<'de> for Scalar {
+impl<'de, P> Deserialize<'de> for Scalar<P>
+where
+    P: SchemeParams,
+{
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         SliceLike::<Hex>::deserialize(deserializer)
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Point(BackendPoint);
+pub(crate) struct Point<P: SchemeParams>(ProjectivePoint<P::Curve>);
 
-impl Point {
-    pub const GENERATOR: Self = Self(BackendPoint::GENERATOR);
+impl<P> Point<P>
+where
+    P: SchemeParams,
+{
+    pub const GENERATOR: Self = Self(<P::Curve as CurveArithmetic>::ProjectivePoint::generator());
 
     pub const IDENTITY: Self = Self(BackendPoint::IDENTITY);
 

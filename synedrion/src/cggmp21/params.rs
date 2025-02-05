@@ -10,7 +10,7 @@ use ecdsa::hazmat::SignPrimitive;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use elliptic_curve::{Curve, CurveArithmetic, PrimeCurve, ScalarPrimitive};
+use elliptic_curve::{ops::Reduce, Curve, CurveArithmetic, PrimeCurve, ScalarPrimitive};
 // TODO(dp): this should really be `elliptic_curve::Curve` and we shouldn't use the re-exported on from k256
 use k256::elliptic_curve::bigint::Uint as K256Uint;
 use tiny_curve::TinyCurve64;
@@ -112,7 +112,11 @@ impl PaillierParams for PaillierProduction {
 // but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static
 where
-    <Self::Curve as CurveArithmetic>::Scalar: Serialize + SignPrimitive<Self::Curve>,
+    <Self::Curve as CurveArithmetic>::Scalar: Serialize
+        + SignPrimitive<Self::Curve>
+        + Ord
+        + /* TODO(dp): Shouldn't be necessary to bound on Reduce */
+        Reduce<<Self::Curve as Curve>::Uint>,
     for<'a> <Self::Curve as CurveArithmetic>::Scalar: Deserialize<'a>,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
 {
@@ -140,14 +144,6 @@ where
 }
 
 pub type ScalarSh<P: SchemeParams> = <P::Curve as CurveArithmetic>::Scalar;
-
-// TODO(dp: can't impl like this
-// impl crypto_bigint::Random for <TinyCurve64 as CurveArithmetic>::Scalar {
-//     fn random(rng: &mut impl CryptoRngCore) -> Self {
-//         todo!()
-//     }
-// }
-// Can't impl Random on `ScalarSh` either. Can I impl Random inside `tiny-curve` perhaps?
 
 impl<P: SchemeParams> HashableType for P {
     fn chain_type<C: Chain>(digest: C) -> C {
