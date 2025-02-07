@@ -8,11 +8,13 @@ use ecdsa::{SigningKey, VerifyingKey};
 use primeorder::elliptic_curve::{
     bigint::Encoding,
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
+    group::{Curve as _, GroupEncoding},
     ops::Reduce,
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, NonZeroScalar, PrimeField, ScalarPrimitive, SecretKey,
+    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, Group, NonZeroScalar, PrimeField, ScalarPrimitive,
+    SecretKey,
 };
 
 use rand_core::CryptoRngCore;
@@ -33,8 +35,12 @@ impl HashableType for TinyCurve64 {
         let mut digest = digest;
         // TODO(dp): pretty sure this is wrong and that this should be simpler. I think `impl<T: elliptic_curve::Curve> HashableType for T` should work.
         digest = digest.chain(&Self::ORDER.to_le_bytes());
-        digest.chain(&<TinyCurve64 as CurveArithmetic>::ProjectivePoint::GENERATOR)
-        // digest.chain(&Point::GENERATOR)
+
+        // TODO(dp): ProjectivePoint is not Serialize, so it's not Hashable either and I can't impl it because foreign types. Is it ok to just use the bytes here?
+        let generator_bytes: [u8; 9] = <TinyCurve64 as CurveArithmetic>::ProjectivePoint::generator()
+            .to_bytes()
+            .into();
+        digest.chain(&generator_bytes)
     }
 }
 
@@ -50,8 +56,12 @@ impl HashableType for k256::Secp256k1 {
         for word in words {
             digest = digest.chain(&word.to_le_bytes());
         }
-        digest.chain(&<k256::Secp256k1 as CurveArithmetic>::ProjectivePoint::GENERATOR)
-        // digest.chain(&Point::GENERATOR)
+        // TODO(dp): ProjectivePoint is not Serialize, so it's not Hashable either and I can't impl it because foreign types. Is it ok to just use the bytes here?
+        #[allow(deprecated)]
+        let generator_bytes: [u8; 33] = <k256::Secp256k1 as CurveArithmetic>::ProjectivePoint::generator()
+            .to_bytes()
+            .into();
+        digest.chain(&generator_bytes.as_ref())
     }
 }
 
@@ -74,7 +84,8 @@ impl<P: SchemeParams> Scalar<P> {
     }
 
     pub fn mul_by_generator(&self) -> Point<P> {
-        Point::GENERATOR * self
+        // Point::GENERATOR * self
+        Point::generator() * self
     }
 
     /// Invert the [`Scalar`]. Returns [`None`] if the scalar is zero.
@@ -98,10 +109,10 @@ impl<P: SchemeParams> Scalar<P> {
     ///
     /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
     /// is larger than the modulus.
-    // TODO(dp): Have to rework this, can't assume 32 bytes.
+
+    // TODO(dp): Have to rework this (both code and docs), can't assume 32 bytes.
     // pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
     pub fn from_reduced_bytes(bytes: impl AsRef<[u8]>) -> Self {
-        // let arr = GenericArray::<u8, FieldBytesSize<P::Curve>>::from(bytes);
         Self(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
             bytes.as_ref().into(),
         ))
@@ -194,6 +205,7 @@ where
     }
 }
 
+// TODO(dp): See above
 // impl<P> ConditionallySelectable for Scalar<P>
 // where
 //     P: SchemeParams,
@@ -230,9 +242,12 @@ impl<P> Point<P>
 where
     P: SchemeParams,
 {
-    pub const GENERATOR: Self = Self(PointSh::<P>::GENERATOR);
-
-    pub const IDENTITY: Self = Self(PointSh::<P>::IDENTITY);
+    pub fn generator() -> Self {
+        Self(<<P::Curve as CurveArithmetic>::ProjectivePoint as Group>::generator())
+    }
+    pub fn identity() -> Self {
+        Self(<<P::Curve as CurveArithmetic>::ProjectivePoint as Group>::identity())
+    }
 
     pub fn x_coordinate(&self) -> Scalar<P> {
         let bytes = self.0.to_affine().x();
@@ -240,7 +255,7 @@ where
     }
 
     pub fn from_verifying_key(key: &VerifyingKey<P::Curve>) -> Self {
-        Self(key.as_affine().into())
+        Self((*key.as_affine()).into())
     }
 
     /// Convert a [`Point`] to a [`VerifyingKey`] wrapped in an [`Option`]. Returns [`None`] if the
@@ -259,7 +274,7 @@ where
             .ok_or_else(|| "Invalid curve point representation".into())
     }
 
-    // TODO(dp): this used to that `self` which caused issues with the `Serialize` impl below. Given it clones anyway, it seems like taking a ref should work well.
+    // TODO(dp): this used to take `self` which caused issues with the `Serialize` impl below. Given it clones anyway, it seems like taking a ref should work as well.
     pub(crate) fn to_compressed_array(&self) -> GenericArray<u8, CompressedPointSize<P>> {
         GenericArray::<u8, CompressedPointSize<P>>::from_exact_iter(
             self.0.to_affine().to_encoded_point(true).as_bytes().iter().cloned(),
@@ -471,7 +486,7 @@ where
     P: SchemeParams,
 {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(Add::add).unwrap_or(Self::IDENTITY)
+        iter.reduce(Add::add).unwrap_or(Self::identity())
     }
 }
 

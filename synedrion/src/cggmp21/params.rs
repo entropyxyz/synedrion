@@ -6,16 +6,13 @@ use core::{fmt::Debug, ops::Add};
 // from the one used throughout the crate.
 use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
 use digest::generic_array::ArrayLength;
-use ecdsa::hazmat::SignPrimitive;
+use ecdsa::hazmat::{DigestPrimitive, SignPrimitive};
 use serde::{Deserialize, Serialize};
 
-use primeorder::{
-    elliptic_curve::{
-        ops::Reduce,
-        sec1::{FromEncodedPoint, ModulusSize},
-        Curve, CurveArithmetic, PrimeCurve,
-    },
-    PrimeCurveParams,
+use primeorder::elliptic_curve::{
+    ops::Reduce,
+    sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
+    Curve, CurveArithmetic, PrimeCurve,
 };
 // TODO(dp): this should really be `elliptic_curve::Curve` and we shouldn't use the re-exported on from k256
 use k256::elliptic_curve::bigint::Uint as K256Uint;
@@ -126,6 +123,8 @@ where
     <<<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::CompressedPointSize as ArrayLength<u8>>::ArrayType: Copy,
     <<<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::UncompressedPointSize as ArrayLength<u8>>::ArrayType:
         Copy,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::Curve>,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::Curve>,
     <Self::Curve as CurveArithmetic>::Scalar: Serialize
         + SignPrimitive<Self::Curve>
         + Ord
@@ -137,10 +136,10 @@ where
     /// Elliptic curve of prime order used.
     type Curve: PrimeCurve
         + CurveArithmetic
-        + HashableType
-        +
         /*TODO(dp): k256 doesn't seem to implement this trait which is a bit of a problem. Is there a (good) reason for this? */
-        PrimeCurveParams;
+        // + PrimeCurveParams
+        + HashableType
+        + DigestPrimitive;
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.

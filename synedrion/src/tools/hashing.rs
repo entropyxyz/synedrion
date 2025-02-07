@@ -1,12 +1,15 @@
 use crypto_bigint::{Encoding, Integer, NonZero};
-use digest::{Digest, ExtendableOutput, Update, XofReader};
+use digest::{Digest, ExtendableOutput, FixedOutput, Update, XofReader};
+use ecdsa::hazmat::DigestPrimitive;
 use hashing_serializer::HashingSerializer;
-use serde::{Deserialize, Serialize};
-use serde_encoded_bytes::{ArrayLike, Hex};
-use sha2::Sha256;
+use primeorder::elliptic_curve::{Curve, CurveArithmetic};
+// TODO(dp): we're going to need these.
+use serde::{/*Deserialize,*/ Serialize};
+// use serde_encoded_bytes::{ArrayLike, Hex};
 use sha3::{Shake256, Shake256Reader};
+use tiny_curve::TinyCurve64;
 
-use crate::{ScalarSh, SchemeParams};
+use crate::{curve::Scalar, SchemeParams};
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
@@ -36,13 +39,18 @@ pub trait Chain: Sized {
     }
 }
 
-pub(crate) type BackendDigest = Sha256;
+// pub(crate) type BackendDigest = Sha256;
+// pub(crate) type BackendDigest<P: SchemeParams> = <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize;
+pub(crate) type BackendDigest<P: SchemeParams> = <P::Curve as DigestPrimitive>::Digest;
 
 /// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub(crate) struct FofHasher(BackendDigest);
+pub(crate) struct FofHasher<P: SchemeParams>(BackendDigest<P>);
 
-impl Chain for FofHasher {
-    type Digest = BackendDigest;
+impl<P> Chain for FofHasher<P>
+where
+    P: SchemeParams,
+{
+    type Digest = <P::Curve as DigestPrimitive>::Digest;
 
     fn as_digest_mut(&mut self) -> &mut Self::Digest {
         &mut self.0
@@ -53,34 +61,38 @@ impl Chain for FofHasher {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct HashOutput(
-    // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
-    #[serde(with = "ArrayLike::<Hex>")] pub(crate) [u8; 32],
-);
+// TODO(dp): Can we find a way to not have this type?
+// #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// pub(crate) struct HashOutput(
+//     // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
+//     #[serde(with = "ArrayLike::<Hex>")] pub(crate) [u8; 32],
+// );
 
-impl AsRef<[u8]> for HashOutput {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
+// impl AsRef<[u8]> for HashOutput {
+//     fn as_ref(&self) -> &[u8] {
+//         &self.0
+//     }
+// }
 
-impl FofHasher {
+impl<P> FofHasher<P>
+where
+    P: SchemeParams,
+{
     fn new() -> Self {
-        Self(BackendDigest::new())
+        Self(BackendDigest::<P>::new())
     }
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
     }
 
-    pub(crate) fn finalize(self) -> HashOutput {
-        HashOutput(self.0.finalize().into())
+    // TODO(dp): there must be an easier way to state the return type here, something like BackendDigest<P>::Output, or do we *really* need the `HashOutput` crutch?
+    pub(crate) fn finalize(self) -> digest::generic_array::GenericArray<u8, <P::Curve as Curve>::FieldBytesSize> {
+        self.0.finalize_fixed()
     }
 
-    pub fn finalize_to_scalar<P: SchemeParams>(self) -> ScalarSh<P> {
-        todo!()
-        // Scalar::from_digest(self.0)
+    pub fn finalize_to_scalar(self) -> Scalar<P> {
+        Scalar::from_digest(self.0)
     }
 }
 
