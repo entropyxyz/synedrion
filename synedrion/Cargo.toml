@@ -30,7 +30,7 @@ tiny-curve = { version = "0.1", features = [
 # TODO(dp): feature gate this
 k256 = { version = "0.13", default-features = false, features = ["arithmetic", "serde"] }
 # TODO(dp): Should this be `primeorder` instead?
-elliptic-curve = { version = "0.13", features = ["arithmetic", "serde"] }
+primeorder = { version = "0.13", features = ["serde"] }
 # TODO(dp): Cribbed from tiny-curve, but are these the right features?
 ecdsa = { version = "0.16", default-features = false, features = ["arithmetic", "digest", "hazmat"] }
 
