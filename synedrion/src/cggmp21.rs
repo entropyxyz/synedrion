@@ -24,4 +24,4 @@ pub use entities::{AuxInfo, KeyShare, KeyShareChange};
 pub use interactive_signing::{InteractiveSigning, InteractiveSigningProtocol, PrehashedMessage};
 pub use key_init::{KeyInit, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshProtocol};
-pub use params::{ProductionParams, ScalarSh, SchemeParams, TestParams};
+pub use params::{ProductionParams, SchemeParams, TestParams};
