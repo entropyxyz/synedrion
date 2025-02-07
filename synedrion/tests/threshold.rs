@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     session::signature::Keypair,
