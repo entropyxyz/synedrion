@@ -6,6 +6,6 @@
 mod arithmetic;
 mod ecdsa;
 
-pub(crate) use arithmetic::{secret_split, Point, Scalar};
+pub(crate) use arithmetic::{secret_split, Point, PointSh, Scalar, ScalarSh};
 
 pub use self::ecdsa::RecoverableSignature;

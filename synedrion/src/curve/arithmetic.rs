@@ -4,18 +4,16 @@ use crypto_bigint::ConstantTimeSelect;
 use tiny_curve::TinyCurve64;
 
 use digest::Digest;
-use ecdsa::SigningKey;
-use elliptic_curve::{
-    bigint::{Encoding, U256},
+use ecdsa::{SigningKey, VerifyingKey};
+use primeorder::elliptic_curve::{
+    bigint::Encoding,
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     ops::Reduce,
     point::AffineCoordinates,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, Group, NonZeroScalar, PrimeField, ProjectivePoint,
-    ScalarPrimitive, SecretKey,
+    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, NonZeroScalar, PrimeField, ScalarPrimitive, SecretKey,
 };
-use k256::ecdsa::{/*SigningKey, */ VerifyingKey};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -27,19 +25,16 @@ use crate::{
         hashing::{Chain, HashableType},
         Secret,
     },
-    ScalarSh, SchemeParams,
+    SchemeParams,
 };
-
-// pub(crate) type BackendScalar = k256::Scalar;
-// pub(crate) type BackendPoint = k256::ProjectivePoint;
-pub(crate) type CompressedPointSize = <FieldBytesSize<k256::Secp256k1> as ModulusSize>::CompressedPointSize;
 
 impl HashableType for TinyCurve64 {
     fn chain_type<C: Chain>(digest: C) -> C {
         let mut digest = digest;
         // TODO(dp): pretty sure this is wrong and that this should be simpler. I think `impl<T: elliptic_curve::Curve> HashableType for T` should work.
         digest = digest.chain(&Self::ORDER.to_le_bytes());
-        digest.chain(&Point::GENERATOR)
+        digest.chain(&<TinyCurve64 as CurveArithmetic>::ProjectivePoint::GENERATOR)
+        // digest.chain(&Point::GENERATOR)
     }
 }
 
@@ -55,10 +50,13 @@ impl HashableType for k256::Secp256k1 {
         for word in words {
             digest = digest.chain(&word.to_le_bytes());
         }
-
-        digest.chain(&Point::GENERATOR)
+        digest.chain(&<k256::Secp256k1 as CurveArithmetic>::ProjectivePoint::GENERATOR)
+        // digest.chain(&Point::GENERATOR)
     }
 }
+
+pub type ScalarSh<P: SchemeParams> = <P::Curve as CurveArithmetic>::Scalar;
+pub(crate) type CompressedPointSize<P: SchemeParams> = <FieldBytesSize<P::Curve> as ModulusSize>::CompressedPointSize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
 pub(crate) struct Scalar<P: SchemeParams>(ScalarSh<P>);
@@ -223,198 +221,264 @@ where
     }
 }
 
+pub type PointSh<P: SchemeParams> = <P::Curve as CurveArithmetic>::ProjectivePoint;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Point<P: SchemeParams>(ProjectivePoint<P::Curve>);
+pub(crate) struct Point<P: SchemeParams>(PointSh<P>);
 
 impl<P> Point<P>
 where
     P: SchemeParams,
 {
-    pub const GENERATOR: Self = Self(<P::Curve as CurveArithmetic>::ProjectivePoint::generator());
+    pub const GENERATOR: Self = Self(PointSh::<P>::GENERATOR);
 
-    pub const IDENTITY: Self = Self(BackendPoint::IDENTITY);
+    pub const IDENTITY: Self = Self(PointSh::<P>::IDENTITY);
 
-    pub fn x_coordinate(&self) -> Scalar {
+    pub fn x_coordinate(&self) -> Scalar<P> {
         let bytes = self.0.to_affine().x();
-        Scalar(<BackendScalar as Reduce<U256>>::reduce_bytes(&bytes))
+        Scalar(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(&bytes))
     }
 
-    pub fn from_verifying_key(key: &VerifyingKey) -> Self {
+    pub fn from_verifying_key(key: &VerifyingKey<P::Curve>) -> Self {
         Self(key.as_affine().into())
     }
 
     /// Convert a [`Point`] to a [`VerifyingKey`] wrapped in an [`Option`]. Returns [`None`] if the
     /// `Point` is the point at infinity.
-    pub fn to_verifying_key(self) -> Option<VerifyingKey> {
+    pub fn to_verifying_key(self) -> Option<VerifyingKey<P::Curve>> {
         VerifyingKey::from_affine(self.0.to_affine()).ok()
     }
 
     pub(crate) fn try_from_compressed_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let ep = EncodedPoint::<k256::Secp256k1>::from_bytes(bytes).map_err(|err| format!("{err}"))?;
+        let ep = EncodedPoint::<P::Curve>::from_bytes(bytes).map_err(|err| format!("{err}"))?;
 
         // Unwrap CtOption into Option
-        let cp_opt: Option<BackendPoint> = BackendPoint::from_encoded_point(&ep).into();
+        let cp_opt: Option<_> = <<P::Curve as CurveArithmetic>::ProjectivePoint>::from_encoded_point(&ep).into();
         cp_opt
             .map(Self)
             .ok_or_else(|| "Invalid curve point representation".into())
     }
 
-    pub(crate) fn to_compressed_array(self) -> GenericArray<u8, CompressedPointSize> {
-        GenericArray::<u8, CompressedPointSize>::from_exact_iter(
+    // TODO(dp): this used to that `self` which caused issues with the `Serialize` impl below. Given it clones anyway, it seems like taking a ref should work well.
+    pub(crate) fn to_compressed_array(&self) -> GenericArray<u8, CompressedPointSize<P>> {
+        GenericArray::<u8, CompressedPointSize<P>>::from_exact_iter(
             self.0.to_affine().to_encoded_point(true).as_bytes().iter().cloned(),
         ).expect("An AffinePoint is composed of elements of the correct size and their slice repr fits in the `CompressedPointSize`-sized array.")
     }
 
-    pub(crate) fn to_backend(self) -> BackendPoint {
+    pub(crate) fn to_backend(self) -> PointSh<P> {
         self.0
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for Point {
+impl<'a, P> TryFrom<&'a [u8]> for Point<P>
+where
+    P: SchemeParams,
+{
     type Error = String;
     fn try_from(val: &'a [u8]) -> Result<Self, Self::Error> {
         Self::try_from_compressed_bytes(val)
     }
 }
 
-impl Serialize for Point {
+impl<P> Serialize for Point<P>
+where
+    P: SchemeParams,
+{
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         SliceLike::<Hex>::serialize(&self.to_compressed_array(), serializer)
     }
 }
 
-impl<'de> Deserialize<'de> for Point {
+impl<'de, P> Deserialize<'de> for Point<P>
+where
+    P: SchemeParams,
+{
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         SliceLike::<Hex>::deserialize(deserializer)
     }
 }
 
-impl From<u64> for Scalar {
+impl<P> From<u64> for Scalar<P>
+where
+    P: SchemeParams,
+{
     fn from(val: u64) -> Self {
-        Self(BackendScalar::from(val))
+        Self(ScalarSh::<P>::from(val))
     }
 }
 
-impl Neg for Scalar {
+impl<P> Neg for Scalar<P>
+where
+    P: SchemeParams,
+{
     type Output = Self;
     fn neg(self) -> Self::Output {
         Self(-self.0)
     }
 }
 
-impl Add<Scalar> for Scalar {
-    type Output = Scalar;
+impl<P> Add<Scalar<P>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
 
-    fn add(self, rhs: Scalar) -> Scalar {
+    fn add(self, rhs: Self) -> Self {
         Scalar(self.0.add(&rhs.0))
     }
 }
 
-impl Add<&Scalar> for &Scalar {
-    type Output = Scalar;
+impl<P> Add<&Scalar<P>> for &Scalar<P>
+where
+    P: SchemeParams,
+{
+    type Output = Scalar<P>;
 
-    fn add(self, rhs: &Scalar) -> Scalar {
+    fn add(self, rhs: &Scalar<P>) -> Scalar<P> {
         Scalar(self.0.add(&rhs.0))
     }
 }
 
-impl Add<&Scalar> for Scalar {
-    type Output = Scalar;
+impl<P> Add<&Scalar<P>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
 
-    fn add(self, rhs: &Scalar) -> Scalar {
-        Scalar(self.0.add(&rhs.0))
+    fn add(self, rhs: &Self) -> Self {
+        Self(self.0.add(&rhs.0))
     }
 }
 
-impl Add<Point> for Point {
-    type Output = Point;
+impl<P> Add<Point<P>> for Point<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
 
-    fn add(self, rhs: Point) -> Point {
-        Point(self.0.add(&(rhs.0)))
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0.add(&(rhs.0)))
     }
 }
 
-impl Sub<Scalar> for Scalar {
-    type Output = Scalar;
+impl<P> Sub<Scalar<P>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
 
-    fn sub(self, rhs: Scalar) -> Scalar {
-        Scalar(self.0.sub(&(rhs.0)))
+    fn sub(self, rhs: Self) -> Self {
+        Self(self.0.sub(&(rhs.0)))
     }
 }
 
-impl Sub<&Scalar> for Scalar {
-    type Output = Scalar;
+impl<P> Sub<&Scalar<P>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
 
-    fn sub(self, rhs: &Scalar) -> Scalar {
-        Scalar(self.0.sub(&(rhs.0)))
+    fn sub(self, rhs: &Scalar<P>) -> Self {
+        Self(self.0.sub(&(rhs.0)))
     }
 }
 
-impl Mul<Scalar> for Point {
-    type Output = Point;
+impl<P> Mul<Scalar<P>> for Point<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
 
-    fn mul(self, rhs: Scalar) -> Point {
+    fn mul(self, rhs: Scalar<P>) -> Self {
+        Self(self.0.mul(&(rhs.0)))
+    }
+}
+
+impl<P> Mul<&Scalar<P>> for Point<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
+
+    fn mul(self, rhs: &Scalar<P>) -> Self {
+        Self(self.0.mul(&(rhs.0)))
+    }
+}
+
+impl<P> Mul<&Scalar<P>> for &Point<P>
+where
+    P: SchemeParams,
+{
+    type Output = Point<P>;
+
+    fn mul(self, rhs: &Scalar<P>) -> Point<P> {
         Point(self.0.mul(&(rhs.0)))
     }
 }
 
-impl Mul<&Scalar> for Point {
-    type Output = Point;
+impl<P> Mul<Scalar<P>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
 
-    fn mul(self, rhs: &Scalar) -> Point {
-        Point(self.0.mul(&(rhs.0)))
+    fn mul(self, rhs: Self) -> Self {
+        Self(self.0.mul(&(rhs.0)))
     }
 }
 
-impl Mul<&Scalar> for &Point {
-    type Output = Point;
+impl<P> Mul<&Scalar<P>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    type Output = Self;
 
-    fn mul(self, rhs: &Scalar) -> Point {
-        Point(self.0.mul(&(rhs.0)))
+    fn mul(self, rhs: &Scalar<P>) -> Self {
+        Self(self.0.mul(&(rhs.0)))
     }
 }
 
-impl Mul<Scalar> for Scalar {
-    type Output = Scalar;
-
-    fn mul(self, rhs: Scalar) -> Scalar {
-        Scalar(self.0.mul(&(rhs.0)))
-    }
-}
-
-impl Mul<&Scalar> for Scalar {
-    type Output = Scalar;
-
-    fn mul(self, rhs: &Scalar) -> Scalar {
-        Scalar(self.0.mul(&(rhs.0)))
-    }
-}
-
-impl core::iter::Sum for Scalar {
+impl<P> core::iter::Sum for Scalar<P>
+where
+    P: SchemeParams,
+{
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(Add::add).unwrap_or(Self::ZERO)
     }
 }
 
-impl<'a> core::iter::Sum<&'a Self> for Scalar {
+impl<'a, P> core::iter::Sum<&'a Self> for Scalar<P>
+where
+    P: SchemeParams,
+{
     fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
         iter.cloned().sum()
     }
 }
 
-impl core::iter::Product for Scalar {
+impl<P> core::iter::Product for Scalar<P>
+where
+    P: SchemeParams,
+{
     fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(Mul::mul).unwrap_or(Self::ONE)
     }
 }
 
-impl core::iter::Sum for Point {
+impl<P> core::iter::Sum for Point<P>
+where
+    P: SchemeParams,
+{
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(Add::add).unwrap_or(Self::IDENTITY)
     }
 }
 
-impl<'a> core::iter::Sum<&'a Self> for Point {
+impl<'a, P> core::iter::Sum<&'a Self> for Point<P>
+where
+    P: SchemeParams,
+{
     fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
         iter.cloned().sum()
     }
@@ -422,13 +486,15 @@ impl<'a> core::iter::Sum<&'a Self> for Point {
 
 #[cfg(test)]
 mod test {
+    use crate::TestParams;
+
     use super::Scalar;
     use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
     #[test]
     fn to_and_from_bytes() {
         let mut rng = ChaChaRng::from_seed([7u8; 32]);
-        let s = Scalar::random(&mut rng);
+        let s = Scalar::<TestParams>::random(&mut rng);
 
         // Round trip works
         let bytes = s.to_be_bytes();

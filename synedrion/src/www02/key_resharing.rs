@@ -13,7 +13,7 @@ use alloc::{
 };
 use core::{fmt::Debug, marker::PhantomData};
 
-use k256::ecdsa::VerifyingKey;
+use ecdsa::VerifyingKey;
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EchoRoundParticipation, EntryPoint,
     FinalizeOutcome, LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
@@ -24,12 +24,12 @@ use serde::{Deserialize, Serialize};
 
 use super::ThresholdKeyShare;
 use crate::{
-    curve::Point,
+    curve::{Point, ScalarSh},
     tools::{
         sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},
         DowncastMap, Secret, Without,
     },
-    ScalarSh, SchemeParams,
+    SchemeParams,
 };
 
 /// A protocol for modifying the set of owners of a shared secret key.

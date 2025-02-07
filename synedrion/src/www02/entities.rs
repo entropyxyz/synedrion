@@ -8,7 +8,7 @@ use crypto_bigint::Random;
 use manul::session::LocalError;
 
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
-use k256::ecdsa::{SigningKey, VerifyingKey};
+use ecdsa::{SigningKey, VerifyingKey};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -322,7 +322,8 @@ fn apply_tweaks_private(private_key: SigningKey, tweaks: &[PrivateKeyBytes]) -> 
 mod tests {
     use alloc::collections::BTreeSet;
 
-    use k256::ecdsa::SigningKey;
+    // use k256::ecdsa::SigningKey;
+    use ecdsa::SigningKey;
     use manul::{
         dev::{TestSigner, TestVerifier},
         session::signature::Keypair,

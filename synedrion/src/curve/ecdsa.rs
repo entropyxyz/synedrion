@@ -1,4 +1,4 @@
-use k256::ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
+use ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
 
 use super::arithmetic::{Point, Scalar};
 

@@ -4,13 +4,19 @@ use core::{fmt::Debug, ops::Add};
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{NonZero, Random, Uint, U1024, U2048, U4096, U512, U8192};
+use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
 use digest::generic_array::ArrayLength;
 use ecdsa::hazmat::SignPrimitive;
-use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use elliptic_curve::{ops::Reduce, Curve, CurveArithmetic, PrimeCurve, ScalarPrimitive};
+use primeorder::{
+    elliptic_curve::{
+        ops::Reduce,
+        sec1::{FromEncodedPoint, ModulusSize},
+        Curve, CurveArithmetic, PrimeCurve,
+    },
+    PrimeCurveParams,
+};
 // TODO(dp): this should really be `elliptic_curve::Curve` and we shouldn't use the re-exported on from k256
 use k256::elliptic_curve::bigint::Uint as K256Uint;
 use tiny_curve::TinyCurve64;
@@ -112,6 +118,14 @@ impl PaillierParams for PaillierProduction {
 // but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static
 where
+    // TODO(dp): This insanity all stems from the `FromEncodedPoint` bound. WTH?
+    <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
+    <Self::Curve as Curve>::FieldBytesSize: ModulusSize,
+    <<Self::Curve as Curve>::FieldBytesSize as ArrayLength<u8>>::ArrayType: Copy,
+    <<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::CompressedPointSize: Copy,
+    <<<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::CompressedPointSize as ArrayLength<u8>>::ArrayType: Copy,
+    <<<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::UncompressedPointSize as ArrayLength<u8>>::ArrayType:
+        Copy,
     <Self::Curve as CurveArithmetic>::Scalar: Serialize
         + SignPrimitive<Self::Curve>
         + Ord
@@ -120,9 +134,13 @@ where
     for<'a> <Self::Curve as CurveArithmetic>::Scalar: Deserialize<'a>,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
 {
-    /// TODO(dp) Curve bla bla
-    // TODO(dp): should be PrimeCurve? And other traits? Tie the Uint type in here somewhere?
-    type Curve: PrimeCurve + CurveArithmetic + HashableType;
+    /// Elliptic curve of prime order used.
+    type Curve: PrimeCurve
+        + CurveArithmetic
+        + HashableType
+        +
+        /*TODO(dp): k256 doesn't seem to implement this trait which is a bit of a problem. Is there a (good) reason for this? */
+        PrimeCurveParams;
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
@@ -142,8 +160,6 @@ where
     /// when treated as a 2-complement signed integer).
     type Paillier: PaillierParams;
 }
-
-pub type ScalarSh<P: SchemeParams> = <P::Curve as CurveArithmetic>::Scalar;
 
 impl<P: SchemeParams> HashableType for P {
     fn chain_type<C: Chain>(digest: C) -> C {
@@ -204,7 +220,7 @@ impl SchemeParams for ProductionParams {
 
 #[cfg(test)]
 mod tests {
-    use k256::elliptic_curve::bigint::{U256, U64};
+    use primeorder::elliptic_curve::bigint::{U256, U64};
 
     use super::upcast_uint;
 

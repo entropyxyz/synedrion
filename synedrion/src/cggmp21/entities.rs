@@ -4,16 +4,15 @@ use alloc::{
     vec::Vec,
 };
 use core::{fmt::Debug, marker::PhantomData};
-use crypto_bigint::Random;
 use manul::session::LocalError;
 
-use k256::ecdsa::VerifyingKey;
+use ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cggmp21::{ScalarSh, SchemeParams},
-    curve::{secret_split, Point},
+    cggmp21::SchemeParams,
+    curve::{secret_split, Point, ScalarSh},
     paillier::{
         Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, Randomizer,
         SecretKeyPaillier, SecretKeyPaillierWire,

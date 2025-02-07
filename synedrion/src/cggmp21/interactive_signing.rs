@@ -1453,7 +1453,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for SigningErrorRound<P, I> {
 mod tests {
     use alloc::collections::BTreeSet;
 
-    use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+    use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use manul::{
         dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
         session::signature::Keypair,
