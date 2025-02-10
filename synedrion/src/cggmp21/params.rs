@@ -143,9 +143,9 @@ where
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
 {
     /// Elliptic curve of prime order used.
-    type Curve: PrimeCurve
-        + CurveArithmetic
-        /*TODO(dp): k256 doesn't seem to implement this trait which is a bit of a problem. Is there a (good) reason for this? */
+    type Curve:
+        CurveArithmetic + PrimeCurve
+        /*TODO(dp): k256 doesn't implement this trait which is a bit of a problem. Is there a (good) reason for this? */
         // + PrimeCurveParams
         + HashableType
         + DigestPrimitive;
