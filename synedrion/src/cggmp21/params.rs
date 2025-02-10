@@ -6,16 +6,21 @@ use core::{fmt::Debug, ops::Add};
 // from the one used throughout the crate.
 use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
 use digest::generic_array::ArrayLength;
-use ecdsa::hazmat::{DigestPrimitive, SignPrimitive};
+use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use serde::{Deserialize, Serialize};
 
 use primeorder::elliptic_curve::{
+    // TODO(dp): get rid of this
+    bigint::Uint as Other256Uint,
     ops::Reduce,
+    point::DecompressPoint,
+
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    Curve, CurveArithmetic, PrimeCurve,
+    Curve,
+    CurveArithmetic,
+    PrimeCurve,
 };
-// TODO(dp): this should really be `elliptic_curve::Curve` and we shouldn't use the re-exported on from k256
-use k256::elliptic_curve::bigint::Uint as K256Uint;
+
 use tiny_curve::TinyCurve64;
 
 use crate::{
@@ -28,7 +33,7 @@ use crate::{
 pub struct PaillierTest;
 
 #[allow(clippy::indexing_slicing)]
-const fn upcast_uint<const N1: usize, const N2: usize>(value: K256Uint<N1>) -> K256Uint<N2> {
+const fn upcast_uint<const N1: usize, const N2: usize>(value: Other256Uint<N1>) -> Other256Uint<N2> {
     assert!(N2 >= N1, "Upcast target must be bigger than the upcast candidate");
     let mut result_words = [0; N2];
     let mut i = 0;
@@ -37,10 +42,10 @@ const fn upcast_uint<const N1: usize, const N2: usize>(value: K256Uint<N1>) -> K
         result_words[i] = words[i];
         i += 1;
     }
-    K256Uint::from_words(result_words)
+    Other256Uint::from_words(result_words)
 }
 
-const fn convert_uint<const N: usize>(value: K256Uint<N>) -> Uint<N> {
+const fn convert_uint<const N: usize>(value: Other256Uint<N>) -> Uint<N> {
     Uint::from_words(value.to_words())
 }
 
@@ -125,6 +130,8 @@ where
         Copy,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::Curve>,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::Curve>,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: DecompressPoint<Self::Curve>,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: VerifyPrimitive<Self::Curve>,
     <Self::Curve as CurveArithmetic>::Scalar: Serialize
         + SignPrimitive<Self::Curve>
         + Ord

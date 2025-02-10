@@ -37,10 +37,8 @@ impl HashableType for TinyCurve64 {
         digest = digest.chain(&Self::ORDER.to_le_bytes());
 
         // TODO(dp): ProjectivePoint is not Serialize, so it's not Hashable either and I can't impl it because foreign types. Is it ok to just use the bytes here?
-        let generator_bytes: [u8; 9] = <TinyCurve64 as CurveArithmetic>::ProjectivePoint::generator()
-            .to_bytes()
-            .into();
-        digest.chain(&generator_bytes)
+        let generator_bytes = <TinyCurve64 as CurveArithmetic>::ProjectivePoint::generator().to_bytes();
+        digest.chain::<&[u8]>(&generator_bytes.as_ref())
     }
 }
 
@@ -60,6 +58,7 @@ impl HashableType for k256::Secp256k1 {
         #[allow(deprecated)]
         let generator_bytes: [u8; 33] = <k256::Secp256k1 as CurveArithmetic>::ProjectivePoint::generator()
             .to_bytes()
+            // TODO(dp): it's unclear to me why `Into` works here but not for `TinyCurve64`
             .into();
         digest.chain(&generator_bytes.as_ref())
     }
@@ -98,6 +97,7 @@ impl<P: SchemeParams> Scalar<P> {
         // depend on the target scalar size, so we are hardcoding it to 256 bit
         // (that is, equal to the scalar size).
         // Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&d.finalize()))
+
         // TODO(dp): this should be much less messy. CurveArithmetic::Scalar is Reduce<Self::Uint>
         Self(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
             &d.finalize(),
@@ -274,7 +274,7 @@ where
             .ok_or_else(|| "Invalid curve point representation".into())
     }
 
-    // TODO(dp): this used to take `self` which caused issues with the `Serialize` impl below. Given it clones anyway, it seems like taking a ref should work as well.
+    // TODO(dp): this used to take `self` which caused issues with the `Serialize for Point` impl below. Given it clones anyway, it seems like taking a ref should work as well.
     pub(crate) fn to_compressed_array(&self) -> GenericArray<u8, CompressedPointSize<P>> {
         GenericArray::<u8, CompressedPointSize<P>>::from_exact_iter(
             self.0.to_affine().to_encoded_point(true).as_bytes().iter().cloned(),

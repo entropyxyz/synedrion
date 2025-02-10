@@ -22,17 +22,16 @@ use super::{
     entities::{AuxInfo, PublicAuxInfo, SecretAuxInfo},
     params::SchemeParams,
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
-    ScalarSh,
 };
 use crate::{
-    curve::Point,
+    curve::{Point, ScalarSh},
     paillier::{
         PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillier,
         SecretKeyPaillierWire,
     },
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, FofHasher, HashOutput},
+        hashing::{Chain, FofHasher},
         DowncastMap, Secret, Without,
     },
 };
