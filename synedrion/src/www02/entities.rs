@@ -3,18 +3,19 @@ use alloc::{
     format,
     vec::Vec,
 };
-use core::{fmt::Debug, marker::PhantomData};
-use crypto_bigint::Random;
+use core::{fmt::Debug, marker::PhantomData, ops::Add};
 use manul::session::LocalError;
 
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
-use ecdsa::{SigningKey, VerifyingKey};
+use digest::generic_array::ArrayLength;
+use ecdsa::{hazmat::SignPrimitive, SigningKey, VerifyingKey};
+use primeorder::elliptic_curve::{Curve, CurveArithmetic, PrimeCurve};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     cggmp21::{KeyShare, SchemeParams},
-    curve::Point,
+    curve::{Point, Scalar},
     tools::{
         hashing::{Chain, FofHasher},
         sss::{interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareId},
@@ -30,16 +31,16 @@ pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
     // (mainly, that the verifying key is not an identity)
     pub(crate) owner: I,
     pub(crate) threshold: u32,
-    pub(crate) secret_share: Secret<P::Scalar>,
-    pub(crate) share_ids: BTreeMap<I, ShareId>,
-    pub(crate) public_shares: BTreeMap<I, Point>,
+    pub(crate) secret_share: Secret<Scalar<P>>,
+    pub(crate) share_ids: BTreeMap<I, ShareId<P>>,
+    pub(crate) public_shares: BTreeMap<I, Point<P>>,
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
     pub(crate) phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I> {
     /// Threshold share ID.
-    pub fn share_id(&self) -> Result<&ShareId, LocalError> {
+    pub fn share_id(&self) -> Result<&ShareId<P>, LocalError> {
         self.share_ids.get(&self.owner).ok_or(LocalError::new(format!(
             "owner={:?} is missing in the share_ids",
             self.owner
@@ -56,7 +57,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         rng: &mut impl CryptoRngCore,
         ids: &BTreeSet<I>,
         threshold: usize,
-        signing_key: Option<&SigningKey>,
+        signing_key: Option<&SigningKey<P::Curve>>,
     ) -> Result<BTreeMap<I, Self>, LocalError> {
         if threshold > ids.len() {
             return Err(LocalError::new(format!(
@@ -66,8 +67,8 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         }
 
         let secret = Secret::init_with(|| match signing_key {
-            None => P::Scalar::random(rng),
-            Some(sk) => P::Scalar::from(sk.as_nonzero_scalar()),
+            None => Scalar::<P>::random(rng),
+            Some(sk) => Scalar::<P>::from(sk.as_nonzero_scalar()),
         });
 
         let share_ids = shamir_evaluation_points(ids.len());
@@ -108,7 +109,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             .collect()
     }
 
-    pub(crate) fn verifying_key_as_point(&self) -> Result<Point, LocalError> {
+    pub(crate) fn verifying_key_as_point(&self) -> Result<Point<P>, LocalError> {
         Ok(shamir_join_points(
             &self
                 .share_ids
@@ -125,7 +126,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
     }
 
     /// Return the verifying key to which this set of shares corresponds.
-    pub fn verifying_key(&self) -> Result<VerifyingKey, LocalError> {
+    pub fn verifying_key(&self) -> Result<VerifyingKey<P::Curve>, LocalError> {
         self.verifying_key_as_point()?
             .to_verifying_key()
             .ok_or_else(|| LocalError::new("The combined verifying key is an identity"))
@@ -234,7 +235,7 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
         // Will fail here if secret share is zero
         let secret_share = self.secret_share.clone().to_signing_key().ok_or(bip32::Error::Crypto)?;
         let secret_share =
-            apply_tweaks_private(secret_share, &tweaks).map(|signing_key| P::Scalar::from_signing_key(&signing_key))?;
+            apply_tweaks_private(secret_share, &tweaks).map(|signing_key| Scalar::from_signing_key(&signing_key))?;
 
         let public_shares = self
             .public_shares
@@ -259,30 +260,39 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
 }
 
 /// Used for deriving child keys from a parent type.
-pub trait DeriveChildKey {
+pub trait DeriveChildKey<C: CurveArithmetic + PrimeCurve> {
     /// Return a verifying key derived from the given type using the BIP-32 scheme.
-    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey, bip32::Error>;
+    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error>;
 }
 
-impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> DeriveChildKey for ThresholdKeyShare<P, I> {
-    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey, bip32::Error> {
+impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> DeriveChildKey<P::Curve> for ThresholdKeyShare<P, I> {
+    fn derive_verifying_key_bip32(
+        &self,
+        derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey<P::Curve>, bip32::Error> {
         let public_key = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
         let tweaks = derive_tweaks(public_key, derivation_path)?;
         apply_tweaks_public(public_key, &tweaks)
     }
 }
 
-impl DeriveChildKey for VerifyingKey {
-    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey, bip32::Error> {
+impl<C> DeriveChildKey<C> for VerifyingKey<C>
+where
+    C: PrimeCurve + CurveArithmetic,
+{
+    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error> {
         let tweaks = derive_tweaks(*self, derivation_path)?;
         apply_tweaks_public(*self, &tweaks)
     }
 }
 
-fn derive_tweaks(
-    public_key: VerifyingKey,
+fn derive_tweaks<C>(
+    public_key: VerifyingKey<C>,
     derivation_path: &DerivationPath,
-) -> Result<Vec<PrivateKeyBytes>, bip32::Error> {
+) -> Result<Vec<PrivateKeyBytes>, bip32::Error>
+where
+    C: PrimeCurve + CurveArithmetic,
+{
     let mut public_key = public_key;
 
     // Note: deriving the initial chain code from public information. Is this okay?
@@ -293,6 +303,7 @@ fn derive_tweaks(
 
     let mut tweaks = Vec::new();
     for child_number in derivation_path.iter() {
+        // TODO(dp): I think the derive_* methods come from the bip32 crate?
         let (tweak, new_chain_code) = public_key.derive_tweak(&chain_code, child_number)?;
         public_key = public_key.derive_child(tweak)?;
         tweaks.push(tweak);
@@ -302,7 +313,13 @@ fn derive_tweaks(
     Ok(tweaks)
 }
 
-fn apply_tweaks_public(public_key: VerifyingKey, tweaks: &[PrivateKeyBytes]) -> Result<VerifyingKey, bip32::Error> {
+fn apply_tweaks_public<C>(
+    public_key: VerifyingKey<C>,
+    tweaks: &[PrivateKeyBytes],
+) -> Result<VerifyingKey<C>, bip32::Error>
+where
+    C: PrimeCurve + CurveArithmetic,
+{
     let mut public_key = public_key;
     for tweak in tweaks {
         public_key = public_key.derive_child(*tweak)?;
@@ -310,7 +327,15 @@ fn apply_tweaks_public(public_key: VerifyingKey, tweaks: &[PrivateKeyBytes]) -> 
     Ok(public_key)
 }
 
-fn apply_tweaks_private(private_key: SigningKey, tweaks: &[PrivateKeyBytes]) -> Result<SigningKey, bip32::Error> {
+fn apply_tweaks_private<C>(
+    private_key: SigningKey<C>,
+    tweaks: &[PrivateKeyBytes],
+) -> Result<SigningKey<C>, bip32::Error>
+where
+    C: PrimeCurve + CurveArithmetic,
+    <C as CurveArithmetic>::Scalar: SignPrimitive<C>,
+    <<C as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
+{
     let mut private_key = private_key;
     for tweak in tweaks {
         private_key = private_key.derive_child(*tweak)?;
@@ -331,7 +356,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::ThresholdKeyShare;
-    use crate::{cggmp21::TestParams, SchemeParams};
+    use crate::{cggmp21::TestParams, curve::Scalar};
 
     #[test]
     fn threshold_key_share_centralized() {
@@ -357,7 +382,7 @@ mod tests {
 
         assert_eq!(
             nt_share0.secret_share.expose_secret() + nt_share1.secret_share.expose_secret(),
-            <TestParams as SchemeParams>::Scalar::from(sk.as_nonzero_scalar())
+            Scalar::<TestParams>::from(sk.as_nonzero_scalar())
         );
         assert_eq!(&nt_share0.verifying_key().unwrap(), sk_verifying_key);
         assert_eq!(&nt_share1.verifying_key().unwrap(), sk_verifying_key);

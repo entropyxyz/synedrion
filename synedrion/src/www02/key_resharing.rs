@@ -19,12 +19,13 @@ use manul::protocol::{
     FinalizeOutcome, LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
     ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
 };
+use primeorder::elliptic_curve::CurveArithmetic;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::ThresholdKeyShare;
 use crate::{
-    curve::{Point, ScalarSh},
+    curve::{Point, Scalar},
     tools::{
         sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},
         DowncastMap, Secret, Without,
@@ -207,10 +208,10 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
 }
 
 #[derive(Debug)]
-struct OldHolderData {
-    share_id: ShareId,
-    polynomial: Polynomial,
-    public_polynomial: PublicPolynomial,
+struct OldHolderData<P: SchemeParams> {
+    share_id: ShareId<P>,
+    polynomial: Polynomial<P>,
+    public_polynomial: PublicPolynomial<P>,
 }
 
 #[derive(Debug)]
@@ -220,9 +221,9 @@ struct NewHolderData<I: Ord> {
 
 #[derive(Debug)]
 struct Round1<P: SchemeParams, I: Ord> {
-    old_holder: Option<OldHolderData>,
+    old_holder: Option<OldHolderData<P>>,
     new_holder: Option<NewHolderData<I>>,
-    new_share_ids: BTreeMap<I, ShareId>,
+    new_share_ids: BTreeMap<I, ShareId<P>>,
     new_threshold: usize,
     my_id: I,
     message_destinations: BTreeSet<I>,
@@ -231,24 +232,50 @@ struct Round1<P: SchemeParams, I: Ord> {
     phantom: PhantomData<P>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Round1BroadcastMessage {
-    public_polynomial: PublicPolynomial,
-    old_share_id: ShareId,
+#[derive(Debug, Clone, Deserialize)]
+// #[serde(bound(deserialize = "for<'x> <P::Curve as CurveArithmetic>::Scalar: Deserialize<'x>"))]
+struct Round1BroadcastMessage<P: SchemeParams> {
+    public_polynomial: PublicPolynomial<P>,
+    old_share_id: ShareId<P>,
 }
-use elliptic_curve::CurveArithmetic;
-#[derive(Debug, Clone, Serialize, Deserialize)]
-// TODO(dp): This seems to work-ish, but not sure it's actually correct.
-#[serde(bound(serialize = "Round1DirectMessage<P>: Serialize"))]
-#[serde(bound(deserialize = "for<'x> <P::Curve as CurveArithmetic>::Scalar: Deserialize<'x>"))]
+
+// TODO(dp): this isn't the right way to do this.
+impl<P> Serialize for Round1BroadcastMessage<P>
+where
+    P: SchemeParams,
+{
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, /*Serialize,*/ Deserialize)]
+// TODO(dp): This means. `P` must be Serialize, which is annoying and possibly impossible.
+// #[serde(bound(serialize = "Round1DirectMessage<P>: Serialize"))]
+// #[serde(bound(deserialize = "for<'x> <P::Curve as CurveArithmetic>::Scalar: Deserialize<'x>"))]
 struct Round1DirectMessage<P: SchemeParams> {
-    subshare: Secret<ScalarSh<P>>,
+    subshare: Secret<Scalar<P>>,
+}
+// TODO(dp): this isn't the right way to do this.
+impl<P> Serialize for Round1DirectMessage<P>
+where
+    P: SchemeParams,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.subshare.serialize(serializer)
+    }
 }
 
 struct Round1Payload<P: SchemeParams> {
-    subshare: Secret<ScalarSh<P>>,
-    public_polynomial: PublicPolynomial,
-    old_share_id: ShareId,
+    subshare: Secret<Scalar<P>>,
+    public_polynomial: PublicPolynomial<P>,
+    old_share_id: ShareId<P>,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
@@ -280,13 +307,14 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         serializer: &Serializer,
     ) -> Result<EchoBroadcast, LocalError> {
         if let Some(old_holder) = self.old_holder.as_ref() {
-            EchoBroadcast::new(
-                serializer,
-                Round1BroadcastMessage {
-                    public_polynomial: old_holder.public_polynomial.clone(),
-                    old_share_id: old_holder.share_id,
-                },
-            )
+            todo!()
+            // EchoBroadcast::new(
+            //     serializer,
+            //     Round1BroadcastMessage {
+            //         public_polynomial: old_holder.public_polynomial.clone(),
+            //         old_share_id: old_holder.share_id,
+            //     },
+            // )
         } else {
             Ok(EchoBroadcast::none())
         }
@@ -304,7 +332,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                 destination
             )))?;
 
-            let subshare: Secret<ScalarSh<P>> = old_holder.polynomial.evaluate(their_share_id);
+            let subshare: Secret<Scalar<P>> = old_holder.polynomial.evaluate(their_share_id);
             let dm = DirectMessage::new(serializer, Round1DirectMessage { subshare })?;
             Ok((dm, None))
         } else {
@@ -312,6 +340,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         }
     }
 
+    #[allow(unused)]
     fn receive_message(
         &self,
         _rng: &mut impl CryptoRngCore,
@@ -322,31 +351,33 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         direct_message: DirectMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
         normal_broadcast.assert_is_none()?;
-        let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage>(deserializer)?;
-        let direct_message = direct_message.deserialize::<Round1DirectMessage<P>>(deserializer)?;
+        // TODO(dp): This will take some thought.
+        // let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
+        // let direct_message = direct_message.deserialize::<Round1DirectMessage<P>>(deserializer)?;
+        todo!();
+        // if let Some(new_holder) = self.new_holder.as_ref() {
+        //     if new_holder.inputs.old_holders.contains(from) {
+        //         let my_share_id = self.new_share_ids.get(&self.my_id).ok_or(LocalError::new(format!(
+        //             "my_id={:?} is missing from the new_share_ids",
+        //             &self.my_id
+        //         )))?;
+        //         let public_subshare_from_poly = echo_broadcast.public_polynomial.evaluate(my_share_id);
+        //         let public_subshare_from_private = Secret::mul_by_generator(&direct_message.subshare);
+        //         // let public_subshare_from_private = direct_message.subshare.mul_by_generator();
 
-        if let Some(new_holder) = self.new_holder.as_ref() {
-            if new_holder.inputs.old_holders.contains(from) {
-                let my_share_id = self.new_share_ids.get(&self.my_id).ok_or(LocalError::new(format!(
-                    "my_id={:?} is missing from the new_share_ids",
-                    &self.my_id
-                )))?;
-                let public_subshare_from_poly = echo_broadcast.public_polynomial.evaluate(my_share_id);
-                let public_subshare_from_private = direct_message.subshare.mul_by_generator();
+        //         // Check that the public polynomial sent in the broadcast corresponds to the secret share
+        //         // sent in the direct message.
+        //         if public_subshare_from_poly != public_subshare_from_private {
+        //             return Err(ReceiveError::protocol(KeyResharingError::SubshareMismatch));
+        //         }
 
-                // Check that the public polynomial sent in the broadcast corresponds to the secret share
-                // sent in the direct message.
-                if public_subshare_from_poly != public_subshare_from_private {
-                    return Err(ReceiveError::protocol(KeyResharingError::SubshareMismatch));
-                }
-
-                return Ok(Payload::new(Round1Payload {
-                    subshare: direct_message.subshare,
-                    public_polynomial: echo_broadcast.public_polynomial,
-                    old_share_id: echo_broadcast.old_share_id,
-                }));
-            }
-        }
+        //         return Ok(Payload::new(Round1Payload {
+        //             subshare: direct_message.subshare,
+        //             public_polynomial: echo_broadcast.public_polynomial,
+        //             old_share_id: echo_broadcast.old_share_id,
+        //         }));
+        //     }
+        // }
         Err(ReceiveError::protocol(KeyResharingError::UnexpectedSender))
     }
 
@@ -373,8 +404,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         // add a simulated payload to the mapping, as if it sent a message to itself.
         if let Some(old_holder) = self.old_holder.as_ref() {
             if self.new_holder.as_ref().is_some() {
-                // TODO(dp): remove explicit type
-                let subshare: Secret<ScalarSh<P>> = old_holder.polynomial.evaluate(share_id);
+                let subshare = old_holder.polynomial.evaluate(share_id);
                 let my_payload = Round1Payload {
                     subshare,
                     public_polynomial: old_holder.public_polynomial.clone(),
@@ -418,7 +448,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                 Ok((payload.old_share_id, payload.subshare.clone()))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
-        let secret_share: ScalarSh<P> = shamir_join_scalars(subshares);
+        let secret_share = shamir_join_scalars(subshares);
 
         // Generate the public shares of all the new holders.
         let public_shares = self
