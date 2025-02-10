@@ -132,12 +132,10 @@ where
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::Curve>,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: DecompressPoint<Self::Curve>,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: VerifyPrimitive<Self::Curve>,
-    <Self::Curve as CurveArithmetic>::Scalar: Serialize
-        + SignPrimitive<Self::Curve>
+    <Self::Curve as CurveArithmetic>::Scalar: SignPrimitive<Self::Curve>
         + Ord
         + /* TODO(dp): Shouldn't be necessary to bound on Reduce */
         Reduce<<Self::Curve as Curve>::Uint>,
-    for<'a> <Self::Curve as CurveArithmetic>::Scalar: Deserialize<'a>,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
 {
     /// Elliptic curve of prime order used.
