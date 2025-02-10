@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cggmp21::SchemeParams,
-    curve::{secret_split, Point, ScalarSh},
+    curve::{secret_split, Point, Scalar},
     paillier::{
         Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, Randomizer,
         SecretKeyPaillier, SecretKeyPaillierWire,
@@ -26,8 +26,8 @@ use crate::{
 pub struct KeyShare<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     /// Secret key share of this node.
-    pub(crate) secret_share: Secret<ScalarSh<P>>, // `x_i`
-    pub(crate) public_shares: BTreeMap<I, Point>, // `X_j`
+    pub(crate) secret_share: Secret<Scalar<P>>, // `x_i`
+    pub(crate) public_shares: BTreeMap<I, Point<P>>, // `X_j`
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
     pub(crate) phantom: PhantomData<P>,
 }
@@ -45,14 +45,14 @@ pub struct AuxInfo<P: SchemeParams, I: Ord> {
 #[serde(bound(deserialize = "SecretKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct SecretAuxInfo<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillierWire<P::Paillier>,
-    pub(crate) el_gamal_sk: Secret<ScalarSh<P>>, // `y_i`
+    pub(crate) el_gamal_sk: Secret<Scalar<P>>, // `y_i`
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicKeyPaillierWire<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "PublicKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct PublicAuxInfo<P: SchemeParams> {
-    pub(crate) el_gamal_pk: Point, // `Y_i`
+    pub(crate) el_gamal_pk: Point<P>, // `Y_i`
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillierWire<P::Paillier>,
     /// The ring-Pedersen parameters.
@@ -69,13 +69,13 @@ pub(crate) struct AuxInfoPrecomputed<P: SchemeParams, I> {
 pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
     #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
-    pub(crate) el_gamal_sk: Secret<ScalarSh<P>>, // `y_i`
+    pub(crate) el_gamal_sk: Secret<Scalar<P>>, // `y_i`
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
     #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
-    pub(crate) el_gamal_pk: Point,
+    pub(crate) el_gamal_pk: Point<P>,
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     pub(crate) rp_params: RPParams<P::Paillier>,
 }
@@ -85,9 +85,9 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 pub struct KeyShareChange<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.
-    pub(crate) secret_share_change: Secret<ScalarSh<P>>, // `x_i^* - x_i == \sum_{j} x_j^i`
+    pub(crate) secret_share_change: Secret<Scalar<P>>, // `x_i^* - x_i == \sum_{j} x_j^i`
     /// The values to be added to the public shares of remote nodes.
-    pub(crate) public_share_changes: BTreeMap<I, Point>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
+    pub(crate) public_share_changes: BTreeMap<I, Point<P>>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
     pub(crate) phantom: PhantomData<P>,
 }
@@ -95,11 +95,11 @@ pub struct KeyShareChange<P: SchemeParams, I: Ord> {
 /// The result of the Presigning protocol.
 #[derive(Debug, Clone)]
 pub(crate) struct PresigningData<P: SchemeParams, I> {
-    pub(crate) nonce: ScalarSh<P>, // x-coordinate of $R$
+    pub(crate) nonce: Scalar<P>, // x-coordinate of $R$
     /// An additive share of the ephemeral scalar.
-    pub(crate) ephemeral_scalar_share: Secret<ScalarSh<P>>, // $k_i$
+    pub(crate) ephemeral_scalar_share: Secret<Scalar<P>>, // $k_i$
     /// An additive share of `k * x` where `x` is the secret key.
-    pub(crate) product_share: Secret<ScalarSh<P>>,
+    pub(crate) product_share: Secret<Scalar<P>>,
 
     // Values generated during presigning,
     // kept in case we need to generate a proof of correctness.
@@ -173,12 +173,12 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
         ids: &BTreeSet<I>,
         signing_key: Option<&ecdsa::SigningKey<P::Curve>>,
     ) -> BTreeMap<I, Self> {
-        let secret: Secret<ScalarSh<P>> = Secret::init_with(|| match signing_key {
-            None => ScalarSh::random(rng),
-            Some(sk) => ScalarSh::from(sk.as_nonzero_scalar()),
+        let secret: Secret<Scalar<P>> = Secret::init_with(|| match signing_key {
+            None => Scalar::random(rng),
+            Some(sk) => Scalar::from(sk.as_nonzero_scalar()),
         });
 
-        let secret_shares: Vec<Secret<ScalarSh<P>>> = secret_split(rng, secret, ids.len());
+        let secret_shares: Vec<Secret<Scalar<P>>> = secret_split(rng, secret, ids.len());
         let public_shares = ids
             .iter()
             .zip(secret_shares.iter())
@@ -201,12 +201,12 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
             .collect()
     }
 
-    pub(crate) fn verifying_key_as_point(&self) -> Point {
+    pub(crate) fn verifying_key_as_point(&self) -> Point<P> {
         self.public_shares.values().sum()
     }
 
     /// Return the verifying key to which this set of shares corresponds.
-    pub fn verifying_key(&self) -> Option<VerifyingKey> {
+    pub fn verifying_key(&self) -> Option<VerifyingKey<P::Curve>> {
         // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
         // (that is, the sum of public keys does not evaluate to the infinity point)
         self.verifying_key_as_point().to_verifying_key()
@@ -235,7 +235,7 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
         let secret_aux = (0..ids.len())
             .map(|_| SecretAuxInfo {
                 paillier_sk: SecretKeyPaillierWire::<P::Paillier>::random(rng),
-                el_gamal_sk: Secret::init_with(|| ScalarSh::random(rng)),
+                el_gamal_sk: Secret::init_with(|| Scalar::random(rng)),
             })
             .collect::<Vec<_>>();
 
