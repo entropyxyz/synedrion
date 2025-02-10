@@ -1063,7 +1063,8 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 [[package]]
 name = "sec1"
 version = "0.7.3"
-source = "git+https://github.com/dvdplm/formats?branch=dp-add-U8-modulus-size-to-v0.7.3#f8e9058b1e7a4b924460ea20b8b9001711739ee5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3e97a565f76233a6003f9f5c54be1d9c5bdfa3eccfb189469f11ec4901c47dc"
 dependencies = [
  "base16ct",
  "der",
@@ -1301,7 +1302,7 @@ dependencies = [
 [[package]]
 name = "tiny-curve"
 version = "0.1.0"
-source = "git+https://github.com/dvdplm/tiny-curve?branch=dp-add-serde-feature#c5615246638eb308b66cc009e92c5d95b9aaf68d"
+source = "git+https://github.com/fjarri/tiny-curve#32844e42832145e829f646d58b2fb68c1b8a28f6"
 dependencies = [
  "ecdsa",
  "num-traits",
