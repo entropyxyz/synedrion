@@ -24,9 +24,7 @@ bip32 = { version = "0.5", default-features = false, features = ["alloc", "secp2
 tracing = { version = "0.1.41", default-features = false }
 
 # TODO(dp): feature gate this
-tiny-curve = { version = "0.1", features = [
-	"serde",
-], git = "https://github.com/dvdplm/tiny-curve", branch = "dp-add-serde-feature" }
+tiny-curve = { version = "0.1", features = ["serde"] }
 # TODO(dp): feature gate this
 k256 = { version = "0.13", default-features = false, features = ["arithmetic", "serde"] }
 # TODO(dp): Should this be `primeorder` instead?

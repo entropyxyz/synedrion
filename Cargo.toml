@@ -9,5 +9,5 @@ resolver = "2"
 # [patch.crates-io]
 # sec1 = { version = "0.7.3", git = "https://github.com/dvdplm/formats", branch = "dp-add-U8-modulus-size-to-v0.7.3" }
 # TODO(dp): remove before merge
-[patch."https://github.com/dvdplm/tiny-curve"]
+[patch.crates-io]
 tiny-curve = { version = "0.1", git = "https://github.com/fjarri/tiny-curve" }
