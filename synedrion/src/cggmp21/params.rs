@@ -119,6 +119,10 @@ impl PaillierParams for PaillierProduction {
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
 pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static
++ /*TODO(dp): the Ord bound comes from ShareId<P>, which wraps a Scalar<P>, so we can use it in BTreeMaps*/
+Ord
++ /*TODO(dp): this comes from sss.rs where ShareId used to be Copy (and the old Scalar as well). Not sure if this is a good idea or not */
+Copy
 where
     // TODO(dp): This insanity all stems from the `FromEncodedPoint` bound. WTH?
     <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
@@ -132,7 +136,7 @@ where
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::Curve>,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: DecompressPoint<Self::Curve>,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: VerifyPrimitive<Self::Curve>,
-    <Self::Curve as CurveArithmetic>::Scalar: SignPrimitive<Self::Curve>
+    <Self::Curve as CurveArithmetic>::Scalar: Copy + SignPrimitive<Self::Curve>
         + Ord
         + /* TODO(dp): Shouldn't be necessary to bound on Reduce */
         Reduce<<Self::Curve as Curve>::Uint>,
@@ -173,7 +177,7 @@ impl<P: SchemeParams> HashableType for P {
 
 /// Scheme parameters **for testing purposes only**.
 /// Security is weakened to allow for faster execution.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct TestParams;
 
 // Some requirements from range proofs etc:
@@ -202,7 +206,7 @@ impl SchemeParams for TestParams {
 }
 
 /// Production strength parameters.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {

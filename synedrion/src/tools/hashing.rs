@@ -2,12 +2,11 @@ use crypto_bigint::{Encoding, Integer, NonZero};
 use digest::{Digest, ExtendableOutput, FixedOutput, Update, XofReader};
 use ecdsa::hazmat::DigestPrimitive;
 use hashing_serializer::HashingSerializer;
-use primeorder::elliptic_curve::{Curve, CurveArithmetic};
+use primeorder::elliptic_curve::Curve;
 // TODO(dp): we're going to need these.
 use serde::{/*Deserialize,*/ Serialize};
 // use serde_encoded_bytes::{ArrayLike, Hex};
 use sha3::{Shake256, Shake256Reader};
-use tiny_curve::TinyCurve64;
 
 use crate::{curve::Scalar, SchemeParams};
 

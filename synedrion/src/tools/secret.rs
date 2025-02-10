@@ -15,6 +15,7 @@ use zeroize::Zeroize;
 use crate::{
     curve::{Point, Scalar},
     uint::{Exponentiable, HasWide},
+    SchemeParams,
 };
 
 /// A helper wrapper for managing secret values.
@@ -425,45 +426,63 @@ where
 
 // Scalar-specific impls
 
-impl core::iter::Sum<Secret<Scalar>> for Secret<Scalar> {
+impl<P> core::iter::Sum<Secret<Scalar<P>>> for Secret<Scalar<P>>
+where
+    P: SchemeParams,
+{
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(Add::add).unwrap_or(Secret::init_with(|| Scalar::ZERO))
     }
 }
 
-impl<'a> core::iter::Sum<&'a Secret<Scalar>> for Secret<Scalar> {
-    fn sum<I: Iterator<Item = &'a Secret<Scalar>>>(iter: I) -> Self {
+impl<'a, P> core::iter::Sum<&'a Secret<Scalar<P>>> for Secret<Scalar<P>>
+where
+    P: SchemeParams,
+{
+    fn sum<I: Iterator<Item = &'a Secret<Scalar<P>>>>(iter: I) -> Self {
         iter.fold(Secret::init_with(|| Scalar::ZERO), |accum, x| accum + x)
     }
 }
 
-impl Secret<Scalar> {
-    pub fn mul_by_generator(&self) -> Point {
+impl<P> Secret<Scalar<P>>
+where
+    P: SchemeParams,
+{
+    pub fn mul_by_generator(&self) -> Point<P> {
         self.expose_secret().mul_by_generator()
     }
 
-    pub fn invert(&self) -> Option<Secret<Scalar>> {
+    pub fn invert(&self) -> Option<Secret<Scalar<P>>> {
         Secret::maybe_init_with(|| Option::from(self.expose_secret().invert()))
     }
 }
 
-impl Mul<Secret<Scalar>> for Point {
-    type Output = Point;
-    fn mul(self, scalar: Secret<Scalar>) -> Self::Output {
+impl<P> Mul<Secret<Scalar<P>>> for Point<P>
+where
+    P: SchemeParams,
+{
+    type Output = Point<P>;
+    fn mul(self, scalar: Secret<Scalar<P>>) -> Self::Output {
         self * scalar.expose_secret()
     }
 }
 
-impl Mul<&Secret<Scalar>> for Point {
-    type Output = Point;
-    fn mul(self, scalar: &Secret<Scalar>) -> Self::Output {
+impl<P> Mul<&Secret<Scalar<P>>> for Point<P>
+where
+    P: SchemeParams,
+{
+    type Output = Point<P>;
+    fn mul(self, scalar: &Secret<Scalar<P>>) -> Self::Output {
         self * scalar.expose_secret()
     }
 }
 
-impl Mul<Secret<Scalar>> for &Point {
-    type Output = Point;
-    fn mul(self, scalar: Secret<Scalar>) -> Self::Output {
+impl<P> Mul<Secret<Scalar<P>>> for &Point<P>
+where
+    P: SchemeParams,
+{
+    type Output = Point<P>;
+    fn mul(self, scalar: Secret<Scalar<P>>) -> Self::Output {
         self * scalar.expose_secret()
     }
 }

@@ -64,6 +64,7 @@ impl HashableType for k256::Secp256k1 {
     }
 }
 
+// TODO(dp): This is just a short-cut alias. If it stays it needs a better name.
 pub type ScalarSh<P: SchemeParams> = <P::Curve as CurveArithmetic>::Scalar;
 pub(crate) type CompressedPointSize<P: SchemeParams> = <FieldBytesSize<P::Curve> as ModulusSize>::CompressedPointSize;
 
