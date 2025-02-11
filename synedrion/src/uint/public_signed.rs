@@ -6,8 +6,7 @@ use digest::XofReader;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use super::HasWide;
-use crate::tools::hashing::uint_from_xof;
+use super::{FromXofReader, HasWide};
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound set much lower than the full size of the integer,
@@ -188,7 +187,7 @@ where
             T::BITS
         );
 
-        let positive_result = uint_from_xof::<T>(reader, exp);
+        let positive_result = T::from_xof_reader(reader, exp);
         let shift = T::one()
             .overflowing_shl_vartime(exp - 1)
             .expect("checked that `exp` is smaller than `T::BITS`")

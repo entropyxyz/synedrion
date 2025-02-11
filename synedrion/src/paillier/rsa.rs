@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::params::PaillierParams;
 use crate::{
-    tools::{hashing::uint_from_xof, Secret},
-    uint::{HasWide, IsInvertible, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    tools::Secret,
+    uint::{FromXofReader, HasWide, IsInvertible, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
@@ -270,7 +270,7 @@ impl<P: PaillierParams> PublicModulus<P> {
     pub fn invertible_residue_from_xof_reader(&self, reader: &mut impl XofReader) -> P::Uint {
         let modulus_bits = self.modulus().bits_vartime();
         loop {
-            let r = uint_from_xof::<P::Uint>(reader, modulus_bits);
+            let r = P::Uint::from_xof_reader(reader, modulus_bits);
             if r.is_invertible(&self.modulus.0) {
                 return r;
             }

@@ -4,9 +4,48 @@ use crypto_bigint::{
     Bounded, ConcatMixed, Encoding, Gcd, Integer, Invert, Limb, Monty, PowBoundedExp, RandomMod, SplitMixed,
     WideningMul, Zero, U1024, U2048, U4096, U512, U8192,
 };
+use digest::XofReader;
 use zeroize::Zeroize;
 
 use crate::uint::{PublicSigned, SecretSigned, SecretUnsigned};
+
+pub trait FromXofReader {
+    /// Returns an integer derived deterministically from an extensible output hash,
+    /// with the bit size limited to `n_bits`.
+    ///
+    /// Panics if `n_bits` exceeds the capacity of the integer type.
+    fn from_xof_reader(reader: &mut impl XofReader, n_bits: u32) -> Self;
+}
+
+impl<T> FromXofReader for T
+where
+    T: Integer + Bounded + Encoding,
+{
+    fn from_xof_reader(reader: &mut impl XofReader, n_bits: u32) -> Self {
+        assert!(n_bits <= Self::BITS);
+        let n_bytes = n_bits.div_ceil(8) as usize;
+
+        // If the number of bits is not a multiple of 8, use a mask to zeroize the high bits in the
+        // gererated random bytestring, so that we don't have to reject too much.
+        let mask = if n_bits & 7 != 0 {
+            (1 << (n_bits & 7)) - 1
+        } else {
+            u8::MAX
+        };
+
+        let mut bytes = Self::zero().to_le_bytes();
+        let buf = bytes
+            .as_mut()
+            .get_mut(0..n_bytes)
+            .expect("`n_bytes` does not exceed `Self::BYTES` (following from the assertion for `n_bits`)");
+        reader.read(buf);
+        bytes.as_mut().last_mut().map(|byte| {
+            *byte &= mask;
+            Some(byte)
+        });
+        Self::from_le_bytes(bytes)
+    }
+}
 
 pub trait IsInvertible {
     /// Returns `true` if `self` is invertible modulo `modulus`.
