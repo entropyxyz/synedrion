@@ -1,12 +1,12 @@
 use core::{
     marker::PhantomData,
-    ops::{Add, Mul},
+    ops::{Add, Mul, Sub},
 };
 
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{Choice, ConditionallyNegatable},
-    Monty,
+    Invert, Monty,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -272,6 +272,15 @@ impl<P: PaillierParams> Ciphertext<P> {
         Randomizer::new_mod(randomizer_mod)
     }
 
+    fn homomorphic_neg_ref(&self) -> Self {
+        Self {
+            pk: self.pk.clone(),
+            // `C = (N + 1)^m * rho^N mod N^2`; `(N + 1)` is invertible `mod N^2`,
+            // and the randomizer `rho` was sampled to be invertible `mod N`.
+            ciphertext: Option::from(self.ciphertext.invert()).expect("the ciphertext is invertible by construction"),
+        }
+    }
+
     // Note: while it is true that `enc(x) (*) rhs == enc((x * rhs) mod N)`,
     // reducing the signed `rhs` modulo `N` will result in a ciphertext with a different randomizer
     // compared to what we would get if we used the signed `rhs` faithfully in the original formula.
@@ -350,6 +359,13 @@ impl<P: PaillierParams> Add<&Ciphertext<P>> for Ciphertext<P> {
     type Output = Ciphertext<P>;
     fn add(self, rhs: &Ciphertext<P>) -> Ciphertext<P> {
         self.homomorphic_add(rhs)
+    }
+}
+
+impl<P: PaillierParams> Sub<&Ciphertext<P>> for Ciphertext<P> {
+    type Output = Ciphertext<P>;
+    fn sub(self, rhs: &Ciphertext<P>) -> Ciphertext<P> {
+        self.homomorphic_add(&rhs.homomorphic_neg_ref())
     }
 }
 
