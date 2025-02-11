@@ -1,11 +1,12 @@
-use crypto_bigint::{CheckedSub, Gcd, Integer, Monty, NonZero, Odd, RandomMod, Square};
+use crypto_bigint::{BitOps, CheckedSub, Gcd, Integer, Monty, NonZero, Odd, RandomMod, Square};
 use crypto_primes::RandomPrimeWithRng;
+use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::params::PaillierParams;
 use crate::{
-    tools::Secret,
+    tools::{hashing::uint_from_xof, Secret},
     uint::{HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
@@ -264,7 +265,19 @@ impl<P: PaillierParams> PublicModulus<P> {
         }
     }
 
-    /// Returns a uniformly chosen quadratic residue modulo $N$, in Montgomery form.
+    /// Returns a number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form,
+    /// deterministically derived from an extensible output hash function.
+    pub fn invertible_residue_from_xof_reader(&self, reader: &mut impl XofReader) -> P::Uint {
+        let modulus_bits = self.modulus().bits_vartime();
+        loop {
+            let r = uint_from_xof::<P::Uint>(reader, modulus_bits);
+            if r.gcd(&self.modulus.0) == P::Uint::one() {
+                return r;
+            }
+        }
+    }
+
+    /// Returns a uniformly chosen invertible quadratic residue modulo $N$, in Montgomery form.
     pub fn random_quadratic_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
         self.random_invertible_residue(rng)
             .to_montgomery(&self.monty_params_mod_n)
