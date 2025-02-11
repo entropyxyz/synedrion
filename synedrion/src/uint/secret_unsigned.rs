@@ -3,7 +3,7 @@ use core::ops::BitAnd;
 use crypto_bigint::{subtle::Choice, Bounded, Integer, Monty, NonZero};
 use zeroize::Zeroize;
 
-use super::{HasWide, SecretSigned};
+use super::HasWide;
 use crate::tools::Secret;
 
 /// A bounded unsigned integer with sensitive data.
@@ -49,22 +49,18 @@ where
         }
     }
 
-    pub fn into_signed(self) -> Option<SecretSigned<T>> {
-        SecretSigned::new_positive(self.value, self.bound)
-    }
-
     pub fn expose_secret(&self) -> &T {
         self.value.expose_secret()
     }
 }
 
-impl<T> BitAnd<T> for SecretUnsigned<T>
+impl<T> BitAnd<T> for &SecretUnsigned<T>
 where
     T: Zeroize + Integer + Bounded,
 {
-    type Output = Self;
+    type Output = SecretUnsigned<T>;
     fn bitand(self, rhs: T) -> Self::Output {
-        Self {
+        SecretUnsigned {
             value: Secret::init_with(|| self.value.expose_secret().clone() & rhs),
             bound: self.bound,
         }

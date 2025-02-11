@@ -1,13 +1,24 @@
-use crypto_bigint::{CheckedSub, Gcd, Integer, Monty, NonZero, Odd, RandomMod, Square};
+use crypto_bigint::{BitOps, CheckedSub, Integer, Monty, NonZero, Odd, RandomMod, Square};
 use crypto_primes::RandomPrimeWithRng;
+use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::params::PaillierParams;
 use crate::{
     tools::Secret,
-    uint::{HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    uint::{FromXofReader, HasWide, IsInvertible, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
+
+#[cfg(test)]
+fn random_small_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
+    loop {
+        let prime = P::HalfUint::generate_prime_with_rng(rng, P::PRIME_BITS - 2);
+        if prime.as_ref().first().expect("First Limb exists").0 & 3 == 3 {
+            return prime;
+        }
+    }
+}
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
     loop {
@@ -43,12 +54,30 @@ impl<P: PaillierParams> SecretPrimesWire<P> {
         Self { p, q }
     }
 
+    /// Creates smaller than required primes to trigger an error during tests.
+    #[cfg(test)]
+    pub fn random_small_paillier_blum(rng: &mut impl CryptoRngCore) -> Self {
+        Self::new(
+            Secret::init_with(|| random_small_paillier_blum_prime::<P>(rng)),
+            Secret::init_with(|| random_small_paillier_blum_prime::<P>(rng)),
+        )
+    }
+
     /// Creates the primes for a Paillier-Blum modulus,
     /// that is `p` and `q` are regular primes with an additional condition `p, q mod 3 = 4`.
     pub fn random_paillier_blum(rng: &mut impl CryptoRngCore) -> Self {
         Self::new(
             Secret::init_with(|| random_paillier_blum_prime::<P>(rng)),
             Secret::init_with(|| random_paillier_blum_prime::<P>(rng)),
+        )
+    }
+
+    /// Creates smaller than required primes to trigger an error during tests.
+    #[cfg(test)]
+    pub fn random_small_safe(rng: &mut impl CryptoRngCore) -> Self {
+        Self::new(
+            Secret::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS - 2)),
+            Secret::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS - 2)),
         )
     }
 
@@ -147,10 +176,6 @@ impl<P: PaillierParams> SecretPrimes<P> {
 
     pub fn q_nonzero(&self) -> Secret<NonZero<P::Uint>> {
         Secret::init_with(|| NonZero::new(*self.q().expose_secret()).expect("`q` is non-zero"))
-    }
-
-    pub fn p_wide_signed(&self) -> SecretSigned<P::WideUint> {
-        self.p_signed().to_wide()
     }
 
     pub fn totient(&self) -> &Secret<P::Uint> {
@@ -257,18 +282,30 @@ impl<P: PaillierParams> PublicModulus<P> {
         &self.monty_params_mod_n
     }
 
-    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
+    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$.
     pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
         let modulus = self.modulus_nonzero();
         loop {
             let r = P::Uint::random_mod(rng, &modulus);
-            if r.gcd(&self.modulus.0) == P::Uint::one() {
+            if r.is_invertible(&self.modulus.0) {
                 return r;
             }
         }
     }
 
-    /// Returns a uniformly chosen quadratic residue modulo $N$, in Montgomery form.
+    /// Returns a number in range $[0, N)$ such that it is invertible modulo $N$,
+    /// deterministically derived from an extensible output hash function.
+    pub fn invertible_residue_from_xof_reader(&self, reader: &mut impl XofReader) -> P::Uint {
+        let modulus_bits = self.modulus().bits_vartime();
+        loop {
+            let r = P::Uint::from_xof_reader(reader, modulus_bits);
+            if r.is_invertible(&self.modulus.0) {
+                return r;
+            }
+        }
+    }
+
+    /// Returns a uniformly chosen invertible quadratic residue modulo $N$, in Montgomery form.
     pub fn random_quadratic_residue(&self, rng: &mut impl CryptoRngCore) -> P::UintMod {
         self.random_invertible_residue(rng)
             .to_montgomery(&self.monty_params_mod_n)

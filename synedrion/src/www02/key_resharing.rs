@@ -8,16 +8,15 @@
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     format,
-    string::String,
-    vec::Vec,
 };
 use core::{fmt::Debug, marker::PhantomData};
 
 use k256::ecdsa::VerifyingKey;
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EchoRoundParticipation, EntryPoint,
-    FinalizeOutcome, LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
-    ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
+    FinalizeOutcome, LocalError, MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError,
+    ProtocolMessage, ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessages, Round, RoundId,
+    Serializer,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -26,8 +25,9 @@ use super::ThresholdKeyShare;
 use crate::{
     curve::{Point, Scalar},
     tools::{
+        protocol_shortcuts::{DowncastMap, Without},
         sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},
-        DowncastMap, Secret, Without,
+        Secret,
     },
     SchemeParams,
 };
@@ -36,44 +36,60 @@ use crate::{
 #[derive(Debug)]
 pub struct KeyResharingProtocol<P: SchemeParams, I: Debug>(PhantomData<(P, I)>);
 
-impl<P: SchemeParams, I: PartyId> Protocol for KeyResharingProtocol<P, I> {
+impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyResharingProtocol<P, I> {
     type Result = Option<ThresholdKeyShare<P, I>>;
     type ProtocolError = KeyResharingError;
+
+    fn verify_direct_message_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &DirectMessage,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
+
+    fn verify_echo_broadcast_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &EchoBroadcast,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
+
+    fn verify_normal_broadcast_is_invalid(
+        _deserializer: &Deserializer,
+        _round_id: &RoundId,
+        _message: &NormalBroadcast,
+    ) -> Result<(), MessageValidationError> {
+        unimplemented!()
+    }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// Provable faults of KeyResharing
+#[derive(displaydoc::Display, Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum KeyResharingError {
+    /// Unexpected sender of a message (not one of the old holders)
     UnexpectedSender,
+    /// Mismatch of the subshare
     SubshareMismatch,
 }
 
-impl ProtocolError for KeyResharingError {
-    fn description(&self) -> String {
-        unimplemented!()
-    }
+impl<I> ProtocolError<I> for KeyResharingError {
+    type AssociatedData = ();
 
-    fn required_direct_messages(&self) -> BTreeSet<RoundId> {
-        unimplemented!()
-    }
-
-    fn required_echo_broadcasts(&self) -> BTreeSet<RoundId> {
-        unimplemented!()
-    }
-
-    fn required_combined_echos(&self) -> BTreeSet<RoundId> {
+    fn required_messages(&self) -> RequiredMessages {
         unimplemented!()
     }
 
     fn verify_messages_constitute_error(
         &self,
         _deserializer: &Deserializer,
-        _echo_broadcast: &EchoBroadcast,
-        _normal_broadcat: &NormalBroadcast,
-        _direct_message: &DirectMessage,
-        _echo_broadcasts: &BTreeMap<RoundId, EchoBroadcast>,
-        _normal_broadcasts: &BTreeMap<RoundId, NormalBroadcast>,
-        _direct_messages: &BTreeMap<RoundId, DirectMessage>,
-        _combined_echos: &BTreeMap<RoundId, Vec<EchoBroadcast>>,
+        _guilty_party: &I,
+        _shared_randomness: &[u8],
+        _associated_data: &Self::AssociatedData,
+        _message: ProtocolMessage,
+        _previous_messages: BTreeMap<RoundId, ProtocolMessage>,
+        _combined_echos: BTreeMap<RoundId, BTreeMap<I, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
         unimplemented!()
     }
@@ -129,6 +145,10 @@ impl<P: SchemeParams, I: Ord> KeyResharing<P, I> {
 
 impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
     type Protocol = KeyResharingProtocol<P, I>;
+
+    fn entry_round_id() -> RoundId {
+        1.into()
+    }
 
     fn make_round(
         self,
@@ -252,11 +272,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Protocol = KeyResharingProtocol<P, I>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(1)
+        1.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
+        [].into()
     }
 
     fn message_destinations(&self) -> &BTreeSet<I> {
@@ -311,16 +331,17 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
         from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
+        message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        normal_broadcast.assert_is_none()?;
-        let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage>(deserializer)?;
-        let direct_message = direct_message.deserialize::<Round1DirectMessage>(deserializer)?;
+        message.normal_broadcast.assert_is_none()?;
+        let echo_broadcast = message
+            .echo_broadcast
+            .deserialize::<Round1BroadcastMessage>(deserializer)?;
+        let direct_message = message
+            .direct_message
+            .deserialize::<Round1DirectMessage>(deserializer)?;
 
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder.inputs.old_holders.contains(from) {
@@ -392,7 +413,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                 payload
                     .public_polynomial
                     .coeff0()
-                    .map(|coeff0| coeff0 * &interpolation_coeff(&old_share_ids, &payload.old_share_id))
+                    .map(|coeff0| coeff0 * interpolation_coeff(&old_share_ids, &payload.old_share_id))
             })
             .sum::<Result<_, _>>()?;
         if Point::from_verifying_key(&new_holder.inputs.verifying_key) != vkey {
@@ -447,7 +468,7 @@ mod tests {
 
     use manul::{
         dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-        session::signature::Keypair,
+        signature::Keypair,
     };
     use rand_core::OsRng;
 
