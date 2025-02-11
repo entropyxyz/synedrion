@@ -61,14 +61,14 @@ impl<P: SchemeParams> DecProof<P> {
 
         let hat_cap_n = setup.modulus(); // $\hat{N}$
 
-        let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
-        let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
-        let nu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let alpha = SecretSigned::random_in_exponent_range(rng, P::L_BOUND + P::EPS_BOUND);
+        let mu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let nu = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
         let r = Randomizer::random(rng, public.pk0);
 
         let cap_s = setup.commit(secret.y, &mu).to_wire();
         let cap_t = setup.commit(&alpha, &nu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(public.pk0, &alpha, &r).to_wire();
+        let cap_a = Ciphertext::new_with_randomizer(public.pk0, &alpha, &r).to_wire();
 
         // `alpha` is secret, but `gamma` only uncovers $\ell$ bits of `alpha`'s full $\ell + \eps$ bits,
         // and it's transmitted to another node, so it can be considered public.
@@ -92,7 +92,7 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
 
         let z1 = (alpha.to_wide() + secret.y.mul_wide(&e)).to_public();
         let z2 = (nu + mu * e.to_wide()).to_public();
@@ -129,7 +129,7 @@ impl<P: SchemeParams> DecProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
@@ -182,11 +182,11 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         // We need something within the range -N/2..N/2 so that it doesn't wrap around.
-        let y = SecretSigned::random_in_exp_range(&mut OsRng, Paillier::PRIME_BITS * 2 - 2);
+        let y = SecretSigned::random_in_exponent_range(&mut OsRng, Paillier::PRIME_BITS * 2 - 2);
         let x = *secret_scalar_from_signed::<Params>(&y).expose_secret();
 
         let rho = Randomizer::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho);
+        let cap_c = Ciphertext::new_with_randomizer(pk, &y, &rho);
 
         let proof = DecProof::<Params>::new(
             &mut OsRng,

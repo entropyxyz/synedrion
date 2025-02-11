@@ -81,13 +81,6 @@ impl<T> SecretSigned<T>
 where
     T: ConditionallySelectable + Zeroize + Integer + Bounded,
 {
-    pub fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        Self {
-            bound: u32::conditional_select(&a.bound, &b.bound, choice),
-            value: Secret::<T>::conditional_select(&a.value, &b.value, choice),
-        }
-    }
-
     pub fn abs_value(&self) -> Secret<T> {
         Secret::<T>::conditional_select(&self.value, &self.value.wrapping_neg(), self.is_negative())
     }
@@ -125,8 +118,29 @@ where
         )
     }
 
+    /// Creates a [`SignedSecret`] from an unsigned value in range `[0, modulus)`,
+    /// treating the values greater than `modulus / 2` as negative ones (modulo `modulus`).
+    /// `modulus_bound` is the bit bound for the modulus; the bound of the result will be set to `modulus_bound - 1`
+    /// (since it is the bound for the absolute value).
+    ///
+    /// Returns `None` if the bound is too large, or if `abs(value)` is greater or equal to `2^bound`.
+    pub fn new_modulo(positive_value: Secret<T>, modulus: &NonZero<T>, modulus_bound: u32) -> Option<Self> {
+        // We are taking a `bound` explicitly and not deriving it from the `modulus`
+        // because we want it to be the same across different runs, and the RSA modulus, being a product of two randoms,
+        // can have varying size (e.g. for two random 1024 bit primes it can be 2046-2048 bits long).
+        // TODO (#183): after this issue is fixed, this comment needs to be amended
+        // (but we will probably still need the explicit `modulus_bound`).
+
+        let half_modulus = modulus.as_ref().wrapping_shr_vartime(1);
+        let is_negative = positive_value.expose_secret().ct_gt(&half_modulus);
+        // Can't define a `Sub<Secret>` for `Uint`, so have to re-wrap manually.
+        let negative_value = Secret::init_with(|| *modulus.as_ref() - positive_value.expose_secret()).wrapping_neg();
+        let value = Secret::<T>::conditional_select(&positive_value, &negative_value, is_negative);
+        Self::new_from_unsigned(value, modulus_bound - 1)
+    }
+
     /// Returns a truthy `Choice` if the absolute value is within the bit bound `bound`.
-    fn in_bound(&self, bound: u32) -> Choice {
+    fn is_in_bound(&self, bound: u32) -> Choice {
         let abs = self.abs();
         let mask = T::one().wrapping_neg().wrapping_shl_vartime(bound);
         let masked = abs & mask;
@@ -140,19 +154,21 @@ where
             value: self.value.clone(),
             bound,
         };
-        CtOption::new(value, self.in_bound(bound))
+        CtOption::new(value, self.is_in_bound(bound))
     }
 
-    /// Asserts that the value is within the interval the paper denotes as $\pm 2^exp$.
+    /// Asserts that the value is within the interval the paper denotes as $±2^exp$.
     /// Panics if it is not the case.
     ///
-    /// That is, the value must be within $[-2^{exp}, 2^{exp}]$
-    /// (See Section 2).
+    /// That is, the value must be within $[-2^{exp-1}+1, 2^{exp-1}]$
+    /// (See Section 3, Groups & Fields).
+    ///
+    /// Variable time w.r.t. `exp`.
     pub fn assert_exponent_range(&self, exp: u32) {
-        let in_bound = self.in_bound(exp);
-        // Have to check for the ends of the range too
-        let is_end = self.abs().expose_secret().ct_eq(&(T::one() << exp));
-        assert!(bool::from(in_bound | is_end), "out of bounds $\\pm 2^{exp}$",)
+        let in_bound = self.is_in_bound(exp - 1);
+        // Have to check for the high end of the range too
+        let is_high_end = self.abs().expose_secret().ct_eq(&(T::one() << (exp - 1))) & !self.is_negative();
+        assert!(bool::from(in_bound | is_high_end), "out of bounds $±2^{exp}$",)
     }
 }
 
@@ -165,7 +181,7 @@ where
     pub fn to_wide(&self) -> SecretSigned<T::Wide> {
         let abs_result = self.abs_value().to_wide();
         SecretSigned::new_from_abs(abs_result, self.bound(), self.is_negative())
-            .expect("the value fit the bound before, and the bound won't overflow for `WideUint`")
+            .expect("the value fit the bound before, and the bound won't overflow for `T::Wide`")
     }
 
     /// Multiplies two [`SecretSigned`] and returns a new [`SecretSigned`] of twice the bit-width.
@@ -176,7 +192,7 @@ where
             self.bound() + rhs.bound(),
             self.is_negative() ^ Choice::from(rhs.is_negative() as u8),
         )
-        .expect("the new bound is valid since the constituent ones were")
+        .expect("the new bound is valid since the sum of the constituent bounds fits in a `T::Wide`")
     }
 }
 
@@ -257,102 +273,77 @@ where
 
 impl<T> SecretSigned<T>
 where
-    T: ConditionallySelectable + Zeroize + Integer + Bounded + RandomMod,
+    T: Zeroize + Integer + Bounded + RandomMod,
 {
-    // Returns a random value in range `[-range, range]`.
-    //
-    // Note: variable time in bit size of `range`.
-    fn random_in_range(rng: &mut impl CryptoRngCore, range: &NonZero<T>) -> Self {
-        let range_bits = range.as_ref().bits_vartime();
-        assert!(
-            range_bits < T::BITS,
-            "Out of bounds: range_bits was {} but must be smaller or equal to {}",
-            range_bits,
-            T::BITS - 1
-        );
-        // Will not overflow because of the assertion above
-        let positive_bound = range
-            .as_ref()
-            .overflowing_shl_vartime(1)
-            .expect("Just asserted that range is smaller than precision; qed")
-            .checked_add(&T::one())
-            .expect("Checked bounds above");
-        let positive_result = Secret::init_with(|| {
-            T::random_mod(
-                rng,
-                &NonZero::new(positive_bound).expect("the range is non-zero by construction"),
-            )
-        });
-
-        Self::new_from_unsigned_unchecked(
-            Secret::init_with(|| positive_result.expose_secret().wrapping_sub(range.as_ref())),
-            range_bits,
-        )
-    }
-
-    /// Returns a random value in range `[-2^bound_bits, 2^bound_bits]`.
+    /// Returns a random value in range $±2^{exp}$ as defined by the paper, that is
+    /// sampling from $[-2^{exp-1}+1, 2^{exp-1}]$ (See Section 3, Groups & Fields).
     ///
-    /// Note: variable time in `bound_bits`.
-    pub fn random_in_exp_range(rng: &mut impl CryptoRngCore, range_bits: u32) -> Self {
+    /// Note: variable time in `exp`.
+    pub fn random_in_exponent_range(rng: &mut impl CryptoRngCore, exp: u32) -> Self {
+        assert!(exp > 0, "`exp` must be greater than zero");
         assert!(
-            range_bits < T::BITS - 1,
-            "Out of bounds: bound_bits was {} but must be smaller than {}",
-            range_bits,
-            T::BITS - 1
+            exp < T::BITS,
+            "Out of bounds: `exp` was {exp} but must be smaller or equal to {}",
+            T::BITS
         );
 
-        let bound = NonZero::new(T::one() << range_bits).expect("Checked bound_bits just above; qed");
-        Self::random_in_range(rng, &bound)
+        // Sampling in range `[0, 2^exp)` and translating to the desired range by subtracting `2^{exp-1}-1`.
+        let positive_bound = NonZero::new(
+            T::one()
+                .overflowing_shl_vartime(exp)
+                .expect("does not overflow because of the assertions above"),
+        )
+        .expect("non-zero as long as `exp` doesn't overflow, which was checked above");
+        let shift = T::one()
+            .overflowing_shl_vartime(exp - 1)
+            .expect("does not overflow because of the assertions above")
+            .checked_sub(&T::one())
+            .expect("does not overflow because of the assertions above");
+        let positive_result = Secret::init_with(|| T::random_mod(rng, &positive_bound));
+        Self::new_from_unsigned_unchecked(
+            Secret::init_with(|| positive_result.expose_secret().wrapping_sub(&shift)),
+            exp,
+        )
     }
 }
 
 impl<T> SecretSigned<T>
 where
     T: Zeroize + Integer + Bounded + HasWide,
-    T::Wide: Zeroize + ConditionallySelectable + Bounded + RandomMod,
+    T::Wide: Zeroize + Bounded + RandomMod,
 {
-    /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
+    /// Returns a random value in range $±2^{exp} scale$ as defined by the paper, that is
+    /// sampling from $[-scale (2^{exp-1}+1), scale 2^{exp-1}]$ (See Section 3, Groups & Fields).
     ///
-    /// Note: variable time in `bound_bits` and bit size of `scale`.
-    pub fn random_in_exp_range_scaled(
-        rng: &mut impl CryptoRngCore,
-        bound_bits: u32,
-        scale: &T,
-    ) -> SecretSigned<T::Wide> {
+    /// Note: variable time in `exp` and bit size of `scale`.
+    pub fn random_in_exponent_range_scaled(rng: &mut impl CryptoRngCore, exp: u32, scale: &T) -> SecretSigned<T::Wide> {
+        assert!(exp > 0, "`exp` must be greater than zero");
         assert!(
-            bound_bits < T::BITS - 1,
-            "Out of bounds: bound_bits was {} but must be smaller than {}",
-            bound_bits,
-            T::BITS - 1
+            exp < T::BITS,
+            "Out of bounds: `exp` was {exp} but must be smaller than {}",
+            T::BITS
         );
-        let scaled_bound: <T as HasWide>::Wide = scale
+
+        // Sampling in range `[0, scale * 2^exp)` and translating to the desired range
+        // by subtracting `scale * 2^{exp-1}-1`.
+        let positive_bound = NonZero::new(
+            scale
+                .to_wide()
+                .overflowing_shl_vartime(exp)
+                .expect("`2^exp` fits into `T`, so the result fits into `T::Wide`"),
+        )
+        .expect("non-zero as long as `exp` doesn't overflow, which was checked above");
+        let shift = scale
             .to_wide()
-            .overflowing_shl_vartime(bound_bits)
-            .expect("Just asserted that bound bits is smaller than T's bit precision");
+            .overflowing_shl_vartime(exp - 1)
+            .expect("`2^exp` fits into `T`, so the result fits into `T::Wide`")
+            .checked_sub(&T::Wide::one())
+            .expect("does not overflow because of the assertions above");
 
-        // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
-        let positive_bound = scaled_bound
-            .overflowing_shl_vartime(1)
-            .expect(concat![
-                "`scaled_bound` is double the size of a T; we asserted that the `bound_bits` ",
-                "will not cause overflow in T ⇒ it's safe to left-shift 1 step ",
-                "(aka multiply by 2)."
-            ])
-            .checked_add(&T::Wide::one())
-            .expect(concat![
-                "`scaled_bound` is double the size of a T; we asserted that the `bound_bits` ",
-                "will not cause overflow in T ⇒ it's safe to add 1."
-            ]);
-        let positive_result = Secret::init_with(|| {
-            T::Wide::random_mod(
-                rng,
-                &NonZero::new(positive_bound)
-                    .expect("Input guaranteed to be positive and it's non-zero because we added 1"),
-            )
-        });
-        let value = Secret::init_with(|| positive_result.expose_secret().wrapping_sub(&scaled_bound));
+        let positive_result = Secret::init_with(|| T::Wide::random_mod(rng, &positive_bound));
+        let value = Secret::init_with(|| positive_result.expose_secret().wrapping_sub(&shift));
 
-        SecretSigned::new_from_unsigned_unchecked(value, bound_bits + scale.bits_vartime())
+        SecretSigned::new_from_unsigned_unchecked(value, exp + scale.bits_vartime())
     }
 }
 
@@ -360,50 +351,44 @@ impl<T> SecretSigned<T>
 where
     T: Zeroize + Integer + Bounded + HasWide,
     T::Wide: Zeroize + HasWide,
-    <T::Wide as HasWide>::Wide: Zeroize + ConditionallySelectable + Bounded,
+    <T::Wide as HasWide>::Wide: Zeroize + Bounded,
 {
-    /// Returns a random value in range `[-2^bound_bits * scale, 2^bound_bits * scale]`.
+    /// Returns a random value in range $±2^{exp} scale$ as defined by the paper, that is
+    /// sampling from $[-scale (2^{exp-1}+1), scale 2^{exp-1}]$ (See Section 3, Groups & Fields).
     ///
-    /// Note: variable time in `bound_bits` and `scale`.
-    pub fn random_in_exp_range_scaled_wide(
+    /// Note: variable time in `exp` and bit size of `scale`.
+    pub fn random_in_exponent_range_scaled_wide(
         rng: &mut impl CryptoRngCore,
-        bound_bits: u32,
+        exp: u32,
         scale: &T::Wide,
     ) -> SecretSigned<<T::Wide as HasWide>::Wide> {
+        assert!(exp > 0, "`exp` must be greater than zero");
         assert!(
-            bound_bits < T::BITS - 1,
-            "Out of bounds: bound_bits was {} but must be smaller than {}",
-            bound_bits,
-            T::BITS - 1
+            exp < T::BITS,
+            "Out of bounds: `exp` was {exp} but must be smaller than {}",
+            T::BITS
         );
-        let scaled_bound = scale
+
+        // Sampling in range `[0, scale * 2^exp)` and translating to the desired range
+        // by subtracting `scale * 2^{exp-1}-1`.
+        let positive_bound = NonZero::new(
+            scale
+                .to_wide()
+                .overflowing_shl_vartime(exp)
+                .expect("`2^exp` fits into `T`, so the result fits into `T::Wide::Wide`"),
+        )
+        .expect("non-zero as long as `exp` doesn't overflow, which was checked above");
+        let shift = scale
             .to_wide()
-            .overflowing_shl_vartime(bound_bits)
-            .expect("Just asserted that bound_bits is smaller than bit precision of T");
+            .overflowing_shl_vartime(exp - 1)
+            .expect("`2^exp` fits into `T`, so the result fits into `T::Wide::Wide`")
+            .checked_sub(&<T::Wide as HasWide>::Wide::one())
+            .expect("does not overflow because of the assertions above");
 
-        // Sampling in range [0, 2^bound_bits * scale * 2 + 1) and translating to the desired range.
-        let positive_bound = scaled_bound
-            .overflowing_shl_vartime(1)
-            .expect(concat![
-                "`scaled_bound` is double the size of a T::Wide; we asserted that the `bound_bits` ",
-                "will not cause overflow in T::Wide ⇒ it's safe to left-shift 1 step ",
-                "(aka multiply by 2)."
-            ])
-            .checked_add(&<T::Wide as HasWide>::Wide::one())
-            .expect(concat![
-                "`scaled_bound` is double the size of a T::Wide; we asserted that the `bound_bits` ",
-                "will not cause overflow in T::Wide ⇒ it's safe to add 1."
-            ]);
-        let positive_result = Secret::init_with(|| {
-            <T::Wide as HasWide>::Wide::random_mod(
-                rng,
-                &NonZero::new(positive_bound)
-                    .expect("Input guaranteed to be positive and it's non-zero because we added 1"),
-            )
-        });
-        let result = Secret::init_with(|| positive_result.expose_secret().wrapping_sub(&scaled_bound));
+        let positive_result = Secret::init_with(|| <T::Wide as HasWide>::Wide::random_mod(rng, &positive_bound));
+        let value = Secret::init_with(|| positive_result.expose_secret().wrapping_sub(&shift));
 
-        SecretSigned::new_from_unsigned_unchecked(result, bound_bits + scale.bits_vartime())
+        SecretSigned::new_from_unsigned_unchecked(value, exp + scale.bits_vartime())
     }
 }
 
@@ -626,11 +611,36 @@ mod tests {
     #[test]
     fn random_bounded_bits_is_sane() {
         let mut rng = ChaCha8Rng::seed_from_u64(SEED);
-        for bound_bits in 1..U1024::BITS - 1 {
-            let signed: SecretSigned<U1024> = SecretSigned::random_in_exp_range(&mut rng, bound_bits);
-            assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound_bits));
-            signed.assert_exponent_range(bound_bits);
+        for exp in [1, 2, 3, U1024::BITS - 1] {
+            let signed: SecretSigned<U1024> = SecretSigned::random_in_exponent_range(&mut rng, exp);
+            let value = *signed.abs().expose_secret();
+            let bound = U1024::ONE << (exp - 1);
+            assert!(value < bound || (value == bound && (!signed.is_negative()).into()));
         }
+    }
+
+    #[test]
+    fn exponent_range() {
+        // If the exponential bound is 3, in the paper definition $∈ ±2^3$ is $∈ [-3, 4]$.
+
+        // 3 is fine
+        let signed = test_new_from_unsigned(U1024::from_u8(3), 2).unwrap();
+        signed.assert_exponent_range(3);
+
+        // -3 is fine
+        signed.neg().assert_exponent_range(3);
+
+        // 4 is fine
+        let signed = test_new_from_unsigned(U1024::from_u8(4), 3).unwrap();
+        signed.assert_exponent_range(3);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds $±2^3$")]
+    fn exponent_bound_panics() {
+        // -4 is out of $∈ ±2^3$ range
+        let signed = test_new_from_unsigned(U1024::from_u8(4), 3).unwrap();
+        signed.neg().assert_exponent_range(3);
     }
 
     #[test]
@@ -640,7 +650,7 @@ mod tests {
         let value = U1024::from_u8(3);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        signed.assert_exponent_range(bound);
+        assert!(bool::from(signed.ensure_bound(bound).is_some()));
         // 4 is too big
         let value = U1024::from_u8(4);
         let signed = test_new_from_unsigned(value, bound);
@@ -651,7 +661,7 @@ mod tests {
         let value = U1024::from_u8(1);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        signed.assert_exponent_range(bound);
+        assert!(bool::from(signed.ensure_bound(bound).is_some()));
         // 2 is too big
         let value = U1024::from_u8(2);
         let signed = test_new_from_unsigned(value, bound);
@@ -662,7 +672,7 @@ mod tests {
         let value = U1024::from_u8(0);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        signed.assert_exponent_range(bound);
+        assert!(bool::from(signed.ensure_bound(bound).is_some()));
         // 1 is too big
         let value = U1024::from_u8(1);
         let signed = test_new_from_unsigned(value, bound);
@@ -714,6 +724,7 @@ mod tests {
         let min_signed = test_new_from_abs(max_uint, U128::BITS - 1, true).expect("|2^127| is a valid SecretSigned");
         let _ = min_signed - one_signed;
     }
+
     #[test]
     #[should_panic(expected = "the caller ensured the bounds will not overflow")]
     fn sub_panics_on_underflow_1024() {

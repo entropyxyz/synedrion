@@ -73,9 +73,9 @@ impl<P: SchemeParams> MulStarProof<P> {
         let hat_cap_n = setup.modulus(); // $\hat{N}$
 
         let r = Randomizer::random(rng, public.pk0);
-        let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
-        let gamma = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let m = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
+        let alpha = SecretSigned::random_in_exponent_range(rng, P::L_BOUND + P::EPS_BOUND);
+        let gamma = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
+        let m = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND, hat_cap_n);
 
         let cap_a = (public.cap_c * &alpha).mul_randomizer(&r).to_wire();
         let cap_b_x = secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
@@ -98,7 +98,7 @@ impl<P: SchemeParams> MulStarProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
 
         let z1 = (alpha + secret.x * e).to_public();
         let z2 = (gamma + m * e.to_wide()).to_public();
@@ -143,14 +143,14 @@ impl<P: SchemeParams> MulStarProof<P> {
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = PublicSigned::from_xof_reader_in_range(&mut reader, &P::CURVE_ORDER);
 
         if e != self.e {
             return false;
         }
 
         // Range check
-        if !self.z1.in_range_bits(P::L_BOUND + P::EPS_BOUND) {
+        if !self.z1.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
             return false;
         }
 
@@ -202,10 +202,10 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let x = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
-        let secret = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
+        let x = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
+        let secret = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
         let rho = Randomizer::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_signed(&mut OsRng, pk, &secret);
+        let cap_c = Ciphertext::new(&mut OsRng, pk, &secret);
         let cap_d = (&cap_c * &x).mul_randomizer(&rho);
         let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
 

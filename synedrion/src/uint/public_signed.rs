@@ -137,9 +137,16 @@ where
         &self.value
     }
 
-    /// Returns `true` if the value is within `[-2^bound_bits, 2^bound_bits]`.
-    pub fn in_range_bits(&self, bound_bits: u32) -> bool {
-        self.abs() <= T::one() << bound_bits
+    /// Returns `true` if the value is within the interval the paper denotes as $±2^exp$.
+    ///
+    /// That is, the value must be within $[-2^{exp-1}+1, 2^{exp-1}]$
+    /// (See Section 3, Groups & Fields).
+    pub fn is_in_exponent_range(&self, exp: u32) -> bool {
+        let abs = self.abs();
+        let in_bound = abs.bits_vartime() < exp;
+        // Have to check for the high end of the range too
+        let is_high_end = (abs == T::one() << (exp - 1)) && !self.is_negative();
+        in_bound || is_high_end
     }
 
     pub fn checked_sub(&self, rhs: &Self) -> Option<Self> {
@@ -183,25 +190,24 @@ impl<T> PublicSigned<T>
 where
     T: Integer + Bounded + Encoding,
 {
-    /// Returns a value in range `[-bound, bound]` derived from an extendable-output hash.
+    /// Returns a value in range `±range` derived from an extendable-output hash.
+    ///
+    /// Note that in the paper's definitions, `±x` is equivalent to `[-(x-1)/2, (x-1)/2]` if `x` is odd,
+    /// and `[-x/2+1, x/2]` when `x` is even (see Section 3, Groups & Fields).
     ///
     /// This method should be used for deriving non-interactive challenges,
     /// since it is guaranteed to produce the same results on 32- and 64-bit platforms.
-    pub fn from_xof_reader_bounded(rng: &mut impl XofReader, bound: &NonZero<T>) -> Self {
-        let bound_bits = bound.as_ref().bits_vartime();
+    pub fn from_xof_reader_in_range(rng: &mut impl XofReader, range: &NonZero<T>) -> Self {
+        let bound_bits = range.as_ref().bits_vartime() - 1;
         assert!(bound_bits < <T as Bounded>::BITS);
-        // Will not overflow because of the assertion above
-        let positive_bound = bound
+        // Regardless of whether `range` is odd or even, the number of integers in the range is equal to `range`.
+        let positive_result = uint_from_xof(rng, range);
+        let shift = range
             .as_ref()
-            .overflowing_shl_vartime(1)
-            .expect("Just asserted that bound is smaller than precision; qed")
-            .checked_add(&T::one())
-            .expect("does not overflow since we're adding 1 to an even number");
-        let positive_result = uint_from_xof(
-            rng,
-            &NonZero::new(positive_bound).expect("Guaranteed to be greater than zero because we added 1"),
-        );
-        Self::new_from_unsigned(positive_result.wrapping_sub(bound.as_ref()), bound_bits)
+            .checked_sub(&T::one())
+            .expect("range is non-zero")
+            .wrapping_shr_vartime(1); // if `range == 1`, this will still produce the correct shift (0).
+        Self::new_from_unsigned(positive_result.wrapping_sub(&shift), bound_bits)
             .expect("Guaranteed to be Some because we checked the bounds just above")
     }
 }
