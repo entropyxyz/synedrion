@@ -33,7 +33,8 @@ use crate::{
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
     tools::{
         hashing::{Chain, FofHasher, HashOutput},
-        DowncastMap, Secret, Without,
+        protocol_shortcuts::{DowncastMap, Without},
+        Secret,
     },
     uint::SecretSigned,
 };
@@ -156,7 +157,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         }
 
         let other_ids = key_share
-            .public_shares
+            .public_shares()
             .keys()
             .cloned()
             .collect::<BTreeSet<_>>()
@@ -168,7 +169,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         let ssid_hash = FofHasher::new_with_dst(b"ShareSetID")
             .chain_type::<P>()
             .chain(&shared_randomness)
-            .chain(&key_share.public_shares)
+            .chain(&key_share.public_shares())
             .chain(&aux_info.public_aux)
             .finalize();
 
@@ -225,11 +226,11 @@ struct Context<P: SchemeParams, I: Ord> {
 impl<P, I> Context<P, I>
 where
     P: SchemeParams,
-    I: Ord + Debug,
+    I: Clone + Ord + Debug,
 {
     pub fn public_share(&self, i: &I) -> Result<&Point, LocalError> {
         self.key_share
-            .public_shares
+            .public_shares()
             .get(i)
             .ok_or_else(|| LocalError::new("Missing public_share for party Id {i:?}"))
     }
@@ -510,7 +511,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let hat_s = Randomizer::random(rng, target_pk);
 
         let gamma = secret_signed_from_scalar::<P>(&self.context.gamma);
-        let x = secret_signed_from_scalar::<P>(&self.context.key_share.secret_share);
+        let x = secret_signed_from_scalar::<P>(self.context.key_share.secret_share());
 
         let others_cap_k = self
             .all_cap_k
@@ -521,7 +522,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let cap_d = others_cap_k * &gamma + Ciphertext::new_with_randomizer(target_pk, &-&beta, &s);
 
         let hat_cap_f = Ciphertext::new_with_randomizer(pk, &hat_beta, &hat_r);
-        let hat_cap_d = others_cap_k * &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
+        let hat_cap_d = others_cap_k * &secret_signed_from_scalar::<P>(self.context.key_share.secret_share())
             + Ciphertext::new_with_randomizer(target_pk, &-&hat_beta, &hat_s);
 
         let cap_g = self.all_cap_g.get(&self.context.my_id).ok_or(LocalError::new(format!(
@@ -739,7 +740,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 
         let hat_alpha_sum: SecretSigned<_> = payloads.values().map(|payload| &payload.hat_alpha).sum();
         let hat_beta_sum: SecretSigned<_> = artifacts.values().map(|artifact| &artifact.hat_beta).sum();
-        let chi = secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
+        let chi = secret_signed_from_scalar::<P>(self.context.key_share.secret_share())
             * secret_signed_from_scalar::<P>(&self.context.k)
             + &hat_alpha_sum
             + &hat_beta_sum;
@@ -1257,7 +1258,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
                 let p_aff_g = AffGProof::<P>::new(
                     rng,
                     AffGSecretInputs {
-                        x: &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share),
+                        x: &secret_signed_from_scalar::<P>(self.context.key_share.secret_share()),
                         y: &values.hat_beta,
                         rho: &values.hat_s,
                         rho_y: &values.hat_r,
@@ -1293,7 +1294,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
 
         // mul* proofs
 
-        let x = &self.context.key_share.secret_share;
+        let x = &self.context.key_share.secret_share();
         let cap_x = self.context.public_share(&my_id)?;
 
         let rho = Randomizer::random(rng, pk);
@@ -1501,7 +1502,7 @@ mod tests {
         for signature in signatures.values() {
             let (sig, rec_id) = signature.to_backend();
 
-            let vkey = key_shares[&ids[0]].verifying_key().unwrap();
+            let vkey = key_shares[&ids[0]].verifying_key();
 
             // Check that the signature can be verified
             vkey.verify_prehash(&message, &sig).unwrap();

@@ -24,12 +24,12 @@ use crate::{
 /// The result of the KeyInit protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyShare<P, I: Ord> {
-    pub(crate) owner: I,
+    owner: I,
     /// Secret key share of this node.
-    pub(crate) secret_share: Secret<Scalar>, // `x_i`
-    pub(crate) public_shares: BTreeMap<I, Point>, // `X_j`
+    secret_share: Secret<Scalar>, // `x_i`
+    public_shares: BTreeMap<I, Point>, // `X_j`
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
-    pub(crate) phantom: PhantomData<P>,
+    phantom: PhantomData<P>,
 }
 
 /// The result of the AuxGen protocol.
@@ -125,7 +125,23 @@ pub(crate) struct PresigningValues<P: SchemeParams> {
     pub(crate) hat_cap_f: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
+impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
+    pub(crate) fn new(
+        owner: I,
+        secret_share: Secret<Scalar>,
+        public_shares: BTreeMap<I, Point>,
+    ) -> Result<Self, LocalError> {
+        if public_shares.values().sum::<Point>() == Point::IDENTITY {
+            return Err(LocalError::new("Key shares add up to zero"));
+        }
+        Ok(KeyShare {
+            owner,
+            secret_share,
+            public_shares,
+            phantom: PhantomData,
+        })
+    }
+
     /// Updates a key share with a change obtained from KeyRefresh protocol.
     pub fn update(self, change: KeyShareChange<P, I>) -> Result<Self, LocalError> {
         if self.owner != change.owner {
@@ -206,15 +222,24 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
     }
 
     /// Return the verifying key to which this set of shares corresponds.
-    pub fn verifying_key(&self) -> Option<VerifyingKey> {
-        // TODO (#5): need to ensure on creation of the share that the verifying key actually exists
-        // (that is, the sum of public keys does not evaluate to the infinity point)
-        self.verifying_key_as_point().to_verifying_key()
+    pub fn verifying_key(&self) -> VerifyingKey {
+        // All the constructors ensure that the shares add up to a non-infinity point.
+        self.verifying_key_as_point()
+            .to_verifying_key()
+            .expect("the public shares add up to a non-infinity point")
     }
 
     /// Returns the owner of this key share.
     pub fn owner(&self) -> &I {
         &self.owner
+    }
+
+    pub(crate) fn secret_share(&self) -> &Secret<Scalar> {
+        &self.secret_share
+    }
+
+    pub(crate) fn public_shares(&self) -> &BTreeMap<I, Point> {
+        &self.public_shares
     }
 
     /// Returns the set of parties holding other shares from the set.
@@ -315,6 +340,6 @@ mod tests {
         let shares = KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &ids, Some(&sk));
         assert!(shares
             .values()
-            .all(|share| &share.verifying_key().unwrap() == sk.verifying_key()));
+            .all(|share| &share.verifying_key() == sk.verifying_key()));
     }
 }

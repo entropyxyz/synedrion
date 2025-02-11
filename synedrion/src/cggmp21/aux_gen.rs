@@ -31,7 +31,8 @@ use crate::{
     tools::{
         bitvec::BitVec,
         hashing::{Chain, FofHasher, HashOutput},
-        DowncastMap, Secret, Without,
+        protocol_shortcuts::{DowncastMap, Without},
+        Secret,
     },
 };
 

@@ -32,6 +32,14 @@ In `П^{enc-elg}` (Fig. 24) the secret parameter `a` is not actually used in the
 In Presigning (Fig. 8), Round 2, step 2 `r_{i,j}` and `\hat{r}_{i,j}` should be drawn from `\mathbb{Z}_{N_i}`, and not `N_j`, judging by how they are used later.
 
 
+# Echo-broadcasting
+
+In order to be able to generate verifiable evidence for each failure, some values have to be echo-broadcasted instead of normal broadcast/direct messaging given in the paper. Here is the list of such variables
+
+KeyInit (Fig. 6):
+- `rho_i` in Round 2
+
+
 # Protocol
 
 Q: In Fig. 6 the initial commitment in the Schnorr proof (`A_i`) is sent twice (in R2 and then R3, as a part of `psi_i`), and then the equality of those two values is checked in Output, right before checking the proof itself. But the commitment value is used right after that in the `vrfy` step, so if it doesn't match the rest of the proof, the verification will fail. So is there any security reason for sending the commitment twice? (I understand that it does constitute a minor performance optimization)
