@@ -184,8 +184,8 @@ where
             .expect("the value fit the bound before, and the bound won't overflow for `T::Wide`")
     }
 
-    /// Multiplies two [`SecretSigned`] and returns a new [`SecretSigned`] of twice the bit-width.
-    pub fn mul_wide(&self, rhs: &PublicSigned<T>) -> SecretSigned<T::Wide> {
+    /// Multiplies two numbers and returns a new [`SecretSigned`] of twice the bit-width.
+    pub fn mul_wide_public(&self, rhs: &PublicSigned<T>) -> SecretSigned<T::Wide> {
         let abs_value = Secret::init_with(|| self.abs_value().expose_secret().mul_wide(&rhs.abs()));
         SecretSigned::new_from_abs(
             abs_value,
@@ -193,6 +193,21 @@ where
             self.is_negative() ^ Choice::from(rhs.is_negative() as u8),
         )
         .expect("the new bound is valid since the sum of the constituent bounds fits in a `T::Wide`")
+    }
+
+    /// Multiplies two numbers and returns a new [`SecretSigned`] of twice the bit-width.
+    pub fn mul_wide(&self, rhs: &SecretSigned<T>) -> SecretSigned<T::Wide> {
+        let abs_value = Secret::init_with(|| {
+            self.abs_value()
+                .expose_secret()
+                .mul_wide(rhs.abs_value().expose_secret())
+        });
+        SecretSigned::new_from_abs(
+            abs_value,
+            self.bound() + rhs.bound(),
+            self.is_negative() ^ rhs.is_negative(),
+        )
+        .expect("the new bound is valid since the constituent ones were")
     }
 }
 
@@ -582,11 +597,11 @@ mod tests {
     fn mul_wide_sums_bounds() {
         let s = test_new_from_unsigned(U1024::MAX >> 1, 1023).unwrap();
         let s1 = PublicSigned::new_from_unsigned(U1024::MAX >> 1, 1023).unwrap();
-        let mul = s.mul_wide(&s1);
+        let mul = s.mul_wide_public(&s1);
         assert_eq!(mul.bound(), 2046);
 
         let s2 = PublicSigned::new_from_unsigned(U1024::from_u8(8), 4).unwrap();
-        let mul = s.mul_wide(&s2);
+        let mul = s.mul_wide_public(&s2);
         assert_eq!(mul.bound(), 1027);
     }
 

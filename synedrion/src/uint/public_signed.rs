@@ -2,10 +2,12 @@ use alloc::{boxed::Box, format, string::String};
 use core::ops::Neg;
 
 use crypto_bigint::{Bounded, Encoding, Integer};
+use digest::XofReader;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
 use super::HasWide;
+use crate::tools::hashing::uint_from_xof;
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound set much lower than the full size of the integer,
@@ -161,40 +163,39 @@ where
         in_bound || is_high_end
     }
 
-    pub fn checked_sub(&self, rhs: &Self) -> Option<Self> {
-        let bound = core::cmp::max(self.bound, rhs.bound) + 1;
-        if bound < T::BITS {
-            Some(Self {
-                bound,
-                value: self.value.wrapping_sub(&rhs.value),
-            })
-        } else {
-            None
-        }
-    }
-
-    /// Constant-time checked multiplication. The product must fit in a `T`;
-    /// use [`Signed::mul_wide`] if widening is desired.
-    /// Note: when multiplying two [`PublicSigned`], the bound on the result
-    /// is equal to the sum of the bounds of the operands.
-    pub fn checked_mul(&self, rhs: &Self) -> Option<Self> {
-        let bound = self.bound + rhs.bound;
-        if bound < T::BITS {
-            Some(Self {
-                bound,
-                value: self.value.wrapping_mul(&rhs.value),
-            })
-        } else {
-            None
-        }
-    }
-
     /// Performs the unary - operation.
     pub fn neg(&self) -> Self {
         Self {
             value: T::zero().wrapping_sub(&self.value),
             bound: self.bound,
         }
+    }
+}
+
+impl<T> PublicSigned<T>
+where
+    T: Integer + Bounded + Encoding,
+{
+    /// Returns a value in range `±2^{exp}` derived from an extendable-output hash.
+    ///
+    /// Note that in the paper's definitions, `±2^{exp}` is equivalent to `[-2^(x-1)+1, 2^(x-1)]`
+    /// (see Section 3, Groups & Fields).
+    pub fn from_xof_reader_in_exponent_range(reader: &mut impl XofReader, exp: u32) -> Self {
+        assert!(exp > 0, "`exp` must be greater than zero");
+        assert!(
+            exp < T::BITS,
+            "Out of bounds: `exp` was {exp} but must be smaller or equal to {}",
+            T::BITS
+        );
+
+        let positive_result = uint_from_xof::<T>(reader, exp);
+        let shift = T::one()
+            .overflowing_shl_vartime(exp - 1)
+            .expect("checked that `exp` is smaller than `T::BITS`")
+            .checked_sub(&T::one())
+            .expect("does not overflow because of the assertions above");
+        Self::new_from_unsigned(positive_result.wrapping_sub(&shift), exp)
+            .expect("Guaranteed to be Some because we checked the bounds just above")
     }
 }
 

@@ -149,10 +149,6 @@ impl<P: PaillierParams> SecretPrimes<P> {
         Secret::init_with(|| NonZero::new(*self.q().expose_secret()).expect("`q` is non-zero"))
     }
 
-    pub fn p_wide_signed(&self) -> SecretSigned<P::WideUint> {
-        self.p_signed().to_wide()
-    }
-
     pub fn totient(&self) -> &Secret<P::Uint> {
         &self.totient
     }
