@@ -10,6 +10,16 @@ use crate::{
     uint::{FromXofReader, HasWide, IsInvertible, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
+#[cfg(test)]
+fn random_small_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
+    loop {
+        let prime = P::HalfUint::generate_prime_with_rng(rng, P::PRIME_BITS - 2);
+        if prime.as_ref().first().expect("First Limb exists").0 & 3 == 3 {
+            return prime;
+        }
+    }
+}
+
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
     loop {
         let prime = P::HalfUint::generate_prime_with_rng(rng, P::PRIME_BITS);
@@ -44,12 +54,30 @@ impl<P: PaillierParams> SecretPrimesWire<P> {
         Self { p, q }
     }
 
+    /// Creates smaller than required primes to trigger an error during tests.
+    #[cfg(test)]
+    pub fn random_small_paillier_blum(rng: &mut impl CryptoRngCore) -> Self {
+        Self::new(
+            Secret::init_with(|| random_small_paillier_blum_prime::<P>(rng)),
+            Secret::init_with(|| random_small_paillier_blum_prime::<P>(rng)),
+        )
+    }
+
     /// Creates the primes for a Paillier-Blum modulus,
     /// that is `p` and `q` are regular primes with an additional condition `p, q mod 3 = 4`.
     pub fn random_paillier_blum(rng: &mut impl CryptoRngCore) -> Self {
         Self::new(
             Secret::init_with(|| random_paillier_blum_prime::<P>(rng)),
             Secret::init_with(|| random_paillier_blum_prime::<P>(rng)),
+        )
+    }
+
+    /// Creates smaller than required primes to trigger an error during tests.
+    #[cfg(test)]
+    pub fn random_small_safe(rng: &mut impl CryptoRngCore) -> Self {
+        Self::new(
+            Secret::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS - 2)),
+            Secret::init_with(|| P::HalfUint::generate_safe_prime_with_rng(rng, P::PRIME_BITS - 2)),
         )
     }
 

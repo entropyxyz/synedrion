@@ -45,14 +45,12 @@ pub struct AuxInfo<P: SchemeParams, I: Ord> {
 #[serde(bound(deserialize = "SecretKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct SecretAuxInfo<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillierWire<P::Paillier>,
-    pub(crate) el_gamal_sk: Secret<Scalar>, // `y_i`
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicKeyPaillierWire<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "PublicKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
 pub(crate) struct PublicAuxInfo<P: SchemeParams> {
-    pub(crate) el_gamal_pk: Point, // `Y_i`
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillierWire<P::Paillier>,
     /// The ring-Pedersen parameters.
@@ -68,14 +66,10 @@ pub(crate) struct AuxInfoPrecomputed<P: SchemeParams, I> {
 #[derive(Debug, Clone)]
 pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
     pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
-    #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
-    pub(crate) el_gamal_sk: Secret<Scalar>, // `y_i`
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
-    #[allow(dead_code)] // TODO (#36): this will be needed for the 6-round presigning protocol.
-    pub(crate) el_gamal_pk: Point,
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     pub(crate) rp_params: RPParams<P::Paillier>,
 }
@@ -260,7 +254,6 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
         let secret_aux = (0..ids.len())
             .map(|_| SecretAuxInfo {
                 paillier_sk: SecretKeyPaillierWire::<P::Paillier>::random(rng),
-                el_gamal_sk: Secret::init_with(|| Scalar::random(rng)),
             })
             .collect::<Vec<_>>();
 
@@ -272,7 +265,6 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
                     id.clone(),
                     PublicAuxInfo {
                         paillier_pk: secret.paillier_sk.public_key(),
-                        el_gamal_pk: secret.el_gamal_sk.mul_by_generator(),
                         rp_params: RPParams::random(rng).to_wire(),
                     },
                 )
@@ -298,7 +290,6 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
         AuxInfoPrecomputed {
             secret_aux: SecretAuxInfoPrecomputed {
                 paillier_sk: self.secret_aux.paillier_sk.clone().into_precomputed(),
-                el_gamal_sk: self.secret_aux.el_gamal_sk.clone(),
             },
             public_aux: self
                 .public_aux
@@ -308,7 +299,6 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
                     (
                         id.clone(),
                         PublicAuxInfoPrecomputed {
-                            el_gamal_pk: public_aux.el_gamal_pk,
                             paillier_pk: paillier_pk.clone(),
                             rp_params: public_aux.rp_params.to_precomputed(),
                         },

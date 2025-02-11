@@ -27,6 +27,13 @@ pub(crate) struct SecretKeyPaillierWire<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> SecretKeyPaillierWire<P> {
+    #[cfg(test)]
+    pub fn random_small(rng: &mut impl CryptoRngCore) -> Self {
+        Self {
+            primes: SecretPrimesWire::<P>::random_small_paillier_blum(rng),
+        }
+    }
+
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self {
             primes: SecretPrimesWire::<P>::random_paillier_blum(rng),
@@ -291,6 +298,10 @@ impl<P: PaillierParams> PublicKeyPaillierWire<P> {
         Self {
             modulus: primes.modulus(),
         }
+    }
+
+    pub fn modulus(&self) -> &P::Uint {
+        self.modulus.modulus()
     }
 
     pub fn into_precomputed(self) -> PublicKeyPaillier<P> {

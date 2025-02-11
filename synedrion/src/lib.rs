@@ -30,8 +30,8 @@ pub use signature;
 
 pub use cggmp21::{
     AuxGen, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningProtocol, KeyInit, KeyInitAssociatedData,
-    KeyInitProtocol, KeyRefresh, KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, ProductionParams112,
-    SchemeParams, TestParams,
+    KeyInitProtocol, KeyRefresh, KeyRefreshAssociatedData, KeyRefreshProtocol, KeyShare, KeyShareChange,
+    PrehashedMessage, ProductionParams112, SchemeParams, TestParams,
 };
 pub use curve::RecoverableSignature;
 pub use www02::{DeriveChildKey, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};

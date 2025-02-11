@@ -53,13 +53,6 @@ impl<P: PaillierParams> Randomizer<P> {
         Self::new(pk, randomizer)
     }
 
-    /// Expose this secret randomizer.
-    ///
-    /// Supposed to be used in certain error branches where it is needed to generate a malicious behavior evidence.
-    pub fn expose(&self) -> P::Uint {
-        *self.randomizer.expose_secret()
-    }
-
     /// Converts the randomizer to a publishable form by masking it with another randomizer and a public exponent.
     pub fn to_masked(&self, coeff: &Self, exponent: &PublicSigned<P::Uint>) -> MaskedRandomizer<P> {
         MaskedRandomizer(
@@ -209,6 +202,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Encrypts the plaintext with a random randomizer.
+    #[cfg(test)]
     pub fn new(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillier<P>, plaintext: &SecretSigned<P::Uint>) -> Self {
         Self::new_with_randomizer(pk, plaintext, &Randomizer::random(rng, pk))
     }
@@ -477,7 +471,10 @@ mod tests {
         let randomizer = Randomizer::random(&mut OsRng, pk);
         let ciphertext = Ciphertext::<PaillierTest>::new_with_randomizer(pk, &plaintext, &randomizer);
         let randomizer_back = ciphertext.derive_randomizer(&sk);
-        assert_eq!(randomizer.expose(), randomizer_back.expose());
+        assert_eq!(
+            randomizer.randomizer.expose_secret(),
+            randomizer_back.randomizer.expose_secret()
+        );
     }
 
     #[test]

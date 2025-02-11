@@ -31,6 +31,12 @@ In `П^{enc-elg}` (Fig. 24) the secret parameter `a` is not actually used in the
 
 In Presigning (Fig. 8), Round 2, step 2 `r_{i,j}` and `\hat{r}_{i,j}` should be drawn from `\mathbb{Z}_{N_i}`, and not `N_j`, judging by how they are used later.
 
+Fig. 7 (KeyRefresh): there is a variable `B` that is not introduced anywhere, but used in hashes - must be forgotten from the previous revision.
+
+Fig. 7 (KeyRefresh): `srid` is not introduced anywhere - probably should be `rid`.
+
+Fig. 7 (KeyRefresh), Output, 1. (c): should be `\hat{\psi}_{j,k}`, not `\psi_{j,k}`. `\psi_{j,k}` are `П^{fac}`, not `П^{sch}`.
+
 
 # Echo-broadcasting
 
@@ -38,6 +44,9 @@ In order to be able to generate verifiable evidence for each failure, some value
 
 KeyInit (Fig. 6):
 - `rho_i` in Round 2
+
+KeyRefresh (Fig. 7):
+- `rid_i`, `\hat{N}_i`, `s_i`, `t_i`, `\vec{Y}` in Round 2
 
 
 # Protocol
