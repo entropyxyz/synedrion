@@ -17,7 +17,7 @@ mod params;
 mod sigma;
 
 #[cfg(test)]
-mod signing_malicious;
+mod interactive_signing_tests;
 
 #[cfg(test)]
 mod key_init_tests;
@@ -27,7 +27,9 @@ mod key_refresh_tests;
 
 pub use aux_gen::{AuxGen, AuxGenProtocol};
 pub use entities::{AuxInfo, KeyShare, KeyShareChange};
-pub use interactive_signing::{InteractiveSigning, InteractiveSigningProtocol, PrehashedMessage};
+pub use interactive_signing::{
+    InteractiveSigning, InteractiveSigningAssociatedData, InteractiveSigningProtocol, PrehashedMessage,
+};
 pub use key_init::{KeyInit, KeyInitAssociatedData, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshAssociatedData, KeyRefreshProtocol};
 pub use params::{ProductionParams112, SchemeParams, TestParams};

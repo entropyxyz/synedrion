@@ -14,11 +14,9 @@ use crate::{
     cggmp21::SchemeParams,
     curve::{secret_split, Point, Scalar},
     paillier::{
-        Ciphertext, PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, Randomizer,
-        SecretKeyPaillier, SecretKeyPaillierWire,
+        PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, SecretKeyPaillier, SecretKeyPaillierWire,
     },
     tools::Secret,
-    uint::SecretSigned,
 };
 
 /// The result of the KeyInit protocol.
@@ -26,19 +24,45 @@ use crate::{
 pub struct KeyShare<P, I: Ord> {
     owner: I,
     /// Secret key share of this node.
-    secret_share: Secret<Scalar>, // `x_i`
-    public_shares: BTreeMap<I, Point>, // `X_j`
+    secret: Secret<Scalar>, // `x_i`
+    public: PublicKeyShares<P, I>, // `X_j`
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicKeyShares<P, I: Ord> {
+    shares: BTreeMap<I, Point>, // `X_j`
     // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
     phantom: PhantomData<P>,
 }
 
 /// The result of the AuxGen protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "
+    I: Serialize,
+    SecretAuxInfo<P>: Serialize,
+    PublicAuxInfos<P, I>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    I: for<'x> Deserialize<'x>,
+    SecretAuxInfo<P>: for<'x> Deserialize<'x>,
+    PublicAuxInfos<P, I>: for<'x> Deserialize<'x>,
+"))]
 pub struct AuxInfo<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
-    pub(crate) secret_aux: SecretAuxInfo<P>,
-    pub(crate) public_aux: BTreeMap<I, PublicAuxInfo<P>>,
+    pub(crate) secret: SecretAuxInfo<P>,
+    pub(crate) public: PublicAuxInfos<P, I>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "
+    I: Serialize,
+    PublicAuxInfo<P>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    I: for<'x> Deserialize<'x>,
+    PublicAuxInfo<P>: for<'x> Deserialize<'x>,
+"))]
+pub struct PublicAuxInfos<P: SchemeParams, I: Ord>(pub(crate) BTreeMap<I, PublicAuxInfo<P>>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillierWire<P::Paillier>: Serialize"))]
@@ -86,53 +110,46 @@ pub struct KeyShareChange<P: SchemeParams, I: Ord> {
     pub(crate) phantom: PhantomData<P>,
 }
 
-/// The result of the Presigning protocol.
-#[derive(Debug, Clone)]
-pub(crate) struct PresigningData<P: SchemeParams, I> {
-    pub(crate) nonce: Scalar, // x-coordinate of $R$
-    /// An additive share of the ephemeral scalar.
-    pub(crate) ephemeral_scalar_share: Secret<Scalar>, // $k_i$
-    /// An additive share of `k * x` where `x` is the secret key.
-    pub(crate) product_share: Secret<Scalar>,
+impl<P: SchemeParams, I: Ord> PublicAuxInfos<P, I> {
+    pub(crate) fn as_map(&self) -> &BTreeMap<I, PublicAuxInfo<P>> {
+        &self.0
+    }
 
-    // Values generated during presigning,
-    // kept in case we need to generate a proof of correctness.
-    pub(crate) product_share_nonreduced: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    /// Returns a `PublicAuxInfos` object for the given subset of all parties.
+    pub fn subset(self, parties: &BTreeSet<I>) -> Result<Self, LocalError> {
+        let aux_infos = self
+            .0
+            .into_iter()
+            .filter(|(id, _aux)| parties.contains(id))
+            .collect::<BTreeMap<_, _>>();
+        if aux_infos.len() != parties.len() {
+            return Err(LocalError::new(
+                "`parties` must be a subset of all the available Aux Infos",
+            ));
+        }
 
-    // $K_i$.
-    pub(crate) cap_k: Ciphertext<P::Paillier>,
-
-    // The values for $j$, $j != i$.
-    pub(crate) values: BTreeMap<I, PresigningValues<P>>,
+        Ok(Self(aux_infos))
+    }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct PresigningValues<P: SchemeParams> {
-    pub(crate) hat_beta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    pub(crate) hat_r: Randomizer<P::Paillier>,
-    pub(crate) hat_s: Randomizer<P::Paillier>,
-    pub(crate) cap_k: Ciphertext<P::Paillier>,
-    /// Received $\hat{D}_{i,j}$.
-    pub(crate) hat_cap_d_received: Ciphertext<P::Paillier>,
-    /// Sent $\hat{D}_{j,i}$.
-    pub(crate) hat_cap_d: Ciphertext<P::Paillier>,
-    pub(crate) hat_cap_f: Ciphertext<P::Paillier>,
+impl<P: SchemeParams, I: Clone + Ord + Debug> PublicKeyShares<P, I> {
+    pub(crate) fn as_map(&self) -> &BTreeMap<I, Point> {
+        &self.shares
+    }
 }
 
 impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
-    pub(crate) fn new(
-        owner: I,
-        secret_share: Secret<Scalar>,
-        public_shares: BTreeMap<I, Point>,
-    ) -> Result<Self, LocalError> {
+    pub(crate) fn new(owner: I, secret: Secret<Scalar>, public_shares: BTreeMap<I, Point>) -> Result<Self, LocalError> {
         if public_shares.values().sum::<Point>() == Point::IDENTITY {
-            return Err(LocalError::new("Key shares add up to zero"));
+            return Err(LocalError::new("Secret key shares add up to zero"));
         }
         Ok(KeyShare {
             owner,
-            secret_share,
-            public_shares,
-            phantom: PhantomData,
+            secret,
+            public: PublicKeyShares {
+                shares: public_shares,
+                phantom: PhantomData,
+            },
         })
     }
 
@@ -144,17 +161,18 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
                 self.owner, change.owner
             )));
         }
-        if self.public_shares.len() != change.public_share_changes.len() {
+        if self.public.shares.len() != change.public_share_changes.len() {
             return Err(LocalError::new(format!(
                 "Inconsistent number of public key shares in updated share set (expected {}, was {})",
-                self.public_shares.len(),
+                self.public.shares.len(),
                 change.public_share_changes.len()
             )));
         }
 
-        let secret_share = self.secret_share + change.secret_share_change;
+        let secret = self.secret + change.secret_share_change;
         let public_shares = self
-            .public_shares
+            .public
+            .shares
             .iter()
             .map(|(id, public_share)| {
                 Ok((
@@ -170,9 +188,11 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
 
         Ok(Self {
             owner: self.owner,
-            secret_share,
-            public_shares,
-            phantom: PhantomData,
+            secret,
+            public: PublicKeyShares {
+                shares: public_shares,
+                phantom: PhantomData,
+            },
         })
     }
 
@@ -202,9 +222,11 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
                     id.clone(),
                     KeyShare {
                         owner: id.clone(),
-                        secret_share,
-                        public_shares: public_shares.clone(),
-                        phantom: PhantomData,
+                        secret: secret_share,
+                        public: PublicKeyShares {
+                            shares: public_shares.clone(),
+                            phantom: PhantomData,
+                        },
                     },
                 )
             })
@@ -212,7 +234,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
     }
 
     pub(crate) fn verifying_key_as_point(&self) -> Point {
-        self.public_shares.values().sum()
+        self.public.shares.values().sum()
     }
 
     /// Return the verifying key to which this set of shares corresponds.
@@ -229,16 +251,20 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
     }
 
     pub(crate) fn secret_share(&self) -> &Secret<Scalar> {
-        &self.secret_share
+        &self.secret
+    }
+
+    pub(crate) fn public(&self) -> &PublicKeyShares<P, I> {
+        &self.public
     }
 
     pub(crate) fn public_shares(&self) -> &BTreeMap<I, Point> {
-        &self.public_shares
+        &self.public.shares
     }
 
     /// Returns the set of parties holding other shares from the set.
     pub fn all_parties(&self) -> BTreeSet<I> {
-        self.public_shares.keys().cloned().collect()
+        self.public.shares.keys().cloned().collect()
     }
 }
 
@@ -246,6 +272,25 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
     /// Returns the owner of this aux data.
     pub fn owner(&self) -> &I {
         &self.owner
+    }
+
+    pub(crate) fn public(&self) -> &PublicAuxInfos<P, I> {
+        &self.public
+    }
+
+    /// Returns an `AuxInfo` object for the given subset of all parties.
+    pub fn subset(self, parties: &BTreeSet<I>) -> Result<Self, LocalError> {
+        if !parties.contains(&self.owner) {
+            return Err(LocalError::new(
+                "The subset of parties must include the owner of the secret Aux Info",
+            ));
+        }
+
+        Ok(Self {
+            owner: self.owner,
+            secret: self.secret,
+            public: self.public.subset(parties)?,
+        })
     }
 
     /// Creates a set of random self-consistent auxiliary data.
@@ -278,8 +323,8 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
                     id.clone(),
                     Self {
                         owner: id.clone(),
-                        secret_aux,
-                        public_aux: public_aux.clone(),
+                        secret: secret_aux,
+                        public: PublicAuxInfos(public_aux.clone()),
                     },
                 )
             })
@@ -289,10 +334,11 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
     pub(crate) fn into_precomputed(self) -> AuxInfoPrecomputed<P, I> {
         AuxInfoPrecomputed {
             secret_aux: SecretAuxInfoPrecomputed {
-                paillier_sk: self.secret_aux.paillier_sk.clone().into_precomputed(),
+                paillier_sk: self.secret.paillier_sk.clone().into_precomputed(),
             },
             public_aux: self
-                .public_aux
+                .public
+                .0
                 .iter()
                 .map(|(id, public_aux)| {
                     let paillier_pk = public_aux.paillier_pk.clone().into_precomputed();

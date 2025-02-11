@@ -1,7 +1,5 @@
 //! Range Proof w/ EL-Gamal Commitment ($\Pi^{enc-elg}$, Section A.2, Fig. 24)
 
-#![allow(dead_code)]
-
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 

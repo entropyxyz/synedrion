@@ -336,10 +336,6 @@ impl Secret<Scalar> {
     pub fn mul_by_generator(&self) -> Point {
         self.expose_secret().mul_by_generator()
     }
-
-    pub fn invert(&self) -> Option<Secret<Scalar>> {
-        Secret::maybe_init_with(|| Option::from(self.expose_secret().invert()))
-    }
 }
 
 impl Mul<Secret<Scalar>> for Point {

@@ -1,7 +1,5 @@
 //! Setup-less Aﬃne Operation w/ Group Commitment ($\Pi^{aff-g*}$, Fig. 27)
 
-#![allow(dead_code)]
-
 use alloc::{boxed::Box, vec::Vec};
 
 use rand_core::CryptoRngCore;

@@ -51,7 +51,8 @@ fn bench_happy_paths(c: &mut Criterion) {
                             message,
                             key_shares[&id].clone(),
                             aux_infos[&id].clone(),
-                        );
+                        )
+                        .unwrap();
                         (*signer, entry_point)
                     })
                     .collect::<Vec<_>>()

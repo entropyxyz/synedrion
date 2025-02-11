@@ -37,6 +37,14 @@ Fig. 7 (KeyRefresh): `srid` is not introduced anywhere - probably should be `rid
 
 Fig. 7 (KeyRefresh), Output, 1. (c): should be `\hat{\psi}_{j,k}`, not `\psi_{j,k}`. `\psi_{j,k}` are `П^{fac}`, not `П^{sch}`.
 
+Fig. 8 (Presigning): the order of public parameters for `П^{elog}` is different from the one in Fig. 23. For example, in Round 2, 2a), the order is `\Gamma_i, g, B_{i,1}, B_{i,2}, Y_i`, but it should be `B_{i,1}, B_{i,2}, Y_i, \Gamma_i, g`.
+
+Fig. 9, Output potentially needs `D_{k,j}` for all `k, j` (`k != j`) to calculate `D_j`. But, with the messages described in Fig. 8, a party `i` would only have `D_{j,i}`, `j!=i` (the ones it created in Round 2), and `D_{i,j}`, `j!=i` (the ones it received from other nodes). How are we supposed to obtain the rest? One option is to echo-broadcast (echo, so that they could be used to generate a verifiable evidence, too) all `D_{j,i}` and `F_{j,i}` in Round 2 instead of sending each `D_{j,i}` and `F_{j,i}` to the corresponding node `j`. Same goes for `\hat{D}` and `\hat{F}`.
+
+The above item leads to another problem. If those values are indeed echo-broadcasted, what malicious actions of one node can lead to passing the `П^{dec}` check on other nodes, but failing one of the `П^{aff-g*}` ones?
+
+Fig. 8, Round 2, 2b) - `\psi_{j,i}` creation requires `F_{i,j}` which are not yet available since they're the ones created on other nodes. The previous paper version has `F_{j,i}` there. Same for `\hat{\psi_{j,i}}`.
+
 
 # Echo-broadcasting
 
@@ -47,6 +55,10 @@ KeyInit (Fig. 6):
 
 KeyRefresh (Fig. 7):
 - `rid_i`, `\hat{N}_i`, `s_i`, `t_i`, `\vec{Y}` in Round 2
+
+Presigning (Fig. 8):
+- `\Gamma_i`, `F_{j,i}` for all `j`, `\hat{F}_{j,i}` for all `j` in Round 2
+- `\delta_i` in Round 3
 
 
 # Protocol

@@ -135,3 +135,32 @@ pub(crate) fn verify_that(condition: bool) -> Result<(), ProtocolValidationError
         ))
     }
 }
+
+/// Analogous to `Iterator::sum()`, but requires a non-empty iterator
+/// (so that it can be used for types with no `default()`, like `Ciphertext`)
+pub(crate) fn sum_non_empty<T, I, E>(mut iter: I, empty_error: E) -> Result<T, E>
+where
+    I: Iterator<Item = Result<T, E>>,
+    T: core::ops::Add<T, Output = T>,
+{
+    let mut result = iter.next().ok_or(empty_error)??;
+    for item in iter {
+        result = result + item?;
+    }
+    Ok(result)
+}
+
+/// Analogous to `Iterator::sum()`, but requires a non-empty iterator
+/// (so that it can be used for types with no `default()`, like `Ciphertext`)
+pub(crate) fn sum_non_empty_ref<'x, T, I, E>(mut iter: I, empty_error: E) -> Result<T, E>
+where
+    I: Iterator<Item = Result<&'x T, E>>,
+    T: 'x + Clone,
+    for<'a> T: core::ops::Add<&'a T, Output = T>,
+{
+    let mut result = iter.next().ok_or(empty_error)??.clone();
+    for item in iter {
+        result = result + item?;
+    }
+    Ok(result)
+}

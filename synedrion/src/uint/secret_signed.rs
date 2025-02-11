@@ -139,24 +139,6 @@ where
         Self::new_from_unsigned(value, modulus_bound - 1)
     }
 
-    /// Returns a truthy `Choice` if the absolute value is within the bit bound `bound`.
-    fn is_in_bound(&self, bound: u32) -> Choice {
-        let abs = self.abs();
-        let mask = T::one().wrapping_neg().wrapping_shl_vartime(bound);
-        let masked = abs & mask;
-        masked.is_zero()
-    }
-
-    /// Asserts that the absolute value is within the bit bound `bound`.
-    /// If that is the case, returns the value with the bound set to it.
-    pub fn ensure_bound(&self, bound: u32) -> CtOption<Self> {
-        let value = Self {
-            value: self.value.clone(),
-            bound,
-        };
-        CtOption::new(value, self.is_in_bound(bound))
-    }
-
     /// Asserts that the value is within the interval the paper denotes as $±2^exp$.
     /// Panics if it is not the case.
     ///
@@ -165,9 +147,15 @@ where
     ///
     /// Variable time w.r.t. `exp`.
     pub fn assert_exponent_range(&self, exp: u32) {
-        let in_bound = self.is_in_bound(exp - 1);
+        let abs = self.abs();
+
+        // Check if $abs(self) ∈ [0, 2^{exp-1}-1]$, that is $self ∈ [-2^{exp-1}+1, 2^{exp-1}-1]$.
+        let mask = T::one().wrapping_neg().wrapping_shl_vartime(exp - 1);
+        let masked = &abs & mask;
+        let in_bound = masked.is_zero();
+
         // Have to check for the high end of the range too
-        let is_high_end = self.abs().expose_secret().ct_eq(&(T::one() << (exp - 1))) & !self.is_negative();
+        let is_high_end = abs.expose_secret().ct_eq(&(T::one() << (exp - 1))) & !self.is_negative();
         assert!(bool::from(in_bound | is_high_end), "out of bounds $±2^{exp}$",)
     }
 }
@@ -207,7 +195,7 @@ where
             self.bound() + rhs.bound(),
             self.is_negative() ^ rhs.is_negative(),
         )
-        .expect("the new bound is valid since the constituent ones were")
+        .expect("the new bound is valid since the sum of the constituent bounds fits in a `T::Wide`")
     }
 }
 
@@ -665,7 +653,6 @@ mod tests {
         let value = U1024::from_u8(3);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        assert!(bool::from(signed.ensure_bound(bound).is_some()));
         // 4 is too big
         let value = U1024::from_u8(4);
         let signed = test_new_from_unsigned(value, bound);
@@ -676,7 +663,7 @@ mod tests {
         let value = U1024::from_u8(1);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        assert!(bool::from(signed.ensure_bound(bound).is_some()));
+
         // 2 is too big
         let value = U1024::from_u8(2);
         let signed = test_new_from_unsigned(value, bound);
@@ -687,7 +674,7 @@ mod tests {
         let value = U1024::from_u8(0);
         let signed = test_new_from_unsigned(value, bound).unwrap();
         assert!(*signed.abs().expose_secret() < U1024::MAX >> (U1024::BITS - 1 - bound));
-        assert!(bool::from(signed.ensure_bound(bound).is_some()));
+
         // 1 is too big
         let value = U1024::from_u8(1);
         let signed = test_new_from_unsigned(value, bound);
