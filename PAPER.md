@@ -15,6 +15,10 @@ Replies from Nikos Makriyannis are marked as (NM)
 
 # Typos
 
+In `П^{dec}` (Fig. 28), Inputs, the condition `(1 + N)^z` should read `(1 + N)^y`. Also note that at the point where it is used, the first secret argument corresponds to `y`, and the second to `x`.
+
+Also in `П^{dec}`: In Fig. 8 and 9, and in Section 4.3.1, where `П^{dec}` is used it is given a fifth public parameter, not mentioned in Fig. 28. It seems that Fig. 28 takes it to be `g` (curve generator), which is the case in Figs. 8 and 9, but in Section 4.3.1 it is given the point `\Gamma` instead.
+
 In `П^{aff-g}` (Fig. 25) I had to modify the proof to account for how `D` is actually constructed in the Presigning protocol. In the proof it is assumed that `D = C (*) x (+) enc(y)` (where `(*)` and `(+)` are homomorphic operations on Paillier ciphertexts), but in the Presigning it's actually `D = C (*) x (+) enc(-y)` (see Fig. 8, Round 2, step 2). So I had to modify the following:
 - (prover) `T = s^{-y} t^\mu \mod \hat{N}`
 - (prover) `z_2 = \beta - e y`

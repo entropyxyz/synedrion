@@ -115,6 +115,20 @@ where
         Some(result)
     }
 
+    pub fn one() -> Self {
+        Self {
+            value: T::one(),
+            bound: 1,
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self {
+            value: T::zero(),
+            bound: 0,
+        }
+    }
+
     pub fn is_negative(&self) -> bool {
         self.value.bit_vartime(T::BITS - 1)
     }
