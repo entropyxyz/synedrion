@@ -4,8 +4,7 @@ use ecdsa::hazmat::DigestPrimitive;
 use hashing_serializer::HashingSerializer;
 use primeorder::elliptic_curve::Curve;
 // TODO(dp): we're going to need these.
-use serde::{/*Deserialize,*/ Serialize};
-// use serde_encoded_bytes::{ArrayLike, Hex};
+use serde::{Deserialize, Serialize};
 use sha3::{Shake256, Shake256Reader};
 
 use crate::{curve::Scalar, SchemeParams};
@@ -61,10 +60,10 @@ where
 }
 
 // TODO(dp): Can we find a way to not have this type?
-// #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// pub(crate) struct HashOutput(
-//     // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
-//     #[serde(with = "ArrayLike::<Hex>")] pub(crate) [u8; 32],
+// #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// pub(crate) struct HashOutput<P: SchemeParams>(
+//     // Length of the BackendDigest output.
+//     #[serde(with = "ArrayLike::<Hex>")] pub(crate) FieldBytes<P::Curve>,
 // );
 
 // impl AsRef<[u8]> for HashOutput {

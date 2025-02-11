@@ -33,7 +33,7 @@ use crate::{
     curve::{Point, RecoverableSignature, Scalar},
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
     tools::{
-        hashing::{Chain, FofHasher, HashOutput},
+        hashing::{Chain, FofHasher},
         DowncastMap, Secret, Without,
     },
     uint::SecretSigned,
@@ -45,7 +45,7 @@ use crate::{
 pub struct InteractiveSigningProtocol<P: SchemeParams, I: Debug>(PhantomData<(P, I)>);
 
 impl<P: SchemeParams, I: PartyId> Protocol for InteractiveSigningProtocol<P, I> {
-    type Result = RecoverableSignature;
+    type Result = RecoverableSignature<P>;
     type ProtocolError = InteractiveSigningError;
 }
 
@@ -192,14 +192,14 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
 
 #[derive(Debug)]
 struct Context<P: SchemeParams, I: Ord> {
-    ssid_hash: HashOutput,
+    ssid_hash: P::HashOutput,
     my_id: I,
-    message: Scalar,
+    message: Scalar<P>,
     other_ids: BTreeSet<I>,
     key_share: KeyShare<P, I>,
     aux_info: AuxInfoPrecomputed<P, I>,
-    k: Secret<Scalar>,
-    gamma: Secret<Scalar>,
+    k: Secret<Scalar<P>>,
+    gamma: Secret<Scalar<P>>,
     rho: Randomizer<P::Paillier>,
     nu: Randomizer<P::Paillier>,
 }
@@ -209,7 +209,7 @@ where
     P: SchemeParams,
     I: Ord + Debug,
 {
-    pub fn public_share(&self, i: &I) -> Result<&Point, LocalError> {
+    pub fn public_share(&self, i: &I) -> Result<&Point<P>, LocalError> {
         self.key_share
             .public_shares
             .get(i)
@@ -419,7 +419,7 @@ struct Round2<P: SchemeParams, I: Ord> {
     LogStarProof<P>: for<'x> Deserialize<'x>,
 "))]
 struct Round2Message<P: SchemeParams> {
-    cap_gamma: Point,
+    cap_gamma: Point<P>,
     cap_d: CiphertextWire<P::Paillier>,
     hat_cap_d: CiphertextWire<P::Paillier>,
     cap_f: CiphertextWire<P::Paillier>,
@@ -444,7 +444,7 @@ struct Round2Artifact<P: SchemeParams> {
 }
 
 struct Round2Payload<P: SchemeParams> {
-    cap_gamma: Point,
+    cap_gamma: Point<P>,
     alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     hat_alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_d: Ciphertext<P::Paillier>,

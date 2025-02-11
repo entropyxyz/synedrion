@@ -24,7 +24,7 @@ use super::{
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 use crate::{
-    curve::{Point, ScalarSh},
+    curve::{Point, Scalar},
     paillier::{
         PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillier,
         SecretKeyPaillierWire,
@@ -136,7 +136,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
         let paillier_pk = paillier_sk.public_key();
 
         // El-Gamal key
-        let y: Secret<ScalarSh<P>> = Secret::init_with(|| ScalarSh::random(rng));
+        let y: Secret<Scalar<P>> = Secret::init_with(|| Scalar::random(rng));
         let cap_y = y.mul_by_generator();
 
         // The secret and the commitment for the Schnorr PoK of the El-Gamal key
@@ -148,7 +148,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
         let rp_params = RPParams::random_with_secret(rng, &rp_secret);
 
         let aux = (&sid_hash, id);
-        let hat_psi = PrmProof::<P>::new(rng, &rp_secret, &rp_params, &aux);
+        let hat_psi = PrmProof::<P>::new(rng, &rp_secret, &rp_params, &aux.as_ref());
 
         let rho = BitVec::random(rng, P::SECURITY_PARAMETER);
         let u = BitVec::random(rng, P::SECURITY_PARAMETER);
@@ -187,7 +187,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
 #[serde(bound(serialize = "PrmProof<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmProof<P>: for<'x> Deserialize<'x>"))]
 struct PublicData1<P: SchemeParams> {
-    cap_y: Point,
+    cap_y: Point<P>,
     cap_b: SchCommitment<P>,
     paillier_pk: PublicKeyPaillierWire<P::Paillier>, // $N_i$
     rp_params: RPParamsWire<P::Paillier>,            // $s_i$ and $t_i$
@@ -206,16 +206,16 @@ struct PublicData1Precomp<P: SchemeParams> {
 #[derive(Debug)]
 struct Context<P: SchemeParams, I> {
     paillier_sk: SecretKeyPaillier<P::Paillier>,
-    y: Secret<ScalarSh<P>>,
+    y: Secret<Scalar<P>>,
     tau_y: SchSecret<P>,
     data_precomp: PublicData1Precomp<P>,
     my_id: I,
     other_ids: BTreeSet<I>,
-    sid_hash: HashOutput,
+    sid_hash: P::HashOutput,
 }
 
 impl<P: SchemeParams> PublicData1<P> {
-    fn hash<I: Serialize>(&self, sid_hash: &HashOutput, my_id: &I) -> HashOutput {
+    fn hash<I: Serialize>(&self, sid_hash: &P::HashOutput, my_id: &I) -> P::HashOutput {
         FofHasher::new_with_dst(b"Auxiliary")
             .chain(sid_hash)
             .chain(my_id)

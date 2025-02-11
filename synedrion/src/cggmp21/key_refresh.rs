@@ -69,7 +69,7 @@ enum KeyRefreshErrorEnum<P: SchemeParams> {
     #[allow(dead_code)]
     Round3MismatchedSecret {
         cap_c: CiphertextWire<P::Paillier>,
-        x: Scalar,
+        x: Scalar<P>,
         mu: <P::Paillier as PaillierParams>::Uint,
     },
 }
