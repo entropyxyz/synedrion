@@ -17,6 +17,9 @@ mod params;
 mod sigma;
 
 #[cfg(test)]
+mod aux_gen_tests;
+
+#[cfg(test)]
 mod interactive_signing_tests;
 
 #[cfg(test)]
@@ -25,7 +28,7 @@ mod key_init_tests;
 #[cfg(test)]
 mod key_refresh_tests;
 
-pub use aux_gen::{AuxGen, AuxGenProtocol};
+pub use aux_gen::{AuxGen, AuxGenAssociatedData, AuxGenProtocol};
 pub use entities::{AuxInfo, KeyShare, KeyShareChange};
 pub use interactive_signing::{
     InteractiveSigning, InteractiveSigningAssociatedData, InteractiveSigningProtocol, PrehashedMessage,
