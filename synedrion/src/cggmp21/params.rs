@@ -5,10 +5,8 @@ use core::{fmt::Debug, ops::Add};
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
-use digest::generic_array::ArrayLength;
+use digest::generic_array::{ArrayLength, GenericArray};
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
-use serde::{Deserialize, Serialize};
-
 use primeorder::elliptic_curve::{
     // TODO(dp): get rid of this
     bigint::Uint as Other256Uint,
@@ -20,6 +18,7 @@ use primeorder::elliptic_curve::{
     CurveArithmetic,
     PrimeCurve,
 };
+use serde::{Deserialize, Serialize};
 
 use tiny_curve::TinyCurve64;
 
@@ -123,6 +122,7 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
 Ord
 + /*TODO(dp): this comes from sss.rs where ShareId used to be Copy (and the old Scalar as well). Not sure if this is a good idea or not */
 Copy
++ Serialize
 where
     // TODO(dp): This insanity all stems from the `FromEncodedPoint` bound. WTH?
     <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
@@ -145,10 +145,12 @@ where
     /// Elliptic curve of prime order used.
     type Curve:
         CurveArithmetic + PrimeCurve
-        /*TODO(dp): k256 doesn't implement this trait which is a bit of a problem. Is there a (good) reason for this? */
+        /*TODO(dp): k256 doesn't implement this trait which may or may not be a problem. Is there a (good) reason for this? */
         // + PrimeCurveParams
         + HashableType
         + DigestPrimitive;
+
+    type HashOutput: Debug + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>> + Serialize;
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
@@ -190,6 +192,8 @@ pub struct TestParams;
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
+    // 8*24 = 192, which is the ModulusSize-hack Bogdan put in. This should be 8.
+    type HashOutput = [u8; 24];
     const SECURITY_PARAMETER: usize = 10;
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = 256;
@@ -211,6 +215,7 @@ pub struct ProductionParams;
 
 impl SchemeParams for ProductionParams {
     type Curve = k256::Secp256k1;
+    type HashOutput = [u8; 32];
     const SECURITY_PARAMETER: usize = 80; // The value is given in Table 2 in the paper
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = Self::L_BOUND * 5;
