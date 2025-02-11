@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use crypto_bigint::{modular::Retrieve, Gcd, Integer, Invert, Square};
+use crypto_bigint::{modular::Retrieve, Gcd, Integer, Square};
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 use rand::SeedableRng;
@@ -17,7 +17,7 @@ use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     tools::hashing::{Chain, Hashable, XofHasher},
-    uint::{Exponentiable, ToMontgomery},
+    uint::{Exponentiable, IsInvertible, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_mod";
@@ -175,7 +175,7 @@ impl<P: SchemeParams> ModProof<P> {
             let mut y_m = y.to_montgomery(monty_params);
 
             // Check if $y_i ∈ Z^*_N$.
-            if y_m.invert().is_none().into() {
+            if !y.is_invertible(pk.modulus()) {
                 return false;
             }
 

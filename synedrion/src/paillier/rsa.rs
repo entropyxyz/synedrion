@@ -1,4 +1,4 @@
-use crypto_bigint::{BitOps, CheckedSub, Gcd, Integer, Monty, NonZero, Odd, RandomMod, Square};
+use crypto_bigint::{BitOps, CheckedSub, Integer, Monty, NonZero, Odd, RandomMod, Square};
 use crypto_primes::RandomPrimeWithRng;
 use digest::XofReader;
 use rand_core::CryptoRngCore;
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::{
     tools::{hashing::uint_from_xof, Secret},
-    uint::{HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    uint::{HasWide, IsInvertible, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
@@ -254,24 +254,24 @@ impl<P: PaillierParams> PublicModulus<P> {
         &self.monty_params_mod_n
     }
 
-    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
+    /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$.
     pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
         let modulus = self.modulus_nonzero();
         loop {
             let r = P::Uint::random_mod(rng, &modulus);
-            if r.gcd(&self.modulus.0) == P::Uint::one() {
+            if r.is_invertible(&self.modulus.0) {
                 return r;
             }
         }
     }
 
-    /// Returns a number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form,
+    /// Returns a number in range $[0, N)$ such that it is invertible modulo $N$,
     /// deterministically derived from an extensible output hash function.
     pub fn invertible_residue_from_xof_reader(&self, reader: &mut impl XofReader) -> P::Uint {
         let modulus_bits = self.modulus().bits_vartime();
         loop {
             let r = uint_from_xof::<P::Uint>(reader, modulus_bits);
-            if r.gcd(&self.modulus.0) == P::Uint::one() {
+            if r.is_invertible(&self.modulus.0) {
                 return r;
             }
         }
