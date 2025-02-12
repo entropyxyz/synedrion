@@ -1302,6 +1302,7 @@ dependencies = [
 [[package]]
 name = "tiny-curve"
 version = "0.1.0"
+source = "git+https://github.com/dvdplm/tiny-curve?branch=dp-add-pkcs8-feature#42c714627d241117cdd6a17c663bbb956e5149ff"
 dependencies = [
  "ecdsa",
  "num-traits",

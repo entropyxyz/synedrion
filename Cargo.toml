@@ -12,4 +12,4 @@ resolver = "2"
 # [patch.crates-io]
 # tiny-curve = { version = "0.1", git = "https://github.com/fjarri/tiny-curve" }
 [patch.crates-io]
-tiny-curve = { version = "0.1", path = "../tiny-curve", git = "https://github.com/dvdplm/tiny-curve" }
+tiny-curve = { version = "0.1", git = "https://github.com/dvdplm/tiny-curve", branch = "dp-add-pkcs8-feature" }
