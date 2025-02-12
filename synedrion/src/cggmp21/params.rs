@@ -122,7 +122,7 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
 Ord
 + /*TODO(dp): this comes from sss.rs where ShareId used to be Copy (and the old Scalar as well). Not sure if this is a good idea or not */
 Copy
-+ Serialize
++ Serialize + for<'x> Deserialize<'x>
 where
     // TODO(dp): This insanity all stems from the `FromEncodedPoint` bound. WTH?
     <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
@@ -150,7 +150,13 @@ where
         + HashableType
         + DigestPrimitive;
 
-    type HashOutput: Debug + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>> + Serialize;
+    // TODO(dp): I think it can be Copy. Should it?
+    /// Bla
+    type HashOutput:
+        Clone + Debug  + Send + Sync+PartialEq
+        + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>>
+        + AsRef<[u8]>
+        + Serialize + for<'x> Deserialize<'x>;
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.

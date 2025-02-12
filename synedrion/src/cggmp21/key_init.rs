@@ -27,7 +27,7 @@ use crate::{
     curve::{Point, Scalar},
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, FofHasher, HashOutput},
+        hashing::{Chain, FofHasher},
         DowncastMap, Secret, Without,
     },
 };
@@ -83,17 +83,17 @@ impl ProtocolError for KeyInitError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 struct PublicData<P: SchemeParams> {
-    cap_x: Point,
-    cap_a: SchCommitment,
+    cap_x: Point<P>,
+    cap_a: SchCommitment<P>,
     rid: BitVec,
     u: BitVec,
-    phantom: PhantomData<P>,
 }
 
 impl<P: SchemeParams> PublicData<P> {
-    fn hash<I: Serialize>(&self, sid_hash: &HashOutput, id: I) -> HashOutput {
-        FofHasher::new_with_dst(b"KeyInit")
+    fn hash<I: Serialize>(&self, sid_hash: &P::HashOutput, id: I) -> P::HashOutput {
+        FofHasher::<P>::new_with_dst(b"KeyInit")
             .chain(sid_hash)
             .chain(&id)
             .chain(self)
@@ -134,7 +134,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
 
         let other_ids = self.all_ids.clone().without(id);
 
-        let sid_hash = FofHasher::new_with_dst(b"SID")
+        let sid_hash = FofHasher::<P>::new_with_dst(b"SID")
             .chain_type::<P>()
             .chain(&shared_randomness)
             .chain(&self.all_ids)
@@ -150,13 +150,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
         let cap_a = SchCommitment::new(&tau);
         let u = BitVec::random(rng, P::SECURITY_PARAMETER);
 
-        let public_data = PublicData {
-            cap_x,
-            cap_a,
-            rid,
-            u,
-            phantom: PhantomData,
-        };
+        let public_data = PublicData { cap_x, cap_a, rid, u };
 
         let context = Context {
             other_ids,
@@ -175,10 +169,10 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyInit<P, I> {
 struct Context<P: SchemeParams, I> {
     other_ids: BTreeSet<I>,
     my_id: I,
-    x: Secret<Scalar>,
-    tau: SchSecret,
+    x: Secret<Scalar<P>>,
+    tau: SchSecret<P>,
     public_data: PublicData<P>,
-    sid_hash: HashOutput,
+    sid_hash: P::HashOutput,
 }
 
 #[derive(Debug)]
@@ -187,12 +181,12 @@ struct Round1<P: SchemeParams, I> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Round1Message {
-    cap_v: HashOutput,
+struct Round1Message<P: SchemeParams> {
+    cap_v: P::HashOutput,
 }
 
-struct Round1Payload {
-    cap_v: HashOutput,
+struct Round1Payload<P: SchemeParams> {
+    cap_v: P::HashOutput,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
@@ -223,7 +217,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             .context
             .public_data
             .hash(&self.context.sid_hash, &self.context.my_id);
-        EchoBroadcast::new(serializer, Round1Message { cap_v })
+        EchoBroadcast::new(serializer, Round1Message::<P> { cap_v })
     }
 
     fn receive_message(
@@ -237,8 +231,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
         normal_broadcast.assert_is_none()?;
         direct_message.assert_is_none()?;
-        let echo = echo_broadcast.deserialize::<Round1Message>(deserializer)?;
-        Ok(Payload::new(Round1Payload { cap_v: echo.cap_v }))
+        let echo = echo_broadcast.deserialize::<Round1Message<P>>(deserializer)?;
+        Ok(Payload::new(Round1Payload::<P> { cap_v: echo.cap_v }))
     }
 
     fn finalize(
@@ -247,12 +241,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         payloads: BTreeMap<I, Payload>,
         _artifacts: BTreeMap<I, Artifact>,
     ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round1Payload>()?;
+        let payloads = payloads.downcast_all::<Round1Payload<P>>()?;
         let others_cap_v = payloads.into_iter().map(|(k, v)| (k, v.cap_v)).collect();
         Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round2 {
             others_cap_v,
             context: self.context,
-            phantom: PhantomData,
         })))
     }
 }
@@ -260,8 +253,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 #[derive(Debug)]
 struct Round2<P: SchemeParams, I> {
     context: Context<P, I>,
-    others_cap_v: BTreeMap<I, HashOutput>,
-    phantom: PhantomData<P>,
+    others_cap_v: BTreeMap<I, P::HashOutput>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -351,7 +343,6 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             context: self.context,
             others_data,
             rid,
-            phantom: PhantomData,
         })))
     }
 }
@@ -361,12 +352,12 @@ struct Round3<P: SchemeParams, I> {
     context: Context<P, I>,
     others_data: BTreeMap<I, PublicData<P>>,
     rid: BitVec,
-    phantom: PhantomData<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct Round3Message {
-    psi: SchProof,
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+struct Round3Message<P: SchemeParams> {
+    psi: SchProof<P>,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
@@ -420,7 +411,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         echo_broadcast.assert_is_none()?;
         direct_message.assert_is_none()?;
 
-        let bc = normal_broadcast.deserialize::<Round3Message>(deserializer)?;
+        let bc = normal_broadcast.deserialize::<Round3Message<P>>(deserializer)?;
 
         let data = self
             .others_data

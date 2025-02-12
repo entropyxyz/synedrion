@@ -1302,7 +1302,6 @@ dependencies = [
 [[package]]
 name = "tiny-curve"
 version = "0.1.0"
-source = "git+https://github.com/fjarri/tiny-curve#32844e42832145e829f646d58b2fb68c1b8a28f6"
 dependencies = [
  "ecdsa",
  "num-traits",

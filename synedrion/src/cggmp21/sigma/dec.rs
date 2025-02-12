@@ -31,19 +31,20 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
     /// Paillier public key $N_0$.
     pub pk0: &'a PublicKeyPaillier<P::Paillier>,
     /// Scalar $x = y \mod q$, where $q$ is the curve order.
-    pub x: &'a Scalar,
+    pub x: &'a Scalar<P>,
     /// Paillier ciphertext $C = enc_0(y, \rho)$.
     pub cap_c: &'a Ciphertext<P::Paillier>,
 }
 
 /// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub(crate) struct DecProof<P: SchemeParams> {
     e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_t: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
-    gamma: Scalar,
+    gamma: Scalar<P>,
     z1: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     z2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     omega: MaskedRandomizer<P::Paillier>,

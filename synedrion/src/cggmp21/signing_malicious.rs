@@ -42,7 +42,7 @@ impl<P: SchemeParams, Id: PartyId> Misbehaving<Id, Behavior> for MaliciousSignin
         let bc = if round.id() == RoundId::new(4) {
             match behavior {
                 Behavior::InvalidSigma => {
-                    let message = Round4Message {
+                    let message = Round4Message::<P> {
                         sigma: Scalar::random(rng),
                     };
                     NormalBroadcast::new(serializer, message)?

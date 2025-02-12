@@ -16,6 +16,9 @@ use crate::{
 use primeorder::elliptic_curve::CurveArithmetic;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+// TODO(dp): Wth goes here? This "works" in isolation, but causes "overflow" when used in Round1BroadcastMessage
+// #[serde(bound(deserialize = "ShareId<P>: for<'x> Deserialize<'x>"))]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub struct ShareId<P: SchemeParams>(Scalar<P>);
 
 impl<P> ShareId<P>
@@ -98,6 +101,9 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// TODO(dp): this "works" in isolation, but when a PublicPolynomial is used in Round1BroadcastMessage the deser derivation fails with "overflow"
+// #[serde(bound(deserialize = "PublicPolynomial<P>: for<'x> Deserialize<'x>"))]
+#[serde(bound(deserialize = ""))]
 pub(crate) struct PublicPolynomial<P: SchemeParams>(Vec<Point<P>>);
 
 impl<P> PublicPolynomial<P>
@@ -125,10 +131,7 @@ where
     P: SchemeParams,
 {
     let polynomial = Polynomial::random(rng, secret, threshold);
-    indices
-        .iter()
-        .map(|idx| (idx.clone(), polynomial.evaluate(idx)))
-        .collect()
+    indices.iter().map(|idx| (*idx, polynomial.evaluate(idx))).collect()
 }
 
 pub(crate) fn interpolation_coeff<P>(share_ids: &BTreeSet<ShareId<P>>, share_id: &ShareId<P>) -> Scalar<P>

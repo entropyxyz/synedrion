@@ -32,18 +32,19 @@ pub(crate) struct LogStarPublicInputs<'a, P: SchemeParams> {
     /// Paillier ciphertext $C = enc_0(x, \rho)$.
     pub cap_c: &'a Ciphertext<P::Paillier>,
     /// Point $g$.
-    pub g: &'a Point,
+    pub g: &'a Point<P>,
     /// Point $X = g * x$.
-    pub cap_x: &'a Point,
+    pub cap_x: &'a Point<P>,
 }
 
 /// ZK proof: Knowledge of Exponent vs Paillier Encryption.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub(crate) struct LogStarProof<P: SchemeParams> {
     e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_a: CiphertextWire<P::Paillier>,
-    cap_y: Point,
+    cap_y: Point<P>,
     cap_d: RPCommitmentWire<P::Paillier>,
     z1: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     z2: MaskedRandomizer<P::Paillier>,
@@ -189,7 +190,7 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        let g = Point::GENERATOR * Scalar::random(&mut OsRng);
+        let g = Point::generator() * Scalar::random(&mut OsRng);
         let x = SecretSigned::random_in_exp_range(&mut OsRng, Params::L_BOUND);
         let rho = Randomizer::random(&mut OsRng, pk);
         let cap_c = Ciphertext::new_with_randomizer_signed(pk, &x, &rho);

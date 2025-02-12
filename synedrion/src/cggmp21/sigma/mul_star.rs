@@ -34,15 +34,16 @@ pub(crate) struct MulStarPublicInputs<'a, P: SchemeParams> {
     /// Paillier ciphertext $D = (C (*) x) * \rho^{N_0} \mod N_0^2$.
     pub cap_d: &'a Ciphertext<P::Paillier>,
     /// Point $X = g * x$, where $g$ is the curve generator.
-    pub cap_x: &'a Point,
+    pub cap_x: &'a Point<P>,
 }
 
 /// ZK proof: Multiplication Paillier vs Group.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub(crate) struct MulStarProof<P: SchemeParams> {
     e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     cap_a: CiphertextWire<P::Paillier>,
-    cap_b_x: Point,
+    cap_b_x: Point<P>,
     cap_e: RPCommitmentWire<P::Paillier>,
     cap_s: RPCommitmentWire<P::Paillier>,
     z1: PublicSigned<<P::Paillier as PaillierParams>::Uint>,

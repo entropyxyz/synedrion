@@ -3,13 +3,17 @@ use alloc::{
     format,
     vec::Vec,
 };
-use core::{fmt::Debug, marker::PhantomData, ops::Add};
+use core::{fmt::Debug, marker::PhantomData};
 use manul::session::LocalError;
 
+#[cfg(feature = "bip32")]
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
-use digest::generic_array::ArrayLength;
-use ecdsa::{hazmat::SignPrimitive, SigningKey, VerifyingKey};
-use primeorder::elliptic_curve::{Curve, CurveArithmetic, PrimeCurve};
+#[cfg(not(feature = "bip32"))]
+use core::ops::Add;
+#[cfg(not(feature = "bip32"))]
+use ecdsa::hazmat::SignPrimitive;
+use ecdsa::{SigningKey, VerifyingKey};
+use primeorder::elliptic_curve::{CurveArithmetic, PrimeCurve};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +30,8 @@ use crate::{
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
+#[serde(bound(deserialize = "ShareId<P>: for<'x> Deserialize<'x>"))]
+pub struct ThresholdKeyShare<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
     // TODO (#5): make this private to ensure invariants are held
     // (mainly, that the verifying key is not an identity)
     pub(crate) owner: I,
@@ -34,11 +39,13 @@ pub struct ThresholdKeyShare<P: SchemeParams, I: Ord> {
     pub(crate) secret_share: Secret<Scalar<P>>,
     pub(crate) share_ids: BTreeMap<I, ShareId<P>>,
     pub(crate) public_shares: BTreeMap<I, Point<P>>,
-    // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
-    pub(crate) phantom: PhantomData<P>,
 }
 
-impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I> {
+impl<P, I> ThresholdKeyShare<P, I>
+where
+    P: SchemeParams,
+    I: Clone + Ord + PartialEq + Debug + Serialize + for<'x> Deserialize<'x>,
+{
     /// Threshold share ID.
     pub fn share_id(&self) -> Result<&ShareId<P>, LocalError> {
         self.share_ids.get(&self.owner).ok_or(LocalError::new(format!(
@@ -102,7 +109,6 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
                         secret_share,
                         share_ids: share_ids.clone(),
                         public_shares: public_shares.clone(),
-                        phantom: PhantomData,
                     },
                 ))
             })
@@ -223,103 +229,117 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> ThresholdKeyShare<P, I
             share_ids,
             secret_share,
             public_shares,
-            phantom: PhantomData,
         }
     }
 
+    #[cfg(feature = "bip32")]
     /// Deterministically derives a child share using BIP-32 standard.
-    pub fn derive_bip32(&self, derivation_path: &DerivationPath) -> Result<Self, bip32::Error> {
-        let pk = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
-        let tweaks = derive_tweaks(pk, derivation_path)?;
+    pub fn derive_bip32(&self, _derivation_path: &DerivationPath) -> Result<Self, bip32::Error> {
+        todo!()
+        // let pk = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
+        // let tweaks = derive_tweaks(pk, derivation_path)?;
 
-        // Will fail here if secret share is zero
-        let secret_share = self.secret_share.clone().to_signing_key().ok_or(bip32::Error::Crypto)?;
-        let secret_share =
-            apply_tweaks_private(secret_share, &tweaks).map(|signing_key| Scalar::from_signing_key(&signing_key))?;
+        // // Will fail here if secret share is zero
+        // let secret_share = self.secret_share.clone().to_signing_key().ok_or(bip32::Error::Crypto)?;
+        // let secret_share =
+        //     apply_tweaks_private(secret_share, &tweaks).map(|signing_key| Scalar::from_signing_key(&signing_key))?;
 
-        let public_shares = self
-            .public_shares
-            .clone()
-            .into_iter()
-            .map(|(id, point)|
-                // Will fail here if the final or one of the intermediate points is an identity
-                point.to_verifying_key().ok_or(bip32::Error::Crypto)
-                    .and_then(|vkey| apply_tweaks_public(vkey, &tweaks))
-                    .map(|vkey| (id, Point::from_verifying_key(&vkey))))
-            .collect::<Result<_, _>>()?;
+        // let public_shares = self
+        //     .public_shares
+        //     .clone()
+        //     .into_iter()
+        //     .map(|(id, point)|
+        //         // Will fail here if the final or one of the intermediate points is an identity
+        //         point.to_verifying_key().ok_or(bip32::Error::Crypto)
+        //             .and_then(|vkey| apply_tweaks_public(vkey, &tweaks))
+        //             .map(|vkey| (id, Point::from_verifying_key(&vkey))))
+        //     .collect::<Result<_, _>>()?;
 
-        Ok(Self {
-            owner: self.owner.clone(),
-            threshold: self.threshold,
-            share_ids: self.share_ids.clone(),
-            secret_share,
-            public_shares,
-            phantom: PhantomData,
-        })
+        // Ok(Self {
+        //     owner: self.owner.clone(),
+        //     threshold: self.threshold,
+        //     share_ids: self.share_ids.clone(),
+        //     secret_share,
+        //     public_shares,
+        //     phantom: PhantomData,
+        // })
     }
 }
 
 /// Used for deriving child keys from a parent type.
+#[cfg(feature = "bip32")]
 pub trait DeriveChildKey<C: CurveArithmetic + PrimeCurve> {
+    /// The error type
+    type Error;
     /// Return a verifying key derived from the given type using the BIP-32 scheme.
-    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error>;
+    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, Self::Error>;
 }
 
-impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> DeriveChildKey<P::Curve> for ThresholdKeyShare<P, I> {
+#[cfg(feature = "bip32")]
+impl<P, I> DeriveChildKey<k256::Secp256k1> for ThresholdKeyShare<P, I>
+where
+    P: SchemeParams<Curve = k256::Secp256k1>,
+    I: Clone + Ord + PartialEq + Debug + Serialize + for<'x> Deserialize<'x>,
+{
+    type Error = bip32::Error;
     fn derive_verifying_key_bip32(
         &self,
         derivation_path: &DerivationPath,
-    ) -> Result<VerifyingKey<P::Curve>, bip32::Error> {
+    ) -> Result<VerifyingKey<k256::Secp256k1>, bip32::Error> {
         let public_key = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
-        let tweaks = derive_tweaks(public_key, derivation_path)?;
+        let tweaks = derive_tweaks::<P>(public_key, derivation_path)?;
         apply_tweaks_public(public_key, &tweaks)
     }
 }
 
-impl<C> DeriveChildKey<C> for VerifyingKey<C>
-where
-    C: PrimeCurve + CurveArithmetic,
-{
-    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error> {
-        let tweaks = derive_tweaks(*self, derivation_path)?;
-        apply_tweaks_public(*self, &tweaks)
+#[cfg(feature = "bip32")]
+impl DeriveChildKey<k256::Secp256k1> for VerifyingKey<k256::Secp256k1> {
+    type Error = bip32::Error;
+    fn derive_verifying_key_bip32(
+        &self,
+        _derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey<k256::Secp256k1>, bip32::Error> {
+        todo!()
+        // let tweaks = derive_tweaks::<WHAT_DO_I_PUT_HERE>(*self, derivation_path)?;
+        // apply_tweaks_public(*self, &tweaks)
     }
 }
 
-fn derive_tweaks<C>(
-    public_key: VerifyingKey<C>,
+#[cfg(feature = "bip32")]
+fn derive_tweaks<P: SchemeParams<Curve = k256::Secp256k1>>(
+    public_key: VerifyingKey<k256::Secp256k1>,
     derivation_path: &DerivationPath,
-) -> Result<Vec<PrivateKeyBytes>, bip32::Error>
-where
-    C: PrimeCurve + CurveArithmetic,
-{
+) -> Result<Vec<PrivateKeyBytes>, bip32::Error> {
     let mut public_key = public_key;
 
     // Note: deriving the initial chain code from public information. Is this okay?
-    let mut chain_code = FofHasher::new_with_dst(b"chain-code-derivation")
-        .chain_bytes(&Point::from_verifying_key(&public_key).to_compressed_array())
-        .finalize()
-        .0;
-
+    // TODO(dp):
+    // FofHasher needs a SchemeParams, hence the generic on this function, but this makes it
+    // impossible to impl DeriveChildKey for VerifyingKey<C>, because adding a P: SchemeParams there
+    // is not possible (unconstrained generic). Need to rework this code. Maybe FofHasher should take a C: Curve instead?
+    #[allow(unused)]
+    let mut chain_code = FofHasher::<P>::new_with_dst(b"chain-code-derivation")
+        .chain_bytes(&Point::<P>::from_verifying_key(&public_key).to_compressed_array())
+        .finalize();
+    let mut dummy_chain_code = Default::default();
     let mut tweaks = Vec::new();
     for child_number in derivation_path.iter() {
-        // TODO(dp): I think the derive_* methods come from the bip32 crate?
-        let (tweak, new_chain_code) = public_key.derive_tweak(&chain_code, child_number)?;
+        // TODO(dp): BIP32 is only defined for secp256k1. Has to bridge into the `ChainCode` type (i.e. [u8;32])
+        // let (tweak, new_chain_code) = public_key.derive_tweak(&chain_code, child_number)?;
+        let (tweak, new_chain_code) = public_key.derive_tweak(&dummy_chain_code, child_number)?;
         public_key = public_key.derive_child(tweak)?;
         tweaks.push(tweak);
-        chain_code = new_chain_code;
+        dummy_chain_code = new_chain_code;
     }
 
     Ok(tweaks)
 }
 
-fn apply_tweaks_public<C>(
-    public_key: VerifyingKey<C>,
+#[cfg(feature = "bip32")]
+fn apply_tweaks_public(
+    public_key: VerifyingKey<k256::Secp256k1>,
     tweaks: &[PrivateKeyBytes],
-) -> Result<VerifyingKey<C>, bip32::Error>
-where
-    C: PrimeCurve + CurveArithmetic,
-{
+) -> Result<VerifyingKey<k256::Secp256k1>, bip32::Error> {
     let mut public_key = public_key;
     for tweak in tweaks {
         public_key = public_key.derive_child(*tweak)?;
@@ -327,15 +347,11 @@ where
     Ok(public_key)
 }
 
-fn apply_tweaks_private<C>(
-    private_key: SigningKey<C>,
+#[cfg(feature = "bip32")]
+fn apply_tweaks_private(
+    private_key: SigningKey<k256::Secp256k1>,
     tweaks: &[PrivateKeyBytes],
-) -> Result<SigningKey<C>, bip32::Error>
-where
-    C: PrimeCurve + CurveArithmetic,
-    <C as CurveArithmetic>::Scalar: SignPrimitive<C>,
-    <<C as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
-{
+) -> Result<SigningKey<k256::Secp256k1>, bip32::Error> {
     let mut private_key = private_key;
     for tweak in tweaks {
         private_key = private_key.derive_child(*tweak)?;

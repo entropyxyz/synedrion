@@ -31,7 +31,8 @@ impl<P: SchemeParams> SchSecret<P> {
 }
 
 /// Public data for the proof (~ verifying key)
-#[derive(Debug, Clone, /*Serialize,*/ Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub(crate) struct SchCommitment<P: SchemeParams>(Point<P>);
 
 impl<P: SchemeParams> SchCommitment<P> {
@@ -40,19 +41,8 @@ impl<P: SchemeParams> SchCommitment<P> {
     }
 }
 
-impl<P> Serialize for SchCommitment<P>
-where
-    P: SchemeParams,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 struct SchChallenge<P: SchemeParams>(Scalar<P>);
 
 impl<P: SchemeParams> SchChallenge<P> {
@@ -77,6 +67,7 @@ Public inputs:
 - Point $X = g * x$, where $g$ is the curve generator.
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub(crate) struct SchProof<P: SchemeParams> {
     challenge: SchChallenge<P>,
     proof: Scalar<P>,

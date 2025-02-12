@@ -19,7 +19,6 @@ use manul::protocol::{
     FinalizeOutcome, LocalError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart,
     ProtocolValidationError, ReceiveError, Round, RoundId, Serializer,
 };
-use primeorder::elliptic_curve::CurveArithmetic;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -82,16 +81,16 @@ impl ProtocolError for KeyResharingError {
 
 /// Old share data.
 #[derive(Debug, Clone)]
-pub struct OldHolder<P: SchemeParams, I: Ord> {
+pub struct OldHolder<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
     /// The threshold key share.
     pub key_share: ThresholdKeyShare<P, I>,
 }
 
 /// New share data.
 #[derive(Debug, Clone)]
-pub struct NewHolder<I: Ord> {
+pub struct NewHolder<P: SchemeParams, I: Ord> {
     /// The verifying key the old shares add up to.
-    pub verifying_key: VerifyingKey,
+    pub verifying_key: VerifyingKey<P::Curve>,
     /// The old threshold.
     pub old_threshold: usize,
     /// Some of the holders of the old shares (at least `old_threshold` of them).
@@ -100,22 +99,26 @@ pub struct NewHolder<I: Ord> {
 
 /// An entry point for the [`KeyResharingProtocol`].
 #[derive(Debug, Clone)]
-pub struct KeyResharing<P: SchemeParams, I: Ord> {
+pub struct KeyResharing<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
     /// Old share data if the node holds it, or `None`.
     old_holder: Option<OldHolder<P, I>>,
     /// New share data if the node is one of the new holders, or `None`.
-    new_holder: Option<NewHolder<I>>,
+    new_holder: Option<NewHolder<P, I>>,
     /// The new holders of the shares.
     new_holders: BTreeSet<I>,
     /// The new threshold.
     new_threshold: usize,
 }
 
-impl<P: SchemeParams, I: Ord> KeyResharing<P, I> {
+impl<P, I> KeyResharing<P, I>
+where
+    P: SchemeParams,
+    I: Ord + for<'x> Deserialize<'x>,
+{
     /// Creates a new entry point for the node with the given ID.
     pub fn new(
         old_holder: Option<OldHolder<P, I>>,
-        new_holder: Option<NewHolder<I>>,
+        new_holder: Option<NewHolder<P, I>>,
         new_holders: BTreeSet<I>,
         new_threshold: usize,
     ) -> Self {
@@ -128,7 +131,11 @@ impl<P: SchemeParams, I: Ord> KeyResharing<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
+impl<P, I> EntryPoint<I> for KeyResharing<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     type Protocol = KeyResharingProtocol<P, I>;
 
     fn make_round(
@@ -215,14 +222,14 @@ struct OldHolderData<P: SchemeParams> {
 }
 
 #[derive(Debug)]
-struct NewHolderData<I: Ord> {
-    inputs: NewHolder<I>,
+struct NewHolderData<P: SchemeParams, I: Ord> {
+    inputs: NewHolder<P, I>,
 }
 
 #[derive(Debug)]
 struct Round1<P: SchemeParams, I: Ord> {
     old_holder: Option<OldHolderData<P>>,
-    new_holder: Option<NewHolderData<I>>,
+    new_holder: Option<NewHolderData<P, I>>,
     new_share_ids: BTreeMap<I, ShareId<P>>,
     new_threshold: usize,
     my_id: I,
@@ -232,46 +239,24 @@ struct Round1<P: SchemeParams, I: Ord> {
     phantom: PhantomData<P>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-// #[serde(bound(deserialize = "for<'x> <P::Curve as CurveArithmetic>::Scalar: Deserialize<'x>"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+// for<'x> Round1BroadcastMessage<P>: ,
+// for<'x> PublicPolynomial<P>: Deserialize<'x>,
+// for<'x> ShareId<P>: Deserialize<'x>
+// #[serde(bound(deserialize = ""))]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 struct Round1BroadcastMessage<P: SchemeParams> {
     public_polynomial: PublicPolynomial<P>,
     old_share_id: ShareId<P>,
 }
 
-// TODO(dp): this isn't the right way to do this.
-impl<P> Serialize for Round1BroadcastMessage<P>
-where
-    P: SchemeParams,
-{
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        todo!()
-    }
-}
-
-#[derive(Debug, Clone, /*Serialize,*/ Deserialize)]
-// TODO(dp): This means. `P` must be Serialize, which is annoying and possibly impossible.
-// #[serde(bound(serialize = "Round1DirectMessage<P>: Serialize"))]
-// #[serde(bound(deserialize = "for<'x> <P::Curve as CurveArithmetic>::Scalar: Deserialize<'x>"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+// TODO(dp): What is the right bound here? Whatever I put in leads to "overflow evaluating the requirement `for<'x> key_resharing::Round1DirectMessage<P>: Deserialize<'x>`"
+// #[serde(bound(deserialize = ""))]
+#[serde(bound(deserialize = "for<'x> Round1DirectMessage<P>: "))]
 struct Round1DirectMessage<P: SchemeParams> {
     subshare: Secret<Scalar<P>>,
 }
-// TODO(dp): this isn't the right way to do this.
-impl<P> Serialize for Round1DirectMessage<P>
-where
-    P: SchemeParams,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.subshare.serialize(serializer)
-    }
-}
-
 struct Round1Payload<P: SchemeParams> {
     subshare: Secret<Scalar<P>>,
     public_polynomial: PublicPolynomial<P>,
@@ -307,14 +292,13 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         serializer: &Serializer,
     ) -> Result<EchoBroadcast, LocalError> {
         if let Some(old_holder) = self.old_holder.as_ref() {
-            todo!()
-            // EchoBroadcast::new(
-            //     serializer,
-            //     Round1BroadcastMessage {
-            //         public_polynomial: old_holder.public_polynomial.clone(),
-            //         old_share_id: old_holder.share_id,
-            //     },
-            // )
+            EchoBroadcast::new(
+                serializer,
+                Round1BroadcastMessage {
+                    public_polynomial: old_holder.public_polynomial.clone(),
+                    old_share_id: old_holder.share_id,
+                },
+            )
         } else {
             Ok(EchoBroadcast::none())
         }
@@ -352,32 +336,31 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
         normal_broadcast.assert_is_none()?;
         // TODO(dp): This will take some thought.
-        // let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
-        // let direct_message = direct_message.deserialize::<Round1DirectMessage<P>>(deserializer)?;
-        todo!();
-        // if let Some(new_holder) = self.new_holder.as_ref() {
-        //     if new_holder.inputs.old_holders.contains(from) {
-        //         let my_share_id = self.new_share_ids.get(&self.my_id).ok_or(LocalError::new(format!(
-        //             "my_id={:?} is missing from the new_share_ids",
-        //             &self.my_id
-        //         )))?;
-        //         let public_subshare_from_poly = echo_broadcast.public_polynomial.evaluate(my_share_id);
-        //         let public_subshare_from_private = Secret::mul_by_generator(&direct_message.subshare);
-        //         // let public_subshare_from_private = direct_message.subshare.mul_by_generator();
+        let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
+        let direct_message = direct_message.deserialize::<Round1DirectMessage<P>>(deserializer)?;
 
-        //         // Check that the public polynomial sent in the broadcast corresponds to the secret share
-        //         // sent in the direct message.
-        //         if public_subshare_from_poly != public_subshare_from_private {
-        //             return Err(ReceiveError::protocol(KeyResharingError::SubshareMismatch));
-        //         }
+        if let Some(new_holder) = self.new_holder.as_ref() {
+            if new_holder.inputs.old_holders.contains(from) {
+                let my_share_id = self.new_share_ids.get(&self.my_id).ok_or(LocalError::new(format!(
+                    "my_id={:?} is missing from the new_share_ids",
+                    &self.my_id
+                )))?;
+                let public_subshare_from_poly = echo_broadcast.public_polynomial.evaluate(my_share_id);
+                let public_subshare_from_private = Secret::mul_by_generator(&direct_message.subshare);
 
-        //         return Ok(Payload::new(Round1Payload {
-        //             subshare: direct_message.subshare,
-        //             public_polynomial: echo_broadcast.public_polynomial,
-        //             old_share_id: echo_broadcast.old_share_id,
-        //         }));
-        //     }
-        // }
+                // Check that the public polynomial sent in the broadcast corresponds to the secret share
+                // sent in the direct message.
+                if public_subshare_from_poly != public_subshare_from_private {
+                    return Err(ReceiveError::protocol(KeyResharingError::SubshareMismatch));
+                }
+
+                return Ok(Payload::new(Round1Payload {
+                    subshare: direct_message.subshare,
+                    public_polynomial: echo_broadcast.public_polynomial,
+                    old_share_id: echo_broadcast.old_share_id,
+                }));
+            }
+        }
         Err(ReceiveError::protocol(KeyResharingError::UnexpectedSender))
     }
 
@@ -470,7 +453,6 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             secret_share,
             share_ids: self.new_share_ids,
             public_shares,
-            phantom: PhantomData,
         })))
     }
 }

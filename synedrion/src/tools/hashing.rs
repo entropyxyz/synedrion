@@ -2,9 +2,8 @@ use crypto_bigint::{Encoding, Integer, NonZero};
 use digest::{Digest, ExtendableOutput, FixedOutput, Update, XofReader};
 use ecdsa::hazmat::DigestPrimitive;
 use hashing_serializer::HashingSerializer;
-use primeorder::elliptic_curve::Curve;
 // TODO(dp): we're going to need these.
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha3::{Shake256, Shake256Reader};
 
 use crate::{curve::Scalar, SchemeParams};
@@ -37,17 +36,14 @@ pub trait Chain: Sized {
     }
 }
 
-// pub(crate) type BackendDigest = Sha256;
-// pub(crate) type BackendDigest<P: SchemeParams> = <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize;
-pub(crate) type BackendDigest<P: SchemeParams> = <P::Curve as DigestPrimitive>::Digest;
-
 /// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub(crate) struct FofHasher<P: SchemeParams>(BackendDigest<P>);
+pub(crate) struct FofHasher<P: SchemeParams>(<P::Curve as DigestPrimitive>::Digest);
 
 impl<P> Chain for FofHasher<P>
 where
     P: SchemeParams,
 {
+    // TODO(dp): this assoc type seems redundant given that self.0 is already a Digest.
     type Digest = <P::Curve as DigestPrimitive>::Digest;
 
     fn as_digest_mut(&mut self) -> &mut Self::Digest {
@@ -75,18 +71,20 @@ where
 impl<P> FofHasher<P>
 where
     P: SchemeParams,
+    // TODO(dp): How do I express that the digest output size is the same as P::HashOutput's size?
+    // <BackendDigest<P> as OutputSizeUser>::OutputSize: <P::HashOutput>::SIZE,
 {
     fn new() -> Self {
-        Self(BackendDigest::<P>::new())
+        Self(<P::Curve as DigestPrimitive>::Digest::new())
     }
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
     }
 
-    // TODO(dp): there must be an easier way to state the return type here, something like BackendDigest<P>::Output, or do we *really* need the `HashOutput` crutch?
-    pub(crate) fn finalize(self) -> digest::generic_array::GenericArray<u8, <P::Curve as Curve>::FieldBytesSize> {
-        self.0.finalize_fixed()
+    // TODO(dp): the `into()` call here is a bit sketchy. Does it work? :/
+    pub(crate) fn finalize(self) -> P::HashOutput {
+        self.0.finalize_fixed().into()
     }
 
     pub fn finalize_to_scalar(self) -> Scalar<P> {

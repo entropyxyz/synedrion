@@ -109,7 +109,11 @@ impl<P, I: PartyId> AuxGen<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
+impl<P, I> EntryPoint<I> for AuxGen<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     type Protocol = AuxGenProtocol<P, I>;
 
     fn make_round(
@@ -124,7 +128,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
 
         let other_ids = self.all_ids.clone().without(id);
 
-        let sid_hash = FofHasher::new_with_dst(b"SID")
+        let sid_hash = FofHasher::<P>::new_with_dst(b"SID")
             .chain_type::<P>()
             .chain(&shared_randomness)
             .chain(&self.all_ids)
@@ -147,8 +151,8 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for AuxGen<P, I> {
         // Ring-Pedersen parameters ($s$, $t$) bundled in a single object.
         let rp_params = RPParams::random_with_secret(rng, &rp_secret);
 
-        let aux = (&sid_hash, id);
-        let hat_psi = PrmProof::<P>::new(rng, &rp_secret, &rp_params, &aux.as_ref());
+        let aux = (sid_hash.as_ref(), id);
+        let hat_psi = PrmProof::<P>::new(rng, &rp_secret, &rp_params, &aux);
 
         let rho = BitVec::random(rng, P::SECURITY_PARAMETER);
         let u = BitVec::random(rng, P::SECURITY_PARAMETER);
@@ -216,7 +220,7 @@ struct Context<P: SchemeParams, I> {
 
 impl<P: SchemeParams> PublicData1<P> {
     fn hash<I: Serialize>(&self, sid_hash: &P::HashOutput, my_id: &I) -> P::HashOutput {
-        FofHasher::new_with_dst(b"Auxiliary")
+        FofHasher::<P>::new_with_dst(b"Auxiliary")
             .chain(sid_hash)
             .chain(my_id)
             .chain(self)
@@ -230,12 +234,12 @@ struct Round1<P: SchemeParams, I> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Round1Message {
-    cap_v: HashOutput,
+struct Round1Message<P: SchemeParams> {
+    cap_v: P::HashOutput,
 }
 
-struct Round1Payload {
-    cap_v: HashOutput,
+struct Round1Payload<P: SchemeParams> {
+    cap_v: P::HashOutput,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
@@ -264,7 +268,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     ) -> Result<EchoBroadcast, LocalError> {
         EchoBroadcast::new(
             serializer,
-            Round1Message {
+            Round1Message::<P> {
                 cap_v: self
                     .context
                     .data_precomp
@@ -285,8 +289,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
         normal_broadcast.assert_is_none()?;
         direct_message.assert_is_none()?;
-        let echo_broadcast = echo_broadcast.deserialize::<Round1Message>(deserializer)?;
-        Ok(Payload::new(Round1Payload {
+        let echo_broadcast = echo_broadcast.deserialize::<Round1Message<P>>(deserializer)?;
+        Ok(Payload::new(Round1Payload::<P> {
             cap_v: echo_broadcast.cap_v,
         }))
     }
@@ -297,7 +301,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         payloads: BTreeMap<I, Payload>,
         _artifacts: BTreeMap<I, Artifact>,
     ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round1Payload>()?;
+        let payloads = payloads.downcast_all::<Round1Payload<P>>()?;
         let others_cap_v = payloads.into_iter().map(|(id, payload)| (id, payload.cap_v)).collect();
         Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round2 {
             context: self.context,
@@ -309,7 +313,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 #[derive(Debug)]
 struct Round2<P: SchemeParams, I> {
     context: Context<P, I>,
-    others_cap_v: BTreeMap<I, HashOutput>,
+    others_cap_v: BTreeMap<I, P::HashOutput>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

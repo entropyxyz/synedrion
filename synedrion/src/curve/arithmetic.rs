@@ -65,8 +65,8 @@ impl HashableType for k256::Secp256k1 {
 }
 
 // TODO(dp): This is just a short-cut alias. If it stays it needs a better name.
-pub type ScalarSh<P: SchemeParams> = <P::Curve as CurveArithmetic>::Scalar;
-pub(crate) type CompressedPointSize<P: SchemeParams> = <FieldBytesSize<P::Curve> as ModulusSize>::CompressedPointSize;
+type ScalarSh<P> = <<P as SchemeParams>::Curve as CurveArithmetic>::Scalar;
+type CompressedPointSize<P> = <FieldBytesSize<<P as SchemeParams>::Curve> as ModulusSize>::CompressedPointSize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
 pub(crate) struct Scalar<P: SchemeParams>(ScalarSh<P>);
@@ -110,7 +110,6 @@ impl<P: SchemeParams> Scalar<P> {
     ///
     /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
     /// is larger than the modulus.
-
     // TODO(dp): Have to rework this (both code and docs), can't assume 32 bytes.
     // pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
     pub fn from_reduced_bytes(bytes: impl AsRef<[u8]>) -> Self {
@@ -194,7 +193,7 @@ where
     }
 }
 
-// TODO(dp): ConditionallySelectable requires Copy, which I don't think we want to impose so need to switch to ConstantTimeSelect instead.
+// TODO(dp): ConditionallySelectable requires Copy. We can have one but not both.
 impl<P> ConstantTimeSelect for Scalar<P>
 where
     P: SchemeParams,
@@ -206,13 +205,15 @@ where
     }
 }
 
-// TODO(dp): See above
+// TODO(dp): See above. Which to pick?
 // impl<P> ConditionallySelectable for Scalar<P>
 // where
 //     P: SchemeParams,
 // {
 //     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-//         Self(BackendScalar::conditional_select(&a.0, &b.0, choice))
+//         Self(<P::Curve as CurveArithmetic>::Scalar::conditional_select(
+//             &a.0, &b.0, choice,
+//         ))
 //     }
 // }
 
@@ -221,7 +222,7 @@ where
     P: SchemeParams,
 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        SliceLike::<Hex>::serialize(&self.clone().to_be_bytes(), serializer)
+        SliceLike::<Hex>::serialize(&self.to_be_bytes(), serializer)
     }
 }
 
@@ -234,10 +235,8 @@ where
     }
 }
 
-pub type PointSh<P: SchemeParams> = <P::Curve as CurveArithmetic>::ProjectivePoint;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Point<P: SchemeParams>(PointSh<P>);
+pub(crate) struct Point<P: SchemeParams>(<P::Curve as CurveArithmetic>::ProjectivePoint);
 
 impl<P> Point<P>
 where
@@ -275,14 +274,13 @@ where
             .ok_or_else(|| "Invalid curve point representation".into())
     }
 
-    // TODO(dp): this used to take `self` which caused issues with the `Serialize for Point` impl below. Given it clones anyway, it seems like taking a ref should work as well.
-    pub(crate) fn to_compressed_array(&self) -> GenericArray<u8, CompressedPointSize<P>> {
+    pub(crate) fn to_compressed_array(self) -> GenericArray<u8, CompressedPointSize<P>> {
         GenericArray::<u8, CompressedPointSize<P>>::from_exact_iter(
             self.0.to_affine().to_encoded_point(true).as_bytes().iter().cloned(),
         ).expect("An AffinePoint is composed of elements of the correct size and their slice repr fits in the `CompressedPointSize`-sized array.")
     }
 
-    pub(crate) fn to_backend(self) -> PointSh<P> {
+    pub(crate) fn to_backend(self) -> <P::Curve as CurveArithmetic>::ProjectivePoint {
         self.0
     }
 }

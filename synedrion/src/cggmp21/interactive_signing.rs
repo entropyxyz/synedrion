@@ -101,13 +101,17 @@ pub type PrehashedMessage = [u8; 32];
 
 /// An entry point for the [`InteractiveSigningProtocol`].
 #[derive(Debug)]
-pub struct InteractiveSigning<P: SchemeParams, I: Ord> {
+pub struct InteractiveSigning<P: SchemeParams, I: Ord + Serialize + for<'x> Deserialize<'x>> {
     key_share: KeyShare<P, I>,
     aux_info: AuxInfo<P, I>,
     prehashed_message: PrehashedMessage,
 }
 
-impl<P: SchemeParams, I: Ord> InteractiveSigning<P, I> {
+impl<P, I> InteractiveSigning<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Serialize + for<'x> Deserialize<'x>,
+{
     /// Creates a new entry point given a share of the secret key.
     pub fn new(prehashed_message: PrehashedMessage, key_share: KeyShare<P, I>, aux_info: AuxInfo<P, I>) -> Self {
         // TODO: check that both are consistent
@@ -147,7 +151,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         // This includes the info of $ssid$ in the paper
         // (scheme parameters + public data from all shares - hashed in `share_set_id`),
         // with the session randomness added.
-        let ssid_hash = FofHasher::new_with_dst(b"ShareSetID")
+        let ssid_hash = FofHasher::<P>::new_with_dst(b"ShareSetID")
             .chain_type::<P>()
             .chain(&shared_randomness)
             .chain(&key_share.public_shares)
@@ -175,7 +179,7 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
             context: Context {
                 ssid_hash,
                 my_id: id.clone(),
-                message: Scalar::from_reduced_bytes(&self.prehashed_message),
+                message: Scalar::from_reduced_bytes(self.prehashed_message),
                 other_ids,
                 key_share,
                 aux_info,
@@ -191,7 +195,11 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
 }
 
 #[derive(Debug)]
-struct Context<P: SchemeParams, I: Ord> {
+struct Context<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Serialize + for<'x> Deserialize<'x>,
+{
     ssid_hash: P::HashOutput,
     my_id: I,
     message: Scalar<P>,
@@ -207,7 +215,7 @@ struct Context<P: SchemeParams, I: Ord> {
 impl<P, I> Context<P, I>
 where
     P: SchemeParams,
-    I: Ord + Debug,
+    I: Ord + Debug + Serialize + for<'x> Deserialize<'x>,
 {
     pub fn public_share(&self, i: &I) -> Result<&Point<P>, LocalError> {
         self.key_share
@@ -225,13 +233,21 @@ where
 }
 
 #[derive(Debug)]
-struct Round1<P: SchemeParams, I: Ord> {
+struct Round1<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Serialize + for<'x> Deserialize<'x>,
+{
     context: Context<P, I>,
     cap_k: Ciphertext<P::Paillier>,
     cap_g: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams, I: Ord + Debug> Round1<P, I> {
+impl<P, I> Round1<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Debug + Serialize + for<'x> Deserialize<'x>,
+{
     fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
         self.context
             .aux_info
@@ -401,7 +417,11 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 }
 
 #[derive(Debug)]
-struct Round2<P: SchemeParams, I: Ord> {
+struct Round2<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Serialize + for<'x> Deserialize<'x>,
+{
     context: Context<P, I>,
     all_cap_k: BTreeMap<I, Ciphertext<P::Paillier>>,
     all_cap_g: BTreeMap<I, Ciphertext<P::Paillier>>,
@@ -561,7 +581,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             LogStarPublicInputs {
                 pk0: pk,
                 cap_c: cap_g,
-                g: &Point::GENERATOR,
+                g: &Point::generator(),
                 cap_x: &cap_gamma,
             },
             rp,
@@ -669,7 +689,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
             LogStarPublicInputs {
                 pk0: from_pk,
                 cap_c: cap_g,
-                g: &Point::GENERATOR,
+                g: &Point::generator(),
                 cap_x: &direct_message.cap_gamma,
             },
             rp,
@@ -709,8 +729,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
         let payloads = payloads.downcast_all::<Round2Payload<P>>()?;
         let artifacts = artifacts.downcast_all::<Round2Artifact<P>>()?;
 
-        let cap_gamma =
-            payloads.values().map(|payload| payload.cap_gamma).sum::<Point>() + self.context.gamma.mul_by_generator();
+        let cap_gamma = payloads.values().map(|payload| payload.cap_gamma).sum::<Point<P>>()
+            + self.context.gamma.mul_by_generator();
 
         let cap_delta = cap_gamma * &self.context.k;
 
@@ -749,12 +769,16 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
 }
 
 #[derive(Debug)]
-struct Round3<P: SchemeParams, I: Ord> {
+struct Round3<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Serialize + for<'x> Deserialize<'x>,
+{
     context: Context<P, I>,
     delta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     chi: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    cap_delta: Point,
-    cap_gamma: Point,
+    cap_delta: Point<P>,
+    cap_gamma: Point<P>,
     all_cap_k: BTreeMap<I, Ciphertext<P::Paillier>>,
     all_cap_g: BTreeMap<I, Ciphertext<P::Paillier>>,
     cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
@@ -762,7 +786,11 @@ struct Round3<P: SchemeParams, I: Ord> {
     round2_artifacts: BTreeMap<I, Round2Artifact<P>>,
 }
 
-impl<P: SchemeParams, I: Ord + Debug> Round3<P, I> {
+impl<P, I> Round3<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Debug + Serialize + for<'x> Deserialize<'x>,
+{
     fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
         self.context
             .aux_info
@@ -776,14 +804,14 @@ impl<P: SchemeParams, I: Ord + Debug> Round3<P, I> {
 #[serde(bound(serialize = "LogStarProof<P>: Serialize"))]
 #[serde(bound(deserialize = "LogStarProof<P>: for<'x> Deserialize<'x>"))]
 struct Round3Message<P: SchemeParams> {
-    delta: Secret<Scalar>,
-    cap_delta: Point,
+    delta: Secret<Scalar<P>>,
+    cap_delta: Point<P>,
     psi_pprime: LogStarProof<P>,
 }
 
-struct Round3Payload {
-    delta: Secret<Scalar>,
-    cap_delta: Point,
+struct Round3Payload<P: SchemeParams> {
+    delta: Secret<Scalar<P>>,
+    cap_delta: Point<P>,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
@@ -898,7 +926,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
         payloads: BTreeMap<I, Payload>,
         _artifacts: BTreeMap<I, Artifact>,
     ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round3Payload>()?;
+        let payloads = payloads.downcast_all::<Round3Payload<P>>()?;
 
         let (deltas, cap_deltas): (BTreeMap<_, _>, BTreeMap<_, _>) = payloads
             .into_iter()
@@ -906,8 +934,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
             .unzip();
 
         let scalar_delta = secret_scalar_from_signed::<P>(&self.delta);
-        let assembled_delta: Secret<Scalar> = &scalar_delta + deltas.values().sum::<Secret<Scalar>>();
-        let assembled_cap_delta: Point = self.cap_delta + cap_deltas.values().sum();
+        let assembled_delta: Secret<Scalar<P>> = &scalar_delta + deltas.values().sum::<Secret<Scalar<P>>>();
+        let assembled_cap_delta: Point<P> = self.cap_delta + cap_deltas.values().sum();
 
         if assembled_delta.mul_by_generator() == assembled_cap_delta {
             let inv_delta = assembled_delta.invert().ok_or_else(|| {
@@ -1119,11 +1147,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
 }
 
 #[derive(Debug)]
-struct Round4<P: SchemeParams, I: Ord> {
+struct Round4<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Serialize + for<'x> Deserialize<'x>,
+{
     context: Context<P, I>,
     presigning: PresigningData<P, I>,
-    r: Scalar,
-    sigma: Scalar,
+    r: Scalar<P>,
+    sigma: Scalar<P>,
 }
 
 impl<P, I> Round4<P, I>
@@ -1145,12 +1177,13 @@ where
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(super) struct Round4Message {
-    pub(crate) sigma: Scalar,
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+pub(super) struct Round4Message<P: SchemeParams> {
+    pub(crate) sigma: Scalar<P>,
 }
 
-struct Round4Payload {
-    sigma: Scalar,
+struct Round4Payload<P: SchemeParams> {
+    sigma: Scalar<P>,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
@@ -1195,7 +1228,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
         echo_broadcast.assert_is_none()?;
         direct_message.assert_is_none()?;
-        let normal_broadcast = normal_broadcast.deserialize::<Round4Message>(deserializer)?;
+        let normal_broadcast = normal_broadcast.deserialize::<Round4Message<P>>(deserializer)?;
 
         Ok(Payload::new(Round4Payload {
             sigma: normal_broadcast.sigma,
@@ -1208,9 +1241,9 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
         payloads: BTreeMap<I, Payload>,
         _artifacts: BTreeMap<I, Artifact>,
     ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round4Payload>()?;
+        let payloads = payloads.downcast_all::<Round4Payload<P>>()?;
 
-        let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar>() + self.sigma;
+        let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar<P>>() + self.sigma;
 
         let signature = RecoverableSignature::from_scalars(
             &self.r,
@@ -1490,7 +1523,7 @@ mod tests {
             .unwrap();
 
         for signature in signatures.values() {
-            let (sig, rec_id) = signature.to_backend();
+            let (sig, rec_id) = signature.clone().to_backend();
 
             let vkey = key_shares[&ids[0]].verifying_key().unwrap();
 

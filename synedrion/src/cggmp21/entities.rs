@@ -23,7 +23,8 @@ use crate::{
 
 /// The result of the KeyInit protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyShare<P: SchemeParams, I: Ord> {
+#[serde(bound = "KeyShare<P, I>: for<'x> Deserialize<'x>")]
+pub struct KeyShare<P: SchemeParams, I: Ord + Serialize + for<'x> Deserialize<'x>> {
     pub(crate) owner: I,
     /// Secret key share of this node.
     pub(crate) secret_share: Secret<Scalar<P>>, // `x_i`
@@ -34,7 +35,8 @@ pub struct KeyShare<P: SchemeParams, I: Ord> {
 
 /// The result of the AuxGen protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuxInfo<P: SchemeParams, I: Ord> {
+#[serde(bound = "AuxInfo<P, I>: for<'x> Deserialize<'x>")]
+pub struct AuxInfo<P: SchemeParams, I: Ord + Serialize + for<'x> Deserialize<'x>> {
     pub(crate) owner: I,
     pub(crate) secret_aux: SecretAuxInfo<P>,
     pub(crate) public_aux: BTreeMap<I, PublicAuxInfo<P>>,
@@ -82,7 +84,8 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyShareChange<P: SchemeParams, I: Ord> {
+#[serde(bound(deserialize = "KeyShareChange<P, I>: for <'x> Deserialize<'x>"))]
+pub struct KeyShareChange<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.
     pub(crate) secret_share_change: Secret<Scalar<P>>, // `x_i^* - x_i == \sum_{j} x_j^i`
@@ -125,7 +128,11 @@ pub(crate) struct PresigningValues<P: SchemeParams> {
     pub(crate) hat_cap_f: Ciphertext<P::Paillier>,
 }
 
-impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
+impl<P, I> KeyShare<P, I>
+where
+    P: SchemeParams,
+    I: Clone + Ord + PartialEq + Debug + Serialize + for<'x> Deserialize<'x>,
+{
     /// Updates a key share with a change obtained from KeyRefresh protocol.
     pub fn update(self, change: KeyShareChange<P, I>) -> Result<Self, LocalError> {
         if self.owner != change.owner {
@@ -223,7 +230,11 @@ impl<P: SchemeParams, I: Clone + Ord + PartialEq + Debug> KeyShare<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
+impl<P, I> AuxInfo<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Clone + Serialize + for<'x> Deserialize<'x>,
+{
     /// Returns the owner of this aux data.
     pub fn owner(&self) -> &I {
         &self.owner
@@ -314,6 +325,20 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         let shares = KeyShare::<TestParams, VerifyingKey<TinyCurve64>>::new_centralized(&mut OsRng, &ids, Some(&sk));
+        assert!(shares
+            .values()
+            .all(|share| &share.verifying_key().unwrap() == sk.verifying_key()));
+    }
+
+    #[test]
+    fn key_share_centralized_k256() {
+        let sk = SigningKey::random(&mut OsRng);
+
+        let ids = (0..3)
+            .map(|_| *SigningKey::random(&mut OsRng).verifying_key())
+            .collect::<BTreeSet<_>>();
+
+        let shares = KeyShare::<TestParams, VerifyingKey<k256::Secp256k1>>::new_centralized(&mut OsRng, &ids, Some(&sk));
         assert!(shares
             .values()
             .all(|share| &share.verifying_key().unwrap() == sk.verifying_key()));
