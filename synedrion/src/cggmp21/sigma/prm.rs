@@ -1,19 +1,21 @@
-//! ZKP of Ring-Pedersen parameters ($\Pi^{prm}$, Section 6.4, Fig. 17).
+//! Pedersen Parameters ZK ($\Pi^{prm}$, Section 5.3, Fig. 13).
 //!
 //! Publish $(N, s, t)$ and prove that we know a secret $\lambda$ such that
 //! $s = t^\lambda \mod N$.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use crypto_bigint::{modular::Retrieve, BitOps, PowBoundedExp};
-use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, RPParams, RPSecret},
-    tools::hashing::{Chain, Hashable, XofHasher},
+    tools::{
+        bitvec::BitVec,
+        hashing::{Chain, Hashable, XofHasher},
+    },
     uint::{Exponentiable, SecretUnsigned, ToMontgomery},
 };
 
@@ -25,7 +27,7 @@ struct PrmSecret<P: SchemeParams>(Vec<SecretUnsigned<<P::Paillier as PaillierPar
 
 impl<P: SchemeParams> PrmSecret<P> {
     fn random(rng: &mut impl CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
-        let secret = (0..P::SECURITY_PARAMETER)
+        let secret = (0..P::SECURITY_BITS)
             .map(|_| secret.random_residue_mod_totient(rng))
             .collect();
         Self(secret)
@@ -43,32 +45,20 @@ impl<P: SchemeParams> PrmCommitment<P> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct PrmChallenge(Vec<bool>);
+struct PrmChallenge(BitVec);
 
 impl PrmChallenge {
     fn new<P: SchemeParams>(commitment: &PrmCommitment<P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> Self {
-        // TODO: use BitVec here?
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             .chain(commitment)
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
-        let mut bytes = vec![0u8; P::SECURITY_PARAMETER];
-        reader.read(&mut bytes);
-        Self(bytes.iter().map(|b| b & 1 == 1).collect())
+        Self(BitVec::from_xof_reader(&mut reader, P::SECURITY_BITS))
     }
 }
 
-/**
-ZK proof: Ring-Pedersen parameters.
-
-Secret inputs:
-- integer $\lambda$,
-- (not explicitly mentioned in the paper, but necessary to calculate the totient) primes $p$, $q$.
-
-Public inputs:
-- Setup parameters $N$, $s$, $t$ such that $N = p q$, and $s = t^\lambda \mod N$.
-*/
+/// Pedersen Parameters ZK proof.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PrmCommitment<P>: Serialize"))]
 #[serde(bound(deserialize = "PrmCommitment<P>: for<'x> Deserialize<'x>"))]
@@ -96,7 +86,7 @@ impl<P: SchemeParams> PrmProof<P> {
         let proof = proof_secret
             .0
             .iter()
-            .zip(challenge.0.iter())
+            .zip(challenge.0.bits().iter())
             .map(|(a, e): (&SecretUnsigned<_>, &bool)| {
                 let x = a.add_mod(secret.lambda(), &totient);
 
@@ -121,7 +111,13 @@ impl<P: SchemeParams> PrmProof<P> {
             return false;
         }
 
-        for ((e, z), a) in challenge.0.iter().zip(self.proof.iter()).zip(self.commitment.0.iter()) {
+        for ((e, z), a) in challenge
+            .0
+            .bits()
+            .iter()
+            .zip(self.proof.iter())
+            .zip(self.commitment.0.iter())
+        {
             let a = a.to_montgomery(monty_params);
             let pwr = setup.base_randomizer().pow_bounded_exp(z, z.bits_vartime());
             let test = if *e { pwr == a * setup.base_value() } else { pwr == a };

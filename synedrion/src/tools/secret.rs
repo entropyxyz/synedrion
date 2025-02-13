@@ -233,6 +233,13 @@ impl<'a, T: Zeroize + Clone + Mul<&'a T, Output = T>> Mul<&'a Secret<T>> for Sec
     }
 }
 
+impl<'a, T: Zeroize + Clone + Mul<&'a T, Output = T>> Mul<&'a Secret<T>> for &Secret<T> {
+    type Output = Secret<T>;
+    fn mul(self, rhs: &'a Secret<T>) -> Self::Output {
+        self * rhs.expose_secret()
+    }
+}
+
 // Division
 
 impl<'a, T: Zeroize + DivAssign<&'a NonZero<T>>> DivAssign<&'a NonZero<T>> for Secret<T> {
@@ -329,10 +336,6 @@ impl Secret<Scalar> {
     pub fn mul_by_generator(&self) -> Point {
         self.expose_secret().mul_by_generator()
     }
-
-    pub fn invert(&self) -> Option<Secret<Scalar>> {
-        Secret::maybe_init_with(|| Option::from(self.expose_secret().invert()))
-    }
 }
 
 impl Mul<Secret<Scalar>> for Point {
@@ -352,6 +355,13 @@ impl Mul<&Secret<Scalar>> for Point {
 impl Mul<Secret<Scalar>> for &Point {
     type Output = Point;
     fn mul(self, scalar: Secret<Scalar>) -> Self::Output {
+        self * scalar.expose_secret()
+    }
+}
+
+impl Mul<&Secret<Scalar>> for &Point {
+    type Output = Point;
+    fn mul(self, scalar: &Secret<Scalar>) -> Self::Output {
         self * scalar.expose_secret()
     }
 }

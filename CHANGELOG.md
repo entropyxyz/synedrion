@@ -6,11 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - in development
 
+### Changed
+
 - Switch the protocol framework to `manul`. ([#156])
 - Bumped MSRV to 1.83 ([#176])
+- Updated the scheme to CGGMP'24. ([#170])
+
 
 [#156]: https://github.com/entropyxyz/synedrion/pull/156
 [#176]: https://github.com/entropyxyz/synedrion/pull/176
+[#170]: https://github.com/entropyxyz/synedrion/pull/170
 
 
 ## [0.2.0] - 2024-11-17

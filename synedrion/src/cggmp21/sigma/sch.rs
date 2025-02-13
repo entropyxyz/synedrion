@@ -1,7 +1,7 @@
-//! Schnorr proof of knowledge ($\Pi^{sch}$, Section C.1, Fig. 22).
+//! Schnorr proof of knowledge ($\Pi^{sch}$, Section A.1, Fig. 22).
 //!
 //! Publish $X$ and prove that we know a secret $x$ such that $g^x = X$,
-//! where $g$ is a EC generator.
+//! where $g$ is the EC generator.
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     curve::{Point, Scalar},
     tools::{
-        hashing::{Chain, FofHasher, Hashable},
+        hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
 };
@@ -19,7 +19,7 @@ const HASH_TAG: &[u8] = b"P_sch";
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone)]
 pub(crate) struct SchSecret(
-    /// `\alpha`
+    /// $\alpha$
     Secret<Scalar>,
 );
 
@@ -44,25 +44,16 @@ struct SchChallenge(Scalar);
 
 impl SchChallenge {
     fn new(public: &Point, commitment: &SchCommitment, aux: &impl Hashable) -> Self {
-        Self(
-            FofHasher::new_with_dst(HASH_TAG)
-                .chain(aux)
-                .chain(public)
-                .chain(commitment)
-                .finalize_to_scalar(),
-        )
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .chain(public)
+            .chain(commitment)
+            .finalize_to_reader();
+        Self(Scalar::from_xof_reader(&mut reader))
     }
 }
 
-/**
-ZK proof: Schnorr proof of knowledge.
-
-Secret inputs:
-- scalar $x$.
-
-Public inputs:
-- Point $X = g * x$, where $g$ is the curve generator.
-*/
+/// ZK proof: Schnorr proof of knowledge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SchProof {
     challenge: SchChallenge,
@@ -84,7 +75,7 @@ impl SchProof {
 
     pub fn verify(&self, commitment: &SchCommitment, cap_x: &Point, aux: &impl Hashable) -> bool {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        challenge == self.challenge && self.proof.mul_by_generator() == commitment.0 + cap_x * &challenge.0
+        challenge == self.challenge && self.proof.mul_by_generator() == commitment.0 + cap_x * challenge.0
     }
 }
 
