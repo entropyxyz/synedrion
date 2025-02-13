@@ -39,4 +39,4 @@ pub use key_refresh::{KeyRefresh, KeyRefreshAssociatedData, KeyRefreshProtocol};
 pub use params::{ProductionParams112, SchemeParams, TestParams};
 
 #[cfg(feature = "private_benches")]
-pub(crate) use params::PaillierProduction;
+pub(crate) use params::PaillierProduction112;
