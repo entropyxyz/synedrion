@@ -209,45 +209,63 @@ pub mod aff_g_proof {
 
 pub mod dec_proof {
     use super::*;
-    pub fn dec_proof_prove<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
+
+    #[allow(clippy::type_complexity)]
+    fn proof_input(
+        mut rng: impl CryptoRngCore,
+    ) -> (
+        impl CryptoRngCore,
+        SecretSigned<PUint>,
+        SecretSigned<PUint>,
+        Randomizer<Paillier>,
+        PublicKeyPaillier<Paillier>,
+        Ciphertext<Paillier>,
+        Point,
+        Ciphertext<Paillier>,
+        Point,
+        Point,
+        RPParams<Paillier>,
+        &'static [u8],
+    ) {
+        let sk = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
+        let pk = sk.public_key();
+
+        let setup = RPParams::random(&mut rng);
+        let aux: &[u8] = b"abcde";
+
+        let x = SecretSigned::random_in_exponent_range(&mut rng, Params::L_BOUND);
+        let y = SecretSigned::random_in_exponent_range(&mut rng, Params::LP_BOUND);
+        let rho = Randomizer::random(&mut rng, pk);
+
+        let k = SecretSigned::random_in_exponent_range(&mut rng, Paillier::PRIME_BITS * 2 - 1);
+        let cap_k = Ciphertext::new(&mut rng, pk, &k);
+        let cap_d = Ciphertext::new_with_randomizer(pk, &y, &rho) + &cap_k * &-&x;
+
+        let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
+
+        let cap_g = Scalar::random(&mut rng).mul_by_generator();
+        let cap_s = cap_g * secret_scalar_from_signed::<Params>(&y);
+
+        (
+            rng,
+            x,
+            y,
+            rho,
+            pk.clone(),
+            cap_k,
+            cap_x,
+            cap_d,
+            cap_s,
+            cap_g,
+            setup,
+            aux,
+        )
+    }
+
+    pub fn dec_proof_prove<R: CryptoRngCore + Clone + 'static>(rng: R) -> impl FnMut(&mut Bencher<'_>) {
         move |b: &mut Bencher<'_>| {
             b.iter_batched(
-                || {
-                    let sk = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
-                    let pk = sk.public_key();
-
-                    let setup = RPParams::random(&mut rng);
-
-                    let aux: &[u8] = b"abcde";
-
-                    let x = SecretSigned::random_in_exponent_range(&mut rng, Params::L_BOUND);
-                    let y = SecretSigned::random_in_exponent_range(&mut rng, Params::LP_BOUND);
-                    let rho = Randomizer::random(&mut rng, pk);
-
-                    let k = SecretSigned::random_in_exponent_range(&mut rng, Paillier::PRIME_BITS * 2 - 1);
-                    let cap_k = Ciphertext::new(&mut rng, pk, &k);
-                    let cap_d = Ciphertext::new_with_randomizer(pk, &y, &rho) + &cap_k * &-&x;
-
-                    let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
-
-                    let cap_g = Scalar::random(&mut rng).mul_by_generator();
-                    let cap_s = cap_g * secret_scalar_from_signed::<Params>(&y);
-
-                    (
-                        rng.clone(),
-                        x,
-                        y,
-                        rho,
-                        pk.clone(),
-                        cap_k,
-                        cap_x,
-                        cap_d,
-                        cap_s,
-                        cap_g,
-                        setup,
-                        aux,
-                    )
-                },
+                || proof_input(rng.clone()),
                 |(mut rng, x, y, rho, pk, cap_k, cap_x, cap_d, cap_s, cap_g, setup, aux)| {
                     black_box(DecProof::<Params>::new(
                         &mut rng,
@@ -272,29 +290,13 @@ pub mod dec_proof {
             );
         }
     }
-    pub fn dec_proof_verify<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
+
+    pub fn dec_proof_verify<R: CryptoRngCore + Clone + 'static>(rng: R) -> impl FnMut(&mut Bencher<'_>) {
         move |b: &mut Bencher<'_>| {
             b.iter_batched(
                 || {
-                    let sk = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
-                    let pk = sk.public_key();
-
-                    let setup = RPParams::random(&mut rng);
-
-                    let aux: &[u8] = b"abcde";
-
-                    let x = SecretSigned::random_in_exponent_range(&mut rng, Params::L_BOUND);
-                    let y = SecretSigned::random_in_exponent_range(&mut rng, Params::LP_BOUND);
-                    let rho = Randomizer::random(&mut rng, pk);
-
-                    let k = SecretSigned::random_in_exponent_range(&mut rng, Paillier::PRIME_BITS * 2 - 1);
-                    let cap_k = Ciphertext::new(&mut rng, pk, &k);
-                    let cap_d = Ciphertext::new_with_randomizer(pk, &y, &rho) + &cap_k * &-&x;
-
-                    let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
-
-                    let cap_g = Scalar::random(&mut rng).mul_by_generator();
-                    let cap_s = cap_g * secret_scalar_from_signed::<Params>(&y);
+                    let (mut rng, x, y, rho, pk, cap_k, cap_x, cap_d, cap_s, cap_g, setup, aux) =
+                        proof_input(rng.clone());
 
                     let proof = DecProof::<Params>::new(
                         &mut rng,
@@ -304,7 +306,7 @@ pub mod dec_proof {
                             rho: &rho,
                         },
                         DecPublicInputs {
-                            pk0: pk,
+                            pk0: &pk,
                             cap_k: &cap_k,
                             cap_x: &cap_x,
                             cap_d: &cap_d,
@@ -314,7 +316,7 @@ pub mod dec_proof {
                         &setup,
                         &aux,
                     );
-                    (proof, pk.clone(), cap_k, cap_x, cap_d, cap_s, cap_g, setup)
+                    (proof, pk, cap_k, cap_x, cap_d, cap_s, cap_g, setup)
                 },
                 |(proof, pk, cap_k, cap_x, cap_d, cap_s, cap_g, rp_params)| {
                     let pub_inputs = DecPublicInputs {
