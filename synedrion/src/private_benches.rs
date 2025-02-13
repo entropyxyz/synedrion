@@ -212,6 +212,7 @@ pub mod aff_g_star_proof {
 
     use super::*;
 
+    #[allow(clippy::type_complexity)]
     fn proof_input(
         mut rng: impl CryptoRngCore,
     ) -> (
@@ -337,6 +338,7 @@ pub mod aff_g_star_proof {
 pub mod dec_proof {
     use super::*;
 
+    #[allow(clippy::type_complexity)]
     fn proof_input(
         mut rng: impl CryptoRngCore,
     ) -> (
@@ -632,7 +634,7 @@ pub mod enc_elg_proof {
                             b: &b,
                         },
                         EncElgPublicInputs {
-                            pk0: &pk,
+                            pk0: pk,
                             cap_c: &cap_c,
                             cap_a: &cap_a,
                             cap_b: &cap_b,
