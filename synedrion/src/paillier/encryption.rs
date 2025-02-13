@@ -186,7 +186,7 @@ impl<P: PaillierParams> Ciphertext<P> {
     }
 
     /// Encrypts the plaintext with a random randomizer.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "private_benches"))]
     pub fn new(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillier<P>, plaintext: &SecretSigned<P::Uint>) -> Self {
         Self::new_with_randomizer(pk, plaintext, &Randomizer::random(rng, pk))
     }

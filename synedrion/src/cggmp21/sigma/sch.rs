@@ -81,6 +81,7 @@ impl SchProof {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{SchCommitment, SchProof, SchSecret};
@@ -95,6 +96,13 @@ mod tests {
         let proof_secret = SchSecret::random(&mut OsRng);
         let commitment = SchCommitment::new(&proof_secret);
         let proof = SchProof::new(&proof_secret, &secret, &commitment, &public, &aux);
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: SchProof = BinaryFormat::deserialize(&payload).unwrap();
+
         assert!(proof.verify(&commitment, &public, &aux));
     }
 }

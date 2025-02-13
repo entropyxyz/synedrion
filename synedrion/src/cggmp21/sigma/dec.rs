@@ -254,6 +254,7 @@ impl<P: SchemeParams> DecProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{DecProof, DecPublicInputs, DecSecretInputs};
@@ -311,6 +312,14 @@ mod tests {
             &setup,
             &aux,
         );
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: DecProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+        let rp_params = setup.to_wire().to_precomputed();
+
         assert!(proof.verify(
             DecPublicInputs {
                 pk0: pk,
@@ -320,7 +329,7 @@ mod tests {
                 cap_s: &cap_s,
                 cap_g: &cap_g
             },
-            &setup,
+            &rp_params,
             &aux
         ));
     }

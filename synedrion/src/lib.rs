@@ -35,3 +35,8 @@ pub use cggmp21::{
 };
 pub use curve::RecoverableSignature;
 pub use www02::{DeriveChildKey, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
+
+#[cfg(feature = "private_benches")]
+#[allow(missing_docs)]
+// Hack to expose internals for benchmarking purposes
+pub mod private_benches;

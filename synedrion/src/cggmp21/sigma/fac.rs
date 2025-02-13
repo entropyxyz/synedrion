@@ -200,6 +200,7 @@ impl<P: SchemeParams> FacProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::FacProof;
@@ -221,6 +222,15 @@ mod tests {
         let aux: &[u8] = b"abcde";
 
         let proof = FacProof::<Params>::new(&mut OsRng, &sk, &setup, &aux);
-        assert!(proof.verify(pk, &setup, &aux));
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: FacProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+
+        let rp_params = setup.to_wire().to_precomputed();
+        let pubkey = pk.clone().into_wire().into_precomputed();
+        assert!(proof.verify(&pubkey, &rp_params, &aux));
     }
 }
