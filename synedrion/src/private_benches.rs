@@ -5,8 +5,8 @@ use crate::{
     cggmp21::{
         conversion::secret_scalar_from_signed,
         sigma::{
-            AffGProof, AffGPublicInputs, AffGSecretInputs, AffGStarProof, DecProof, DecPublicInputs, DecSecretInputs,
-            FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret,
+            AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, FacProof,
+            ModProof, PrmProof, SchCommitment, SchProof, SchSecret,
         },
         PaillierProduction112, ProductionParams112,
     },
@@ -304,7 +304,7 @@ pub mod dec_proof {
                             rho: &rho,
                         },
                         DecPublicInputs {
-                            pk0: &pk,
+                            pk0: pk,
                             cap_k: &cap_k,
                             cap_x: &cap_x,
                             cap_d: &cap_d,

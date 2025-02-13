@@ -26,7 +26,7 @@ where
 {
     fn from(val: PublicSigned<T>) -> Self {
         let repr = val.abs().to_be_bytes();
-        let bound_bytes = (val.bound + 7) / 8;
+        let bound_bytes = val.bound.div_ceil(8);
         let slice = repr
             .as_ref()
             .get((repr.as_ref().len() - bound_bytes as usize)..)
