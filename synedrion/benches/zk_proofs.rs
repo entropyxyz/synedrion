@@ -20,6 +20,21 @@ mod bench {
         group.bench_function("verify", aff_g_proof_verify(rng));
     }
 
+    fn bench_aff_g_star(c: &mut Criterion) {
+        use aff_g_star_proof::*;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+        let mut group = c.benchmark_group("AffG* proof");
+        group.sample_size(10);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("prove", aff_g_star_proof_prove(rng));
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("verify", aff_g_star_proof_verify(rng));
+    }
+
     fn bench_dec(c: &mut Criterion) {
         use dec_proof::*;
         let _ = tracing_subscriber::fmt()
@@ -33,6 +48,36 @@ mod bench {
 
         let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
         group.bench_function("verify", dec_proof_verify(rng));
+    }
+
+    fn bench_elog(c: &mut Criterion) {
+        use elog_proof::*;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+        let mut group = c.benchmark_group("Elog proof");
+        group.sample_size(10);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("prove", elog_proof_prove(rng));
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("verify", elog_proof_verify(rng));
+    }
+
+    fn bench_enc_elg(c: &mut Criterion) {
+        use enc_elg_proof::*;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+        let mut group = c.benchmark_group("EncElg proof");
+        group.sample_size(10);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("prove", enc_elg_proof_prove(rng));
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+        group.bench_function("verify", enc_elg_proof_verify(rng));
     }
 
     fn bench_fac(c: &mut Criterion) {
@@ -98,9 +143,12 @@ mod bench {
 
     criterion_group!(
         benches,
-        bench_fac,
         bench_aff_g,
+        bench_aff_g_star,
         bench_dec,
+        bench_elog,
+        bench_enc_elg,
+        bench_fac,
         bench_paillier_blum_modulus,
         bench_prm,
         bench_sch
