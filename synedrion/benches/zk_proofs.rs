@@ -35,21 +35,6 @@ mod bench {
         group.bench_function("verify", dec_proof_verify(rng));
     }
 
-    fn bench_enc(c: &mut Criterion) {
-        use enc_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("Enc proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", enc_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", enc_proof_verify(rng));
-    }
-
     fn bench_fac(c: &mut Criterion) {
         use fac_proof::*;
         let _ = tracing_subscriber::fmt()
@@ -66,21 +51,6 @@ mod bench {
         group.bench_function("verify", fac_proof_verify(rng));
     }
 
-    fn bench_log_star(c: &mut Criterion) {
-        use log_star_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("LogStar proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", log_star_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", log_star_proof_verify(rng));
-    }
-
     fn bench_paillier_blum_modulus(c: &mut Criterion) {
         use paillier_blum_modulus_proof::*;
         let _ = tracing_subscriber::fmt()
@@ -94,36 +64,6 @@ mod bench {
 
         let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
         group.bench_function("verify", paillier_blum_modulus_proof_verify(rng));
-    }
-
-    fn bench_mul_star(c: &mut Criterion) {
-        use mul_star_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("MulStar proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", mul_star_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", mul_star_proof_verify(rng));
-    }
-
-    fn bench_paillier_mul(c: &mut Criterion) {
-        use paillier_mul_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("Paillier multiplication proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", paillier_mul_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", paillier_mul_proof_verify(rng));
     }
 
     fn bench_prm(c: &mut Criterion) {
@@ -161,11 +101,7 @@ mod bench {
         bench_fac,
         bench_aff_g,
         bench_dec,
-        bench_enc,
-        bench_log_star,
         bench_paillier_blum_modulus,
-        bench_mul_star,
-        bench_paillier_mul,
         bench_prm,
         bench_sch
     );
