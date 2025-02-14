@@ -5,7 +5,7 @@ use crate::{
     curve::Scalar,
     paillier::PaillierParams,
     tools::Secret,
-    uint::{PublicSigned, SecretSigned, SecretUnsigned},
+    uint::{PublicSigned, SecretSigned},
 };
 
 fn uint_from_scalar<P: SchemeParams>(value: &Scalar<P>) -> <P::Paillier as PaillierParams>::Uint {
@@ -65,37 +65,8 @@ pub(crate) fn scalar_from_signed<P: SchemeParams>(
     }
 }
 
-/// Converts a wide integer to the associated curve scalar type.
-pub(crate) fn scalar_from_wide_uint<P: SchemeParams>(value: &<P::Paillier as PaillierParams>::WideUint) -> Scalar<P> {
-    let r = *value % P::CURVE_ORDER_WIDE;
-
-    let repr = r.to_be_bytes();
-    let uint_len = repr.as_ref().len();
-    let scalar_len = Scalar::<P>::repr_len();
-
-    // Can unwrap here since the value is within the Scalar range
-    Scalar::try_from_be_bytes(
-        repr.as_ref()
-            .get(uint_len - scalar_len..)
-            .expect("WideUint is assumed to be bigger than Scalar"),
-    )
-    .expect("the value was reduced modulo curve order, so it's a valid curve scalar")
-}
-
-/// Converts a `PublicSigned`-wrapped wide integer to the associated curve scalar type.
-pub(crate) fn scalar_from_wide_signed<P: SchemeParams>(
-    value: &PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-) -> Scalar<P> {
-    let abs_value = scalar_from_wide_uint::<P>(&value.abs());
-    if value.is_negative() {
-        -abs_value
-    } else {
-        abs_value
-    }
-}
-
 /// Converts a secret-wrapped uint to a secret-wrapped [`Scalar`], reducing the value modulo curve order.
-pub(crate) fn secret_scalar_from_uint<P: SchemeParams>(
+fn secret_scalar_from_uint<P: SchemeParams>(
     value: &Secret<<P::Paillier as PaillierParams>::Uint>,
 ) -> Secret<Scalar<P>> {
     let r = value % &P::CURVE_ORDER;
@@ -134,31 +105,18 @@ fn secret_uint_from_scalar<P: SchemeParams>(
     Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::from_be_bytes(*repr.expose_secret()))
 }
 
-/// Converts a secret-wrapped [`Scalar`] to a [`SecretUnsigned`].
-///
-/// Assumes using a curve whose order fits in a [`PaillierParams::Uint`].
-pub(crate) fn secret_unsigned_from_scalar<P: SchemeParams>(
-    value: &Secret<Scalar<P>>,
-) -> SecretUnsigned<<P::Paillier as PaillierParams>::Uint> {
-    // TODO(dp): the Integer trait from crypto-bigint v.0.5.5 does not implement BitOps so we cheat
-    // by going through the upcast `P::CURVE_ORDER`, but this needs to go away and become just
-    // `P::Curve::ORDER.bits_vartime()`.
-    let order_bits = P::CURVE_ORDER.bits_vartime();
-    SecretUnsigned::new(secret_uint_from_scalar::<P>(value), order_bits).expect(concat![
-        "a curve scalar value is smaller than the curve order, ",
-        "and the curve order fits in `PaillierParams::Uint`"
-    ])
-}
-
 /// Converts a secret-wrapped [`Scalar`] to a [`SecretSigned`].
 ///
 /// Assumes using a curve whose order is at most the width of `Uint` minus 1 bit.
 pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar<P>>,
 ) -> SecretSigned<<P::Paillier as PaillierParams>::Uint> {
-    let order_bits = P::CURVE_ORDER.bits_vartime();
-
-    SecretSigned::new_positive(secret_uint_from_scalar::<P>(value), order_bits).expect(concat![
+    SecretSigned::new_modulo(
+        secret_uint_from_scalar::<P>(value),
+        &P::CURVE_ORDER,
+        P::CURVE_ORDER.as_ref().bits_vartime(),
+    )
+    .expect(concat![
         "a curve scalar value is smaller than the curve order, ",
         "and the curve order fits in `PaillierParams::Uint`"
     ])

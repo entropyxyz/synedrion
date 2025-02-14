@@ -1,7 +1,7 @@
-//! Schnorr proof of knowledge ($\Pi^{sch}$, Section C.1, Fig. 22).
+//! Schnorr proof of knowledge ($\Pi^{sch}$, Section A.1, Fig. 22).
 //!
 //! Publish $X$ and prove that we know a secret $x$ such that $g^x = X$,
-//! where $g$ is a EC generator.
+//! where $g$ is the EC generator.
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     curve::{Point, Scalar},
     tools::{
-        hashing::{Chain, FofHasher, Hashable},
+        hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
     SchemeParams,
@@ -32,7 +32,7 @@ impl<P: SchemeParams> SchSecret<P> {
 
 /// Public data for the proof (~ verifying key)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
 pub(crate) struct SchCommitment<P: SchemeParams>(Point<P>);
 
 impl<P: SchemeParams> SchCommitment<P> {
@@ -47,27 +47,18 @@ struct SchChallenge<P: SchemeParams>(Scalar<P>);
 
 impl<P: SchemeParams> SchChallenge<P> {
     fn new(public: &Point<P>, commitment: &SchCommitment<P>, aux: &impl Hashable) -> Self {
-        Self(
-            FofHasher::new_with_dst(HASH_TAG)
-                .chain(aux)
-                .chain(public)
-                .chain(commitment)
-                .finalize_to_scalar(),
-        )
+        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+            .chain(aux)
+            .chain(public)
+            .chain(commitment)
+            .finalize_to_reader();
+        Self(Scalar::from_xof_reader(&mut reader))
     }
 }
 
-/**
-ZK proof: Schnorr proof of knowledge.
-
-Secret inputs:
-- scalar $x$.
-
-Public inputs:
-- Point $X = g * x$, where $g$ is the curve generator.
-*/
+/// ZK proof: Schnorr proof of knowledge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
 pub(crate) struct SchProof<P: SchemeParams> {
     challenge: SchChallenge<P>,
     proof: Scalar<P>,
@@ -94,6 +85,7 @@ impl<P: SchemeParams> SchProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{SchCommitment, SchProof, SchSecret};
@@ -108,6 +100,13 @@ mod tests {
         let proof_secret = SchSecret::random(&mut OsRng);
         let commitment = SchCommitment::new(&proof_secret);
         let proof = SchProof::new(&proof_secret, &secret, &commitment, &public, &aux);
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: SchProof<TestParams> = BinaryFormat::deserialize(&payload).unwrap();
+
         assert!(proof.verify(&commitment, &public, &aux));
     }
 }

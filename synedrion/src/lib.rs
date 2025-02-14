@@ -28,11 +28,17 @@ pub use bip32;
 pub use signature;
 
 pub use cggmp21::{
-    AuxGen, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningProtocol, KeyInit, KeyInitProtocol,
-    KeyRefresh, KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, ProductionParams, SchemeParams,
-    TestParams,
+    AuxGen, AuxGenAssociatedData, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningAssociatedData,
+    InteractiveSigningProtocol, KeyInit, KeyInitAssociatedData, KeyInitProtocol, KeyRefresh, KeyRefreshAssociatedData,
+    KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, ProductionParams112, SchemeParams, TestParams,
 };
 pub use curve::RecoverableSignature;
 #[cfg(feature = "bip32")]
 pub use www02::DeriveChildKey;
 pub use www02::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
+
+#[cfg(feature = "private_benches")]
+#[allow(missing_docs)]
+#[doc(hidden)]
+// Hack to expose internals for benchmarking purposes
+pub mod private_benches;

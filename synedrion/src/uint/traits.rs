@@ -1,21 +1,79 @@
 use crypto_bigint::{
     modular::MontyForm,
     subtle::{ConditionallySelectable, CtOption},
-    Bounded, ConcatMixed, Encoding, Integer, Invert, Limb, PowBoundedExp, RandomMod, SplitMixed, WideningMul, Zero,
-    U1024, U2048, U4096, U512, U8192,
+    Bounded, ConcatMixed, Encoding, Gcd, Integer, Invert, Limb, Monty, PowBoundedExp, RandomMod, SplitMixed,
+    WideningMul, Zero, U1024, U2048, U4096, U512, U8192,
 };
+use digest::XofReader;
 use zeroize::Zeroize;
 
 use crate::uint::{PublicSigned, SecretSigned, SecretUnsigned};
 
-pub trait ToMontgomery: Integer {
-    fn to_montgomery(
-        self,
-        params: &<<Self as Integer>::Monty as crypto_bigint::Monty>::Params,
-    ) -> <Self as Integer>::Monty {
-        <<Self as Integer>::Monty as crypto_bigint::Monty>::new(self, params.clone())
+pub trait FromXofReader {
+    /// Returns an integer derived deterministically from an extensible output hash,
+    /// with the bit size limited to `n_bits`.
+    ///
+    /// Panics if `n_bits` exceeds the capacity of the integer type.
+    fn from_xof_reader(reader: &mut impl XofReader, n_bits: u32) -> Self;
+}
+
+impl<T> FromXofReader for T
+where
+    T: Integer + Bounded + Encoding,
+{
+    fn from_xof_reader(reader: &mut impl XofReader, n_bits: u32) -> Self {
+        assert!(n_bits <= Self::BITS);
+        let n_bytes = n_bits.div_ceil(8) as usize;
+
+        // If the number of bits is not a multiple of 8, use a mask to zeroize the high bits in the
+        // gererated random bytestring, so that we don't have to reject too much.
+        let mask = if n_bits & 7 != 0 {
+            (1 << (n_bits & 7)) - 1
+        } else {
+            u8::MAX
+        };
+
+        let mut bytes = Self::zero().to_le_bytes();
+        let buf = bytes
+            .as_mut()
+            .get_mut(0..n_bytes)
+            .expect("`n_bytes` does not exceed `Self::BYTES` (following from the assertion for `n_bits`)");
+        reader.read(buf);
+        bytes.as_mut().last_mut().map(|byte| {
+            *byte &= mask;
+            Some(byte)
+        });
+        Self::from_le_bytes(bytes)
     }
 }
+
+pub trait IsInvertible {
+    /// Returns `true` if `self` is invertible modulo `modulus`.
+    fn is_invertible(&self, modulus: &Self) -> bool;
+}
+
+impl<T> IsInvertible for T
+where
+    T: Integer + Gcd<Output = Self>,
+{
+    fn is_invertible(&self, modulus: &Self) -> bool {
+        // There are technically two ways to check for that, one via `gcd()`,
+        // and the other by trying `invert()` on the Montgomery form and checking if it succeeds.
+        // For U1024, there is currently no detectable difference, since they're using the same algorithm underneath,
+        // and conversion to Montgomery takes negligible time (the actual inversion/gcd is ~1000x slower).
+        //
+        // So we just pick one method, and isolate it in this function.
+        self.gcd(modulus) == Self::one()
+    }
+}
+
+pub trait ToMontgomery: Integer {
+    fn to_montgomery(self, params: &<Self::Monty as Monty>::Params) -> Self::Monty {
+        <Self::Monty as Monty>::new(self, params.clone())
+    }
+}
+
+impl<T> ToMontgomery for T where T: Integer {}
 
 /// Exponentiation to the power of bounded integers.
 ///
@@ -122,9 +180,3 @@ pub type U512Mod = MontyForm<{ 512u32.div_ceil(Limb::BITS) as usize }>;
 pub type U1024Mod = MontyForm<{ 1024u32.div_ceil(Limb::BITS) as usize }>;
 pub type U2048Mod = MontyForm<{ 2048u32.div_ceil(Limb::BITS) as usize }>;
 pub type U4096Mod = MontyForm<{ 4096u32.div_ceil(Limb::BITS) as usize }>;
-
-impl ToMontgomery for U512 {}
-impl ToMontgomery for U1024 {}
-impl ToMontgomery for U2048 {}
-impl ToMontgomery for U4096 {}
-impl ToMontgomery for U8192 {}

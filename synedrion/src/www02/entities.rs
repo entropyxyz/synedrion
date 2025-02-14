@@ -1,17 +1,16 @@
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     format,
-    vec::Vec,
 };
-use core::{fmt::Debug, marker::PhantomData};
+use core::fmt::Debug;
 use manul::session::LocalError;
 
+#[cfg(feature = "bip32")]
+use alloc::vec::Vec;
 #[cfg(feature = "bip32")]
 use bip32::{DerivationPath, PrivateKey, PrivateKeyBytes, PublicKey};
 #[cfg(not(feature = "bip32"))]
 use core::ops::Add;
-#[cfg(not(feature = "bip32"))]
-use ecdsa::hazmat::SignPrimitive;
 use ecdsa::{SigningKey, VerifyingKey};
 use primeorder::elliptic_curve::{CurveArithmetic, PrimeCurve};
 use rand_core::CryptoRngCore;
@@ -176,17 +175,12 @@ where
                     .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
                 Ok((
                     id.clone(),
-                    public_share * &interpolation_coeff(&share_ids_set, this_share_id),
+                    public_share * interpolation_coeff(&share_ids_set, this_share_id),
                 ))
             })
             .collect::<Result<_, LocalError>>()?;
 
-        Ok(KeyShare {
-            owner: self.owner.clone(),
-            secret_share,
-            public_shares,
-            phantom: PhantomData,
-        })
+        KeyShare::new(self.owner.clone(), secret_share, public_shares)
     }
 
     /// Creates a t-of-t threshold keyshare that can be used in KeyResharing protocol.
@@ -204,7 +198,7 @@ where
             .get(key_share.owner())
             .expect("Just created a ShareId for all parties");
 
-        let secret_share = key_share.secret_share.clone()
+        let secret_share = key_share.secret_share().clone()
             * interpolation_coeff(&share_ids_set, owner_share_id)
                 .invert()
                 .expect("the interpolation coefficient is a non-zero scalar");
@@ -213,10 +207,10 @@ where
             .map(|id| {
                 let share_id = share_ids.get(id).expect("share_ids and ids have identical lengths");
                 let public_share = key_share
-                    .public_shares
+                    .public_shares()
                     .get(id)
                     .expect("There is one public share (Point) for each party")
-                    * &interpolation_coeff(&share_ids_set, share_id)
+                    * interpolation_coeff(&share_ids_set, share_id)
                         .invert()
                         .expect("the interpolation coefficient is a non-zero scalar");
                 (id.clone(), public_share)
@@ -224,7 +218,7 @@ where
             .collect();
 
         Self {
-            owner: key_share.owner.clone(),
+            owner: key_share.owner().clone(),
             threshold: ids.len() as u32,
             share_ids,
             secret_share,
@@ -367,7 +361,7 @@ mod tests {
     use ecdsa::SigningKey;
     use manul::{
         dev::{TestSigner, TestVerifier},
-        session::signature::Keypair,
+        signature::Keypair,
     };
     use rand_core::OsRng;
 
@@ -397,10 +391,10 @@ mod tests {
         let nt_share1 = shares[&ids[2]].to_key_share(&ids_subset).unwrap();
 
         assert_eq!(
-            nt_share0.secret_share.expose_secret() + nt_share1.secret_share.expose_secret(),
+            nt_share0.secret_share().expose_secret() + nt_share1.secret_share().expose_secret(),
             Scalar::<TestParams>::from(sk.as_nonzero_scalar())
         );
-        assert_eq!(&nt_share0.verifying_key().unwrap(), sk_verifying_key);
-        assert_eq!(&nt_share1.verifying_key().unwrap(), sk_verifying_key);
+        assert_eq!(&nt_share0.verifying_key(), sk_verifying_key);
+        assert_eq!(&nt_share1.verifying_key(), sk_verifying_key);
     }
 }

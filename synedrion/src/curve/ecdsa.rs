@@ -2,6 +2,9 @@ use crate::SchemeParams;
 use ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
 use primeorder::elliptic_curve::group::Curve as _;
 
+#[cfg(test)]
+use rand_core::CryptoRngCore;
+
 use super::arithmetic::{Point, Scalar};
 
 /// A wrapper for a signature and public key recovery info.
@@ -16,9 +19,16 @@ impl<P> RecoverableSignature<P>
 where
     P: SchemeParams,
 {
+    #[cfg(test)]
+    pub(crate) fn random(rng: &mut impl CryptoRngCore) -> Option<Self> {
+        let sk = ecdsa::SigningKey::random(rng);
+        let (signature, recovery_id) = sk.sign_recoverable(b"test message").ok()?;
+        Some(Self { signature, recovery_id })
+    }
+
     // TODO(dp): investigate call-sites of this and see if we can pass by value instead and remove the clones.
     pub(crate) fn from_scalars(r: &Scalar<P>, s: &Scalar<P>, vkey: &Point<P>, message: &Scalar<P>) -> Option<Self> {
-        let signature = BackendSignature::from_scalars(r.clone().to_backend(), s.clone().to_backend()).ok()?;
+        let signature = BackendSignature::from_scalars(r.to_backend(), s.to_backend()).ok()?;
 
         // Normalize the `s` component.
         // `BackendSignature`'s constructor does not require `s` to be normalized,

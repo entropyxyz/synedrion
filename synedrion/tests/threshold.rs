@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-    session::signature::Keypair,
+    signature::Keypair,
 };
 use rand_core::OsRng;
 #[cfg(feature = "bip32")]
@@ -11,6 +11,7 @@ use synedrion::DeriveChildKey;
 use synedrion::{
     AuxGen, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, TestParams, ThresholdKeyShare,
 };
+use tracing::info;
 
 fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
     let signers = (0..num_parties)
@@ -21,7 +22,7 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
 }
 
 #[cfg(feature = "bip32")]
-#[test]
+#[test_log::test]
 fn full_sequence() {
     let t = 3;
     let n = 5;
@@ -39,7 +40,7 @@ fn full_sequence() {
         })
         .collect();
 
-    println!("\nRunning KeyInit\n");
+    info!("\nRunning KeyInit\n");
     let key_shares = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
         .results()
@@ -99,7 +100,7 @@ fn full_sequence() {
 
     entry_points.extend(new_holder_entry_points);
 
-    println!("\nRunning KeyReshare\n");
+    info!("\nRunning KeyReshare\n");
     let new_t_key_shares = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
         .results()
@@ -132,7 +133,7 @@ fn full_sequence() {
         })
         .collect::<Vec<_>>();
 
-    println!("\nRunning AuxGen\n");
+    info!("\nRunning AuxGen\n");
     let aux_infos = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
         .results()
@@ -163,9 +164,9 @@ fn full_sequence() {
             .unwrap(),
     ];
     let selected_aux_infos = [
-        aux_infos[&verifiers[0]].clone(),
-        aux_infos[&verifiers[2]].clone(),
-        aux_infos[&verifiers[4]].clone(),
+        aux_infos[&verifiers[0]].clone().subset(&selected_parties).unwrap(),
+        aux_infos[&verifiers[2]].clone().subset(&selected_parties).unwrap(),
+        aux_infos[&verifiers[4]].clone().subset(&selected_parties).unwrap(),
     ];
 
     // Perform signing with the key shares
@@ -178,12 +179,13 @@ fn full_sequence() {
                 *message,
                 selected_key_shares[idx].clone(),
                 selected_aux_infos[idx].clone(),
-            );
+            )
+            .unwrap();
             (selected_signers[idx], entry_point)
         })
         .collect();
 
-    println!("\nRunning InteractiveSigning\n");
+    info!("\nRunning InteractiveSigning\n");
     let signatures = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
         .results()

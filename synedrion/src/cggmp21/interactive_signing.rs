@@ -1,32 +1,32 @@
-//! Merged Presigning and Signing protocols,
-//! in the paper ECDSA Pre-Signing (Fig. 7) and Signing (Fig. 8).
+//! Combined
+//! - ECDSA Pre-Signing protocol (Fig. 8) - Rounds 1-3.
+//! - ECDSA Signing (Fig. 10) - Round 4.
+//! - Failed Nonce error round (Fig. 9) - Round 5.
+//! - Failed Chi error round (Section 4.3.1) - Round 6.
 
-use alloc::{
-    collections::{BTreeMap, BTreeSet},
-    format,
-    string::String,
-    vec::Vec,
+use alloc::collections::{BTreeMap, BTreeSet};
+use core::{
+    fmt::{self, Debug, Display},
+    marker::PhantomData,
 };
-use core::{fmt::Debug, marker::PhantomData};
 
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-    NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessagePart, ProtocolValidationError,
-    ReceiveError, Round, RoundId, Serializer,
+    MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
+    ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
+    Serializer,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    conversion::{
-        public_signed_from_scalar, secret_scalar_from_signed, secret_signed_from_scalar, secret_unsigned_from_scalar,
-    },
-    entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PresigningData, PresigningValues, PublicAuxInfoPrecomputed},
+    conversion::{secret_scalar_from_signed, secret_signed_from_scalar},
+    entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PublicAuxInfoPrecomputed, PublicAuxInfos, PublicKeyShares},
     params::SchemeParams,
     sigma::{
-        AffGProof, AffGPublicInputs, AffGSecretInputs, DecProof, DecPublicInputs, DecSecretInputs, EncProof,
-        EncPublicInputs, EncSecretInputs, LogStarProof, LogStarPublicInputs, LogStarSecretInputs, MulProof,
-        MulPublicInputs, MulSecretInputs, MulStarProof, MulStarPublicInputs, MulStarSecretInputs,
+        AffGProof, AffGPublicInputs, AffGSecretInputs, AffGStarProof, AffGStarPublicInputs, AffGStarSecretInputs,
+        DecProof, DecPublicInputs, DecSecretInputs, ElogProof, ElogPublicInputs, ElogSecretInputs, EncElgProof,
+        EncElgPublicInputs, EncElgSecretInputs,
     },
 };
 use crate::{
@@ -34,104 +34,933 @@ use crate::{
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
     tools::{
         hashing::{Chain, FofHasher},
-        DowncastMap, Secret, Without,
+        protocol_shortcuts::{
+            sum_non_empty, sum_non_empty_ref, verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet,
+            Without,
+        },
+        Secret,
     },
     uint::SecretSigned,
 };
 
-/// A protocol for creating all the data necessary for signing
-/// that doesn't require knowing the actual message being signed.
-#[derive(Debug, Clone, Copy)]
-pub struct InteractiveSigningProtocol<P: SchemeParams, I: Debug>(PhantomData<(P, I)>);
-
-impl<P: SchemeParams, I: PartyId> Protocol for InteractiveSigningProtocol<P, I> {
-    type Result = RecoverableSignature<P>;
-    type ProtocolError = InteractiveSigningError;
-}
-
-/// Possible verifiable errors of the Presigning protocol.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum InteractiveSigningError {
-    /// An error in Round 1.
-    Round1(String),
-    /// An error in Round 2.
-    Round2(String),
-    /// An error in Round 3.
-    Round3(String),
-    /// An error in the signing error round.
-    SigningError(String),
-    OutOfBoundsAlpha,
-    OutOfBoundsHatAlpha,
-}
-
-impl ProtocolError for InteractiveSigningError {
-    fn description(&self) -> String {
-        "".into()
-    }
-
-    fn required_direct_messages(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
-    }
-
-    fn required_echo_broadcasts(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
-    }
-
-    fn required_combined_echos(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
-    }
-
-    fn verify_messages_constitute_error(
-        &self,
-        _deserializer: &Deserializer,
-        _echo_broadcast: &EchoBroadcast,
-        _normal_broadcat: &NormalBroadcast,
-        _direct_message: &DirectMessage,
-        _echo_broadcasts: &BTreeMap<RoundId, EchoBroadcast>,
-        _normal_broadcasts: &BTreeMap<RoundId, NormalBroadcast>,
-        _direct_messages: &BTreeMap<RoundId, DirectMessage>,
-        _combined_echos: &BTreeMap<RoundId, Vec<EchoBroadcast>>,
-    ) -> Result<(), ProtocolValidationError> {
-        Ok(())
-    }
-}
-
 /// Prehashed message to sign.
 pub type PrehashedMessage = [u8; 32];
 
-/// An entry point for the [`InteractiveSigningProtocol`].
-#[derive(Debug)]
-pub struct InteractiveSigning<P: SchemeParams, I: Ord + Serialize + for<'x> Deserialize<'x>> {
-    key_share: KeyShare<P, I>,
-    aux_info: AuxInfo<P, I>,
-    prehashed_message: PrehashedMessage,
-}
-
-impl<P, I> InteractiveSigning<P, I>
+#[derive(Debug, Clone)]
+struct PresigningData<P, Id>
 where
     P: SchemeParams,
-    I: Ord + Serialize + for<'x> Deserialize<'x>,
 {
-    /// Creates a new entry point given a share of the secret key.
-    pub fn new(prehashed_message: PrehashedMessage, key_share: KeyShare<P, I>, aux_info: AuxInfo<P, I>) -> Self {
-        // TODO: check that both are consistent
-        Self {
-            prehashed_message,
-            key_share,
-            aux_info,
+    cap_gamma_combined: Point<P>,             // $\Gamma$
+    tilde_k: Secret<Scalar<P>>,               // $k / \delta$
+    tilde_chi: Secret<Scalar<P>>,             // $chi / \delta$
+    tilde_cap_deltas: BTreeMap<Id, Point<P>>, // $\Delta_j^{\delta^{-1}}$ for all $j$
+    tilde_cap_ss: BTreeMap<Id, Point<P>>,     // $S_j^{\delta^{-1}}$ for all $j$
+}
+
+/// A protocol for creating all the data necessary for signing
+/// that doesn't require knowing the actual message being signed.
+#[derive(Debug, Clone, Copy)]
+pub struct InteractiveSigningProtocol<P: SchemeParams, Id: Debug>(PhantomData<(P, Id)>);
+
+impl<P: SchemeParams, Id: PartyId> Protocol<Id> for InteractiveSigningProtocol<P, Id> {
+    type Result = RecoverableSignature<P>;
+    type ProtocolError = InteractiveSigningError<P, Id>;
+
+    fn verify_direct_message_is_invalid(
+        deserializer: &Deserializer,
+        round_id: &RoundId,
+        message: &DirectMessage,
+    ) -> Result<(), MessageValidationError> {
+        match round_id {
+            r if r == &1 => message.verify_is_not::<Round1DirectMessage<P>>(deserializer),
+            r if r == &2 => message.verify_is_some(),
+            r if r == &3 => message.verify_is_some(),
+            r if r == &4 => message.verify_is_some(),
+            r if r == &5 => message.verify_is_some(),
+            r if r == &6 => message.verify_is_some(),
+            _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
+        }
+    }
+
+    fn verify_echo_broadcast_is_invalid(
+        deserializer: &Deserializer,
+        round_id: &RoundId,
+        message: &EchoBroadcast,
+    ) -> Result<(), MessageValidationError> {
+        match round_id {
+            r if r == &1 => message.verify_is_not::<Round1EchoBroadcast<P>>(deserializer),
+            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast<P, Id>>(deserializer),
+            r if r == &3 => message.verify_is_not::<Round3EchoBroadcast<P>>(deserializer),
+            r if r == &4 => message.verify_is_some(),
+            r if r == &5 => message.verify_is_not::<Round5EchoBroadcast<P, Id>>(deserializer),
+            r if r == &6 => message.verify_is_not::<Round6EchoBroadcast<P, Id>>(deserializer),
+            _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
+        }
+    }
+
+    fn verify_normal_broadcast_is_invalid(
+        deserializer: &Deserializer,
+        round_id: &RoundId,
+        message: &NormalBroadcast,
+    ) -> Result<(), MessageValidationError> {
+        match round_id {
+            r if r == &1 => message.verify_is_some(),
+            r if r == &2 => message.verify_is_not::<Round2NormalBroadcast<P, Id>>(deserializer),
+            r if r == &3 => message.verify_is_not::<Round3NormalBroadcast<P>>(deserializer),
+            r if r == &4 => message.verify_is_not::<Round4NormalBroadcast<P>>(deserializer),
+            r if r == &5 => message.verify_is_some(),
+            r if r == &6 => message.verify_is_some(),
+            _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
 }
 
-impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+/// Possible verifiable errors of the InteractiveSigning protocol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InteractiveSigningError<P, Id> {
+    error: Error<Id>,
+    phantom: PhantomData<P>,
+}
+
+impl<P, Id: Debug> Display for InteractiveSigningError<P, Id> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}",
+            match self.error {
+                Error::R1EncElg0Failed => "Round 1: failed to verify `\\psi^0` (`П^{enc-elg}` proof).",
+                Error::R1EncElg1Failed => "Round 1: failed to verify `\\psi^1` (`П^{enc-elg}` proof).",
+                Error::R2WrongIdsD => "Round 2: wrong IDs in `D` map.",
+                Error::R2WrongIdsF => "Round 2: wrong IDs in `F` map.",
+                Error::R2WrongIdsPsi => "Round 2: wrong IDs in `\\psi` map (`П^{aff-g}` proofs for `D`).",
+                Error::R2AffGPsiFailed { .. } => "Round 2: failed to verify `\\psi` (`П^{aff-g}` proof for `D`).",
+                Error::R2AffGHatPsiFailed { .. } =>
+                    "Round 2: failed to verify `\\hat{psi}` (`П^{aff-g}` proof for `\\hat{D}`).",
+                Error::R2ElogFailed => "Round 2: failed to verify `П^{elog}` proof.",
+                Error::R3ElogFailed => "Round 3: failed to verify `П^{elog}` proof.",
+                Error::R4InvalidSignatureShare => "Round 4: signature share verification failed.",
+                Error::R5DecFailed => "Round 5: `П^{dec}` proof verification failed.",
+                Error::R5WrongIdsPsi => "Round 5: wrong IDs in `П^{aff-g*}` proof map.",
+                Error::R5AffGStarFailed { .. } => "Round 5: `П^{aff-g*}` proof verification failed.",
+                Error::R6DecFailed => "Round 6: `П^{dec}` proof verification failed.",
+                Error::R6WrongIdsPsi => "Round 6: wrong IDs in `П^{aff-g*}` proof map.",
+                Error::R6AffGStarFailed { .. } => "Round 6: `П^{aff-g*}` proof verification failed.",
+            }
+        )
+    }
+}
+
+/// Possible verifiable errors of the InteractiveSigning protocol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum Error<Id> {
+    R1EncElg0Failed,
+    R1EncElg1Failed,
+    R2WrongIdsD,
+    R2WrongIdsF,
+    R2WrongIdsPsi,
+    R2AffGPsiFailed {
+        /// The index $k$ for which the verification of $\psi_{k,j}$ failed
+        /// (where $j$ is the index of the guilty party).
+        failed_for: Id,
+    },
+    R2AffGHatPsiFailed {
+        /// The index $k$ for which the verification of $\hat{\psi}_{k,j}$ failed
+        /// (where $j$ is the index of the guilty party).
+        failed_for: Id,
+    },
+    R2ElogFailed,
+    R3ElogFailed,
+    R4InvalidSignatureShare,
+    R5DecFailed,
+    R5WrongIdsPsi,
+    R5AffGStarFailed {
+        /// The index $\ell$ for which the verification of $\psi_{j,\ell}$ failed
+        /// (where $j$ is the index of the guilty party).
+        failed_for: Id,
+    },
+    R6DecFailed,
+    R6WrongIdsPsi,
+    R6AffGStarFailed {
+        /// The index $\ell$ for which the verification of $\hat{\psi}_{j,\ell}$ failed
+        /// (where $j$ is the index of the guilty party).
+        failed_for: Id,
+    },
+}
+
+impl<P, Id> From<Error<Id>> for InteractiveSigningError<P, Id> {
+    fn from(source: Error<Id>) -> Self {
+        Self {
+            error: source,
+            phantom: PhantomData,
+        }
+    }
+}
+
+/// Associated data for InteractiveSigning protocol.
+#[derive(Debug, Clone)]
+pub struct InteractiveSigningAssociatedData<P: SchemeParams, Id: PartyId> {
+    /// Public shares of all participating nodes.
+    pub shares: PublicKeyShares<P, Id>,
+    /// Auxiliary data of all participating nodes.
+    pub aux: PublicAuxInfos<P, Id>,
+    /// The message to be signed.
+    pub message: PrehashedMessage,
+}
+
+impl<P: SchemeParams, Id: PartyId> InteractiveSigningAssociatedData<P, Id> {
+    /// Creates the associated data for evidence verification of InteractiveSigning.
+    pub fn new(
+        message: PrehashedMessage,
+        public_key_shares: PublicKeyShares<P, Id>,
+        public_aux_infos: PublicAuxInfos<P, Id>,
+    ) -> Result<Self, LocalError> {
+        let key_share_keys = public_key_shares.as_map().keys().collect::<BTreeSet<_>>();
+        let aux_info_keys = public_aux_infos.as_map().keys().collect::<BTreeSet<_>>();
+
+        if key_share_keys != aux_info_keys {
+            return Err(LocalError::new(
+                "The key share and the auxiliary info must have information for the same set of parties",
+            ));
+        }
+
+        Ok(Self {
+            shares: public_key_shares,
+            aux: public_aux_infos,
+            message,
+        })
+    }
+}
+
+fn make_epid<P: SchemeParams, Id: PartyId>(
+    shared_randomness: &[u8],
+    associated_data: &InteractiveSigningAssociatedData<P, Id>,
+) -> P::HashOutput {
+    FofHasher::<P>::new_with_dst(b"InteractiveSigning EPID")
+        .chain_type::<P>()
+        .chain(&shared_randomness)
+        .chain(&associated_data.shares)
+        .chain(&associated_data.aux)
+        .finalize()
+}
+
+impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError<P, Id> {
+    type AssociatedData = InteractiveSigningAssociatedData<P, Id>;
+
+    fn required_messages(&self) -> RequiredMessages {
+        match self.error {
+            Error::R1EncElg0Failed => {
+                RequiredMessages::new(RequiredMessageParts::echo_broadcast().and_direct_message(), None, None)
+            }
+            Error::R1EncElg1Failed => {
+                RequiredMessages::new(RequiredMessageParts::echo_broadcast().and_direct_message(), None, None)
+            }
+            Error::R2WrongIdsD => RequiredMessages::new(RequiredMessageParts::normal_broadcast(), None, None),
+            Error::R2WrongIdsF => RequiredMessages::new(RequiredMessageParts::echo_broadcast(), None, None),
+            Error::R2WrongIdsPsi => RequiredMessages::new(RequiredMessageParts::normal_broadcast(), None, None),
+            Error::R2AffGPsiFailed { .. } => RequiredMessages::new(
+                RequiredMessageParts::echo_broadcast().and_normal_broadcast(),
+                None,
+                Some([1.into()].into()),
+            ),
+            Error::R2AffGHatPsiFailed { .. } => RequiredMessages::new(
+                RequiredMessageParts::echo_broadcast().and_normal_broadcast(),
+                None,
+                Some([1.into()].into()),
+            ),
+            Error::R2ElogFailed => RequiredMessages::new(
+                RequiredMessageParts::echo_broadcast().and_normal_broadcast(),
+                Some([(1.into(), RequiredMessageParts::echo_broadcast())].into()),
+                None,
+            ),
+            Error::R3ElogFailed => RequiredMessages::new(
+                RequiredMessageParts::normal_broadcast(),
+                Some(
+                    [
+                        (1.into(), RequiredMessageParts::echo_broadcast()),
+                        (2.into(), RequiredMessageParts::echo_broadcast()),
+                    ]
+                    .into(),
+                ),
+                None,
+            ),
+            Error::R4InvalidSignatureShare => RequiredMessages::new(
+                RequiredMessageParts::normal_broadcast(),
+                Some(
+                    [
+                        (2.into(), RequiredMessageParts::echo_broadcast()),
+                        (3.into(), RequiredMessageParts::echo_broadcast().and_normal_broadcast()),
+                    ]
+                    .into(),
+                ),
+                Some([2.into(), 3.into()].into()),
+            ),
+            Error::R5DecFailed => RequiredMessages::new(
+                RequiredMessageParts::echo_broadcast(),
+                Some(
+                    [
+                        (1.into(), RequiredMessageParts::echo_broadcast()),
+                        (2.into(), RequiredMessageParts::echo_broadcast().and_normal_broadcast()),
+                        (3.into(), RequiredMessageParts::normal_broadcast()),
+                    ]
+                    .into(),
+                ),
+                Some([2.into()].into()),
+            ),
+            Error::R5WrongIdsPsi => RequiredMessages::new(RequiredMessageParts::echo_broadcast(), None, None),
+            Error::R5AffGStarFailed { .. } => RequiredMessages::new(
+                RequiredMessageParts::echo_broadcast(),
+                Some([(2.into(), RequiredMessageParts::echo_broadcast().and_normal_broadcast())].into()),
+                Some([1.into(), 2.into()].into()),
+            ),
+            Error::R6DecFailed => RequiredMessages::new(
+                RequiredMessageParts::echo_broadcast(),
+                Some(
+                    [
+                        (1.into(), RequiredMessageParts::echo_broadcast()),
+                        (2.into(), RequiredMessageParts::echo_broadcast().and_normal_broadcast()),
+                        (3.into(), RequiredMessageParts::normal_broadcast()),
+                    ]
+                    .into(),
+                ),
+                Some([2.into()].into()),
+            ),
+            Error::R6WrongIdsPsi => RequiredMessages::new(RequiredMessageParts::echo_broadcast(), None, None),
+            Error::R6AffGStarFailed { .. } => RequiredMessages::new(
+                RequiredMessageParts::echo_broadcast(),
+                None,
+                Some([1.into(), 2.into()].into()),
+            ),
+        }
+    }
+
+    fn verify_messages_constitute_error(
+        &self,
+        deserializer: &Deserializer,
+        guilty_party: &Id,
+        shared_randomness: &[u8],
+        associated_data: &Self::AssociatedData,
+        message: ProtocolMessage,
+        previous_messages: BTreeMap<RoundId, ProtocolMessage>,
+        combined_echos: BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
+    ) -> Result<(), ProtocolValidationError> {
+        let epid = make_epid::<P, Id>(shared_randomness, associated_data);
+
+        match &self.error {
+            Error::R1EncElg0Failed => {
+                let r1_dm = message
+                    .direct_message
+                    .deserialize::<Round1DirectMessage<P>>(deserializer)?;
+                let r1_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+
+                let public_aux = &associated_data.aux.as_map().try_get("aux infos", guilty_party)?;
+                let pk = public_aux.paillier_pk.clone().into_precomputed();
+                let rp = public_aux.rp_params.to_precomputed();
+
+                let aux = (&epid, guilty_party);
+
+                verify_that(!r1_dm.psi0.verify(
+                    EncElgPublicInputs {
+                        pk0: &pk,
+                        cap_c: &r1_eb.cap_k.to_precomputed(&pk),
+                        cap_a: &r1_eb.cap_y,
+                        cap_b: &r1_eb.cap_a1,
+                        cap_x: &r1_eb.cap_a2,
+                    },
+                    &rp,
+                    &aux,
+                ))
+            }
+            Error::R1EncElg1Failed => {
+                let r1_dm = message
+                    .direct_message
+                    .deserialize::<Round1DirectMessage<P>>(deserializer)?;
+                let r1_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+
+                let public_aux = &associated_data.aux.as_map().try_get("aux infos", guilty_party)?;
+                let pk = public_aux.paillier_pk.clone().into_precomputed();
+                let rp = public_aux.rp_params.to_precomputed();
+
+                let aux = (&epid, guilty_party);
+
+                verify_that(!r1_dm.psi1.verify(
+                    EncElgPublicInputs {
+                        pk0: &pk,
+                        cap_c: &r1_eb.cap_g.to_precomputed(&pk),
+                        cap_a: &r1_eb.cap_y,
+                        cap_b: &r1_eb.cap_b1,
+                        cap_x: &r1_eb.cap_b2,
+                    },
+                    &rp,
+                    &aux,
+                ))
+            }
+            Error::R2WrongIdsD => {
+                let r2_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                let expected_ids = associated_data
+                    .aux
+                    .as_map()
+                    .keys()
+                    .collect::<BTreeSet<_>>()
+                    .without(&guilty_party);
+                verify_that(r2_nb.cap_ds.keys().collect::<BTreeSet<_>>() != expected_ids)
+            }
+            Error::R2WrongIdsF => {
+                let r2_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let expected_ids = associated_data
+                    .aux
+                    .as_map()
+                    .keys()
+                    .collect::<BTreeSet<_>>()
+                    .without(&guilty_party);
+                verify_that(r2_eb.cap_fs.keys().collect::<BTreeSet<_>>() != expected_ids)
+            }
+            Error::R2WrongIdsPsi => {
+                let r2_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                let expected_ids = associated_data
+                    .aux
+                    .as_map()
+                    .keys()
+                    .collect::<BTreeSet<_>>()
+                    .without(&guilty_party);
+                verify_that(r2_nb.psis.keys().collect::<BTreeSet<_>>() != expected_ids)
+            }
+            Error::R2AffGPsiFailed { failed_for } => {
+                let r1_eb = combined_echos
+                    .get_round(1)?
+                    .try_get("combined echos for Round 1", failed_for)?
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+                let r2_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+
+                let failed_for_aux = &associated_data.aux.as_map().try_get("aux infos", failed_for)?;
+                let guilty_party_aux = &associated_data.aux.as_map().try_get("aux infos", guilty_party)?;
+
+                let rp = failed_for_aux.rp_params.to_precomputed();
+                let aux = (&epid, guilty_party);
+
+                let for_pk = failed_for_aux.paillier_pk.clone().into_precomputed();
+                let from_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
+
+                let cap_k = r1_eb.cap_k.to_precomputed(&for_pk);
+                let cap_d = r2_nb.cap_ds.safe_get("`D` map", failed_for)?.to_precomputed(&for_pk);
+                let cap_f = r2_eb.cap_fs.safe_get("`F` map", failed_for)?.to_precomputed(&from_pk);
+
+                let psi = r2_nb.psis.try_get("`psi` map", failed_for)?;
+                verify_that(!psi.verify(
+                    AffGPublicInputs {
+                        pk0: &for_pk,
+                        pk1: &from_pk,
+                        cap_c: &cap_k,
+                        cap_d: &cap_d,
+                        cap_y: &cap_f,
+                        cap_x: &r2_eb.cap_gamma,
+                    },
+                    &rp,
+                    &aux,
+                ))
+            }
+            Error::R2AffGHatPsiFailed { failed_for } => {
+                let r1_eb = combined_echos
+                    .get_round(1)?
+                    .try_get("combined echos for Round 1", failed_for)?
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+                let r2_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+
+                let cap_x = associated_data.shares.as_map().try_get("shares", failed_for)?;
+
+                let failed_for_aux = &associated_data.aux.as_map().try_get("aux infos", failed_for)?;
+                let guilty_party_aux = &associated_data.aux.as_map().try_get("aux infos", guilty_party)?;
+
+                let rp = failed_for_aux.rp_params.to_precomputed();
+                let aux = (&epid, guilty_party);
+
+                let for_pk = failed_for_aux.paillier_pk.clone().into_precomputed();
+                let from_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
+
+                let cap_k = r1_eb.cap_k.to_precomputed(&for_pk);
+                let hat_cap_d = r2_nb
+                    .hat_cap_ds
+                    .safe_get("`\\hat{D}` map", failed_for)?
+                    .to_precomputed(&for_pk);
+                let hat_cap_f = r2_eb
+                    .hat_cap_fs
+                    .safe_get("`\\hat{F}` map", failed_for)?
+                    .to_precomputed(&from_pk);
+
+                let hat_psi = r2_nb.hat_psis.try_get("`\\hat{psi}` map", failed_for)?;
+                verify_that(!hat_psi.verify(
+                    AffGPublicInputs {
+                        pk0: &for_pk,
+                        pk1: &from_pk,
+                        cap_c: &cap_k,
+                        cap_d: &hat_cap_d,
+                        cap_y: &hat_cap_f,
+                        cap_x,
+                    },
+                    &rp,
+                    &aux,
+                ))
+            }
+            Error::R2ElogFailed => {
+                let r1_eb = previous_messages
+                    .get_round(1)?
+                    .echo_broadcast
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+                let r2_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                let r2_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let aux = (&epid, guilty_party);
+
+                verify_that(!r2_nb.psi_elog.verify(
+                    ElogPublicInputs {
+                        cap_l: &r1_eb.cap_b1,
+                        cap_m: &r1_eb.cap_b2,
+                        cap_x: &r1_eb.cap_y,
+                        cap_y: &r2_eb.cap_gamma,
+                        h: &Point::generator(),
+                    },
+                    &aux,
+                ))
+            }
+            Error::R3ElogFailed => {
+                let r1_eb = previous_messages
+                    .get_round(1)?
+                    .echo_broadcast
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+                let r2_eb = previous_messages
+                    .get_round(2)?
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r3_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
+                let aux = (&epid, guilty_party);
+
+                verify_that(!r3_nb.psi_prime.verify(
+                    ElogPublicInputs {
+                        cap_l: &r1_eb.cap_a1,
+                        cap_m: &r1_eb.cap_a2,
+                        cap_x: &r1_eb.cap_y,
+                        cap_y: &r3_nb.cap_delta,
+                        h: &r2_eb.cap_gamma,
+                    },
+                    &aux,
+                ))
+            }
+            Error::R4InvalidSignatureShare => {
+                let r2_ebs = combined_echos
+                    .get_round(2)?
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_eb = previous_messages
+                    .get_round(2)?
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r3_nb = previous_messages
+                    .get_round(3)?
+                    .normal_broadcast
+                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
+                let r3_ebs = combined_echos
+                    .get_round(3)?
+                    .deserialize_all::<Round3EchoBroadcast<P>>(deserializer)?;
+                let r3_eb = previous_messages
+                    .get_round(3)?
+                    .echo_broadcast
+                    .deserialize::<Round3EchoBroadcast<P>>(deserializer)?;
+                let r4_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round4NormalBroadcast<P>>(deserializer)?;
+
+                let cap_gamma = r2_eb.cap_gamma + r2_ebs.values().map(|eb| eb.cap_gamma).sum();
+                let nonce = cap_gamma.x_coordinate();
+                let delta = r3_eb.delta + r3_ebs.values().map(|eb| eb.delta).sum::<Scalar<P>>();
+                let delta_inv = Option::<Scalar<P>>::from(delta.invert())
+                    .ok_or_else(|| ProtocolValidationError::InvalidEvidence("`delta` is not invertible".into()))?;
+                let tilde_cap_delta = r3_nb.cap_delta * delta_inv;
+                let tilde_cap_s = r3_nb.cap_s * delta_inv;
+                let scalar_message = Scalar::from_reduced_bytes(&associated_data.message);
+
+                verify_that(cap_gamma * r4_nb.sigma != tilde_cap_delta * scalar_message + tilde_cap_s * nonce)
+            }
+            Error::R5DecFailed => {
+                let r1_eb = previous_messages
+                    .get_round(1)?
+                    .echo_broadcast
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+                let r2_ebs = combined_echos
+                    .get_round(2)?
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = previous_messages
+                    .get_round(2)?
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                let r2_eb = previous_messages
+                    .get_round(2)?
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r3_nb = previous_messages
+                    .get_round(3)?
+                    .normal_broadcast
+                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
+                let r5_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round5EchoBroadcast<P, Id>>(deserializer)?;
+
+                // Calculate `D_j` where `j = guilty_party`.
+                // `D_j = sum_{l != j}(D_{l,j} + F_{j,l})
+                //
+                // r2_eb: contains D_{l,j}, F_{l,j} for l != j
+                // => D_{l,j} = r2_eb.cap_ds[l]
+                // r2_ebs[i], i != j: contains D_{l,i}, F_{l,i} for l != i
+                // => F_{j,l} = r2_ebs[l].cap_fs[j]
+
+                let public_aux = &associated_data.aux.as_map().try_get("aux infos", guilty_party)?;
+                let pk = public_aux.paillier_pk.clone().into_precomputed();
+                let rp = public_aux.rp_params.to_precomputed();
+                let aux = (&epid, guilty_party);
+
+                let ids = associated_data
+                    .aux
+                    .as_map()
+                    .keys()
+                    .collect::<BTreeSet<_>>()
+                    .without(&guilty_party);
+
+                let cap_d = sum_non_empty(
+                    ids.iter()
+                        .map(|id| Ok(r2_nb.cap_ds.try_get("`D` map", id)?.to_precomputed(&pk))),
+                    ProtocolValidationError::InvalidEvidence("There must be at least two parties".into()),
+                )? + sum_non_empty(
+                    ids.iter().map(|id| {
+                        Ok(r2_ebs
+                            .try_get("Round 2 echo broadcasts", id)?
+                            .cap_fs
+                            .try_get("`F` map", guilty_party)?
+                            .to_precomputed(&pk))
+                    }),
+                    ProtocolValidationError::InvalidEvidence("There must be at least two parties".into()),
+                )?;
+
+                let cap_k = r1_eb.cap_k.to_precomputed(&pk);
+
+                verify_that(!r5_eb.psi_star.verify(
+                    DecPublicInputs {
+                        pk0: &pk,
+                        cap_k: &cap_k,
+                        cap_x: &r2_eb.cap_gamma,
+                        cap_d: &cap_d,
+                        cap_s: &r3_nb.cap_delta,
+                        cap_g: &Point::generator(),
+                    },
+                    &rp,
+                    &aux,
+                ))
+            }
+            Error::R5WrongIdsPsi => {
+                // TODO (#188): currently unreachable from tests
+                let r5_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round5EchoBroadcast<P, Id>>(deserializer)?;
+                let expected_ids = associated_data
+                    .aux
+                    .as_map()
+                    .keys()
+                    .collect::<BTreeSet<_>>()
+                    .without(&guilty_party);
+                verify_that(r5_nb.psis.keys().collect::<BTreeSet<_>>() != expected_ids)
+            }
+            Error::R5AffGStarFailed { failed_for } => {
+                // TODO (#188): currently unreachable from tests
+                let r1_ebs = combined_echos
+                    .get_round(1)?
+                    .deserialize_all::<Round1EchoBroadcast<P>>(deserializer)?;
+                let r2_ebs = combined_echos
+                    .get_round(2)?
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = previous_messages
+                    .get_round(2)?
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                let r2_eb = previous_messages
+                    .get_round(2)?
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r5_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round5EchoBroadcast<P, Id>>(deserializer)?;
+
+                let failed_for_aux = &associated_data.aux.as_map().try_get("aux infos", failed_for)?;
+                let guilty_party_aux = &associated_data.aux.as_map().try_get("aux infos", guilty_party)?;
+
+                let failed_for_pk = failed_for_aux.paillier_pk.clone().into_precomputed();
+
+                let guilty_party_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
+                let aux = (&epid, guilty_party);
+
+                // l = failed_for
+                // j = guilty_party
+                // i = reported_by
+
+                let cap_d = r2_nb
+                    .cap_ds
+                    .try_get("`D` map", failed_for)?
+                    .to_precomputed(&failed_for_pk);
+                let cap_k = r1_ebs
+                    .try_get("Round 1 echo broadcasts", failed_for)?
+                    .cap_k
+                    .to_precomputed(&failed_for_pk);
+                let cap_f = r2_ebs
+                    .try_get("Round 2 echo broadcasts", failed_for)?
+                    .cap_fs
+                    .try_get("`F` map", guilty_party)?
+                    .to_precomputed(&guilty_party_pk);
+
+                let psi = r5_eb.psis.try_get("`\\{psi}` map", failed_for)?;
+
+                verify_that(!psi.verify(
+                    AffGStarPublicInputs {
+                        pk0: &guilty_party_pk,
+                        pk1: &failed_for_pk,
+                        cap_c: &cap_d,
+                        cap_d: &cap_k,
+                        cap_y: &cap_f,
+                        cap_x: &r2_eb.cap_gamma,
+                    },
+                    &aux,
+                ))
+            }
+            Error::R6DecFailed => {
+                let r1_eb = previous_messages
+                    .get_round(1)?
+                    .echo_broadcast
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+                let r2_ebs = combined_echos
+                    .get_round(2)?
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = previous_messages
+                    .get_round(2)?
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                let r2_eb = previous_messages
+                    .get_round(2)?
+                    .echo_broadcast
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r3_nb = previous_messages
+                    .get_round(3)?
+                    .normal_broadcast
+                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
+                let r5_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round5EchoBroadcast<P, Id>>(deserializer)?;
+
+                // Calculate `\hat{D}_j` where `j = guilty_party`.
+                // `\hat{D}_j = sum_{l != j}(\hat{D}_{l,j} + \hat{F}_{j,l})
+                //
+                // r2_eb: contains \hat{D}_{l,j}, \hat{F}_{l,j} for l != j
+                // => \hat{D}_{l,j} = r2_eb.hat_cap_ds[l]
+                // r2_ebs[i], i != j: contains \hat{D}_{l,i}, \hat{F}_{l,i} for l != i
+                // => \hat{F}_{j,l} = r2_ebs[l].hat_cap_fs[j]
+
+                let public_aux = &associated_data.aux.as_map().try_get("aux infos", guilty_party)?;
+                let pk = public_aux.paillier_pk.clone().into_precomputed();
+                let rp = public_aux.rp_params.to_precomputed();
+                let aux = (&epid, guilty_party);
+
+                let ids = associated_data
+                    .aux
+                    .as_map()
+                    .keys()
+                    .collect::<BTreeSet<_>>()
+                    .without(&guilty_party);
+
+                let hat_cap_d = sum_non_empty(
+                    ids.iter()
+                        .map(|id| Ok(r2_nb.hat_cap_ds.try_get("`\\hat{D}` map", id)?.to_precomputed(&pk))),
+                    ProtocolValidationError::InvalidEvidence("There must be at least two parties".into()),
+                )? + sum_non_empty(
+                    ids.iter().map(|id| {
+                        Ok(r2_ebs
+                            .try_get("Round 2 echo broadcasts", id)?
+                            .hat_cap_fs
+                            .try_get("`\\hat{F}` map", guilty_party)?
+                            .to_precomputed(&pk))
+                    }),
+                    ProtocolValidationError::InvalidEvidence("There must be at least two parties".into()),
+                )?;
+
+                let cap_k = r1_eb.cap_k.to_precomputed(&pk);
+
+                let total_cap_gamma = r2_eb.cap_gamma + r2_ebs.values().map(|eb| eb.cap_gamma).sum();
+
+                let cap_x = associated_data.shares.as_map().try_get("`X` map", guilty_party)?;
+
+                verify_that(!r5_eb.psi_star.verify(
+                    DecPublicInputs {
+                        pk0: &pk,
+                        cap_k: &cap_k,
+                        cap_x,
+                        cap_d: &hat_cap_d,
+                        cap_s: &r3_nb.cap_s,
+                        cap_g: &total_cap_gamma,
+                    },
+                    &rp,
+                    &aux,
+                ))
+            }
+            Error::R6WrongIdsPsi => {
+                // TODO (#188): currently unreachable from tests
+                let r6_nb = message
+                    .normal_broadcast
+                    .deserialize::<Round6EchoBroadcast<P, Id>>(deserializer)?;
+                let expected_ids = associated_data
+                    .aux
+                    .as_map()
+                    .keys()
+                    .collect::<BTreeSet<_>>()
+                    .without(&guilty_party);
+                verify_that(r6_nb.hat_psis.keys().collect::<BTreeSet<_>>() != expected_ids)
+            }
+            Error::R6AffGStarFailed { failed_for } => {
+                // TODO (#188): currently unreachable from tests
+                let r1_ebs = combined_echos
+                    .get_round(1)?
+                    .deserialize_all::<Round1EchoBroadcast<P>>(deserializer)?;
+                let r2_ebs = combined_echos
+                    .get_round(2)?
+                    .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                let r2_nb = previous_messages
+                    .get_round(2)?
+                    .normal_broadcast
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                let r6_eb = message
+                    .echo_broadcast
+                    .deserialize::<Round6EchoBroadcast<P, Id>>(deserializer)?;
+
+                let failed_for_aux = &associated_data.aux.as_map().try_get("aux infos", failed_for)?;
+                let guilty_party_aux = &associated_data.aux.as_map().try_get("aux infos", guilty_party)?;
+
+                let failed_for_pk = failed_for_aux.paillier_pk.clone().into_precomputed();
+
+                let guilty_party_pk = guilty_party_aux.paillier_pk.clone().into_precomputed();
+                let aux = (&epid, guilty_party);
+
+                let cap_x = associated_data.shares.as_map().try_get("shares", failed_for)?;
+
+                // l = failed_for
+                // j = guilty_party
+                // i = reported_by
+
+                let hat_cap_d = r2_nb
+                    .hat_cap_ds
+                    .try_get("`\\hat{D}` map", failed_for)?
+                    .to_precomputed(&failed_for_pk);
+                let cap_k = r1_ebs
+                    .try_get("Round 1 echo broadcasts", failed_for)?
+                    .cap_k
+                    .to_precomputed(&failed_for_pk);
+                let hat_cap_f = r2_ebs
+                    .try_get("Round 2 echo broadcasts", failed_for)?
+                    .hat_cap_fs
+                    .try_get("`\\hat{F}` map", guilty_party)?
+                    .to_precomputed(&guilty_party_pk);
+
+                let hat_psi = r6_eb.hat_psis.try_get("`\\hat{\\psi}` map", failed_for)?;
+
+                verify_that(!hat_psi.verify(
+                    AffGStarPublicInputs {
+                        pk0: &guilty_party_pk,
+                        pk1: &failed_for_pk,
+                        cap_c: &hat_cap_d,
+                        cap_d: &cap_k,
+                        cap_y: &hat_cap_f,
+                        cap_x,
+                    },
+                    &aux,
+                ))
+            }
+        }
+    }
+}
+
+/// An entry point for the [`InteractiveSigningProtocol`].
+#[derive(Debug, Clone)]
+pub struct InteractiveSigning<P, Id>
+where
+    P: SchemeParams,
+    Id: Ord + Debug + Clone,
+{
+    key_share: KeyShare<P, Id>,
+    aux_info: AuxInfo<P, Id>,
+    message: PrehashedMessage,
+}
+
+impl<P: SchemeParams, Id: PartyId> InteractiveSigning<P, Id> {
+    /// Creates a new entry point given a share of the secret key.
+    pub fn new(
+        message: PrehashedMessage,
+        key_share: KeyShare<P, Id>,
+        aux_info: AuxInfo<P, Id>,
+    ) -> Result<Self, LocalError> {
+        if key_share.owner() != aux_info.owner() {
+            return Err(LocalError::new(
+                "The key share and the auxiliary info must have secret parts belonging to the same party",
+            ));
+        }
+
+        let key_share_keys = key_share.public_shares().keys().collect::<BTreeSet<_>>();
+        let aux_info_keys = aux_info.public().as_map().keys().collect::<BTreeSet<_>>();
+
+        if key_share_keys != aux_info_keys {
+            tracing::info!("{:?}", key_share_keys);
+            tracing::info!("{:?}", aux_info_keys);
+            return Err(LocalError::new(
+                "The key share and the auxiliary info must have information for the same set of parties",
+            ));
+        }
+
+        Ok(Self {
+            key_share,
+            aux_info,
+            message,
+        })
+    }
+}
+
+impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
+
+    fn entry_round_id() -> RoundId {
+        1.into()
+    }
 
     fn make_round(
         self,
         rng: &mut impl CryptoRngCore,
         shared_randomness: &[u8],
-        id: &I,
-    ) -> Result<BoxedRound<I, Self::Protocol>, LocalError> {
+        id: &Id,
+    ) -> Result<BoxedRound<Id, Self::Protocol>, LocalError> {
         let key_share = self.key_share;
         let aux_info = self.aux_info;
 
@@ -141,26 +970,19 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
             ));
         }
 
-        let other_ids = key_share
-            .public_shares
-            .keys()
-            .cloned()
-            .collect::<BTreeSet<_>>()
-            .without(id);
+        let all_ids = key_share.public_shares().keys().cloned().collect::<BTreeSet<_>>();
+        let other_ids = all_ids.clone().without(id);
 
-        // This includes the info of $ssid$ in the paper
-        // (scheme parameters + public data from all shares - hashed in `share_set_id`),
-        // with the session randomness added.
-        let ssid_hash = FofHasher::<P>::new_with_dst(b"ShareSetID")
-            .chain_type::<P>()
-            .chain(&shared_randomness)
-            .chain(&key_share.public_shares)
-            .chain(&aux_info.public_aux)
-            .finalize();
+        let epid = make_epid::<P, Id>(
+            shared_randomness,
+            &InteractiveSigningAssociatedData {
+                shares: key_share.public().clone(),
+                aux: aux_info.public().clone(),
+                message: self.message,
+            },
+        );
 
         let aux_info = aux_info.into_precomputed();
-
-        // TODO (#68): check that KeyShare is consistent with AuxInfo
 
         // The share of an ephemeral scalar
         let k = Secret::init_with(|| Scalar::random(rng));
@@ -170,130 +992,559 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for InteractiveSigning<P, I> {
         let pk = aux_info.secret_aux.paillier_sk.public_key();
 
         let nu = Randomizer::<P::Paillier>::random(rng, pk);
-        let cap_g = Ciphertext::new_with_randomizer(pk, &secret_unsigned_from_scalar::<P>(&gamma), &nu);
+        let cap_g = Ciphertext::new_with_randomizer(pk, &secret_signed_from_scalar::<P>(&gamma), &nu);
 
         let rho = Randomizer::<P::Paillier>::random(rng, pk);
-        let cap_k = Ciphertext::new_with_randomizer(pk, &secret_unsigned_from_scalar::<P>(&k), &rho);
+        let cap_k = Ciphertext::new_with_randomizer(pk, &secret_signed_from_scalar::<P>(&k), &rho);
+
+        let y = Secret::init_with(|| Scalar::random(rng));
+        let cap_y = y.mul_by_generator();
+
+        let a = Secret::init_with(|| Scalar::random(rng));
+        let b = Secret::init_with(|| Scalar::random(rng));
+        let cap_a1 = a.mul_by_generator();
+        let cap_a2 = cap_y * &a + k.mul_by_generator();
+        let cap_b1 = b.mul_by_generator();
+        let cap_b2 = cap_y * &b + gamma.mul_by_generator();
+
+        let r1_echo_broadcast = Round1EchoBroadcast {
+            cap_k: cap_k.to_wire(),
+            cap_g: cap_g.to_wire(),
+            cap_y,
+            cap_a1,
+            cap_a2,
+            cap_b1,
+            cap_b2,
+        };
 
         Ok(BoxedRound::new_dynamic(Round1 {
             context: Context {
-                ssid_hash,
+                scalar_message: Scalar::from_reduced_bytes(&self.message),
+                epid,
                 my_id: id.clone(),
-                message: Scalar::from_reduced_bytes(self.prehashed_message),
                 other_ids,
+                all_ids,
                 key_share,
                 aux_info,
                 k,
                 gamma,
+                a,
+                b,
                 rho,
                 nu,
             },
-            cap_k,
-            cap_g,
+            r1_echo_broadcast,
         }))
     }
 }
 
 #[derive(Debug)]
-struct Context<P, I>
+pub(super) struct Context<P, Id>
 where
     P: SchemeParams,
-    I: Ord + Serialize + for<'x> Deserialize<'x>,
+    Id: Ord,
 {
-    ssid_hash: P::HashOutput,
-    my_id: I,
-    message: Scalar<P>,
-    other_ids: BTreeSet<I>,
-    key_share: KeyShare<P, I>,
-    aux_info: AuxInfoPrecomputed<P, I>,
+    scalar_message: Scalar<P>,
+    pub(super) epid: P::HashOutput,
+    pub(super) my_id: Id,
+    other_ids: BTreeSet<Id>,
+    all_ids: BTreeSet<Id>,
+    key_share: KeyShare<P, Id>,
+    pub(super) aux_info: AuxInfoPrecomputed<P, Id>,
     k: Secret<Scalar<P>>,
-    gamma: Secret<Scalar<P>>,
+    pub(super) gamma: Secret<Scalar<P>>,
+    a: Secret<Scalar<P>>,
+    pub(super) b: Secret<Scalar<P>>,
     rho: Randomizer<P::Paillier>,
     nu: Randomizer<P::Paillier>,
 }
 
-impl<P, I> Context<P, I>
+impl<P, Id> Context<P, Id>
 where
     P: SchemeParams,
-    I: Ord + Debug + Serialize + for<'x> Deserialize<'x>,
+    Id: Ord + Debug + Clone + Serialize + for<'x> Deserialize<'x>,
 {
-    pub fn public_share(&self, i: &I) -> Result<&Point<P>, LocalError> {
-        self.key_share
-            .public_shares
-            .get(i)
-            .ok_or_else(|| LocalError::new("Missing public_share for party Id {i:?}"))
+    pub fn public_share(&self, i: &Id) -> Result<&Point<P>, LocalError> {
+        self.key_share.public_shares().safe_get("public share", i)
     }
 
-    pub fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
-        self.aux_info
-            .public_aux
-            .get(i)
-            .ok_or_else(|| LocalError::new(format!("Missing public_aux for party Id {i:?}")))
+    pub fn public_aux(&self, i: &Id) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
+        self.aux_info.public_aux.safe_get("public aux", i)
     }
 }
 
 #[derive(Debug)]
-struct Round1<P, I>
+struct Round1<P, Id>
 where
     P: SchemeParams,
-    I: Ord + Serialize + for<'x> Deserialize<'x>,
+    Id: Ord + Serialize + Clone + Debug + for<'x> Deserialize<'x>,
 {
-    context: Context<P, I>,
-    cap_k: Ciphertext<P::Paillier>,
-    cap_g: Ciphertext<P::Paillier>,
+    context: Context<P, Id>,
+    r1_echo_broadcast: Round1EchoBroadcast<P>,
 }
 
-impl<P, I> Round1<P, I>
-where
-    P: SchemeParams,
-    I: Ord + Debug + Serialize + for<'x> Deserialize<'x>,
-{
-    fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
-        self.context
-            .aux_info
-            .public_aux
-            .get(i)
-            .ok_or_else(|| LocalError::new(format!("Missing public_aux for party Id {i:?}")))
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "CiphertextWire<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>"))]
-struct Round1BroadcastMessage<P: SchemeParams> {
-    cap_k: CiphertextWire<P::Paillier>,
-    cap_g: CiphertextWire<P::Paillier>,
+pub(super) struct Round1EchoBroadcast<P: SchemeParams> {
+    pub(super) cap_k: CiphertextWire<P::Paillier>,
+    pub(super) cap_g: CiphertextWire<P::Paillier>,
+    pub(super) cap_y: Point<P>,
+    pub(super) cap_a1: Point<P>,
+    pub(super) cap_a2: Point<P>,
+    pub(super) cap_b1: Point<P>,
+    pub(super) cap_b2: Point<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "EncProof<P>: Serialize"))]
-#[serde(bound(deserialize = "EncProof<P>: for<'x> Deserialize<'x>"))]
+#[serde(bound(serialize = "EncElgProof<P>: Serialize"))]
+#[serde(bound(deserialize = "EncElgProof<P>: for<'x> Deserialize<'x>"))]
 struct Round1DirectMessage<P: SchemeParams> {
-    psi0: EncProof<P>,
+    psi0: EncElgProof<P>,
+    psi1: EncElgProof<P>,
 }
 
-struct Round1Payload<P: SchemeParams> {
-    cap_k: CiphertextWire<P::Paillier>,
-    cap_g: CiphertextWire<P::Paillier>,
+#[derive(Debug)]
+pub(super) struct Round1Payload<P: SchemeParams> {
+    pub(super) cap_k: Ciphertext<P::Paillier>,
+    cap_y: Point<P>,
+    cap_a1: Point<P>,
+    cap_a2: Point<P>,
+    cap_b1: Point<P>,
+    cap_b2: Point<P>,
 }
 
-impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(1)
+        1.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(2)])
+        [2.into()].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
+    }
+
+    fn make_echo_broadcast(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
+    ) -> Result<EchoBroadcast, LocalError> {
+        EchoBroadcast::new(serializer, self.r1_echo_broadcast.clone())
+    }
+
+    fn make_direct_message(
+        &self,
+        rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
+        destination: &Id,
+    ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
+        let aux = (&self.context.epid, &self.context.my_id);
+        let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
+
+        let psi0 = EncElgProof::new(
+            rng,
+            EncElgSecretInputs {
+                x: &secret_signed_from_scalar::<P>(&self.context.k),
+                rho: &self.context.rho,
+                // Note that the paper does not mention `y` (Elgamal secret) as an input,
+                // but it is required according to the definition of enc-elg protocol.
+                b: &self.context.a,
+            },
+            EncElgPublicInputs {
+                pk0: pk,
+                cap_c: &self.r1_echo_broadcast.cap_k.to_precomputed(pk),
+                cap_a: &self.r1_echo_broadcast.cap_y,
+                cap_b: &self.r1_echo_broadcast.cap_a1,
+                cap_x: &self.r1_echo_broadcast.cap_a2,
+            },
+            &self
+                .context
+                .aux_info
+                .public_aux
+                .safe_get("public aux", destination)?
+                .rp_params,
+            &aux,
+        );
+
+        let psi1 = EncElgProof::new(
+            rng,
+            EncElgSecretInputs {
+                x: &secret_signed_from_scalar::<P>(&self.context.gamma),
+                rho: &self.context.nu,
+                b: &self.context.b,
+            },
+            EncElgPublicInputs {
+                pk0: pk,
+                cap_c: &self.r1_echo_broadcast.cap_g.to_precomputed(pk),
+                cap_a: &self.r1_echo_broadcast.cap_y,
+                cap_b: &self.r1_echo_broadcast.cap_b1,
+                cap_x: &self.r1_echo_broadcast.cap_b2,
+            },
+            &self
+                .context
+                .aux_info
+                .public_aux
+                .safe_get("public aux", destination)?
+                .rp_params,
+            &aux,
+        );
+
+        Ok((
+            DirectMessage::new(serializer, Round1DirectMessage::<P> { psi0, psi1 })?,
+            None,
+        ))
+    }
+
+    fn receive_message(
+        &self,
+        deserializer: &Deserializer,
+        from: &Id,
+        message: ProtocolMessage,
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
+        message.normal_broadcast.assert_is_none()?;
+
+        let direct_message = message
+            .direct_message
+            .deserialize::<Round1DirectMessage<P>>(deserializer)?;
+        let echo_broadcast = message
+            .echo_broadcast
+            .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+
+        let aux = (&self.context.epid, from);
+
+        let public_aux = self.context.public_aux(&self.context.my_id)?;
+
+        let from_pk = &self.context.public_aux(from)?.paillier_pk;
+
+        let cap_k = echo_broadcast.cap_k.to_precomputed(from_pk);
+        let cap_g = echo_broadcast.cap_g.to_precomputed(from_pk);
+
+        if !direct_message.psi0.verify(
+            EncElgPublicInputs {
+                pk0: from_pk,
+                cap_c: &cap_k,
+                cap_a: &echo_broadcast.cap_y,
+                cap_b: &echo_broadcast.cap_a1,
+                cap_x: &echo_broadcast.cap_a2,
+            },
+            &public_aux.rp_params,
+            &aux,
+        ) {
+            return Err(ReceiveError::protocol(Error::R1EncElg0Failed.into()));
+        }
+
+        if !direct_message.psi1.verify(
+            EncElgPublicInputs {
+                pk0: from_pk,
+                cap_c: &cap_g,
+                cap_a: &echo_broadcast.cap_y,
+                cap_b: &echo_broadcast.cap_b1,
+                cap_x: &echo_broadcast.cap_b2,
+            },
+            &public_aux.rp_params,
+            &aux,
+        ) {
+            return Err(ReceiveError::protocol(Error::R1EncElg1Failed.into()));
+        }
+
+        Ok(Payload::new(Round1Payload::<P> {
+            cap_k,
+            cap_a1: echo_broadcast.cap_a1,
+            cap_a2: echo_broadcast.cap_a2,
+            cap_b1: echo_broadcast.cap_b1,
+            cap_b2: echo_broadcast.cap_b2,
+            cap_y: echo_broadcast.cap_y,
+        }))
+    }
+
+    fn finalize(
+        self,
+        rng: &mut impl CryptoRngCore,
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
+        let mut payloads = payloads.downcast_all::<Round1Payload<P>>()?;
+
+        let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
+        let my_payload = Round1Payload {
+            cap_k: self.r1_echo_broadcast.cap_k.to_precomputed(pk),
+            cap_a1: self.r1_echo_broadcast.cap_a1,
+            cap_a2: self.r1_echo_broadcast.cap_a2,
+            cap_b1: self.r1_echo_broadcast.cap_b1,
+            cap_b2: self.r1_echo_broadcast.cap_b2,
+            cap_y: self.r1_echo_broadcast.cap_y,
+        };
+        payloads.insert(self.context.my_id.clone(), my_payload);
+
+        let cap_gamma = self.context.gamma.mul_by_generator();
+
+        let aux = (&self.context.epid, &self.context.my_id);
+        let psi_elog = ElogProof::new(
+            rng,
+            ElogSecretInputs {
+                y: &self.context.gamma,
+                lambda: &self.context.b,
+            },
+            // Note that the parameter order in the protocol description and in the ZK proof description do not match.
+            ElogPublicInputs {
+                cap_l: &self.r1_echo_broadcast.cap_b1,
+                cap_m: &self.r1_echo_broadcast.cap_b2,
+                cap_x: &self.r1_echo_broadcast.cap_y,
+                cap_y: &cap_gamma,
+                h: &Point::generator(),
+            },
+            &aux,
+        );
+
+        let cap_k = self.r1_echo_broadcast.cap_k.to_precomputed(pk);
+
+        let betas = self
+            .context
+            .other_ids
+            .iter()
+            .map(|id| (id.clone(), SecretSigned::random_in_exponent_range(rng, P::LP_BOUND)))
+            .collect::<BTreeMap<_, _>>();
+        let rs = self
+            .context
+            .other_ids
+            .iter()
+            .map(|id| (id.clone(), Randomizer::random(rng, pk)))
+            .collect::<BTreeMap<_, _>>();
+        let mut ss = BTreeMap::new();
+        for id in self.context.other_ids.iter() {
+            let target_pk = &self.context.public_aux(id)?.paillier_pk;
+            let s = Randomizer::random(rng, target_pk);
+            ss.insert(id.clone(), s);
+        }
+
+        let hat_betas = self
+            .context
+            .other_ids
+            .iter()
+            .map(|id| (id.clone(), SecretSigned::random_in_exponent_range(rng, P::LP_BOUND)))
+            .collect::<BTreeMap<_, _>>();
+        let hat_rs = self
+            .context
+            .other_ids
+            .iter()
+            .map(|id| (id.clone(), Randomizer::random(rng, pk)))
+            .collect::<BTreeMap<_, _>>();
+        let mut hat_ss = BTreeMap::new();
+        for id in self.context.other_ids.iter() {
+            let target_pk = &self.context.public_aux(id)?.paillier_pk;
+            let hat_s = Randomizer::random(rng, target_pk);
+            hat_ss.insert(id.clone(), hat_s);
+        }
+
+        let gamma = secret_signed_from_scalar::<P>(&self.context.gamma);
+        let x = secret_signed_from_scalar::<P>(self.context.key_share.secret_share());
+        let cap_x = self.context.public_share(&self.context.my_id)?;
+
+        let aux = (&self.context.epid, &self.context.my_id);
+        let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
+
+        let mut cap_ds = BTreeMap::new();
+        let mut cap_fs = BTreeMap::new();
+        let mut psis = BTreeMap::new();
+
+        let mut hat_cap_ds = BTreeMap::new();
+        let mut hat_cap_fs = BTreeMap::new();
+        let mut hat_psis = BTreeMap::new();
+
+        for id in self.context.other_ids.iter() {
+            let rp = &self.context.public_aux(id)?.rp_params;
+            let r1_payload = payloads.safe_get("Round 1 payloads", id)?;
+            let target_pk = &self.context.public_aux(id)?.paillier_pk;
+
+            let beta = betas.safe_get("`beta` map", id)?;
+            let r = rs.safe_get("`r` map", id)?;
+            let s = ss.safe_get("`s` map", id)?;
+
+            let cap_f = Ciphertext::new_with_randomizer(pk, beta, r);
+            let cap_d = &r1_payload.cap_k * &gamma + Ciphertext::new_with_randomizer(target_pk, &-beta, s);
+            let psi = AffGProof::<P>::new(
+                rng,
+                AffGSecretInputs {
+                    x: &gamma,
+                    y: beta,
+                    rho: s,
+                    rho_y: r,
+                },
+                AffGPublicInputs {
+                    pk0: target_pk,
+                    pk1: pk,
+                    cap_c: &r1_payload.cap_k,
+                    cap_d: &cap_d,
+                    cap_y: &cap_f,
+                    cap_x: &cap_gamma,
+                },
+                rp,
+                &aux,
+            );
+
+            let hat_beta = hat_betas.safe_get("`\\hat{beta}` map", id)?;
+            let hat_r = hat_rs.safe_get("`\\hat{r}` map", id)?;
+            let hat_s = hat_ss.safe_get("`\\hat{s}` map", id)?;
+
+            let hat_cap_f = Ciphertext::new_with_randomizer(pk, hat_beta, hat_r);
+            let hat_cap_d = &r1_payload.cap_k * &x + Ciphertext::new_with_randomizer(target_pk, &-hat_beta, hat_s);
+            let hat_psi = AffGProof::new(
+                rng,
+                AffGSecretInputs {
+                    x: &x,
+                    y: hat_beta,
+                    rho: hat_s,
+                    rho_y: hat_r,
+                },
+                AffGPublicInputs {
+                    pk0: target_pk,
+                    pk1: pk,
+                    cap_c: &r1_payload.cap_k,
+                    cap_d: &hat_cap_d,
+                    cap_y: &hat_cap_f,
+                    cap_x,
+                },
+                rp,
+                &aux,
+            );
+
+            cap_ds.insert(id.clone(), cap_d);
+            cap_fs.insert(id.clone(), cap_f);
+            psis.insert(id.clone(), psi);
+
+            hat_cap_ds.insert(id.clone(), hat_cap_d);
+            hat_cap_fs.insert(id.clone(), hat_cap_f);
+            hat_psis.insert(id.clone(), hat_psi);
+        }
+
+        let next_round = Round2 {
+            context: self.context,
+            betas,
+            rs,
+            ss,
+            hat_betas,
+            hat_rs,
+            hat_ss,
+            r1_payloads: payloads,
+            cap_k,
+            cap_gamma,
+            psi_elog,
+            cap_ds,
+            cap_fs,
+            psis,
+            hat_cap_ds,
+            hat_cap_fs,
+            hat_psis,
+        };
+
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(next_round)))
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct Round2<P: SchemeParams, Id: Ord + Clone + Debug> {
+    pub(super) context: Context<P, Id>,
+    betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    hat_betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    hat_rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    r1_payloads: BTreeMap<Id, Round1Payload<P>>,
+    cap_k: Ciphertext<P::Paillier>,
+    pub(super) cap_gamma: Point<P>,
+    psi_elog: ElogProof<P>,
+    cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    psis: BTreeMap<Id, AffGProof<P>>,
+    hat_cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    hat_cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    hat_psis: BTreeMap<Id, AffGProof<P>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "
+    ElogProof<P>: Serialize,
+    AffGProof<P>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    ElogProof<P>: for<'x> Deserialize<'x>,
+    AffGProof<P>: for<'x> Deserialize<'x>,
+"))]
+pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
+    pub(super) cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) psi_elog: ElogProof<P>,
+    pub(super) psis: BTreeMap<Id, AffGProof<P>>,
+    pub(super) hat_psis: BTreeMap<Id, AffGProof<P>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "
+    CiphertextWire<P::Paillier>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>,
+"))]
+pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
+    pub(super) cap_gamma: Point<P>,
+    pub(super) cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+}
+
+struct Round2Payload<P: SchemeParams, Id: PartyId> {
+    cap_gamma: Point<P>,
+    alpha: Secret<Scalar<P>>,
+    hat_alpha: Secret<Scalar<P>>,
+    cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    hat_cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
+    hat_cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
+}
+
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
+
+    fn id(&self) -> RoundId {
+        2.into()
+    }
+
+    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
+        [3.into()].into()
+    }
+
+    fn message_destinations(&self) -> &BTreeSet<Id> {
+        &self.context.other_ids
+    }
+
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
+        &self.context.other_ids
+    }
+
+    fn make_normal_broadcast(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
+    ) -> Result<NormalBroadcast, LocalError> {
+        NormalBroadcast::new(
+            serializer,
+            Round2NormalBroadcast::<P, Id> {
+                cap_ds: self.cap_ds.map_values_ref(|cap_d| cap_d.to_wire()),
+                hat_cap_ds: self.hat_cap_ds.map_values_ref(|hat_cap_d| hat_cap_d.to_wire()),
+                psi_elog: self.psi_elog.clone(),
+                psis: self.psis.clone(),
+                hat_psis: self.hat_psis.clone(),
+            },
+        )
     }
 
     fn make_echo_broadcast(
@@ -303,1145 +1554,334 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     ) -> Result<EchoBroadcast, LocalError> {
         EchoBroadcast::new(
             serializer,
-            Round1BroadcastMessage::<P> {
-                cap_k: self.cap_k.to_wire(),
-                cap_g: self.cap_g.to_wire(),
+            Round2EchoBroadcast::<P, Id> {
+                cap_gamma: self.cap_gamma,
+                cap_fs: self.cap_fs.map_values_ref(|cap_f| cap_f.to_wire()),
+                hat_cap_fs: self.hat_cap_fs.map_values_ref(|hat_cap_f| hat_cap_f.to_wire()),
             },
         )
     }
 
-    fn make_direct_message(
-        &self,
-        rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
-        destination: &I,
-    ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
-        let aux = (&self.context.ssid_hash, &destination);
-        let psi0 = EncProof::new(
-            rng,
-            EncSecretInputs {
-                k: &secret_signed_from_scalar::<P>(&self.context.k),
-                rho: &self.context.rho,
-            },
-            EncPublicInputs {
-                pk0: self.context.aux_info.secret_aux.paillier_sk.public_key(),
-                cap_k: &self.cap_k,
-            },
-            &self.public_aux(destination)?.rp_params,
-            &aux,
-        );
-
-        Ok((DirectMessage::new(serializer, Round1DirectMessage::<P> { psi0 })?, None))
-    }
-
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
-        from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        normal_broadcast.assert_is_none()?;
+        from: &Id,
+        message: ProtocolMessage,
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
+        let echo_broadcast = message
+            .echo_broadcast
+            .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+        let normal_broadcast = message
+            .normal_broadcast
+            .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+        message.direct_message.assert_is_none()?;
 
-        let direct_message = direct_message.deserialize::<Round1DirectMessage<P>>(deserializer)?;
-        let echo_broadcast = echo_broadcast.deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
-
-        let aux = (&self.context.ssid_hash, &self.context.my_id);
-
-        let public_aux = self.public_aux(&self.context.my_id)?;
-
-        let from_pk = &self.public_aux(from)?.paillier_pk;
-
-        if !direct_message.psi0.verify(
-            EncPublicInputs {
-                pk0: from_pk,
-                cap_k: &echo_broadcast.cap_k.to_precomputed(from_pk),
-            },
-            &public_aux.rp_params,
-            &aux,
-        ) {
-            return Err(ReceiveError::protocol(InteractiveSigningError::Round1(
-                "Failed to verify EncProof".into(),
-            )));
-        }
-
-        Ok(Payload::new(Round1Payload::<P> {
-            cap_k: echo_broadcast.cap_k,
-            cap_g: echo_broadcast.cap_g,
-        }))
-    }
-
-    fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round1Payload<P>>()?;
-
-        let (others_cap_k, others_cap_g): (BTreeMap<_, _>, BTreeMap<_, _>) = payloads
-            .into_iter()
-            .map(|(id, payload)| ((id.clone(), payload.cap_k), (id, payload.cap_g)))
-            .unzip();
-
-        let my_id = self.context.my_id.clone();
-
-        let mut all_cap_k = others_cap_k
-            .into_iter()
-            .map(|(id, ciphertext)| {
-                let paux = self.public_aux(&id)?;
-                Ok((id, ciphertext.to_precomputed(&paux.paillier_pk)))
-            })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
-
-        let mut all_cap_g = others_cap_g
-            .into_iter()
-            .map(|(id, ciphertext)| {
-                let paux = self.public_aux(&id)?;
-                let ciphertext_mod = ciphertext.to_precomputed(&paux.paillier_pk);
-                Ok((id, ciphertext_mod))
-            })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
-
-        all_cap_k.insert(my_id.clone(), self.cap_k);
-        all_cap_g.insert(my_id, self.cap_g);
-
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round2 {
-            context: self.context,
-            all_cap_k,
-            all_cap_g,
-        })))
-    }
-}
-
-#[derive(Debug)]
-struct Round2<P, I>
-where
-    P: SchemeParams,
-    I: Ord + Serialize + for<'x> Deserialize<'x>,
-{
-    context: Context<P, I>,
-    all_cap_k: BTreeMap<I, Ciphertext<P::Paillier>>,
-    all_cap_g: BTreeMap<I, Ciphertext<P::Paillier>>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    CiphertextWire<P::Paillier>: Serialize,
-    AffGProof<P>: Serialize,
-    LogStarProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>,
-    AffGProof<P>: for<'x> Deserialize<'x>,
-    LogStarProof<P>: for<'x> Deserialize<'x>,
-"))]
-struct Round2Message<P: SchemeParams> {
-    cap_gamma: Point<P>,
-    cap_d: CiphertextWire<P::Paillier>,
-    hat_cap_d: CiphertextWire<P::Paillier>,
-    cap_f: CiphertextWire<P::Paillier>,
-    hat_cap_f: CiphertextWire<P::Paillier>,
-    psi: AffGProof<P>,
-    hat_psi: AffGProof<P>,
-    hat_psi_prime: LogStarProof<P>,
-}
-
-#[derive(Debug, Clone)]
-struct Round2Artifact<P: SchemeParams> {
-    beta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    hat_beta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    r: Randomizer<P::Paillier>,
-    s: Randomizer<P::Paillier>,
-    hat_r: Randomizer<P::Paillier>,
-    hat_s: Randomizer<P::Paillier>,
-    cap_d: Ciphertext<P::Paillier>,
-    cap_f: Ciphertext<P::Paillier>,
-    hat_cap_d: Ciphertext<P::Paillier>,
-    hat_cap_f: Ciphertext<P::Paillier>,
-}
-
-struct Round2Payload<P: SchemeParams> {
-    cap_gamma: Point<P>,
-    alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    hat_alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    cap_d: Ciphertext<P::Paillier>,
-    hat_cap_d: Ciphertext<P::Paillier>,
-}
-
-impl<P: SchemeParams, I: PartyId> Round<I> for Round2<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
-
-    fn id(&self) -> RoundId {
-        RoundId::new(2)
-    }
-
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(3)])
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<I> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
-        &self.context.other_ids
-    }
-
-    fn make_direct_message(
-        &self,
-        rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
-        destination: &I,
-    ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
-        let aux = (&self.context.ssid_hash, &self.context.my_id);
-
-        let cap_gamma = self.context.gamma.mul_by_generator();
-        let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
-
-        let target_pk = &self.context.public_aux(destination)?.paillier_pk;
-
-        let beta = SecretSigned::random_in_exp_range(rng, P::LP_BOUND);
-        let hat_beta = SecretSigned::random_in_exp_range(rng, P::LP_BOUND);
-        let r = Randomizer::random(rng, pk);
-        let s = Randomizer::random(rng, target_pk);
-        let hat_r = Randomizer::random(rng, pk);
-        let hat_s = Randomizer::random(rng, target_pk);
-
-        let gamma = secret_signed_from_scalar::<P>(&self.context.gamma);
-        let x = secret_signed_from_scalar::<P>(&self.context.key_share.secret_share);
-
-        let others_cap_k = self
-            .all_cap_k
-            .get(destination)
-            .ok_or(LocalError::new("destination={destination:?} is missing in all_cap_k"))?;
-
-        let cap_f = Ciphertext::new_with_randomizer_signed(pk, &beta, &r);
-        let cap_d = others_cap_k * &gamma + Ciphertext::new_with_randomizer_signed(target_pk, &-&beta, &s);
-
-        let hat_cap_f = Ciphertext::new_with_randomizer_signed(pk, &hat_beta, &hat_r);
-        let hat_cap_d = others_cap_k * &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
-            + Ciphertext::new_with_randomizer_signed(target_pk, &-&hat_beta, &hat_s);
-
-        let cap_g = self.all_cap_g.get(&self.context.my_id).ok_or(LocalError::new(format!(
-            "my_id={:?} is missing in all_cap_g",
-            &self.context.my_id
-        )))?;
-
-        let rp = &self.context.public_aux(destination)?.rp_params;
-
-        let psi = AffGProof::new(
-            rng,
-            AffGSecretInputs {
-                x: &gamma,
-                y: &beta,
-                rho: &s,
-                rho_y: &r,
-            },
-            AffGPublicInputs {
-                pk0: target_pk,
-                pk1: pk,
-                cap_c: others_cap_k,
-                cap_d: &cap_d,
-                cap_y: &cap_f,
-                cap_x: &cap_gamma,
-            },
-            rp,
-            &aux,
-        );
-
-        let hat_psi = AffGProof::new(
-            rng,
-            AffGSecretInputs {
-                x: &x,
-                y: &hat_beta,
-                rho: &hat_s,
-                rho_y: &hat_r,
-            },
-            AffGPublicInputs {
-                pk0: target_pk,
-                pk1: pk,
-                cap_c: others_cap_k,
-                cap_d: &hat_cap_d,
-                cap_y: &hat_cap_f,
-                cap_x: self.context.public_share(&self.context.my_id)?,
-            },
-            rp,
-            &aux,
-        );
-
-        let hat_psi_prime = LogStarProof::new(
-            rng,
-            LogStarSecretInputs {
-                x: &gamma,
-                rho: &self.context.nu,
-            },
-            LogStarPublicInputs {
-                pk0: pk,
-                cap_c: cap_g,
-                g: &Point::generator(),
-                cap_x: &cap_gamma,
-            },
-            rp,
-            &aux,
-        );
-
-        let msg = DirectMessage::new(
-            serializer,
-            Round2Message::<P> {
-                cap_gamma,
-                cap_d: cap_d.to_wire(),
-                cap_f: cap_f.to_wire(),
-                hat_cap_d: hat_cap_d.to_wire(),
-                hat_cap_f: hat_cap_f.to_wire(),
-                psi,
-                hat_psi,
-                hat_psi_prime,
-            },
-        )?;
-
-        let artifact = Artifact::new(Round2Artifact::<P> {
-            beta,
-            hat_beta,
-            r,
-            s,
-            hat_r,
-            hat_s,
-            cap_d,
-            cap_f,
-            hat_cap_d,
-            hat_cap_f,
-        });
-
-        Ok((msg, Some(artifact)))
-    }
-
-    fn receive_message(
-        &self,
-        _rng: &mut impl CryptoRngCore,
-        deserializer: &Deserializer,
-        from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        echo_broadcast.assert_is_none()?;
-        normal_broadcast.assert_is_none()?;
-        let direct_message = direct_message.deserialize::<Round2Message<P>>(deserializer)?;
-
-        let aux = (&self.context.ssid_hash, from);
-        let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
+        let aux = (&self.context.epid, from);
         let from_pk = &self.context.public_aux(from)?.paillier_pk;
 
-        let cap_x = self.context.public_share(from)?;
+        let expected_ids = self.context.all_ids.clone().without(from);
 
-        let rp = &self.context.public_aux(&self.context.my_id)?.rp_params;
-
-        let cap_d = direct_message.cap_d.to_precomputed(pk);
-        let hat_cap_d = direct_message.hat_cap_d.to_precomputed(pk);
-
-        let my_cap_k = self
-            .all_cap_k
-            .get(&self.context.my_id)
-            .ok_or(LocalError::new("my_id={my_id:?} is missing in all_cap_k"))?;
-        let cap_g = self
-            .all_cap_g
-            .get(from)
-            .ok_or(LocalError::new("from={from:?} is missing in all_cap_g"))?;
-
-        if !direct_message.psi.verify(
-            AffGPublicInputs {
-                pk0: pk,
-                pk1: from_pk,
-                cap_c: my_cap_k,
-                cap_d: &cap_d,
-                cap_y: &direct_message.cap_f.to_precomputed(from_pk),
-                cap_x: &direct_message.cap_gamma,
-            },
-            rp,
-            &aux,
-        ) {
-            return Err(ReceiveError::protocol(InteractiveSigningError::Round2(
-                "Failed to verify AffGProof (psi)".into(),
-            )));
+        if normal_broadcast.cap_ds.keys().cloned().collect::<BTreeSet<_>>() != expected_ids {
+            return Err(ReceiveError::protocol(Error::R2WrongIdsD.into()));
         }
 
-        if !direct_message.hat_psi.verify(
-            AffGPublicInputs {
-                pk0: pk,
-                pk1: from_pk,
-                cap_c: my_cap_k,
-                cap_d: &hat_cap_d,
-                cap_y: &direct_message.hat_cap_f.to_precomputed(from_pk),
-                cap_x,
-            },
-            rp,
-            &aux,
-        ) {
-            return Err(ReceiveError::protocol(InteractiveSigningError::Round2(
-                "Failed to verify AffGProof (hat_psi)".into(),
-            )));
+        if echo_broadcast.cap_fs.keys().cloned().collect::<BTreeSet<_>>() != expected_ids {
+            return Err(ReceiveError::protocol(Error::R2WrongIdsF.into()));
         }
 
-        if !direct_message.hat_psi_prime.verify(
-            LogStarPublicInputs {
-                pk0: from_pk,
-                cap_c: cap_g,
-                g: &Point::generator(),
-                cap_x: &direct_message.cap_gamma,
-            },
-            rp,
-            &aux,
-        ) {
-            return Err(ReceiveError::protocol(InteractiveSigningError::Round2(
-                "Failed to verify LogStarProof".into(),
-            )));
+        if normal_broadcast.psis.keys().cloned().collect::<BTreeSet<_>>() != expected_ids {
+            return Err(ReceiveError::protocol(Error::R2WrongIdsPsi.into()));
         }
 
-        let alpha = cap_d.decrypt_signed(&self.context.aux_info.secret_aux.paillier_sk);
-        let hat_alpha = hat_cap_d.decrypt_signed(&self.context.aux_info.secret_aux.paillier_sk);
+        let sender_payload = self.r1_payloads.safe_get("Round 1 payloads", from)?;
 
-        // `alpha == x * y + z` where `0 <= x, y < q`, and `-2^l' <= z <= 2^l'`,
-        // where `q` is the curve order.
-        // We will need this bound later, so we're asserting it.
-        let alpha = Option::from(alpha.ensure_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1))
-            .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsAlpha))?;
-        let hat_alpha = Option::from(hat_alpha.ensure_bound(core::cmp::max(2 * P::L_BOUND, P::LP_BOUND) + 1))
-            .ok_or_else(|| ReceiveError::protocol(InteractiveSigningError::OutOfBoundsHatAlpha))?;
+        let mut cap_ds = BTreeMap::new();
+        let mut cap_fs = BTreeMap::new();
+        for (id, psi) in normal_broadcast.psis.iter() {
+            let rp = &self.context.public_aux(id)?.rp_params;
+            let for_pk = &self.context.public_aux(id)?.paillier_pk;
+            let for_payload = self.r1_payloads.safe_get("Round 1 payloads", id)?;
+            let cap_d = normal_broadcast.cap_ds.safe_get("`D` map", id)?.to_precomputed(for_pk);
+            let cap_f = echo_broadcast.cap_fs.safe_get("`F` map", id)?.to_precomputed(from_pk);
 
-        Ok(Payload::new(Round2Payload::<P> {
-            cap_gamma: direct_message.cap_gamma,
-            alpha,
-            hat_alpha,
-            cap_d,
-            hat_cap_d,
-        }))
-    }
-
-    fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round2Payload<P>>()?;
-        let artifacts = artifacts.downcast_all::<Round2Artifact<P>>()?;
-
-        let cap_gamma = payloads.values().map(|payload| payload.cap_gamma).sum::<Point<P>>()
-            + self.context.gamma.mul_by_generator();
-
-        let cap_delta = cap_gamma * &self.context.k;
-
-        let alpha_sum: SecretSigned<_> = payloads.values().map(|payload| &payload.alpha).sum();
-        let beta_sum: SecretSigned<_> = artifacts.values().map(|artifact| &artifact.beta).sum();
-        let delta = secret_signed_from_scalar::<P>(&self.context.gamma)
-            * secret_signed_from_scalar::<P>(&self.context.k)
-            + &alpha_sum
-            + &beta_sum;
-
-        let hat_alpha_sum: SecretSigned<_> = payloads.values().map(|payload| &payload.hat_alpha).sum();
-        let hat_beta_sum: SecretSigned<_> = artifacts.values().map(|artifact| &artifact.hat_beta).sum();
-        let chi = secret_signed_from_scalar::<P>(&self.context.key_share.secret_share)
-            * secret_signed_from_scalar::<P>(&self.context.k)
-            + &hat_alpha_sum
-            + &hat_beta_sum;
-
-        let (cap_ds, hat_cap_ds) = payloads
-            .into_iter()
-            .map(|(id, payload)| ((id.clone(), payload.cap_d), (id, payload.hat_cap_d)))
-            .unzip();
-
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round3 {
-            context: self.context,
-            delta,
-            chi,
-            cap_delta,
-            cap_gamma,
-            all_cap_k: self.all_cap_k,
-            all_cap_g: self.all_cap_g,
-            cap_ds,
-            hat_cap_ds,
-            round2_artifacts: artifacts,
-        })))
-    }
-}
-
-#[derive(Debug)]
-struct Round3<P, I>
-where
-    P: SchemeParams,
-    I: Ord + Serialize + for<'x> Deserialize<'x>,
-{
-    context: Context<P, I>,
-    delta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    chi: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
-    cap_delta: Point<P>,
-    cap_gamma: Point<P>,
-    all_cap_k: BTreeMap<I, Ciphertext<P::Paillier>>,
-    all_cap_g: BTreeMap<I, Ciphertext<P::Paillier>>,
-    cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
-    hat_cap_ds: BTreeMap<I, Ciphertext<P::Paillier>>,
-    round2_artifacts: BTreeMap<I, Round2Artifact<P>>,
-}
-
-impl<P, I> Round3<P, I>
-where
-    P: SchemeParams,
-    I: Ord + Debug + Serialize + for<'x> Deserialize<'x>,
-{
-    fn public_aux(&self, i: &I) -> Result<&PublicAuxInfoPrecomputed<P>, LocalError> {
-        self.context
-            .aux_info
-            .public_aux
-            .get(i)
-            .ok_or_else(|| LocalError::new(format!("Missing public_aux for party Id {i:?}")))
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "LogStarProof<P>: Serialize"))]
-#[serde(bound(deserialize = "LogStarProof<P>: for<'x> Deserialize<'x>"))]
-struct Round3Message<P: SchemeParams> {
-    delta: Secret<Scalar<P>>,
-    cap_delta: Point<P>,
-    psi_pprime: LogStarProof<P>,
-}
-
-struct Round3Payload<P: SchemeParams> {
-    delta: Secret<Scalar<P>>,
-    cap_delta: Point<P>,
-}
-
-impl<P: SchemeParams, I: PartyId> Round<I> for Round3<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
-
-    fn id(&self) -> RoundId {
-        RoundId::new(3)
-    }
-
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(4)])
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<I> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
-        &self.context.other_ids
-    }
-
-    fn make_direct_message(
-        &self,
-        rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
-        destination: &I,
-    ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
-        let aux = (&self.context.ssid_hash, &self.context.my_id);
-        let pk = &self.context.aux_info.secret_aux.paillier_sk.public_key();
-
-        let rp = &self.public_aux(destination)?.rp_params;
-
-        let cap_k = self.all_cap_k.get(&self.context.my_id).ok_or(LocalError::new(format!(
-            "my_id={:?} is missing in all_cap_k",
-            &self.context.my_id
-        )))?;
-
-        let psi_pprime = LogStarProof::new(
-            rng,
-            LogStarSecretInputs {
-                x: &secret_signed_from_scalar::<P>(&self.context.k),
-                rho: &self.context.rho,
-            },
-            LogStarPublicInputs {
-                pk0: pk,
-                cap_c: cap_k,
-                g: &self.cap_gamma,
-                cap_x: &self.cap_delta,
-            },
-            rp,
-            &aux,
-        );
-
-        let dm = DirectMessage::new(
-            serializer,
-            Round3Message::<P> {
-                delta: secret_scalar_from_signed::<P>(&self.delta),
-                cap_delta: self.cap_delta,
-                psi_pprime,
-            },
-        )?;
-
-        Ok((dm, None))
-    }
-
-    fn receive_message(
-        &self,
-        _rng: &mut impl CryptoRngCore,
-        deserializer: &Deserializer,
-        from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        echo_broadcast.assert_is_none()?;
-        normal_broadcast.assert_is_none()?;
-        let direct_message = direct_message.deserialize::<Round3Message<P>>(deserializer)?;
-
-        let aux = (&self.context.ssid_hash, &from);
-        let from_pk = &self.public_aux(from)?.paillier_pk;
-
-        let others_cap_k = self
-            .all_cap_k
-            .get(from)
-            .ok_or(LocalError::new("from={from:?} is missing in all_cap_k"))?;
-
-        let rp = &self.public_aux(&self.context.my_id)?.rp_params;
-
-        if !direct_message.psi_pprime.verify(
-            LogStarPublicInputs {
-                pk0: from_pk,
-                cap_c: others_cap_k,
-                g: &self.cap_gamma,
-                cap_x: &direct_message.cap_delta,
-            },
-            rp,
-            &aux,
-        ) {
-            return Err(ReceiveError::protocol(InteractiveSigningError::Round3(
-                "Failed to verify Log-Star proof".into(),
-            )));
-        }
-        Ok(Payload::new(Round3Payload {
-            delta: direct_message.delta,
-            cap_delta: direct_message.cap_delta,
-        }))
-    }
-
-    fn finalize(
-        self,
-        rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round3Payload<P>>()?;
-
-        let (deltas, cap_deltas): (BTreeMap<_, _>, BTreeMap<_, _>) = payloads
-            .into_iter()
-            .map(|(id, payload)| ((id.clone(), payload.delta), (id, payload.cap_delta)))
-            .unzip();
-
-        let scalar_delta = secret_scalar_from_signed::<P>(&self.delta);
-        let assembled_delta: Secret<Scalar<P>> = &scalar_delta + deltas.values().sum::<Secret<Scalar<P>>>();
-        let assembled_cap_delta: Point<P> = self.cap_delta + cap_deltas.values().sum();
-
-        if assembled_delta.mul_by_generator() == assembled_cap_delta {
-            let inv_delta = assembled_delta.invert().ok_or_else(|| {
-                LocalError::new(concat![
-                    "The assembled delta is zero. ",
-                    "Either all other nodes are malicious, or it's a freak accident. ",
-                    "Restart the protocol."
-                ])
-            })?;
-            let nonce = (self.cap_gamma * inv_delta).x_coordinate();
-            let my_id = self.context.my_id.clone();
-
-            let values = self
-                .round2_artifacts
-                .into_iter()
-                .map(|(id, artifact)| {
-                    let cap_k = self
-                        .all_cap_k
-                        .get(&id)
-                        .ok_or_else(|| LocalError::new("id={id:?} is missing in all_cap_k"))?
-                        .clone();
-                    let hat_cap_d_received = self
-                        .hat_cap_ds
-                        .get(&id)
-                        .ok_or_else(|| LocalError::new("id={id:?} is missing in hat_cap_ds"))?
-                        .clone();
-                    let values = PresigningValues {
-                        hat_beta: artifact.hat_beta,
-                        hat_r: artifact.hat_r,
-                        hat_s: artifact.hat_s,
-                        cap_k,
-                        hat_cap_d_received,
-                        hat_cap_d: artifact.hat_cap_d,
-                        hat_cap_f: artifact.hat_cap_f,
-                    };
-                    Ok((id, values))
-                })
-                .collect::<Result<_, LocalError>>()?;
-
-            let presigning_data = PresigningData {
-                nonce,
-                ephemeral_scalar_share: self.context.k.clone(),
-                product_share: secret_scalar_from_signed::<P>(&self.chi),
-                product_share_nonreduced: self.chi,
-                cap_k: self
-                    .all_cap_k
-                    .get(&my_id)
-                    .ok_or_else(|| LocalError::new("m_id={my_id:?} is missing in all_cap_k"))?
-                    .clone(),
-                values,
-            };
-
-            return Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round4::new(
-                self.context,
-                presigning_data,
-            ))));
-        }
-
-        // Construct the correctness proofs
-
-        let sk = &self.context.aux_info.secret_aux.paillier_sk;
-        let pk = sk.public_key();
-
-        let aux = (&self.context.ssid_hash, &self.context.my_id);
-
-        // Aff-g proofs
-
-        let mut aff_g_proofs = Vec::new();
-
-        let cap_gamma = self.context.gamma.mul_by_generator();
-
-        for (id_j, (_, r2_artifacts)) in self.context.other_ids.iter().zip(self.round2_artifacts.iter()) {
-            let cap_c = self
-                .all_cap_k
-                .get(id_j)
-                .ok_or_else(|| LocalError::new("id_j={id_j:?} is missing in all_cap_k"))?;
-            for id_l in self.context.other_ids.iter().filter(|id| *id != id_j) {
-                let paux = self.public_aux(id_j)?;
-                let target_pk = &paux.paillier_pk;
-                let rp = &paux.rp_params;
-
-                let beta = &r2_artifacts.beta;
-                let r = &r2_artifacts.r;
-                let s = &r2_artifacts.s;
-
-                let p_aff_g = AffGProof::<P>::new(
-                    rng,
-                    AffGSecretInputs {
-                        x: &secret_signed_from_scalar::<P>(&self.context.gamma),
-                        y: beta,
-                        rho: s,
-                        rho_y: r,
-                    },
-                    AffGPublicInputs {
-                        pk0: target_pk,
-                        pk1: pk,
-                        cap_c,
-                        cap_d: &r2_artifacts.cap_d,
-                        cap_y: &r2_artifacts.cap_f,
-                        cap_x: &cap_gamma,
-                    },
-                    rp,
-                    &aux,
-                );
-
-                assert!(p_aff_g.verify(
-                    AffGPublicInputs {
-                        pk0: target_pk,
-                        pk1: pk,
-                        cap_c,
-                        cap_d: &r2_artifacts.cap_d,
-                        cap_y: &r2_artifacts.cap_f,
-                        cap_x: &cap_gamma
-                    },
-                    rp,
-                    &aux,
-                ));
-
-                aff_g_proofs.push((id_j.clone(), id_l.clone(), p_aff_g));
-            }
-        }
-
-        // Mul proof
-        let my_id = &self.context.my_id;
-        let rho = Randomizer::random(rng, pk);
-        let cap_k = self
-            .all_cap_k
-            .get(my_id)
-            .ok_or_else(|| LocalError::new("my_id={my_id:?} is missing in all_cap_k"))?;
-        let cap_g = self
-            .all_cap_g
-            .get(my_id)
-            .ok_or_else(|| LocalError::new("my_id={my_id:?} is missing in all_cap_g"))?;
-        let cap_h = (cap_g * &secret_unsigned_from_scalar::<P>(&self.context.k)).mul_randomizer(&rho);
-
-        let p_mul = MulProof::<P>::new(
-            rng,
-            MulSecretInputs {
-                x: &secret_signed_from_scalar::<P>(&self.context.k),
-                rho_x: &self.context.rho,
-                rho: &rho,
-            },
-            MulPublicInputs {
-                pk,
-                cap_x: cap_k,
-                cap_y: cap_g,
-                cap_c: &cap_h,
-            },
-            &aux,
-        );
-        assert!(p_mul.verify(
-            MulPublicInputs {
-                pk,
-                cap_x: cap_k,
-                cap_y: cap_g,
-                cap_c: &cap_h
-            },
-            &aux
-        ));
-
-        // Dec proof
-
-        let mut ciphertext = cap_h.clone();
-
-        for id_j in self.context.other_ids.iter() {
-            let cap_d = self
-                .cap_ds
-                .get(id_j)
-                .ok_or_else(|| LocalError::new(format!("Missing `D` for {id_j:?}")))?;
-            let artifact_j = self
-                .round2_artifacts
-                .get(id_j)
-                .ok_or_else(|| LocalError::new(format!("Missing Round 2 artifact for {id_j:?}")))?;
-            ciphertext = ciphertext + cap_d + &artifact_j.cap_f;
-        }
-
-        let rho = ciphertext.derive_randomizer(sk);
-
-        let mut dec_proofs = Vec::new();
-        for id_j in self.context.other_ids.iter() {
-            let p_dec = DecProof::<P>::new(
-                rng,
-                DecSecretInputs {
-                    y: &self.delta,
-                    rho: &rho,
+            if !psi.verify(
+                AffGPublicInputs {
+                    pk0: for_pk,
+                    pk1: from_pk,
+                    cap_c: &for_payload.cap_k,
+                    cap_d: &cap_d,
+                    cap_y: &cap_f,
+                    cap_x: &echo_broadcast.cap_gamma,
                 },
-                DecPublicInputs {
-                    pk0: pk,
-                    x: scalar_delta.expose_secret(),
-                    cap_c: &ciphertext,
-                },
-                &self.public_aux(id_j)?.rp_params,
+                rp,
                 &aux,
-            );
-            assert!(p_dec.verify(
-                DecPublicInputs {
-                    pk0: pk,
-                    x: scalar_delta.expose_secret(),
-                    cap_c: &ciphertext
-                },
-                &self.public_aux(id_j)?.rp_params,
-                &aux
-            ));
-            dec_proofs.push((id_j.clone(), p_dec));
-        }
-
-        unimplemented!()
-    }
-}
-
-#[derive(Debug)]
-struct Round4<P, I>
-where
-    P: SchemeParams,
-    I: Ord + Serialize + for<'x> Deserialize<'x>,
-{
-    context: Context<P, I>,
-    presigning: PresigningData<P, I>,
-    r: Scalar<P>,
-    sigma: Scalar<P>,
-}
-
-impl<P, I> Round4<P, I>
-where
-    P: SchemeParams,
-    I: PartyId,
-{
-    fn new(context: Context<P, I>, presigning: PresigningData<P, I>) -> Self {
-        let r = presigning.nonce;
-        let sigma =
-            *(&presigning.ephemeral_scalar_share * context.message + &presigning.product_share * r).expose_secret();
-        Self {
-            context,
-            presigning,
-            r,
-            sigma,
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
-pub(super) struct Round4Message<P: SchemeParams> {
-    pub(crate) sigma: Scalar<P>,
-}
-
-struct Round4Payload<P: SchemeParams> {
-    sigma: Scalar<P>,
-}
-
-impl<P: SchemeParams, I: PartyId> Round<I> for Round4<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
-
-    fn id(&self) -> RoundId {
-        RoundId::new(4)
-    }
-
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::from([RoundId::new(5)])
-    }
-
-    fn may_produce_result(&self) -> bool {
-        true
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<I> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
-        &self.context.other_ids
-    }
-
-    fn make_normal_broadcast(
-        &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
-    ) -> Result<NormalBroadcast, LocalError> {
-        NormalBroadcast::new(serializer, Round4Message { sigma: self.sigma })
-    }
-
-    fn receive_message(
-        &self,
-        _rng: &mut impl CryptoRngCore,
-        deserializer: &Deserializer,
-        _from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        echo_broadcast.assert_is_none()?;
-        direct_message.assert_is_none()?;
-        let normal_broadcast = normal_broadcast.deserialize::<Round4Message<P>>(deserializer)?;
-
-        Ok(Payload::new(Round4Payload {
-            sigma: normal_broadcast.sigma,
-        }))
-    }
-
-    fn finalize(
-        self,
-        rng: &mut impl CryptoRngCore,
-        payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round4Payload<P>>()?;
-
-        let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar<P>>() + self.sigma;
-
-        let signature = RecoverableSignature::from_scalars(
-            &self.r,
-            &assembled_sigma,
-            &self.context.key_share.verifying_key_as_point(),
-            &self.context.message,
-        );
-
-        if let Some(signature) = signature {
-            return Ok(FinalizeOutcome::Result(signature));
-        }
-
-        let my_id = self.context.my_id.clone();
-        let aux = (&self.context.ssid_hash, &my_id);
-
-        let sk = &self.context.aux_info.secret_aux.paillier_sk;
-        let pk = sk.public_key();
-
-        // Aff-g proofs
-
-        let mut aff_g_proofs = Vec::new();
-
-        for id_j in self.context.other_ids.iter() {
-            for id_l in self.context.other_ids.iter().filter(|id| *id != id_j) {
-                let target_pk = &self.context.public_aux(id_j)?.paillier_pk;
-                let rp = &self.context.public_aux(id_l)?.rp_params;
-
-                let values = self
-                    .presigning
-                    .values
-                    .get(id_j)
-                    .ok_or_else(|| LocalError::new("Missing presigning values for {id_j:?}"))?;
-
-                let p_aff_g = AffGProof::<P>::new(
-                    rng,
-                    AffGSecretInputs {
-                        x: &secret_signed_from_scalar::<P>(&self.context.key_share.secret_share),
-                        y: &values.hat_beta,
-                        rho: &values.hat_s,
-                        rho_y: &values.hat_r,
-                    },
-                    AffGPublicInputs {
-                        pk0: target_pk,
-                        pk1: pk,
-                        cap_c: &values.cap_k,
-                        cap_d: &values.hat_cap_d,
-                        cap_y: &values.hat_cap_f,
-                        cap_x: self.context.public_share(&my_id)?,
-                    },
-                    rp,
-                    &aux,
-                );
-
-                assert!(p_aff_g.verify(
-                    AffGPublicInputs {
-                        pk0: target_pk,
-                        pk1: pk,
-                        cap_c: &values.cap_k,
-                        cap_d: &values.hat_cap_d,
-                        cap_y: &values.hat_cap_f,
-                        cap_x: self.context.public_share(&my_id)?
-                    },
-                    rp,
-                    &aux,
+            ) {
+                return Err(ReceiveError::protocol(
+                    Error::R2AffGPsiFailed { failed_for: id.clone() }.into(),
                 ));
-
-                aff_g_proofs.push((id_j.clone(), id_l.clone(), p_aff_g));
             }
+
+            cap_ds.insert(id.clone(), cap_d);
+            cap_fs.insert(id.clone(), cap_f);
         }
 
-        // mul* proofs
+        let mut hat_cap_ds = BTreeMap::new();
+        let mut hat_cap_fs = BTreeMap::new();
+        for (id, hat_psi) in normal_broadcast.hat_psis.iter() {
+            let rp = &self.context.public_aux(id)?.rp_params;
+            let for_pk = &self.context.public_aux(id)?.paillier_pk;
+            let for_payload = self.r1_payloads.safe_get("Round 1 payloads", id)?;
+            let hat_cap_d = normal_broadcast
+                .hat_cap_ds
+                .safe_get("`D` map", id)?
+                .to_precomputed(for_pk);
+            let hat_cap_f = echo_broadcast
+                .hat_cap_fs
+                .safe_get("`F` map", id)?
+                .to_precomputed(from_pk);
 
-        let x = &self.context.key_share.secret_share;
-        let cap_x = self.context.public_share(&my_id)?;
+            let cap_x = self.context.public_share(from)?;
 
-        let rho = Randomizer::random(rng, pk);
-        let hat_cap_h = (&self.presigning.cap_k * &secret_unsigned_from_scalar::<P>(x)).mul_randomizer(&rho);
-
-        let aux = (&self.context.ssid_hash, &my_id);
-
-        let mut mul_star_proofs = Vec::new();
-
-        for id_l in self.context.other_ids.iter() {
-            let paux = self.context.public_aux(id_l)?;
-            let p_mul = MulStarProof::<P>::new(
-                rng,
-                MulStarSecretInputs {
-                    x: &secret_signed_from_scalar::<P>(x),
-                    rho: &rho,
-                },
-                MulStarPublicInputs {
-                    pk0: pk,
-                    cap_c: &self.presigning.cap_k,
-                    cap_d: &hat_cap_h,
+            if !hat_psi.verify(
+                AffGPublicInputs {
+                    pk0: for_pk,
+                    pk1: from_pk,
+                    cap_c: &for_payload.cap_k,
+                    cap_d: &hat_cap_d,
+                    cap_y: &hat_cap_f,
                     cap_x,
                 },
-                &paux.rp_params,
+                rp,
                 &aux,
-            );
+            ) {
+                return Err(ReceiveError::protocol(
+                    Error::R2AffGHatPsiFailed { failed_for: id.clone() }.into(),
+                ));
+            }
 
-            assert!(p_mul.verify(
-                MulStarPublicInputs {
-                    pk0: pk,
-                    cap_c: &self.presigning.cap_k,
-                    cap_d: &hat_cap_h,
-                    cap_x
-                },
-                &paux.rp_params,
-                &aux,
-            ));
-
-            mul_star_proofs.push((id_l.clone(), p_mul));
+            hat_cap_ds.insert(id.clone(), hat_cap_d);
+            hat_cap_fs.insert(id.clone(), hat_cap_f);
         }
 
-        // dec proofs
-
-        let mut ciphertext = hat_cap_h.clone();
-        for id_j in self.context.other_ids.iter() {
-            let values = &self
-                .presigning
-                .values
-                .get(id_j)
-                .ok_or_else(|| LocalError::new(format!("Missing presigning values for {id_j:?}")))?;
-            ciphertext = ciphertext + &values.hat_cap_d_received + &values.hat_cap_f;
+        if !normal_broadcast.psi_elog.verify(
+            ElogPublicInputs {
+                cap_l: &sender_payload.cap_b1,
+                cap_m: &sender_payload.cap_b2,
+                cap_x: &sender_payload.cap_y,
+                cap_y: &echo_broadcast.cap_gamma,
+                h: &Point::generator(),
+            },
+            &aux,
+        ) {
+            return Err(ReceiveError::protocol(Error::R2ElogFailed.into()));
         }
 
-        let r = self.presigning.nonce;
-        let signed_r = public_signed_from_scalar::<P>(&r);
-        let signed_message = public_signed_from_scalar::<P>(&self.context.message);
+        let alpha_uint = cap_ds
+            .safe_get("`D` map", &self.context.my_id)?
+            .decrypt(&self.context.aux_info.secret_aux.paillier_sk);
+        let hat_alpha_uint = hat_cap_ds
+            .safe_get("`\\hat{D}` map", &self.context.my_id)?
+            .decrypt(&self.context.aux_info.secret_aux.paillier_sk);
 
-        let ciphertext = ciphertext * &signed_r + &self.presigning.cap_k * &signed_message;
+        let alpha = secret_scalar_from_signed::<P>(&alpha_uint);
+        let hat_alpha = secret_scalar_from_signed::<P>(&hat_alpha_uint);
 
-        let rho = ciphertext.derive_randomizer(sk);
-        // This is the same as `s_part` but if all the calculations were performed
-        // without reducing modulo curve order.
-        let s_part_nonreduced = secret_signed_from_scalar::<P>(&self.presigning.ephemeral_scalar_share)
-            * signed_message
-            + &self.presigning.product_share_nonreduced * signed_r;
+        Ok(Payload::new(Round2Payload::<P, Id> {
+            cap_gamma: echo_broadcast.cap_gamma,
+            alpha,
+            hat_alpha,
+            cap_ds,
+            cap_fs,
+            hat_cap_ds,
+            hat_cap_fs,
+        }))
+    }
 
-        let mut dec_proofs = Vec::new();
-        for id_l in self.context.other_ids.iter() {
-            let paux = self.context.public_aux(id_l)?;
-            let p_dec = DecProof::<P>::new(
-                rng,
-                DecSecretInputs {
-                    y: &s_part_nonreduced,
-                    rho: &rho,
-                },
-                DecPublicInputs {
-                    pk0: pk,
-                    x: &self.sigma,
-                    cap_c: &ciphertext,
-                },
-                &paux.rp_params,
-                &aux,
-            );
-            assert!(p_dec.verify(
-                DecPublicInputs {
-                    pk0: pk,
-                    x: &self.sigma,
-                    cap_c: &ciphertext
-                },
-                &paux.rp_params,
-                &aux,
-            ));
-            dec_proofs.push((id_l.clone(), p_dec));
+    fn finalize(
+        self,
+        rng: &mut impl CryptoRngCore,
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
+        let payloads = payloads.downcast_all::<Round2Payload<P, Id>>()?;
+
+        let mut cap_gammas = payloads.map_values_ref(|payload| payload.cap_gamma);
+        cap_gammas.insert(self.context.my_id.clone(), self.cap_gamma);
+
+        let cap_gamma_combined = cap_gammas.values().sum();
+        let cap_delta = cap_gamma_combined * &self.context.k;
+
+        let x = self.context.key_share.secret_share();
+
+        let alpha_sum: Secret<Scalar<P>> = payloads.values().map(|payload| &payload.alpha).sum();
+        let beta_sum: Secret<Scalar<P>> = self.betas.values().map(secret_scalar_from_signed::<P>).sum();
+        let delta = *(&self.context.gamma * &self.context.k + alpha_sum + beta_sum).expose_secret();
+
+        let hat_alpha_sum: Secret<Scalar<P>> = payloads.values().map(|payload| &payload.hat_alpha).sum();
+        let hat_beta_sum: Secret<Scalar<P>> = self.hat_betas.values().map(secret_scalar_from_signed::<P>).sum();
+        let chi = x * &self.context.k + hat_alpha_sum + hat_beta_sum;
+
+        let cap_s = cap_gamma_combined * &chi;
+
+        let aux = (&self.context.epid, &self.context.my_id);
+        let my_r1_payload = self.r1_payloads.safe_get("Round 1 payloads", &self.context.my_id)?;
+        let psi_prime = ElogProof::new(
+            rng,
+            ElogSecretInputs {
+                y: &self.context.k,
+                lambda: &self.context.a,
+            },
+            // Note that the parameter order in the protocol description and in the ZK proof description do not match.
+            ElogPublicInputs {
+                cap_l: &my_r1_payload.cap_a1,
+                cap_m: &my_r1_payload.cap_a2,
+                cap_x: &my_r1_payload.cap_y,
+                cap_y: &cap_delta,
+                h: &cap_gamma_combined,
+            },
+            &aux,
+        );
+
+        let r3_echo_broadcast = Round3EchoBroadcast { delta };
+
+        let r3_normal_broadcast = Round3NormalBroadcast {
+            cap_delta,
+            psi_prime,
+            cap_s,
+        };
+
+        let my_id = self.context.my_id.clone();
+
+        // Build a full matrix of $D_{i,j}$ where the order of the indices follows that in the paper.
+        // That is, $i$ is the index of the node $D$ was created *for*,
+        // and $j$ is the index of the node it was created *by*.
+        let mut cap_ds = BTreeMap::new();
+        for (id_for, cap_d) in self.cap_ds {
+            cap_ds.insert((id_for, my_id.clone()), cap_d);
+        }
+        for (id_from, payload) in payloads.iter() {
+            for (id_for, cap_d) in payload.cap_ds.iter() {
+                cap_ds.insert((id_for.clone(), id_from.clone()), cap_d.clone());
+            }
         }
 
-        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(
-            SigningErrorRound { context: self.context },
-        )))
+        // Same for $F_{i,j}.
+        let mut cap_fs = BTreeMap::new();
+        for (id_for, cap_f) in self.cap_fs {
+            cap_fs.insert((id_for, my_id.clone()), cap_f);
+        }
+        for (id_from, payload) in payloads.iter() {
+            for (id_for, cap_f) in payload.cap_fs.iter() {
+                cap_fs.insert((id_for.clone(), id_from.clone()), cap_f.clone());
+            }
+        }
+
+        // Same for $\hat{D}_{i,j}.
+        let mut hat_cap_ds = BTreeMap::new();
+        for (id_for, hat_cap_d) in self.hat_cap_ds {
+            hat_cap_ds.insert((id_for, my_id.clone()), hat_cap_d);
+        }
+        for (id_from, payload) in payloads.iter() {
+            for (id_for, hat_cap_d) in payload.hat_cap_ds.iter() {
+                hat_cap_ds.insert((id_for.clone(), id_from.clone()), hat_cap_d.clone());
+            }
+        }
+
+        // Same for $\hat{F}_{i,j}.
+        let mut hat_cap_fs = BTreeMap::new();
+        for (id_for, hat_cap_f) in self.hat_cap_fs {
+            hat_cap_fs.insert((id_for, my_id.clone()), hat_cap_f);
+        }
+        for (id_from, payload) in payloads.iter() {
+            for (id_for, hat_cap_f) in payload.hat_cap_fs.iter() {
+                hat_cap_fs.insert((id_for.clone(), id_from.clone()), hat_cap_f.clone());
+            }
+        }
+
+        let next_round = Round3 {
+            context: self.context,
+            cap_k: self.cap_k,
+            cap_gamma_combined,
+            chi,
+            r1_payloads: self.r1_payloads,
+            cap_gammas,
+            cap_ds,
+            cap_fs,
+            hat_cap_ds,
+            hat_cap_fs,
+            r3_echo_broadcast,
+            r3_normal_broadcast,
+            betas: self.betas,
+            rs: self.rs,
+            ss: self.ss,
+            hat_betas: self.hat_betas,
+            hat_rs: self.hat_rs,
+            hat_ss: self.hat_ss,
+        };
+
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(next_round)))
     }
 }
 
 #[derive(Debug)]
-struct SigningErrorRound<P: SchemeParams, I: PartyId> {
-    context: Context<P, I>,
+pub(super) struct Round3<P: SchemeParams, Id: Ord> {
+    pub(super) context: Context<P, Id>,
+    pub(super) cap_k: Ciphertext<P::Paillier>,
+    pub(super) cap_gamma_combined: Point<P>,
+    pub(super) chi: Secret<Scalar<P>>,
+    pub(super) r1_payloads: BTreeMap<Id, Round1Payload<P>>,
+    pub(super) cap_gammas: BTreeMap<Id, Point<P>>,
+    pub(super) cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $D_{i,j}$ for all $i, j$ where $i != j$.
+    pub(super) cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $F_{i,j}$ for all $i, j$ where $i != j$.
+    pub(super) hat_cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{D}_{i,j}$ for all $i, j$ where $i != j$.
+    pub(super) hat_cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for all $i, j$ where $i != j$.
+    pub(super) r3_echo_broadcast: Round3EchoBroadcast<P>,
+    pub(super) r3_normal_broadcast: Round3NormalBroadcast<P>,
+    pub(super) betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    pub(super) rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) hat_betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    pub(super) hat_rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SigningErrorMessage<P: SchemeParams, I: PartyId>(PhantomData<(P, I)>);
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+pub(super) struct Round3EchoBroadcast<P: SchemeParams> {
+    pub(super) delta: Scalar<P>,
+}
 
-impl<P: SchemeParams, I: PartyId> Round<I> for SigningErrorRound<P, I> {
-    type Protocol = InteractiveSigningProtocol<P, I>;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "ElogProof<P>: Serialize"))]
+#[serde(bound(deserialize = "ElogProof<P>: for<'x> Deserialize<'x>"))]
+pub(super) struct Round3NormalBroadcast<P: SchemeParams> {
+    pub(super) cap_delta: Point<P>,
+    psi_prime: ElogProof<P>,
+    pub(super) cap_s: Point<P>,
+}
+
+pub(super) struct Round3Payload<P: SchemeParams> {
+    pub(super) delta: Scalar<P>,
+    cap_delta: Point<P>,
+    pub(super) cap_s: Point<P>,
+}
+
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
 
     fn id(&self) -> RoundId {
-        RoundId::new(5)
+        3.into()
     }
 
     fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        BTreeSet::new()
+        [4.into(), 5.into(), 6.into()].into()
     }
 
-    fn message_destinations(&self) -> &BTreeSet<I> {
+    fn message_destinations(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
         &self.context.other_ids
     }
 
@@ -1450,32 +1890,697 @@ impl<P: SchemeParams, I: PartyId> Round<I> for SigningErrorRound<P, I> {
         _rng: &mut impl CryptoRngCore,
         serializer: &Serializer,
     ) -> Result<EchoBroadcast, LocalError> {
-        EchoBroadcast::new(serializer, SigningErrorMessage::<P, I>(PhantomData))
+        EchoBroadcast::new(serializer, self.r3_echo_broadcast.clone())
+    }
+
+    fn make_normal_broadcast(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
+    ) -> Result<NormalBroadcast, LocalError> {
+        NormalBroadcast::new(serializer, self.r3_normal_broadcast.clone())
     }
 
     fn receive_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
         deserializer: &Deserializer,
-        _from: &I,
-        echo_broadcast: EchoBroadcast,
-        normal_broadcast: NormalBroadcast,
-        direct_message: DirectMessage,
-    ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
-        normal_broadcast.assert_is_none()?;
-        direct_message.assert_is_none()?;
-        let _echo_broadcast = echo_broadcast.deserialize::<SigningErrorMessage<P, I>>(deserializer)?;
-        Err(ReceiveError::protocol(InteractiveSigningError::SigningError(
-            "Signing error stub".into(),
-        )))
+        from: &Id,
+        message: ProtocolMessage,
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
+        message.direct_message.assert_is_none()?;
+        let echo_broadcast = message
+            .echo_broadcast
+            .deserialize::<Round3EchoBroadcast<P>>(deserializer)?;
+        let normal_broadcast = message
+            .normal_broadcast
+            .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
+
+        let aux = (&self.context.epid, from);
+        let r1_payload = self.r1_payloads.safe_get("Round 1 payload", from)?;
+
+        if !normal_broadcast.psi_prime.verify(
+            ElogPublicInputs {
+                cap_l: &r1_payload.cap_a1,
+                cap_m: &r1_payload.cap_a2,
+                cap_x: &r1_payload.cap_y,
+                cap_y: &normal_broadcast.cap_delta,
+                h: &self.cap_gamma_combined,
+            },
+            &aux,
+        ) {
+            return Err(ReceiveError::protocol(Error::R3ElogFailed.into()));
+        }
+
+        Ok(Payload::new(Round3Payload {
+            delta: echo_broadcast.delta,
+            cap_delta: normal_broadcast.cap_delta,
+            cap_s: normal_broadcast.cap_s,
+        }))
     }
 
     fn finalize(
         self,
         _rng: &mut impl CryptoRngCore,
-        _payloads: BTreeMap<I, Payload>,
-        _artifacts: BTreeMap<I, Artifact>,
-    ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
+        let mut payloads = payloads.downcast_all::<Round3Payload<P>>()?;
+        let my_payload = Round3Payload {
+            delta: self.r3_echo_broadcast.delta,
+            cap_delta: self.r3_normal_broadcast.cap_delta,
+            cap_s: self.r3_normal_broadcast.cap_s,
+        };
+        payloads.insert(self.context.my_id.clone(), my_payload);
+
+        let deltas = payloads.map_values_ref(|payload| payload.delta);
+
+        let delta_combined = deltas.values().sum::<Scalar<P>>();
+        let cap_delta = payloads.values().map(|payload| payload.cap_delta).sum();
+
+        let cap_s = payloads.values().map(|payload| payload.cap_s).sum::<Point<P>>();
+        let cap_x = self.context.key_share.verifying_key_as_point();
+
+        if delta_combined.mul_by_generator() != cap_delta {
+            let mut cap_ks = self.r1_payloads.map_values_ref(|payload| payload.cap_k.clone());
+            cap_ks.insert(self.context.my_id.clone(), self.cap_k);
+
+            let next_round = Round5 {
+                context: self.context,
+                deltas,
+                betas: self.betas,
+                ss: self.ss,
+                rs: self.rs,
+                cap_gammas: self.cap_gammas,
+                cap_ks,
+                cap_ds: self.cap_ds,
+                cap_fs: self.cap_fs,
+            };
+
+            return Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(next_round)));
+        }
+
+        if cap_s != cap_x * delta_combined {
+            let mut cap_ks = self.r1_payloads.map_values_ref(|payload| payload.cap_k.clone());
+            cap_ks.insert(self.context.my_id.clone(), self.cap_k);
+
+            let cap_ss = payloads.map_values_ref(|payload| payload.cap_s);
+
+            let next_round = Round6 {
+                context: self.context,
+                cap_gamma_combined: self.cap_gamma_combined,
+                hat_betas: self.hat_betas,
+                hat_ss: self.hat_ss,
+                hat_rs: self.hat_rs,
+                cap_ks,
+                cap_ss,
+                hat_cap_ds: self.hat_cap_ds,
+                hat_cap_fs: self.hat_cap_fs,
+            };
+
+            return Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(next_round)));
+        }
+
+        // Intentionally making delta = 0 would require coordination from all the participants,
+        // so it is very unlikely to happen.
+        let delta_combined_inv = Option::<Scalar<P>>::from(delta_combined.invert())
+            .ok_or_else(|| LocalError::new("The combined delta is not invertible"))?;
+
+        let presigning_data = PresigningData {
+            cap_gamma_combined: self.cap_gamma_combined,
+            tilde_k: &self.context.k * delta_combined_inv,
+            tilde_chi: self.chi * delta_combined_inv,
+            tilde_cap_deltas: payloads.map_values_ref(|payload| payload.cap_delta * delta_combined_inv),
+            tilde_cap_ss: payloads.map_values_ref(|payload| payload.cap_s * delta_combined_inv),
+        };
+
+        let nonce = presigning_data.cap_gamma_combined.x_coordinate();
+        let sigma = *(&presigning_data.tilde_k * self.context.scalar_message + &presigning_data.tilde_chi * nonce)
+            .expose_secret();
+
+        Ok(FinalizeOutcome::AnotherRound(BoxedRound::new_dynamic(Round4 {
+            context: self.context,
+            presigning_data,
+            sigma,
+        })))
+    }
+}
+
+#[derive(Debug)]
+struct Round4<P: SchemeParams, Id: Ord> {
+    context: Context<P, Id>,
+    presigning_data: PresigningData<P, Id>,
+    sigma: Scalar<P>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+pub(super) struct Round4NormalBroadcast<P: SchemeParams> {
+    pub(crate) sigma: Scalar<P>,
+}
+
+struct Round4Payload<P: SchemeParams> {
+    sigma: Scalar<P>,
+}
+
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
+
+    fn id(&self) -> RoundId {
+        4.into()
+    }
+
+    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
+        [].into()
+    }
+
+    fn may_produce_result(&self) -> bool {
+        true
+    }
+
+    fn message_destinations(&self) -> &BTreeSet<Id> {
+        &self.context.other_ids
+    }
+
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
+        &self.context.other_ids
+    }
+
+    fn make_normal_broadcast(
+        &self,
+        _rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
+    ) -> Result<NormalBroadcast, LocalError> {
+        NormalBroadcast::new(serializer, Round4NormalBroadcast { sigma: self.sigma })
+    }
+
+    fn receive_message(
+        &self,
+        deserializer: &Deserializer,
+        from: &Id,
+        message: ProtocolMessage,
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
+        message.echo_broadcast.assert_is_none()?;
+        message.direct_message.assert_is_none()?;
+        let normal_broadcast = message
+            .normal_broadcast
+            .deserialize::<Round4NormalBroadcast<P>>(deserializer)?;
+
+        let nonce = self.presigning_data.cap_gamma_combined.x_coordinate();
+        let tilde_cap_delta = self
+            .presigning_data
+            .tilde_cap_deltas
+            .safe_get("`\\tilde{Delta}` map", from)?;
+        let tilde_cap_s = self.presigning_data.tilde_cap_ss.safe_get("`\\tilde{S}` map", from)?;
+        if self.presigning_data.cap_gamma_combined * normal_broadcast.sigma
+            != tilde_cap_delta * self.context.scalar_message + tilde_cap_s * nonce
+        {
+            return Err(ReceiveError::protocol(Error::R4InvalidSignatureShare.into()));
+        }
+
+        Ok(Payload::new(Round4Payload {
+            sigma: normal_broadcast.sigma,
+        }))
+    }
+
+    fn finalize(
+        self,
+        _rng: &mut impl CryptoRngCore,
+        payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
+        let payloads = payloads.downcast_all::<Round4Payload<P>>()?;
+
+        let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar<P>>() + self.sigma;
+
+        let signature = RecoverableSignature::from_scalars(
+            &self.presigning_data.cap_gamma_combined.x_coordinate(),
+            &assembled_sigma,
+            &self.context.key_share.verifying_key_as_point(),
+            &self.context.scalar_message,
+        );
+
+        if let Some(signature) = signature {
+            return Ok(FinalizeOutcome::Result(signature));
+        }
+
+        Err(LocalError::new("Failed!"))
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct Round5<P: SchemeParams, Id: PartyId> {
+    pub(super) context: Context<P, Id>,
+    pub(super) deltas: BTreeMap<Id, Scalar<P>>,
+    pub(super) betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    pub(super) ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) cap_gammas: BTreeMap<Id, Point<P>>,
+    pub(super) cap_ks: BTreeMap<Id, Ciphertext<P::Paillier>>, // $K_i$ for all $i$ ($i$ is locally generated, others received)
+    pub(super) cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $D_{i,j}$ for $j != i$
+    pub(super) cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $F_{i,j}$ for $j != i$
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "
+    DecProof<P>: Serialize,
+    AffGStarProof<P>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    DecProof<P>: for<'x> Deserialize<'x>,
+    AffGStarProof<P>: for<'x> Deserialize<'x>,
+"))]
+pub(super) struct Round5EchoBroadcast<P: SchemeParams, Id: PartyId> {
+    pub(super) psi_star: DecProof<P>,
+    pub(super) psis: BTreeMap<Id, AffGStarProof<P>>,
+}
+
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
+
+    fn id(&self) -> RoundId {
+        5.into()
+    }
+
+    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
+        [].into()
+    }
+
+    fn message_destinations(&self) -> &BTreeSet<Id> {
+        &self.context.other_ids
+    }
+
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
+        &self.context.other_ids
+    }
+
+    fn make_echo_broadcast(
+        &self,
+        rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
+    ) -> Result<EchoBroadcast, LocalError> {
+        let my_id = self.context.my_id.clone();
+        let aux = (&self.context.epid, &my_id);
+        let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
+        let rp = &self.context.public_aux(&self.context.my_id)?.rp_params;
+
+        let ids = self.context.other_ids.clone();
+
+        let cap_d = sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.cap_ds.safe_get("`D` map", &(my_id.clone(), id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )? + sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.cap_fs.safe_get("`F` map", &(id.clone(), my_id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )?;
+
+        let cap_k = self.cap_ks.safe_get("`K` map", &self.context.my_id)?;
+
+        let gamma = secret_signed_from_scalar::<P>(&self.context.gamma);
+        let full_ciphertext = cap_k * &gamma + &cap_d;
+
+        let rho = full_ciphertext.derive_randomizer(&self.context.aux_info.secret_aux.paillier_sk);
+
+        // We could have calculated `\delta_i` as SecretSigned in Round 2, but that would require
+        // keeping all the components as SecretSigned instead of Scalar as well.
+        // Since it's only needed here it's easier to re-create it inplace.
+        let delta_signed = full_ciphertext.decrypt(&self.context.aux_info.secret_aux.paillier_sk);
+
+        // This is equal to what we would get from reducing `delta_signed` to Scalar.
+        let delta = self.deltas.safe_get("`delta` map", &self.context.my_id)?;
+
+        let psi_star = DecProof::new(
+            rng,
+            DecSecretInputs {
+                // Note: the paper has incorrect order of arguments
+                x: &gamma,
+                y: &delta_signed,
+                rho: &rho,
+            },
+            DecPublicInputs {
+                pk0: pk,
+                cap_k,
+                cap_x: &self.context.gamma.mul_by_generator(),
+                cap_d: &cap_d,
+                cap_s: &delta.mul_by_generator(),
+                cap_g: &Point::generator(),
+            },
+            rp,
+            &aux,
+        );
+
+        let mut psis = BTreeMap::new();
+        for id in self.context.other_ids.iter() {
+            let psi = AffGStarProof::new(
+                rng,
+                AffGStarSecretInputs {
+                    x: &gamma,
+                    y: self.betas.safe_get("`beta` map", id)?,
+                    rho: self.ss.safe_get("`s` map", id)?,
+                    mu: self.rs.safe_get("`r` map", id)?,
+                },
+                AffGStarPublicInputs {
+                    pk0: &self.context.public_aux(id)?.paillier_pk,
+                    pk1: pk,
+                    cap_c: self.cap_ks.safe_get("`K` map", id)?,
+                    cap_d: self.cap_ds.safe_get("`D` map", &(id.clone(), my_id.clone()))?,
+                    cap_y: self.cap_fs.safe_get("`F` map", &(id.clone(), my_id.clone()))?,
+                    cap_x: self.cap_gammas.safe_get("`Gamma` map", &my_id)?,
+                },
+                &aux,
+            );
+
+            psis.insert(id.clone(), psi);
+        }
+
+        EchoBroadcast::new(serializer, Round5EchoBroadcast::<P, Id> { psi_star, psis })
+    }
+
+    fn receive_message(
+        &self,
+        deserializer: &Deserializer,
+        from: &Id,
+        message: ProtocolMessage,
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
+        message.normal_broadcast.assert_is_none()?;
+        message.direct_message.assert_is_none()?;
+        let echo_broadcast = message
+            .echo_broadcast
+            .deserialize::<Round5EchoBroadcast<P, Id>>(deserializer)?;
+
+        let my_id = self.context.my_id.clone();
+        let aux = (&self.context.epid, from);
+
+        let sender_pk = &self.context.public_aux(from)?.paillier_pk;
+        let sender_rp = &self.context.public_aux(from)?.rp_params;
+
+        let ids = self.context.all_ids.clone().without(from);
+
+        let cap_d = sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.cap_ds.safe_get("`D` map", &(from.clone(), id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )? + sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.cap_fs.safe_get("`F` map", &(id.clone(), from.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )?;
+
+        if !echo_broadcast.psi_star.verify(
+            DecPublicInputs {
+                pk0: sender_pk,
+                cap_k: self.cap_ks.safe_get("`K` map", from)?,
+                cap_x: self.cap_gammas.safe_get("`Gamma` map", from)?,
+                cap_d: &cap_d,
+                cap_s: &self.deltas.safe_get("`delta` map", from)?.mul_by_generator(),
+                cap_g: &Point::generator(),
+            },
+            sender_rp,
+            &aux,
+        ) {
+            return Err(ReceiveError::protocol(Error::R5DecFailed.into()));
+        }
+
+        let expected_ids = self.context.all_ids.clone().without(from);
+        if echo_broadcast.psis.keys().cloned().collect::<BTreeSet<_>>() != expected_ids {
+            return Err(ReceiveError::protocol(Error::R5WrongIdsPsi.into()));
+        }
+
+        for (id, psi) in echo_broadcast.psis.iter() {
+            if id == &my_id {
+                continue;
+            }
+
+            let pk = &self.context.public_aux(id)?.paillier_pk;
+            if !psi.verify(
+                AffGStarPublicInputs {
+                    pk0: pk,
+                    pk1: sender_pk,
+                    cap_c: self.cap_ks.safe_get("`K` map", id)?,
+                    cap_d: self.cap_ds.safe_get("`D` map", &(id.clone(), from.clone()))?,
+                    cap_y: self.cap_fs.safe_get("`F` map", &(id.clone(), from.clone()))?,
+                    cap_x: self.cap_gammas.safe_get("`Gamma` map", from)?,
+                },
+                &aux,
+            ) {
+                return Err(ReceiveError::protocol(
+                    Error::R5AffGStarFailed { failed_for: id.clone() }.into(),
+                ));
+            }
+        }
+
+        Ok(Payload::empty())
+    }
+
+    fn finalize(
+        self,
+        _rng: &mut impl CryptoRngCore,
+        _payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
+        Err(LocalError::new(
+            "One of the messages should have been missing or invalid",
+        ))
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
+    pub(super) context: Context<P, Id>,
+    pub(super) cap_gamma_combined: Point<P>,
+    pub(super) hat_betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
+    pub(super) hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) hat_rs: BTreeMap<Id, Randomizer<P::Paillier>>,
+    pub(super) cap_ks: BTreeMap<Id, Ciphertext<P::Paillier>>, // $K_i$ for all $i$ ($i$ is locally generated, others received)
+    pub(super) cap_ss: BTreeMap<Id, Point<P>>,
+    pub(super) hat_cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{D}_{i,j}$ for $j != i$
+    pub(super) hat_cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for $j != i$
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "
+    DecProof<P>: Serialize,
+    AffGStarProof<P>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    P: for<'x> Deserialize<'x>,
+"))]
+// #[serde(bound(deserialize = "
+//     DecProof<P>: for<'x> Deserialize<'x>,
+//     AffGStarProof<P>: for<'x> Deserialize<'x>,
+// "))]
+pub(super) struct Round6EchoBroadcast<P: SchemeParams, Id: PartyId> {
+    pub(super) hat_psi_star: DecProof<P>,
+    pub(super) hat_psis: BTreeMap<Id, AffGStarProof<P>>,
+}
+
+impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
+    type Protocol = InteractiveSigningProtocol<P, Id>;
+
+    fn id(&self) -> RoundId {
+        6.into()
+    }
+
+    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
+        [].into()
+    }
+
+    fn message_destinations(&self) -> &BTreeSet<Id> {
+        &self.context.other_ids
+    }
+
+    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
+        &self.context.other_ids
+    }
+
+    fn make_echo_broadcast(
+        &self,
+        rng: &mut impl CryptoRngCore,
+        serializer: &Serializer,
+    ) -> Result<EchoBroadcast, LocalError> {
+        let my_id = self.context.my_id.clone();
+        let aux = (&self.context.epid, &my_id);
+        let pk = self.context.aux_info.secret_aux.paillier_sk.public_key();
+        let rp = &self.context.public_aux(&self.context.my_id)?.rp_params;
+
+        let ids = self.context.other_ids.clone();
+
+        let hat_cap_d = sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.hat_cap_ds.safe_get("`\\hat{D}` map", &(my_id.clone(), id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )? + sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.hat_cap_fs.safe_get("`\\hat{F}` map", &(id.clone(), my_id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )?;
+
+        let cap_k = self.cap_ks.safe_get("`K` map", &self.context.my_id)?;
+
+        let cap_xs = self.context.key_share.public_shares().clone();
+
+        let x = secret_signed_from_scalar::<P>(self.context.key_share.secret_share());
+        let full_ciphertext = cap_k * &x + &hat_cap_d;
+
+        let rho = full_ciphertext.derive_randomizer(&self.context.aux_info.secret_aux.paillier_sk);
+
+        // We could have calculated `\chi_i` as SecretSigned in Round 2, but that would require
+        // keeping all the components as SecretSigned instead of Scalar as well.
+        // Since it's only needed here it's easier to re-create it inplace.
+        let chi_signed = full_ciphertext.decrypt(&self.context.aux_info.secret_aux.paillier_sk);
+
+        let hat_psi_star = DecProof::new(
+            rng,
+            DecSecretInputs {
+                // Note: the paper has incorrect order of arguments
+                x: &x,
+                y: &chi_signed,
+                rho: &rho,
+            },
+            DecPublicInputs {
+                pk0: pk,
+                cap_k,
+                cap_x: cap_xs.safe_get("`X` map", &self.context.my_id)?,
+                cap_d: &hat_cap_d,
+                cap_s: self.cap_ss.safe_get("`S` map", &self.context.my_id)?,
+                cap_g: &self.cap_gamma_combined,
+            },
+            rp,
+            &aux,
+        );
+
+        let mut hat_psis = BTreeMap::new();
+        for id in self.context.other_ids.iter() {
+            let hat_psi = AffGStarProof::new(
+                rng,
+                AffGStarSecretInputs {
+                    x: &x,
+                    y: self.hat_betas.safe_get("`\\hat{beta}` map", id)?,
+                    rho: self.hat_ss.safe_get("`\\hat{s}` map", id)?,
+                    mu: self.hat_rs.safe_get("`\\hat{r}` map", id)?,
+                },
+                AffGStarPublicInputs {
+                    pk0: &self.context.public_aux(id)?.paillier_pk,
+                    pk1: pk,
+                    cap_c: self.cap_ks.safe_get("``K` map", id)?,
+                    cap_d: self
+                        .hat_cap_ds
+                        .safe_get("`\\hat{D}` map", &(id.clone(), my_id.clone()))?,
+                    cap_y: self
+                        .hat_cap_fs
+                        .safe_get("`\\hat{F}` map", &(id.clone(), my_id.clone()))?,
+                    cap_x: cap_xs.safe_get("`X` map", &my_id)?,
+                },
+                &aux,
+            );
+
+            assert!(hat_psi.verify(
+                AffGStarPublicInputs {
+                    pk0: &self.context.public_aux(id)?.paillier_pk,
+                    pk1: pk,
+                    cap_c: self.cap_ks.safe_get("``K` map", id)?,
+                    cap_d: self
+                        .hat_cap_ds
+                        .safe_get("`\\hat{D}` map", &(id.clone(), my_id.clone()))?,
+                    cap_y: self
+                        .hat_cap_fs
+                        .safe_get("`\\hat{F}` map", &(id.clone(), my_id.clone()))?,
+                    cap_x: cap_xs.safe_get("`X` map", &my_id)?,
+                },
+                &aux,
+            ));
+
+            hat_psis.insert(id.clone(), hat_psi);
+        }
+
+        EchoBroadcast::new(serializer, Round6EchoBroadcast::<P, Id> { hat_psi_star, hat_psis })
+    }
+
+    fn receive_message(
+        &self,
+        deserializer: &Deserializer,
+        from: &Id,
+        message: ProtocolMessage,
+    ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
+        message.normal_broadcast.assert_is_none()?;
+        message.direct_message.assert_is_none()?;
+        let echo_broadcast = message
+            .echo_broadcast
+            .deserialize::<Round6EchoBroadcast<P, Id>>(deserializer)?;
+
+        let my_id = self.context.my_id.clone();
+        let aux = (&self.context.epid, from);
+
+        let sender_pk = &self.context.public_aux(from)?.paillier_pk;
+        let sender_rp = &self.context.public_aux(from)?.rp_params;
+
+        let ids = self.context.all_ids.clone().without(from);
+
+        let hat_cap_d = sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.hat_cap_ds.safe_get("`\\hat{D}` map", &(from.clone(), id.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )? + sum_non_empty_ref(
+            ids.iter()
+                .map(|id| self.hat_cap_fs.safe_get("`\\hat{F}` map", &(id.clone(), from.clone()))),
+            LocalError::new("There must be at least two parties"),
+        )?;
+
+        let cap_xs = self.context.key_share.public_shares().clone();
+
+        if !echo_broadcast.hat_psi_star.verify(
+            DecPublicInputs {
+                pk0: sender_pk,
+                cap_k: self.cap_ks.safe_get("`K` map", from)?,
+                cap_x: cap_xs.safe_get("`X` map", from)?,
+                cap_d: &hat_cap_d,
+                cap_s: self.cap_ss.safe_get("`S` map", from)?,
+                cap_g: &self.cap_gamma_combined,
+            },
+            sender_rp,
+            &aux,
+        ) {
+            return Err(ReceiveError::protocol(Error::R6DecFailed.into()));
+        }
+
+        let expected_ids = self.context.all_ids.clone().without(from);
+        if echo_broadcast.hat_psis.keys().cloned().collect::<BTreeSet<_>>() != expected_ids {
+            return Err(ReceiveError::protocol(Error::R6WrongIdsPsi.into()));
+        }
+
+        for (id, hat_psi) in echo_broadcast.hat_psis.iter() {
+            if id == &my_id {
+                continue;
+            }
+
+            let pk = &self.context.public_aux(id)?.paillier_pk;
+            if !hat_psi.verify(
+                AffGStarPublicInputs {
+                    pk0: pk,
+                    pk1: sender_pk,
+                    cap_c: self.cap_ks.safe_get("`K` map", id)?,
+                    cap_d: self.hat_cap_ds.safe_get("`D` map", &(id.clone(), from.clone()))?,
+                    cap_y: self.hat_cap_fs.safe_get("`F` map", &(id.clone(), from.clone()))?,
+                    cap_x: cap_xs.safe_get("`X` map", from)?,
+                },
+                &aux,
+            ) {
+                return Err(ReceiveError::protocol(
+                    Error::R6AffGStarFailed { failed_for: id.clone() }.into(),
+                ));
+            }
+        }
+
+        Ok(Payload::empty())
+    }
+
+    fn finalize(
+        self,
+        _rng: &mut impl CryptoRngCore,
+        _payloads: BTreeMap<Id, Payload>,
+        _artifacts: BTreeMap<Id, Artifact>,
+    ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
         Err(LocalError::new(
             "One of the messages should have been missing or invalid",
         ))
@@ -1489,7 +2594,7 @@ mod tests {
     use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use manul::{
         dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-        session::signature::Keypair,
+        signature::Keypair,
     };
     use rand_core::{OsRng, RngCore};
 
@@ -1512,7 +2617,8 @@ mod tests {
             .into_iter()
             .map(|signer| {
                 let id = signer.verifying_key();
-                let entry_point = InteractiveSigning::new(message, key_shares[&id].clone(), aux_infos[&id].clone());
+                let entry_point =
+                    InteractiveSigning::new(message, key_shares[&id].clone(), aux_infos[&id].clone()).unwrap();
                 (signer, entry_point)
             })
             .collect();
@@ -1525,7 +2631,7 @@ mod tests {
         for signature in signatures.values() {
             let (sig, rec_id) = signature.clone().to_backend();
 
-            let vkey = key_shares[&ids[0]].verifying_key().unwrap();
+            let vkey = key_shares[&ids[0]].verifying_key();
 
             // Check that the signature can be verified
             vkey.verify_prehash(&message, &sig).unwrap();

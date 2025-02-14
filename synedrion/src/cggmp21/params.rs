@@ -4,19 +4,15 @@ use core::{fmt::Debug, ops::Add};
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{NonZero, Uint, U1024, U2048, U4096, U512, U8192};
+use crypto_bigint::{BitOps, NonZero, Uint, U1024, U2048, U4096, U512, U8192};
 use digest::generic_array::{ArrayLength, GenericArray};
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
+use k256::elliptic_curve::bigint::Uint as Other256Uint;
 use primeorder::elliptic_curve::{
-    // TODO(dp): get rid of this
-    bigint::Uint as Other256Uint,
     ops::Reduce,
     point::DecompressPoint,
-
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    Curve,
-    CurveArithmetic,
-    PrimeCurve,
+    Curve, CurveArithmetic, PrimeCurve,
 };
 use serde::{Deserialize, Serialize};
 
@@ -100,10 +96,12 @@ impl PaillierParams for PaillierTest {
     type ExtraWideUint = U4096;
 }
 
+/// Paillier parameters corresponding to 112 bits of security.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PaillierProduction;
+pub struct PaillierProduction112;
 
-impl PaillierParams for PaillierProduction {
+// Source of the values: Appendix C.1.
+impl PaillierParams for PaillierProduction112 {
     const PRIME_BITS: u32 = 1024;
     type HalfUint = U1024;
     type HalfUintMod = U1024Mod;
@@ -157,12 +155,13 @@ where
         + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>>
         + AsRef<[u8]>
         + Serialize + for<'x> Deserialize<'x>;
+        const SECURITY_BITS: usize; // $m$ in the paper
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
     const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint>;
     /// The scheme's statistical security parameter.
-    const SECURITY_PARAMETER: usize; // $\kappa$
+    const SECURITY_PARAMETER: usize; // $\kappa$ in the paper
     /// The bound for secret values.
     const L_BOUND: u32; // $\ell$, paper sets it to $\log2(q)$ (see Table 2)
     /// The error bound for secret masks.
@@ -175,6 +174,21 @@ where
     /// plus one bit (so that any curve scalar still represents a positive value
     /// when treated as a 2-complement signed integer).
     type Paillier: PaillierParams;
+
+    /// Returns ``true`` if the parameters satisfy a set of inequalities
+    /// required for them to be used for the CGGMP scheme.
+    fn are_self_consistent() -> bool {
+        // See Appendix C.1
+        Self::CURVE_ORDER.as_ref().bits_vartime() == Self::SECURITY_PARAMETER as u32
+        && Self::L_BOUND >= Self::SECURITY_PARAMETER as u32
+        && Self::EPS_BOUND >= Self::L_BOUND + Self::SECURITY_PARAMETER as u32
+        && Self::LP_BOUND >= Self::L_BOUND * 3 + Self::EPS_BOUND
+        && Self::Paillier::MODULUS_BITS >= Self::LP_BOUND + Self::EPS_BOUND
+        // This one is not mentioned in C.1, but is required by $П^{fac}$ (Fig. 26)
+        // (it says $\approx$, not $=$, but it is not clear how approximately this should hold,
+        // so to be on the safe side we require equality).
+        && Self::L_BOUND * 2 + Self::EPS_BOUND == Self::Paillier::PRIME_BITS
+    }
 }
 
 impl<P: SchemeParams> HashableType for P {
@@ -200,6 +214,7 @@ impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
     // 8*24 = 192, which is the ModulusSize-hack Bogdan put in. This should be 8.
     type HashOutput = [u8; 24];
+    const SECURITY_BITS: usize = 16;
     const SECURITY_PARAMETER: usize = 10;
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = 256;
@@ -217,16 +232,17 @@ impl SchemeParams for TestParams {
 
 /// Production strength parameters.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
-pub struct ProductionParams;
+pub struct ProductionParams112;
 
-impl SchemeParams for ProductionParams {
+impl SchemeParams for ProductionParams112 {
     type Curve = k256::Secp256k1;
     type HashOutput = [u8; 32];
-    const SECURITY_PARAMETER: usize = 80; // The value is given in Table 2 in the paper
+    const SECURITY_BITS: usize = 112;
+    const SECURITY_PARAMETER: usize = 256;
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = Self::L_BOUND * 5;
     const EPS_BOUND: u32 = Self::L_BOUND * 2;
-    type Paillier = PaillierProduction;
+    type Paillier = PaillierProduction112;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
         convert_uint(upcast_uint(Self::Curve::ORDER))
             .to_nz()
@@ -241,7 +257,7 @@ impl SchemeParams for ProductionParams {
 mod tests {
     use primeorder::elliptic_curve::bigint::{U256, U64};
 
-    use super::upcast_uint;
+    use super::{upcast_uint, ProductionParams112, SchemeParams};
 
     #[test]
     fn upcast_uint_results_in_a_bigger_type() {
@@ -264,5 +280,10 @@ mod tests {
         let n256 = U256::from_u8(8);
         let n: U256 = upcast_uint(n256);
         assert_eq!(n, n256)
+    }
+
+    #[test]
+    fn parameter_consistency() {
+        assert!(ProductionParams112::are_self_consistent());
     }
 }

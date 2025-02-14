@@ -3,7 +3,7 @@ use core::ops::{Add, Mul, Neg, Sub};
 use crypto_bigint::ConstantTimeSelect;
 use tiny_curve::TinyCurve64;
 
-use digest::Digest;
+use digest::{Digest, XofReader};
 use ecdsa::{SigningKey, VerifyingKey};
 use primeorder::elliptic_curve::{
     bigint::Encoding,
@@ -69,7 +69,7 @@ type ScalarSh<P> = <<P as SchemeParams>::Curve as CurveArithmetic>::Scalar;
 type CompressedPointSize<P> = <FieldBytesSize<<P as SchemeParams>::Curve> as ModulusSize>::CompressedPointSize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
-pub(crate) struct Scalar<P: SchemeParams>(ScalarSh<P>);
+pub(crate) struct Scalar<P: SchemeParams>(<P::Curve as CurveArithmetic>::Scalar);
 
 impl<P: SchemeParams> Scalar<P> {
     pub const ZERO: Self = Self(ScalarSh::<P>::ZERO);
@@ -84,7 +84,6 @@ impl<P: SchemeParams> Scalar<P> {
     }
 
     pub fn mul_by_generator(&self) -> Point<P> {
-        // Point::GENERATOR * self
         Point::generator() * self
     }
 
@@ -93,16 +92,16 @@ impl<P: SchemeParams> Scalar<P> {
         self.0.invert().map(Self)
     }
 
-    pub fn from_digest(d: impl Digest<OutputSize = FieldBytesSize<P::Curve>>) -> Self {
-        // There's currently no way to make the required digest output size
-        // depend on the target scalar size, so we are hardcoding it to 256 bit
-        // (that is, equal to the scalar size).
-        // Self(<BackendScalar as Reduce<U256>>::reduce_bytes(&d.finalize()))
+    pub fn from_xof_reader(reader: &mut impl XofReader) -> Self {
+        // TODO(dp): this is wrong. Must add the `HasWide` and `Default` traits to P::HashOutput and use `<P::HashOutput as HasWide>::Wide` here.
+        let mut bytes = FieldBytes::<P::Curve>::default();
+        // let mut bytes = k256::WideBytes::default();
+        reader.read(&mut bytes);
 
-        // TODO(dp): this should be much less messy. CurveArithmetic::Scalar is Reduce<Self::Uint>
-        Self(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
-            &d.finalize(),
-        ))
+        // Self(<BackendScalar as Reduce<U512>>::reduce_bytes(&bytes))
+        Self(<<P::Curve as CurveArithmetic>::Scalar as Reduce<
+            <P::Curve as Curve>::Uint, // <–– This is also wrong I think; why was this U512 before? Are k256 Scalars 512-bit? No!
+        >>::reduce_bytes(&bytes))
     }
 
     /// Convert a 32-byte hash digest into a scalar as per SEC1:
@@ -113,9 +112,12 @@ impl<P: SchemeParams> Scalar<P> {
     // TODO(dp): Have to rework this (both code and docs), can't assume 32 bytes.
     // pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
     pub fn from_reduced_bytes(bytes: impl AsRef<[u8]>) -> Self {
-        Self(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
-            bytes.as_ref().into(),
-        ))
+        Self(<<P::Curve as CurveArithmetic>::Scalar as Reduce<
+            <P::Curve as Curve>::Uint,
+        >>::reduce_bytes(bytes.as_ref().into()))
+        // Self(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
+        //     bytes.as_ref().into(),
+        // ))
     }
 
     /// Returns the SEC1 encoding of this scalar (big endian order).
@@ -448,8 +450,19 @@ where
 {
     type Output = Self;
 
-    fn mul(self, rhs: &Scalar<P>) -> Self {
+    fn mul(self, rhs: &Self) -> Self {
         Self(self.0.mul(&(rhs.0)))
+    }
+}
+
+impl<P> Mul<Scalar<P>> for &Point<P>
+where
+    P: SchemeParams,
+{
+    type Output = Point<P>;
+
+    fn mul(self, rhs: Scalar<P>) -> Self::Output {
+        Point(self.0.mul(&(rhs.0)))
     }
 }
 

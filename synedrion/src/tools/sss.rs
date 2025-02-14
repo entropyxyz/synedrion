@@ -171,7 +171,7 @@ where
     let share_ids = pairs.keys().cloned().collect::<BTreeSet<_>>();
     pairs
         .iter()
-        .map(|(share_id, val)| val * &interpolation_coeff(&share_ids, share_id))
+        .map(|(share_id, val)| val * interpolation_coeff(&share_ids, share_id))
         .sum()
 }
 

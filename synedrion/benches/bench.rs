@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-    session::signature::Keypair,
+    signature::Keypair,
 };
 use rand_core::OsRng;
 use synedrion::{AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, TestParams};
@@ -51,7 +51,8 @@ fn bench_happy_paths(c: &mut Criterion) {
                             message,
                             key_shares[&id].clone(),
                             aux_infos[&id].clone(),
-                        );
+                        )
+                        .unwrap();
                         (*signer, entry_point)
                     })
                     .collect::<Vec<_>>()
