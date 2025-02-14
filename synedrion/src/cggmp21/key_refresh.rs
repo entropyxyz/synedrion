@@ -93,26 +93,32 @@ where
 /// Provable KeyRefresh faults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
-    Error<Id>: Serialize,
+    Error<P, Id>: Serialize,
 "))]
 #[serde(bound(deserialize = "
-    Error<Id>: for<'x> Deserialize<'x>,
+    Error<P, Id>: for<'x> Deserialize<'x>,
 "))]
-pub struct KeyRefreshError<P, Id> {
-    error: Error<Id>,
-    phantom: PhantomData<P>,
+pub struct KeyRefreshError<P, Id>
+where
+    P: SchemeParams,
+{
+    error: Error<P, Id>,
 }
 
-impl<P, Id> From<Error<Id>> for KeyRefreshError<P, Id> {
-    fn from(source: Error<Id>) -> Self {
-        Self {
-            error: source,
-            phantom: PhantomData, // TODO(dp): we need it in the error source.
-        }
+impl<P, Id> From<Error<P, Id>> for KeyRefreshError<P, Id>
+where
+    P: SchemeParams,
+{
+    fn from(source: Error<P, Id>) -> Self {
+        Self { error: source }
     }
 }
 
-impl<P, Id: PartyId> Display for KeyRefreshError<P, Id> {
+impl<P, Id> Display for KeyRefreshError<P, Id>
+where
+    P: SchemeParams,
+    Id: PartyId,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
@@ -139,7 +145,11 @@ impl<P, Id: PartyId> Display for KeyRefreshError<P, Id> {
 
 /// KeyRefresh error
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum Error<Id> {
+#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>, Id: for<'x> Deserialize<'x>"))]
+enum Error<P, Id>
+where
+    P: SchemeParams,
+{
     R2HashMismatch,
     R2WrongIdsX,
     R2WrongIdsY,
@@ -151,9 +161,8 @@ enum Error<Id> {
     R3ShareChangeMismatch {
         /// The index $i$ of the node that produced the evidence.
         reported_by: Id,
-        // TODO(dp): Is it worth it to add `P: SchemeParams` just for this? It kind of cascades. EDIT: yes it is necessary.
-        // /// $y_{i,j}$, where where $j$ is the index of the guilty party.
-        // y: Scalar<P>,
+        /// $y_{i,j}$, where where $j$ is the index of the guilty party.
+        y: Scalar<P>,
     },
     R3ModFailed,
     R3FacFailed {
@@ -341,9 +350,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                 let rp_params = r2_eb.rp_params.to_precomputed();
                 verify_that(!r2_bc.psi.verify(&rp_params, &aux))
             }
-            // TODO(dp): I removed `y` here, thinking it wasn't worth the hassle of passing a P: SchemeParams just for this, but seeing this I realized it has to be there. Or make the error carry raw bytes and deserialize them here.
-            // Error::R3ShareChangeMismatch { reported_by, y } => {
-            Error::R3ShareChangeMismatch { reported_by } => {
+            Error::R3ShareChangeMismatch { reported_by, y } => {
                 // Check that `y` attached to the evidence is correct
                 // (that is, can be verified against something signed by `guilty_party`).
                 // It is `y_{i,j}` where `i == reported_by` and `j == guilty_party`
@@ -352,12 +359,11 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                     .try_get("combined echos for Round 2", reported_by)?
                     .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let cap_y_ij = r2_eb_i.cap_ys.try_get("public Elgamal values", guilty_party)?;
-                // TODO(dp): see above
-                // if &y.mul_by_generator() != cap_y_ij {
-                //     return Err(ProtocolValidationError::InvalidEvidence(
-                //         "The provided `y` is invalid".into(),
-                //     ));
-                // }
+                if &y.mul_by_generator() != cap_y_ij {
+                    return Err(ProtocolValidationError::InvalidEvidence(
+                        "The provided `y` is invalid".into(),
+                    ));
+                }
 
                 let rid = reconstruct_rid::<P, _>(deserializer, &previous_messages, &combined_echos)?;
 
@@ -370,8 +376,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                     .chain(&sid)
                     .chain(&rid)
                     .chain(guilty_party)
-                    // TODO(dp): see above
-                    // .chain(&(cap_y_ji * y))
+                    .chain(&(cap_y_ji * y))
                     .finalize_to_reader();
                 let rho = Scalar::from_xof_reader(&mut reader);
 
@@ -1056,7 +1061,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
             return Err(ReceiveError::protocol(
                 Error::R3ShareChangeMismatch {
                     reported_by: my_id.clone(),
-                    // y: *y.expose_secret(),
+                    y: *y.expose_secret(),
                 }
                 .into(),
             ));
