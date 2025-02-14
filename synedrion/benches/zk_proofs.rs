@@ -1,158 +1,144 @@
-#[cfg(feature = "private_benches")]
-mod bench {
-    use criterion::{criterion_group, Criterion};
-    use rand::SeedableRng;
-    use synedrion::private_benches::*;
-    use tracing_subscriber::EnvFilter;
+use std::sync::LazyLock;
 
-    fn bench_aff_g(c: &mut Criterion) {
-        use aff_g_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("AffG proof");
-        group.sample_size(10);
+use criterion::{criterion_group, criterion_main, Criterion};
+use rand_core::OsRng;
+use synedrion::{private_benches::*, ProductionParams112};
 
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", aff_g_proof_prove(rng));
+static KEY0: LazyLock<PreparedKey<ProductionParams112>> = LazyLock::new(|| PreparedKey::new(&mut OsRng));
 
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", aff_g_proof_verify(rng));
-    }
+static KEY1: LazyLock<PreparedKey<ProductionParams112>> = LazyLock::new(|| PreparedKey::new(&mut OsRng));
 
-    fn bench_aff_g_star(c: &mut Criterion) {
-        use aff_g_star_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("AffG* proof");
-        group.sample_size(10);
+fn bench_aff_g(c: &mut Criterion) {
+    let mut group = c.benchmark_group("AffG proof");
+    group.sample_size(20);
 
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", aff_g_star_proof_prove(rng));
+    LazyLock::force(&KEY0);
+    LazyLock::force(&KEY1);
 
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", aff_g_star_proof_verify(rng));
-    }
-
-    fn bench_dec(c: &mut Criterion) {
-        use dec_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("Dec proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", dec_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", dec_proof_verify(rng));
-    }
-
-    fn bench_elog(c: &mut Criterion) {
-        use elog_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("Elog proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", elog_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", elog_proof_verify(rng));
-    }
-
-    fn bench_enc_elg(c: &mut Criterion) {
-        use enc_elg_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("EncElg proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", enc_elg_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", enc_elg_proof_verify(rng));
-    }
-
-    fn bench_fac(c: &mut Criterion) {
-        use fac_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-
-        let mut group = c.benchmark_group("Fac proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", fac_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", fac_proof_verify(rng));
-    }
-
-    fn bench_paillier_blum_modulus(c: &mut Criterion) {
-        use paillier_blum_modulus_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("Paillier-Blum modulus proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", paillier_blum_modulus_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", paillier_blum_modulus_proof_verify(rng));
-    }
-
-    fn bench_prm(c: &mut Criterion) {
-        use prm_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("Pedersen Ring params (prm) proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", prm_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", prm_proof_verify(rng));
-    }
-
-    fn bench_sch(c: &mut Criterion) {
-        use sch_proof::*;
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .try_init();
-        let mut group = c.benchmark_group("Schnorr (sch) proof");
-        group.sample_size(10);
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("prove", sch_proof_prove(rng));
-
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
-        group.bench_function("verify", sch_proof_verify(rng));
-    }
-
-    criterion_group!(
-        benches,
-        bench_aff_g,
-        bench_aff_g_star,
-        bench_dec,
-        bench_elog,
-        bench_enc_elg,
-        bench_fac,
-        bench_paillier_blum_modulus,
-        bench_prm,
-        bench_sch
-    );
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_aff_g(&mut OsRng, &KEY0, &KEY1, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_aff_g(&mut OsRng, &KEY0, &KEY1, iters, Measure::Verification))
+    });
 }
 
-criterion::criterion_main!(bench::benches);
+fn bench_aff_g_star(c: &mut Criterion) {
+    let mut group = c.benchmark_group("AffG* proof");
+    group.sample_size(10);
+
+    LazyLock::force(&KEY0);
+    LazyLock::force(&KEY1);
+
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_aff_g_star(&mut OsRng, &KEY0, &KEY1, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_aff_g_star(&mut OsRng, &KEY0, &KEY1, iters, Measure::Verification))
+    });
+}
+
+fn bench_dec(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Dec proof");
+    group.sample_size(10);
+
+    LazyLock::force(&KEY0);
+
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_dec(&mut OsRng, &KEY0, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_dec(&mut OsRng, &KEY0, iters, Measure::Verification))
+    });
+}
+
+fn bench_elog(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Elog proof");
+
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_elog(&mut OsRng, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_elog(&mut OsRng, iters, Measure::Verification))
+    });
+}
+
+fn bench_enc_elg(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Enc-Elg proof");
+
+    LazyLock::force(&KEY0);
+
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_enc_elg(&mut OsRng, &KEY0, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_enc_elg(&mut OsRng, &KEY0, iters, Measure::Verification))
+    });
+}
+
+fn bench_fac(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Fac proof");
+
+    LazyLock::force(&KEY0);
+
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_fac(&mut OsRng, &KEY0, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_fac(&mut OsRng, &KEY0, iters, Measure::Verification))
+    });
+}
+
+fn bench_mod(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Mod proof");
+    group.sample_size(10);
+
+    LazyLock::force(&KEY0);
+
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_mod(&mut OsRng, &KEY0, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_mod(&mut OsRng, &KEY0, iters, Measure::Verification))
+    });
+}
+
+fn bench_prm(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Prm proof");
+    group.sample_size(20);
+
+    LazyLock::force(&KEY0);
+
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_prm(&mut OsRng, &KEY0, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_prm(&mut OsRng, &KEY0, iters, Measure::Verification))
+    });
+}
+
+fn bench_sch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Sch proof");
+
+    group.bench_function("prove", |b| {
+        b.iter_custom(|iters| measure_sch(&mut OsRng, iters, Measure::Creation))
+    });
+    group.bench_function("verify", |b| {
+        b.iter_custom(|iters| measure_sch(&mut OsRng, iters, Measure::Verification))
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_aff_g,
+    bench_aff_g_star,
+    bench_dec,
+    bench_elog,
+    bench_enc_elg,
+    bench_fac,
+    bench_mod,
+    bench_prm,
+    bench_sch
+);
+
+criterion_main!(benches);

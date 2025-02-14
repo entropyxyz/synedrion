@@ -19,6 +19,7 @@ pub(crate) struct ElogSecretInputs<'a, P: SchemeParams> {
     pub lambda: &'a Secret<Scalar<P>>,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct ElogPublicInputs<'a, P: SchemeParams> {
     /// Point $L = g * \lambda$, where $g$ is the curve generator.
     pub cap_l: &'a Point<P>,
@@ -154,27 +155,16 @@ mod tests {
         let h = Scalar::random(&mut OsRng).mul_by_generator();
         let cap_y = h * &y;
 
-        let proof = ElogProof::<Params>::new(
-            &mut OsRng,
-            ElogSecretInputs { y: &y, lambda: &lambda },
-            ElogPublicInputs {
-                cap_l: &cap_l,
-                cap_m: &cap_m,
-                cap_x: &cap_x,
-                cap_y: &cap_y,
-                h: &h,
-            },
-            &aux,
-        );
-        assert!(proof.verify(
-            ElogPublicInputs {
-                cap_l: &cap_l,
-                cap_m: &cap_m,
-                cap_x: &cap_x,
-                cap_y: &cap_y,
-                h: &h
-            },
-            &aux
-        ));
+        let secret = ElogSecretInputs { y: &y, lambda: &lambda };
+        let public = ElogPublicInputs {
+            cap_l: &cap_l,
+            cap_m: &cap_m,
+            cap_x: &cap_x,
+            cap_y: &cap_y,
+            h: &h,
+        };
+
+        let proof = ElogProof::<Params>::new(&mut OsRng, secret, public, &aux);
+        assert!(proof.verify(public, &aux));
     }
 }

@@ -31,6 +31,7 @@ pub struct EncElgSecretInputs<'a, P: SchemeParams> {
     pub b: &'a Secret<Scalar<P>>,
 }
 
+#[derive(Clone, Copy)]
 pub struct EncElgPublicInputs<'a, P: SchemeParams> {
     /// Paillier public key $N_0$.
     pub pk0: &'a PublicKeyPaillier<P::Paillier>,
@@ -231,33 +232,20 @@ mod tests {
         let cap_b = b.mul_by_generator();
         let cap_x = (&a * &b + secret_scalar_from_signed::<Params>(&x)).mul_by_generator();
 
-        let proof = EncElgProof::<Params>::new(
-            &mut OsRng,
-            EncElgSecretInputs {
-                x: &x,
-                rho: &rho,
-                b: &b,
-            },
-            EncElgPublicInputs {
-                pk0: pk,
-                cap_c: &cap_c,
-                cap_a: &cap_a,
-                cap_b: &cap_b,
-                cap_x: &cap_x,
-            },
-            &setup,
-            &aux,
-        );
-        assert!(proof.verify(
-            EncElgPublicInputs {
-                pk0: pk,
-                cap_c: &cap_c,
-                cap_a: &cap_a,
-                cap_b: &cap_b,
-                cap_x: &cap_x,
-            },
-            &setup,
-            &aux
-        ));
+        let secret = EncElgSecretInputs {
+            x: &x,
+            rho: &rho,
+            b: &b,
+        };
+        let public = EncElgPublicInputs {
+            pk0: pk,
+            cap_c: &cap_c,
+            cap_a: &cap_a,
+            cap_b: &cap_b,
+            cap_x: &cap_x,
+        };
+
+        let proof = EncElgProof::<Params>::new(&mut OsRng, secret, public, &setup, &aux);
+        assert!(proof.verify(public, &setup, &aux));
     }
 }
