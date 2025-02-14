@@ -155,7 +155,9 @@ where
         + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>>
         + AsRef<[u8]>
         + Serialize + for<'x> Deserialize<'x>;
-        const SECURITY_BITS: usize; // $m$ in the paper
+
+    /// The number of bits of security provided by the scheme.
+    const SECURITY_BITS: usize; // $m$ in the paper
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.

@@ -208,7 +208,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
-struct PublicData<P: SchemeParams> {
+pub(super) struct PublicData<P: SchemeParams> {
     cap_x: Point<P>,
     pub(super) cap_a: SchCommitment<P>,
     rho: BitVec,

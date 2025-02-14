@@ -1,7 +1,5 @@
 //! Dlog with El-Gamal Commitment ($\Pi^{elog}$, Section A.1, Fig. 23)
 
-use core::marker::PhantomData;
-
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
