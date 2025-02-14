@@ -3,7 +3,7 @@ use core::ops::{Add, Mul, Neg, Sub};
 use crypto_bigint::ConstantTimeSelect;
 use tiny_curve::TinyCurve64;
 
-use digest::{Digest, XofReader};
+use digest::XofReader;
 use ecdsa::{SigningKey, VerifyingKey};
 use primeorder::elliptic_curve::{
     bigint::Encoding,
@@ -133,6 +133,7 @@ impl<P: SchemeParams> Scalar<P> {
         self.0
     }
 
+    #[cfg(feature = "bip32")]
     pub fn from_signing_key(sk: &SigningKey<P::Curve>) -> Secret<Self> {
         Secret::init_with(|| Self(*sk.as_nonzero_scalar().as_ref()))
     }
@@ -148,6 +149,7 @@ impl<P: SchemeParams> Scalar<P> {
     }
 }
 
+#[cfg(feature = "bip32")]
 impl<P: SchemeParams> Secret<Scalar<P>> {
     pub fn to_signing_key(&self) -> Option<SigningKey<P::Curve>> {
         let nonzero_scalar: Secret<NonZeroScalar<_>> =

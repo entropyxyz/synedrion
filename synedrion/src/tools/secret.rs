@@ -83,7 +83,7 @@ where
     T: Zeroize + Clone + Deserialize<'de>,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Self(SecretBox::try_init_with(|| T::deserialize(deserializer))?))
+        Ok(Self::try_init_with(|| T::deserialize(deserializer))?)
     }
 }
 

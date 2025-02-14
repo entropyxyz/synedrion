@@ -22,8 +22,11 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
 }
 
 #[cfg(feature = "bip32")]
-#[test_log::test]
+// TODO(dp): why is this crashing?
+// #[test_log::test]
+#[test]
 fn full_sequence() {
+    type Params = synedrion::ProductionParams112;
     let t = 3;
     let n = 5;
     let (signers, verifiers) = make_signers(n);
@@ -35,7 +38,7 @@ fn full_sequence() {
     let entry_points = signers[..t]
         .iter()
         .map(|signer| {
-            let entry_point = KeyInit::<TestParams, TestVerifier>::new(old_holders.clone()).unwrap();
+            let entry_point = KeyInit::<Params, TestVerifier>::new(old_holders.clone()).unwrap();
             (*signer, entry_point)
         })
         .collect();
@@ -68,7 +71,7 @@ fn full_sequence() {
     // Reshare to `n` nodes
 
     // This will need to be published so that new holders can see it and verify the received data
-    let new_holder = NewHolder {
+    let new_holder = NewHolder::<Params, _> {
         verifying_key: t_key_shares[&verifiers[0]].verifying_key().unwrap(),
         old_threshold: t_key_shares[&verifiers[0]].threshold(),
         old_holders,
@@ -77,7 +80,7 @@ fn full_sequence() {
     // Old holders' sessions (which will also hold the newly reshared parts)
     let mut entry_points = (0..t)
         .map(|idx| {
-            let entry_point = KeyResharing::<TestParams, TestVerifier>::new(
+            let entry_point = KeyResharing::<Params, TestVerifier>::new(
                 Some(OldHolder {
                     key_share: t_key_shares[&verifiers[idx]].clone(),
                 }),
@@ -93,7 +96,7 @@ fn full_sequence() {
     let new_holder_entry_points = (t..n)
         .map(|idx| {
             let entry_point =
-                KeyResharing::<TestParams, TestVerifier>::new(None, Some(new_holder.clone()), all_verifiers.clone(), t);
+                KeyResharing::<Params, TestVerifier>::new(None, Some(new_holder.clone()), all_verifiers.clone(), t);
             (signers[idx], entry_point)
         })
         .collect::<Vec<_>>();
@@ -128,7 +131,7 @@ fn full_sequence() {
 
     let entry_points = (0..n)
         .map(|idx| {
-            let entry_point = AuxGen::<TestParams, TestVerifier>::new(all_verifiers.clone()).unwrap();
+            let entry_point = AuxGen::<Params, TestVerifier>::new(all_verifiers.clone()).unwrap();
             (signers[idx], entry_point)
         })
         .collect::<Vec<_>>();
