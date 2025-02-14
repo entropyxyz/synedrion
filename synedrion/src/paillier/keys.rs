@@ -120,7 +120,7 @@ where
 
         let one = Secret::init_with(|| {
             // TODO (#162): `monty_params_mod_q` is cloned here and can remain on the stack.
-            P::HalfUintMod::one(monty_params_mod_q.clone())
+            <P::HalfUintMod as Monty>::one(monty_params_mod_q.clone())
         });
         let t = (&inv_p_mod_q + &inv_p_mod_q - one).retrieve();
 

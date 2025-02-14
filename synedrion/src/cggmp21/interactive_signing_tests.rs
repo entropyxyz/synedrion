@@ -380,7 +380,7 @@ fn r2_elog_failed() {
                         cap_m: &cap_b2,
                         cap_x: &cap_y,
                         cap_y: &round2.cap_gamma,
-                        h: &Point::GENERATOR,
+                        h: &Point::generator(),
                     },
                     &aux,
                 );
@@ -441,7 +441,7 @@ fn r4_invalid_signature_share() {
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 4 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round4NormalBroadcast>(deserializer)
+                    .deserialize::<Round4NormalBroadcast<P>>(deserializer)
                     .unwrap();
                 message.sigma = Scalar::random(rng);
                 return NormalBroadcast::new(serializer, message);
@@ -464,7 +464,7 @@ fn force_round5_on_malicious_node(
         // Manually start the error round in the malicious node
 
         let round3 = round.downcast::<Round3<P, Id>>()?;
-        let payloads = payloads.downcast_all::<Round3Payload>()?;
+        let payloads = payloads.downcast_all::<Round3Payload<P>>()?;
 
         let mut deltas = payloads.map_values(|payload| payload.delta);
         deltas.insert(round3.context.my_id, round3.r3_echo_broadcast.delta);
@@ -521,7 +521,9 @@ fn r5_dec_failed() {
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 3 {
                 // Trigger the error round in lawful nodes
-                let mut message = echo_broadcast.deserialize::<Round3EchoBroadcast>(deserializer).unwrap();
+                let mut message = echo_broadcast
+                    .deserialize::<Round3EchoBroadcast<P>>(deserializer)
+                    .unwrap();
                 message.delta = Scalar::random(rng);
                 return EchoBroadcast::new(serializer, message);
             }
@@ -560,7 +562,9 @@ fn invalid_r5_messages() {
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 3 {
                 // Trigger the error round in lawful nodes
-                let mut message = echo_broadcast.deserialize::<Round3EchoBroadcast>(deserializer).unwrap();
+                let mut message = echo_broadcast
+                    .deserialize::<Round3EchoBroadcast<P>>(deserializer)
+                    .unwrap();
                 message.delta = Scalar::random(rng);
                 return EchoBroadcast::new(serializer, message);
             }
@@ -659,7 +663,7 @@ fn force_round6_on_malicious_node(
         // Manually start the error round in the malicious node
 
         let round3 = round.downcast::<Round3<P, Id>>()?;
-        let payloads = payloads.downcast_all::<Round3Payload>()?;
+        let payloads = payloads.downcast_all::<Round3Payload<P>>()?;
 
         let mut cap_ks = round3.r1_payloads.map_values_ref(|payload| payload.cap_k.clone());
         cap_ks.insert(round3.context.my_id, round3.cap_k);

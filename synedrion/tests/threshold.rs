@@ -1,14 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
 use rand_core::OsRng;
+#[cfg(feature = "bip32")]
+use synedrion::DeriveChildKey;
 use synedrion::{
-    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, TestParams,
-    ThresholdKeyShare,
+    AuxGen, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, TestParams, ThresholdKeyShare,
 };
 use tracing::info;
 
@@ -20,6 +21,7 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
     (signers, verifiers)
 }
 
+#[cfg(feature = "bip32")]
 #[test_log::test]
 fn full_sequence() {
     let t = 3;
@@ -52,11 +54,13 @@ fn full_sequence() {
 
     // Derive child shares
     let path = "m/0/2/1/4/2".parse().unwrap();
+    // TODO(dp): bip32 dependent
     let child_key_shares = t_key_shares
         .iter()
         .map(|(verifier, key_share)| (verifier, key_share.derive_bip32(&path).unwrap()))
         .collect::<BTreeMap<_, _>>();
 
+    // TODO(dp): bip32 dependent
     // The full verifying key can be obtained both from the original key shares and child key shares
     let child_vkey = t_key_shares[&verifiers[0]].derive_verifying_key_bip32(&path).unwrap();
     assert_eq!(child_vkey, child_key_shares[&verifiers[0]].verifying_key().unwrap());
@@ -113,6 +117,7 @@ fn full_sequence() {
         t_key_shares[&verifiers[0]].verifying_key().unwrap()
     );
 
+    // TODO(dp): bip32 dependent
     // Check that resharing did not change the derived child key
     let child_vkey_after_resharing = new_t_key_shares[&verifiers[0]]
         .derive_verifying_key_bip32(&path)
@@ -141,6 +146,7 @@ fn full_sequence() {
     let selected_signers = [signers[0], signers[2], signers[4]];
     let selected_parties = BTreeSet::from([verifiers[0], verifiers[2], verifiers[4]]);
     let selected_key_shares = [
+        // TODO(dp): bip32 dependent
         new_t_key_shares[&verifiers[0]]
             .derive_bip32(&path)
             .unwrap()
@@ -188,11 +194,13 @@ fn full_sequence() {
     for (_verifier, signature) in signatures {
         let (sig, rec_id) = signature.to_backend();
 
+        // TODO(dp): bip32 dependent
         // Check that the signature can be verified
         child_vkey.verify_prehash(message, &sig).unwrap();
 
         // Check that the key can be recovered
         let recovered_key = VerifyingKey::recover_from_prehash(message, &sig, rec_id).unwrap();
+        // TODO(dp): bip32 dependent
         assert_eq!(recovered_key, child_vkey);
     }
 }

@@ -48,7 +48,7 @@ pub(crate) struct AffGStarPublicInputs<'a, P: SchemeParams> {
     /// Paillier ciphertext $Y = enc_1(y, \mu)$.
     pub cap_y: &'a Ciphertext<P::Paillier>,
     /// Point $X = g^x$, where $g$ is the curve generator.
-    pub cap_x: &'a Point,
+    pub cap_x: &'a Point<P>,
 }
 
 struct AffGStarProofEphemeral<P: SchemeParams> {
@@ -59,9 +59,11 @@ struct AffGStarProofEphemeral<P: SchemeParams> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// #[serde(bound(deserialize = "for<'x> AffGStarProofCommitment<P>: Deserialize<'x>"))]
+#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
 struct AffGStarProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
-    cap_r: Point,
+    cap_r: Point<P>,
     cap_b: CiphertextWire<P::Paillier>,
 }
 
@@ -78,10 +80,11 @@ struct AffGStarProofElement<P: SchemeParams> {
     AffGStarProofCommitment<P>: Serialize,
     AffGStarProofElement<P>: Serialize,
 "))]
-#[serde(bound(deserialize = "
-    AffGStarProofCommitment<P>: for<'x> Deserialize<'x>,
-    AffGStarProofElement<P>: for<'x> Deserialize<'x>,
-"))]
+// #[serde(bound(deserialize = "
+//     AffGStarProofCommitment<P>: for<'x> Deserialize<'x>,
+//     AffGStarProofElement<P>: for<'x> Deserialize<'x>,
+// "))]
+#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
 pub(crate) struct AffGStarProof<P: SchemeParams> {
     e: BitVec,
     commitments: Box<[AffGStarProofCommitment<P>]>,

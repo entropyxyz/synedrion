@@ -851,6 +851,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "primeorder"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
+dependencies = [
+ "elliptic-curve",
+ "serdect 0.2.0",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1192,11 +1202,13 @@ dependencies = [
  "crypto-primes",
  "digest",
  "displaydoc",
+ "ecdsa",
  "hashing-serializer",
  "hex",
  "impls",
  "k256",
  "manul",
+ "primeorder",
  "rand",
  "rand_chacha",
  "rand_core",
@@ -1208,6 +1220,7 @@ dependencies = [
  "sha3",
  "signature",
  "test-log",
+ "tiny-curve",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1244,6 +1257,18 @@ checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
 dependencies = [
  "cfg-if",
  "once_cell",
+]
+
+[[package]]
+name = "tiny-curve"
+version = "0.1.0"
+source = "git+https://github.com/dvdplm/tiny-curve?branch=dp-add-pkcs8-feature#42c714627d241117cdd6a17c663bbb956e5149ff"
+dependencies = [
+ "ecdsa",
+ "num-traits",
+ "primeorder",
+ "serde",
+ "sha2",
 ]
 
 [[package]]

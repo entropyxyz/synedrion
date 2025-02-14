@@ -1,9 +1,11 @@
-use digest::{Digest, ExtendableOutput, Update};
+use digest::{Digest, ExtendableOutput, FixedOutput, Update};
+use ecdsa::hazmat::DigestPrimitive;
 use hashing_serializer::HashingSerializer;
-use serde::{Deserialize, Serialize};
-use serde_encoded_bytes::{ArrayLike, Hex};
-use sha2::Sha256;
+// TODO(dp): we're going to need these.
+use serde::Serialize;
 use sha3::{Shake256, Shake256Reader};
+
+use crate::SchemeParams;
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
@@ -33,13 +35,15 @@ pub trait Chain: Sized {
     }
 }
 
-pub(crate) type BackendDigest = Sha256;
-
 /// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub(crate) struct FofHasher(BackendDigest);
+pub(crate) struct FofHasher<P: SchemeParams>(<P::Curve as DigestPrimitive>::Digest);
 
-impl Chain for FofHasher {
-    type Digest = BackendDigest;
+impl<P> Chain for FofHasher<P>
+where
+    P: SchemeParams,
+{
+    // TODO(dp): this assoc type seems redundant given that self.0 is already a Digest.
+    type Digest = <P::Curve as DigestPrimitive>::Digest;
 
     fn as_digest_mut(&mut self) -> &mut Self::Digest {
         &mut self.0
@@ -50,29 +54,23 @@ impl Chain for FofHasher {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct HashOutput(
-    // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
-    #[serde(with = "ArrayLike::<Hex>")] pub(crate) [u8; 32],
-);
-
-impl AsRef<[u8]> for HashOutput {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl FofHasher {
+impl<P> FofHasher<P>
+where
+    P: SchemeParams,
+    // TODO(dp): How do I express that the digest output size is the same as P::HashOutput's size?
+    // <BackendDigest<P> as OutputSizeUser>::OutputSize: <P::HashOutput>::SIZE,
+{
     fn new() -> Self {
-        Self(BackendDigest::new())
+        Self(<P::Curve as DigestPrimitive>::Digest::new())
     }
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
     }
 
-    pub(crate) fn finalize(self) -> HashOutput {
-        HashOutput(self.0.finalize().into())
+    // TODO(dp): the `into()` call here is a bit sketchy. Does it work? :/
+    pub(crate) fn finalize(self) -> P::HashOutput {
+        self.0.finalize_fixed().into()
     }
 }
 

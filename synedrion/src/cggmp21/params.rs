@@ -1,15 +1,24 @@
-use core::fmt::Debug;
+use core::{fmt::Debug, ops::Add};
 
 // We're depending on a pre-release `crypto-bigint` version,
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::{BitOps, NonZero, Uint, U1024, U2048, U4096, U512, U8192};
-use k256::elliptic_curve::bigint::Uint as K256Uint;
+use digest::generic_array::{ArrayLength, GenericArray};
+use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
+use k256::elliptic_curve::bigint::Uint as Other256Uint;
+use primeorder::elliptic_curve::{
+    ops::Reduce,
+    point::DecompressPoint,
+    sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
+    Curve, CurveArithmetic, PrimeCurve,
+};
 use serde::{Deserialize, Serialize};
 
+use tiny_curve::TinyCurve64;
+
 use crate::{
-    curve::{Curve, ORDER},
     paillier::PaillierParams,
     tools::hashing::{Chain, HashableType},
     uint::{U1024Mod, U2048Mod, U4096Mod, U512Mod},
@@ -19,7 +28,7 @@ use crate::{
 pub struct PaillierTest;
 
 #[allow(clippy::indexing_slicing)]
-const fn upcast_uint<const N1: usize, const N2: usize>(value: K256Uint<N1>) -> K256Uint<N2> {
+const fn upcast_uint<const N1: usize, const N2: usize>(value: Other256Uint<N1>) -> Other256Uint<N2> {
     assert!(N2 >= N1, "Upcast target must be bigger than the upcast candidate");
     let mut result_words = [0; N2];
     let mut i = 0;
@@ -28,10 +37,10 @@ const fn upcast_uint<const N1: usize, const N2: usize>(value: K256Uint<N1>) -> K
         result_words[i] = words[i];
         i += 1;
     }
-    K256Uint::from_words(result_words)
+    Other256Uint::from_words(result_words)
 }
 
-const fn convert_uint<const N: usize>(value: K256Uint<N>) -> Uint<N> {
+const fn convert_uint<const N: usize>(value: Other256Uint<N>) -> Uint<N> {
     Uint::from_words(value.to_words())
 }
 
@@ -106,9 +115,47 @@ impl PaillierParams for PaillierProduction112 {
 /// Signing scheme parameters.
 // TODO (#27): this trait can include curve scalar/point types as well,
 // but for now they are hardcoded to `k256`.
-pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static {
-    /// Bits of security the parameters ensure.
-    const SECURITY_BITS: usize; // $m$ in the paper
+pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static
++ /*TODO(dp): the Ord bound comes from ShareId<P>, which wraps a Scalar<P>, so we can use it in BTreeMaps*/
+Ord
++ /*TODO(dp): this comes from sss.rs where ShareId used to be Copy (and the old Scalar as well). Not sure if this is a good idea or not */
+Copy
++ Serialize + for<'x> Deserialize<'x>
+where
+    // TODO(dp): This insanity all stems from the `FromEncodedPoint` bound. WTH?
+    <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
+    <Self::Curve as Curve>::FieldBytesSize: ModulusSize,
+    <<Self::Curve as Curve>::FieldBytesSize as ArrayLength<u8>>::ArrayType: Copy,
+    <<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::CompressedPointSize: Copy,
+    <<<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::CompressedPointSize as ArrayLength<u8>>::ArrayType: Copy,
+    <<<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::UncompressedPointSize as ArrayLength<u8>>::ArrayType:
+        Copy,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::Curve>,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::Curve>,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: DecompressPoint<Self::Curve>,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: VerifyPrimitive<Self::Curve>,
+    <Self::Curve as CurveArithmetic>::Scalar: Copy + SignPrimitive<Self::Curve>
+        + Ord
+        + /* TODO(dp): Shouldn't be necessary to bound on Reduce */
+        Reduce<<Self::Curve as Curve>::Uint>,
+    <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
+{
+    /// Elliptic curve of prime order used.
+    type Curve:
+        CurveArithmetic + PrimeCurve
+        /*TODO(dp): k256 doesn't implement this trait which may or may not be a problem. Is there a (good) reason for this? */
+        // + PrimeCurveParams
+        + HashableType
+        + DigestPrimitive;
+
+    // TODO(dp): I think it can be Copy. Should it?
+    /// Bla
+    type HashOutput:
+        Clone + Debug  + Send + Sync+PartialEq
+        + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>>
+        + AsRef<[u8]>
+        + Serialize + for<'x> Deserialize<'x>;
+        const SECURITY_BITS: usize; // $m$ in the paper
     /// The order of the curve.
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint>; // $q$
     /// The order of the curve as a wide integer.
@@ -146,13 +193,13 @@ pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 's
 
 impl<P: SchemeParams> HashableType for P {
     fn chain_type<C: Chain>(digest: C) -> C {
-        digest.chain_type::<Curve>()
+        digest.chain_type::<P::Curve>()
     }
 }
 
 /// Scheme parameters **for testing purposes only**.
 /// Security is weakened to allow for faster execution.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct TestParams;
 
 // Some requirements from range proofs etc:
@@ -164,43 +211,51 @@ pub struct TestParams;
 // - Range checks will fail with the probability $q / 2^\eps$, so $\eps$ should be large enough.
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
+    type Curve = TinyCurve64;
+    // 8*24 = 192, which is the ModulusSize-hack Bogdan put in. This should be 8.
+    type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
     const SECURITY_PARAMETER: usize = 10;
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = 256;
     const EPS_BOUND: u32 = 320;
     type Paillier = PaillierTest;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
-        .to_nz()
-        .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> = convert_uint(upcast_uint(ORDER))
-        .to_nz()
-        .expect("Correct by construction");
+    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
 }
 
-/// Production strength parameters corresponding to 112 bits of security.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Production strength parameters.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct ProductionParams112;
 
-// Source of the values: Appendix C.1.
 impl SchemeParams for ProductionParams112 {
+    type Curve = k256::Secp256k1;
+    type HashOutput = [u8; 32];
     const SECURITY_BITS: usize = 112;
     const SECURITY_PARAMETER: usize = 256;
     const L_BOUND: u32 = 256;
     const LP_BOUND: u32 = Self::L_BOUND * 5;
     const EPS_BOUND: u32 = Self::L_BOUND * 2;
     type Paillier = PaillierProduction112;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> = convert_uint(upcast_uint(ORDER))
-        .to_nz()
-        .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> = convert_uint(upcast_uint(ORDER))
-        .to_nz()
-        .expect("Correct by construction");
+    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
 }
 
 #[cfg(test)]
 mod tests {
-    use k256::elliptic_curve::bigint::{U256, U64};
+    use primeorder::elliptic_curve::bigint::{U256, U64};
 
     use super::{upcast_uint, ProductionParams112, SchemeParams};
 
