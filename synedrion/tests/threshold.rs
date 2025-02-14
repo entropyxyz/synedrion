@@ -1,18 +1,24 @@
+// TODO(dp): Should the bip32 feature be a default feature? Or turned on in tests?
+#[cfg(feature = "bip32")]
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(feature = "bip32")]
 use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+#[cfg(feature = "bip32")]
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
+#[cfg(feature = "bip32")]
 use rand_core::OsRng;
 #[cfg(feature = "bip32")]
-use synedrion::DeriveChildKey;
 use synedrion::{
-    AuxGen, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, TestParams, ThresholdKeyShare,
+    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, ThresholdKeyShare,
 };
+#[cfg(feature = "bip32")]
 use tracing::info;
 
+#[cfg(feature = "bip32")]
 fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
     let signers = (0..num_parties)
         .map(|idx| TestSigner::new(idx as u8))
@@ -22,9 +28,7 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
 }
 
 #[cfg(feature = "bip32")]
-// TODO(dp): why is this crashing?
-// #[test_log::test]
-#[test]
+#[test_log::test]
 fn full_sequence() {
     type Params = synedrion::ProductionParams112;
     let t = 3;
