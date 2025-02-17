@@ -1262,12 +1262,13 @@ dependencies = [
 [[package]]
 name = "tiny-curve"
 version = "0.1.0"
-source = "git+https://github.com/dvdplm/tiny-curve?branch=dp-add-pkcs8-feature#42c714627d241117cdd6a17c663bbb956e5149ff"
+source = "git+https://github.com/fjarri/tiny-curve?branch=master#bcd3010c875ba0a8527d247c4d76fa673560f162"
 dependencies = [
+ "bip32",
  "ecdsa",
+ "elliptic-curve",
  "num-traits",
  "primeorder",
- "serde",
  "sha2",
 ]
 
