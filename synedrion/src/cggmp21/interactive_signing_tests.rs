@@ -9,6 +9,7 @@ use manul::{
     },
     signature::Keypair,
 };
+use primeorder::FieldBytes;
 use rand_core::{CryptoRngCore, OsRng, RngCore};
 
 use super::{
@@ -20,6 +21,7 @@ use super::{
     },
     params::TestParams,
     sigma::{ElogProof, ElogPublicInputs, ElogSecretInputs},
+    SchemeParams,
 };
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},
@@ -32,6 +34,7 @@ use crate::{
 type Id = TestVerifier;
 type P = TestParams;
 type SP = TestSessionParams<BinaryFormat>;
+type Curve = <TestParams as SchemeParams>::Curve;
 
 #[allow(clippy::type_complexity)]
 fn make_entry_points() -> (
@@ -44,7 +47,7 @@ fn make_entry_points() -> (
     let key_shares = KeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &all_ids, None);
     let aux_infos = AuxInfo::new_centralized(&mut OsRng, &all_ids);
 
-    let mut message = [0u8; 32];
+    let mut message = FieldBytes::<Curve>::default();
     OsRng.fill_bytes(&mut message);
 
     let entry_points = signers

@@ -23,7 +23,6 @@ mod uint;
 mod www02;
 
 // Some re-exports to avoid the need for version-matching
-#[cfg(feature = "bip32")]
 pub use bip32;
 pub use signature;
 
@@ -33,7 +32,6 @@ pub use cggmp21::{
     KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, ProductionParams112, SchemeParams, TestParams,
 };
 pub use curve::RecoverableSignature;
-#[cfg(feature = "bip32")]
 pub use www02::DeriveChildKey;
 pub use www02::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
 

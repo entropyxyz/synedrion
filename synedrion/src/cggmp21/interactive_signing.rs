@@ -16,6 +16,7 @@ use manul::protocol::{
     ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
     Serializer,
 };
+use primeorder::{elliptic_curve::Curve, FieldBytes};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +45,9 @@ use crate::{
 };
 
 /// Prehashed message to sign.
-pub type PrehashedMessage = [u8; 32];
+// TODO: Type aliases are not enforced by the compiler, but it should be. Maybe one day it will?
+#[allow(type_alias_bounds)]
+pub type PrehashedMessage<C: Curve> = FieldBytes<C>;
 
 #[derive(Debug, Clone)]
 struct PresigningData<P, Id>
@@ -205,13 +208,13 @@ pub struct InteractiveSigningAssociatedData<P: SchemeParams, Id: PartyId> {
     /// Auxiliary data of all participating nodes.
     pub aux: PublicAuxInfos<P, Id>,
     /// The message to be signed.
-    pub message: PrehashedMessage,
+    pub message: PrehashedMessage<P::Curve>,
 }
 
 impl<P: SchemeParams, Id: PartyId> InteractiveSigningAssociatedData<P, Id> {
     /// Creates the associated data for evidence verification of InteractiveSigning.
     pub fn new(
-        message: PrehashedMessage,
+        message: PrehashedMessage<P::Curve>,
         public_key_shares: PublicKeyShares<P, Id>,
         public_aux_infos: PublicAuxInfos<P, Id>,
     ) -> Result<Self, LocalError> {
@@ -913,13 +916,13 @@ where
 {
     key_share: KeyShare<P, Id>,
     aux_info: AuxInfo<P, Id>,
-    message: PrehashedMessage,
+    message: PrehashedMessage<P::Curve>,
 }
 
 impl<P: SchemeParams, Id: PartyId> InteractiveSigning<P, Id> {
     /// Creates a new entry point given a share of the secret key.
     pub fn new(
-        message: PrehashedMessage,
+        message: PrehashedMessage<P::Curve>,
         key_share: KeyShare<P, Id>,
         aux_info: AuxInfo<P, Id>,
     ) -> Result<Self, LocalError> {
@@ -2596,10 +2599,15 @@ mod tests {
         dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
         signature::Keypair,
     };
+    use primeorder::FieldBytes;
     use rand_core::{OsRng, RngCore};
 
     use super::InteractiveSigning;
-    use crate::cggmp21::{AuxInfo, KeyShare, TestParams};
+    use crate::{
+        cggmp21::{AuxInfo, KeyShare, TestParams},
+        SchemeParams,
+    };
+    type Curve = <TestParams as SchemeParams>::Curve;
 
     #[test]
     fn execute_interactive_signing() {
@@ -2610,7 +2618,7 @@ mod tests {
         let key_shares = KeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, None);
         let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids_set);
 
-        let mut message = [0u8; 32];
+        let mut message = FieldBytes::<Curve>::default();
         OsRng.fill_bytes(&mut message);
 
         let entry_points = signers
@@ -2637,7 +2645,7 @@ mod tests {
             vkey.verify_prehash(&message, &sig).unwrap();
 
             // Check that the key can be recovered
-            let recovered_key = VerifyingKey::recover_from_prehash(&message, &sig, rec_id).unwrap();
+            let recovered_key = VerifyingKey::recover_from_prehash(message.as_ref(), &sig, rec_id).unwrap();
             assert_eq!(recovered_key, vkey);
         }
     }
