@@ -1,24 +1,18 @@
-// TODO(dp): Should the bip32 feature be a default feature? Or turned on in tests?
-#[cfg(feature = "bip32")]
 use std::collections::{BTreeMap, BTreeSet};
 
-#[cfg(feature = "bip32")]
 use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
-#[cfg(feature = "bip32")]
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
-#[cfg(feature = "bip32")]
+use primeorder::FieldBytes;
 use rand_core::OsRng;
-#[cfg(feature = "bip32")]
 use synedrion::{
-    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, ThresholdKeyShare,
+    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams,
+    ThresholdKeyShare,
 };
-#[cfg(feature = "bip32")]
-use tracing::info;
+use tracing::{debug, info};
 
-#[cfg(feature = "bip32")]
 fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
     let signers = (0..num_parties)
         .map(|idx| TestSigner::new(idx as u8))
@@ -27,10 +21,11 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
     (signers, verifiers)
 }
 
-#[cfg(feature = "bip32")]
 #[test_log::test]
 fn full_sequence() {
     type Params = synedrion::ProductionParams112;
+    // type Params = synedrion::TestParams;
+    let now = std::time::Instant::now();
     let t = 3;
     let n = 5;
     let (signers, verifiers) = make_signers(n);
@@ -46,7 +41,8 @@ fn full_sequence() {
             (*signer, entry_point)
         })
         .collect();
-
+    info!("Setup took {:?}", now.elapsed());
+    let now = std::time::Instant::now();
     info!("\nRunning KeyInit\n");
     let key_shares = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
@@ -61,13 +57,11 @@ fn full_sequence() {
 
     // Derive child shares
     let path = "m/0/2/1/4/2".parse().unwrap();
-    // TODO(dp): bip32 dependent
     let child_key_shares = t_key_shares
         .iter()
         .map(|(verifier, key_share)| (verifier, key_share.derive_bip32(&path).unwrap()))
         .collect::<BTreeMap<_, _>>();
 
-    // TODO(dp): bip32 dependent
     // The full verifying key can be obtained both from the original key shares and child key shares
     let child_vkey = t_key_shares[&verifiers[0]].derive_verifying_key_bip32(&path).unwrap();
     assert_eq!(child_vkey, child_key_shares[&verifiers[0]].verifying_key().unwrap());
@@ -106,7 +100,8 @@ fn full_sequence() {
         .collect::<Vec<_>>();
 
     entry_points.extend(new_holder_entry_points);
-
+    info!("KeyInit took {:?}", now.elapsed());
+    let now = std::time::Instant::now();
     info!("\nRunning KeyReshare\n");
     let new_t_key_shares = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
@@ -124,7 +119,6 @@ fn full_sequence() {
         t_key_shares[&verifiers[0]].verifying_key().unwrap()
     );
 
-    // TODO(dp): bip32 dependent
     // Check that resharing did not change the derived child key
     let child_vkey_after_resharing = new_t_key_shares[&verifiers[0]]
         .derive_verifying_key_bip32(&path)
@@ -140,11 +134,14 @@ fn full_sequence() {
         })
         .collect::<Vec<_>>();
 
-    info!("\nRunning AuxGen\n");
+    info!("KeyReshare took {:?}", now.elapsed());
+    let now = std::time::Instant::now();
+    let runsync_t = std::time::Instant::now();
     let aux_infos = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
         .results()
         .unwrap();
+    info!("run_sync AuxInfo took {:?}", runsync_t.elapsed());
 
     // For signing, we select `t` parties and these parties:
     // - derive child key shares
@@ -178,7 +175,7 @@ fn full_sequence() {
 
     // Perform signing with the key shares
 
-    let message = b"abcdefghijklmnopqrstuvwxyz123456";
+    let message = FieldBytes::<<Params as SchemeParams>::Curve>::from_slice(b"abcdefghijklmnopqrstuvwxyz123456");
 
     let entry_points = (0..3)
         .map(|idx| {
@@ -192,7 +189,9 @@ fn full_sequence() {
         })
         .collect();
 
-    info!("\nRunning InteractiveSigning\n");
+    info!("AuxGen took {:?}", now.elapsed()); // ~42 sec
+    let now = std::time::Instant::now();
+    info!("\nRunning InteractiveSigning\n"); // ~3 sec
     let signatures = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
         .results()
@@ -210,4 +209,5 @@ fn full_sequence() {
         // TODO(dp): bip32 dependent
         assert_eq!(recovered_key, child_vkey);
     }
+    info!("Done. Interactive signing took {:?}", now.elapsed());
 }
