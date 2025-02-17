@@ -5,7 +5,7 @@ use crate::{
     SchemeParams,
 };
 use alloc::vec::Vec;
-use bip32::{DerivationPath, PrivateKey as _, PrivateKeyBytes, PublicKey as _};
+use bip32::{DerivationPath, PrivateKey as _, PrivateKeyBytes};
 use digest::generic_array::ArrayLength;
 
 use digest::Digest;
@@ -13,11 +13,13 @@ use ecdsa::{
     hazmat::{DigestPrimitive, SignPrimitive},
     SigningKey, VerifyingKey,
 };
+use k256::Secp256k1;
 use primeorder::elliptic_curve::{
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    Curve, CurveArithmetic, PrimeCurve,
+    Curve, CurveArithmetic, PrimeCurve, PublicKey,
 };
 use serde::{Deserialize, Serialize};
+use tiny_curve::{PublicKeyBip32, TinyCurve64};
 
 use super::ThresholdKeyShare;
 
@@ -85,26 +87,34 @@ where
     }
 }
 
-impl<C> DeriveChildKey<C> for VerifyingKey<C>
-where
-    VerifyingKey<C>: bip32::PublicKey,
-    C: CurveArithmetic + PrimeCurve + DigestPrimitive,
-    <C as CurveArithmetic>::AffinePoint: FromEncodedPoint<C> + ToEncodedPoint<C>,
-    <C as Curve>::FieldBytesSize: ModulusSize,
-{
+impl DeriveChildKey<TinyCurve64> for VerifyingKey<TinyCurve64> {
     type Error = bip32::Error;
-    fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error> {
-        let tweaks = derive_tweaks::<C, Self::Error>(*self, derivation_path)?;
+    fn derive_verifying_key_bip32(
+        &self,
+        derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey<TinyCurve64>, bip32::Error> {
+        let pubkey: PublicKey<TinyCurve64> = self.into();
+        let wrapped_pubkey: PublicKeyBip32<TinyCurve64> = pubkey.into();
+        let tweaks = derive_tweaks::<TinyCurve64, Self::Error>(wrapped_pubkey, derivation_path)?;
+        apply_tweaks_public(wrapped_pubkey, &tweaks)
+    }
+}
+impl DeriveChildKey<Secp256k1> for VerifyingKey<Secp256k1> {
+    type Error = bip32::Error;
+    fn derive_verifying_key_bip32(
+        &self,
+        derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey<Secp256k1>, bip32::Error> {
+        let tweaks = derive_tweaks::<Secp256k1, Self::Error>(*self, derivation_path)?;
         apply_tweaks_public(*self, &tweaks)
     }
 }
 
 fn derive_tweaks<C, Err>(
-    public_key: VerifyingKey<C>,
+    public_key: impl bip32::PublicKey + Clone,
     derivation_path: &DerivationPath,
 ) -> Result<Vec<PrivateKeyBytes>, Err>
 where
-    VerifyingKey<C>: bip32::PublicKey,
     C: CurveArithmetic + PrimeCurve + DigestPrimitive,
     <C as CurveArithmetic>::AffinePoint: FromEncodedPoint<C> + ToEncodedPoint<C>,
     <C as Curve>::FieldBytesSize: ModulusSize,
@@ -112,11 +122,10 @@ where
     let mut public_key = public_key;
 
     // Note: deriving the initial chain code from public information. Is this okay? <–– PROBABLY NOT OK?
-    let pubkey_bytes = public_key.clone().as_affine().to_encoded_point(true);
-    let pubkey_bytes = pubkey_bytes.as_bytes();
+    let pubkey_bytes = public_key.to_bytes();
     let mut chain_code = <C as DigestPrimitive>::Digest::new()
         .chain_update(b"chain-code-derivation")
-        .chain_update(&pubkey_bytes)
+        .chain_update(pubkey_bytes)
         .finalize()
         .as_ref()
         .try_into()
@@ -136,18 +145,20 @@ where
 }
 
 fn apply_tweaks_public<C>(
-    public_key: VerifyingKey<C>,
+    public_key: impl bip32::PublicKey + Clone,
     tweaks: &[PrivateKeyBytes],
 ) -> Result<VerifyingKey<C>, bip32::Error>
 where
     C: CurveArithmetic + PrimeCurve,
-    VerifyingKey<C>: bip32::PublicKey,
+    <C as Curve>::FieldBytesSize: ModulusSize,
+    <C as CurveArithmetic>::AffinePoint: FromEncodedPoint<C> + ToEncodedPoint<C>,
 {
     let mut public_key = public_key;
     for tweak in tweaks {
         public_key = public_key.derive_child(*tweak)?;
     }
-    Ok(public_key)
+    // TODO(dp): not sure if this is ok. Also: map the error to something sensible.
+    VerifyingKey::from_sec1_bytes(public_key.to_bytes().as_ref()).map_err(|_e| bip32::Error::Decode)
 }
 
 fn apply_tweaks_private<C>(
