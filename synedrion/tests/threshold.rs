@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use digest::typenum::Unsigned;
 use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
-use primeorder::FieldBytes;
+use primeorder::{elliptic_curve::Curve, FieldBytes};
 use rand_core::OsRng;
 use synedrion::{
     AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams,
@@ -23,9 +24,9 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
 
 #[test_log::test]
 fn full_sequence() {
-    type Params = synedrion::ProductionParams112;
-    // TODO(dp): For this to work the bp32 stuff must work witrh the TinyCurves
-    // type Params = synedrion::TestParams;
+    // type Params = synedrion::ProductionParams112;
+    type Params = synedrion::TestParams;
+    type C = <Params as SchemeParams>::Curve;
     let now = std::time::Instant::now();
     let t = 3;
     let n = 5;
@@ -151,7 +152,6 @@ fn full_sequence() {
     let selected_signers = [signers[0], signers[2], signers[4]];
     let selected_parties = BTreeSet::from([verifiers[0], verifiers[2], verifiers[4]]);
     let selected_key_shares = [
-        // TODO(dp): bip32 dependent
         new_t_key_shares[&verifiers[0]]
             .derive_bip32(&path)
             .unwrap()
@@ -176,7 +176,8 @@ fn full_sequence() {
 
     // Perform signing with the key shares
 
-    let message = FieldBytes::<<Params as SchemeParams>::Curve>::from_slice(b"abcdefghijklmnopqrstuvwxyz123456");
+    let message =
+        FieldBytes::<C>::from_slice(&b"abcdefghijklmnopqrstuvwxyz123456"[..<C as Curve>::FieldBytesSize::USIZE]);
 
     let entry_points = (0..3)
         .map(|idx| {
