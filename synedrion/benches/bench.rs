@@ -5,13 +5,15 @@ use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
-use rand_core::OsRng;
-use synedrion::{AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, TestParams};
+use primeorder::FieldBytes;
+use rand_core::{OsRng, RngCore};
+use synedrion::{AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, SchemeParams, TestParams};
 
 fn bench_happy_paths(c: &mut Criterion) {
     let mut group = c.benchmark_group("happy path");
 
     type SessionParams = TestSessionParams<BinaryFormat>;
+    type Curve = <TestParams as SchemeParams>::Curve;
 
     let signers = (0..2).map(TestSigner::new).collect::<Vec<_>>();
     let all_ids = signers
@@ -37,7 +39,8 @@ fn bench_happy_paths(c: &mut Criterion) {
 
     let key_shares = KeyShare::new_centralized(&mut OsRng, &all_ids, None);
     let aux_infos = AuxInfo::new_centralized(&mut OsRng, &all_ids);
-    let message = [1u8; 32];
+    let mut message = FieldBytes::<Curve>::default();
+    OsRng.fill_bytes(&mut message);
 
     group.sample_size(10);
     group.bench_function("InteractiveSigning, 2 parties", |b| {
