@@ -11,7 +11,7 @@ use synedrion::{
     AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams,
     ThresholdKeyShare,
 };
-use tracing::{debug, info};
+use tracing::info;
 
 fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
     let signers = (0..num_parties)
@@ -24,6 +24,7 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
 #[test_log::test]
 fn full_sequence() {
     type Params = synedrion::ProductionParams112;
+    // TODO(dp): For this to work the bp32 stuff must work witrh the TinyCurves
     // type Params = synedrion::TestParams;
     let now = std::time::Instant::now();
     let t = 3;
