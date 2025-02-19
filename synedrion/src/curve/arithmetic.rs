@@ -109,15 +109,10 @@ impl<P: SchemeParams> Scalar<P> {
     ///
     /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
     /// is larger than the modulus.
-    // TODO(dp): Have to rework this (both code and docs), can't assume 32 bytes.
-    // pub fn from_reduced_bytes(bytes: &[u8; 32]) -> Self {
     pub fn from_reduced_bytes(bytes: impl AsRef<[u8]>) -> Self {
         Self(<<P::Curve as CurveArithmetic>::Scalar as Reduce<
             <P::Curve as Curve>::Uint,
         >>::reduce_bytes(bytes.as_ref().into()))
-        // Self(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
-        //     bytes.as_ref().into(),
-        // ))
     }
 
     /// Returns the SEC1 encoding of this scalar (big endian order).
@@ -131,10 +126,6 @@ impl<P: SchemeParams> Scalar<P> {
 
     pub(crate) fn to_backend(self) -> ScalarSh<P> {
         self.0
-    }
-
-    pub fn from_signing_key(sk: &SigningKey<P::Curve>) -> Secret<Self> {
-        Secret::init_with(|| Self(*sk.as_nonzero_scalar().as_ref()))
     }
 
     /// Attempts to instantiate a `Scalar` from a slice of bytes. Assumes big-endian order.
