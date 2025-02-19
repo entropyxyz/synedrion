@@ -9,7 +9,6 @@ use digest::generic_array::{ArrayLength, GenericArray};
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use k256::elliptic_curve::bigint::Uint as Other256Uint;
 use primeorder::elliptic_curve::{
-    ops::Reduce,
     point::DecompressPoint,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve,
@@ -113,12 +112,9 @@ impl PaillierParams for PaillierProduction112 {
 }
 
 /// Signing scheme parameters.
-// TODO (#27): this trait can include curve scalar/point types as well,
-// but for now they are hardcoded to `k256`.
-pub trait SchemeParams: Debug + Clone + Send + PartialEq + Eq + Send + Sync + 'static
-+ /*TODO(dp): the Ord bound comes from ShareId<P>, which wraps a Scalar<P>, so we can use it in BTreeMaps*/
-Ord
-+ /*TODO(dp): this comes from sss.rs where ShareId used to be Copy (and the old Scalar as well). Not sure if this is a good idea or not */
+pub trait SchemeParams:  'static + Debug + Clone + Send + PartialEq + Eq + Send + Sync
++ Ord
++ /* This comes from ShareId, Scalar and Point etc being Copy. */
 Copy
 + Serialize + for<'x> Deserialize<'x>
 where
@@ -126,32 +122,22 @@ where
     <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
     <Self::Curve as Curve>::FieldBytesSize: ModulusSize,
     <<Self::Curve as Curve>::FieldBytesSize as ArrayLength<u8>>::ArrayType: Copy,
-    <<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::CompressedPointSize: Copy,
-    <<<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::CompressedPointSize as ArrayLength<u8>>::ArrayType: Copy,
-    <<<Self::Curve as Curve>::FieldBytesSize as ModulusSize>::UncompressedPointSize as ArrayLength<u8>>::ArrayType:
-        Copy,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::Curve>,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::Curve>,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: DecompressPoint<Self::Curve>,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: VerifyPrimitive<Self::Curve>,
-    <Self::Curve as CurveArithmetic>::Scalar: Copy + SignPrimitive<Self::Curve>
-        + Ord
-        + /* TODO(dp): Shouldn't be necessary to bound on Reduce */
-        Reduce<<Self::Curve as Curve>::Uint>,
+    <Self::Curve as CurveArithmetic>::Scalar: Copy + SignPrimitive<Self::Curve> + Ord,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
 {
     /// Elliptic curve of prime order used.
-    type Curve:
-        CurveArithmetic + PrimeCurve
-        /*TODO(dp): k256 doesn't implement this trait which may or may not be a problem. Is there a (good) reason for this? */
-        // + PrimeCurveParams
+    type Curve: CurveArithmetic
+        + PrimeCurve
         + HashableType
         + DigestPrimitive;
 
     // TODO(dp): I think it can be Copy. Should it?
     /// Bla
-    type HashOutput:
-        Clone + Debug  + Send + Sync+PartialEq
+    type HashOutput: Clone + Debug  + Send + Sync+PartialEq
         + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>>
         + AsRef<[u8]>
         + Serialize + for<'x> Deserialize<'x>;

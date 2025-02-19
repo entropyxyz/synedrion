@@ -49,7 +49,7 @@ impl PubTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
 
 impl PubTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Curve> {
     fn tweakable_pk(&self) -> impl bip32::PublicKey + Clone {
-        self.clone()
+        *self
     }
 }
 
@@ -87,14 +87,15 @@ where
         for tweak in &tweaks {
             tweakable_sk = tweakable_sk.derive_child(*tweak)?;
         }
-        let secret_share = Scalar::try_from_be_bytes(tweakable_sk.to_bytes()[32 - Scalar::<P>::repr_len()..].as_ref())
-            .map_err(|e| {
-                tracing::error!(
-                    "Cannot construct scalar from {:?}. Error: {e:?}",
-                    tweakable_sk.to_bytes()
-                );
-                bip32::Error::Decode
-            })?;
+        let bytes = tweakable_sk.to_bytes();
+        let bytes = bytes.get(32 - Scalar::<P>::repr_len()..).ok_or(bip32::Error::Decode)?;
+        let secret_share = Scalar::try_from_be_bytes(bytes).map_err(|e| {
+            tracing::error!(
+                "Cannot construct scalar from {:?}. Error: {e:?}",
+                tweakable_sk.to_bytes()
+            );
+            bip32::Error::Decode
+        })?;
         let secret_share = Secret::init_with(|| secret_share);
 
         let public_shares = self
@@ -162,13 +163,16 @@ where
 
     // Note: deriving the initial chain code from public information. Is this okay? <–– PROBABLY NOT OK?
     let pubkey_bytes = public_key.to_bytes();
-    let chain_code_ref = <C as DigestPrimitive>::Digest::new()
+    let initial_chain_code = <C as DigestPrimitive>::Digest::new()
         .chain_update(b"chain-code-derivation")
         .chain_update(pubkey_bytes)
         .finalize();
     let mut chain_code: ChainCode = Default::default();
-    let len = chain_code_ref.len().min(chain_code.len());
-    chain_code[..len].copy_from_slice(chain_code_ref[..len].as_ref());
+    let len = initial_chain_code.len().min(chain_code.len());
+    chain_code
+        .get_mut(..len)
+        .ok_or(bip32::Error::Decode)?
+        .copy_from_slice(initial_chain_code.get(..len).ok_or(bip32::Error::Decode)?.as_ref());
 
     let mut tweaks = Vec::new();
     for child_number in derivation_path.iter() {
@@ -201,7 +205,9 @@ where
     for tweak in tweaks {
         public_key = public_key.derive_child(*tweak)?;
     }
-    let offset = 32 - <C as Curve>::FieldBytesSize::USIZE;
     // TODO(dp): not sure if this is ok. Also: map the error to something sensible.
-    VerifyingKey::from_sec1_bytes(public_key.to_bytes()[offset..].as_ref()).map_err(|_e| bip32::Error::Decode)
+    let offset = 32 - <C as Curve>::FieldBytesSize::USIZE;
+    let bytes = public_key.to_bytes();
+    let bytes = bytes.get(offset..).ok_or(bip32::Error::Decode)?;
+    VerifyingKey::from_sec1_bytes(bytes).map_err(|_e| bip32::Error::Decode)
 }

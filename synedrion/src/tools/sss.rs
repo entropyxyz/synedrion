@@ -16,8 +16,6 @@ use crate::{
 use primeorder::elliptic_curve::CurveArithmetic;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-// TODO(dp): Wth goes here? This "works" in isolation, but causes "overflow" when used in Round1BroadcastMessage
-// #[serde(bound(deserialize = "ShareId<P>: for<'x> Deserialize<'x>"))]
 #[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub struct ShareId<P: SchemeParams>(Scalar<P>);
 

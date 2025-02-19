@@ -79,7 +79,7 @@ impl<P: SchemeParams> SchProof<P> {
 
     pub fn verify(&self, commitment: &SchCommitment<P>, cap_x: &Point<P>, aux: &impl Hashable) -> bool {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        challenge == self.challenge && (commitment.0 + cap_x * &challenge.0) == self.proof.mul_by_generator()
+        challenge == self.challenge && (commitment.0 + cap_x * challenge.0) == self.proof.mul_by_generator()
     }
 }
 
