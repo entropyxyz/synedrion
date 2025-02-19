@@ -89,13 +89,7 @@ where
         }
         let bytes = tweakable_sk.to_bytes();
         let bytes = bytes.get(32 - Scalar::<P>::repr_len()..).ok_or(bip32::Error::Decode)?;
-        let secret_share = Scalar::try_from_be_bytes(bytes).map_err(|e| {
-            tracing::error!(
-                "Cannot construct scalar from {:?}. Error: {e:?}",
-                tweakable_sk.to_bytes()
-            );
-            bip32::Error::Decode
-        })?;
+        let secret_share = Scalar::try_from_be_bytes(bytes).map_err(|_e| bip32::Error::Decode)?;
         let secret_share = Secret::init_with(|| secret_share);
 
         let public_shares = self
@@ -176,14 +170,8 @@ where
 
     let mut tweaks = Vec::new();
     for child_number in derivation_path.iter() {
-        let (tweak, new_chain_code) = public_key
-            .derive_tweak(&chain_code, child_number)
-            .expect("TODO(dp) map the error - derive_tweak");
-        tracing::debug!("[derive_tweaks] tweak: {:?}", tweak);
-        // For this to work the `tweak` must be at least 8 bytes long AND the high bytes must all be zero, otherwise TinyCurve cannot build a scalar from it.
-        public_key = public_key
-            .derive_child(tweak)
-            .expect("TODO(dp) map the error - derive_child");
+        let (tweak, new_chain_code) = public_key.derive_tweak(&chain_code, child_number)?;
+        public_key = public_key.derive_child(tweak)?;
         tweaks.push(tweak);
         chain_code = new_chain_code;
     }
