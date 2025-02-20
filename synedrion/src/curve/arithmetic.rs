@@ -1,12 +1,12 @@
 use alloc::{format, string::String, vec, vec::Vec};
 use core::ops::{Add, Mul, Neg, Sub};
-use crypto_bigint::ConstantTimeSelect;
+#[cfg(test)]
+use tiny_curve::TinyCurve32;
 use tiny_curve::TinyCurve64;
 
 use digest::XofReader;
 use ecdsa::{SigningKey, VerifyingKey};
 use primeorder::elliptic_curve::{
-    bigint::Encoding,
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     group::{Curve as _, GroupEncoding},
     ops::Reduce,
@@ -30,18 +30,6 @@ use crate::{
     SchemeParams,
 };
 
-impl HashableType for TinyCurve64 {
-    fn chain_type<C: Chain>(digest: C) -> C {
-        let mut digest = digest;
-        // TODO(dp): pretty sure this is wrong and that this should be simpler. I think `impl<T: elliptic_curve::Curve> HashableType for T` should work.
-        digest = digest.chain(&Self::ORDER.to_le_bytes());
-
-        // TODO(dp): ProjectivePoint is not Serialize, so it's not Hashable either and I can't impl it because foreign types. Is it ok to just use the bytes here?
-        let generator_bytes = <TinyCurve64 as CurveArithmetic>::ProjectivePoint::generator().to_bytes();
-        digest.chain::<&[u8]>(&generator_bytes.as_ref())
-    }
-}
-
 impl HashableType for k256::Secp256k1 {
     fn chain_type<C: Chain>(digest: C) -> C {
         let mut digest = digest;
@@ -54,26 +42,50 @@ impl HashableType for k256::Secp256k1 {
         for word in words {
             digest = digest.chain(&word.to_le_bytes());
         }
-        // TODO(dp): ProjectivePoint is not Serialize, so it's not Hashable either and I can't impl it because foreign types. Is it ok to just use the bytes here?
+
         #[allow(deprecated)]
-        let generator_bytes: [u8; 33] = <k256::Secp256k1 as CurveArithmetic>::ProjectivePoint::generator()
-            .to_bytes()
-            // TODO(dp): it's unclear to me why `Into` works here but not for `TinyCurve64`
-            .into();
-        digest.chain(&generator_bytes.as_ref())
+        let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator().to_bytes();
+        digest.chain::<&[u8]>(&generator_bytes.as_ref())
     }
 }
 
-// TODO(dp): This is just a short-cut alias. If it stays it needs a better name.
-type ScalarSh<P> = <<P as SchemeParams>::Curve as CurveArithmetic>::Scalar;
-type CompressedPointSize<P> = <FieldBytesSize<<P as SchemeParams>::Curve> as ModulusSize>::CompressedPointSize;
+impl HashableType for TinyCurve64 {
+    fn chain_type<C: Chain>(digest: C) -> C {
+        let mut digest = digest;
+        // TODO: see the k256 implementation above.
+        let words = Self::ORDER.to_words();
+        for word in words {
+            digest = digest.chain(&word.to_le_bytes());
+        }
+
+        let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator().to_bytes();
+        digest.chain::<&[u8]>(&generator_bytes.as_ref())
+    }
+}
+
+#[cfg(test)]
+impl HashableType for TinyCurve32 {
+    fn chain_type<C: Chain>(digest: C) -> C {
+        let mut digest = digest;
+        // TODO: see the k256 implementation above.
+        let words = Self::ORDER.to_words();
+        for word in words {
+            digest = digest.chain(&word.to_le_bytes());
+        }
+
+        let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator().to_bytes();
+        digest.chain::<&[u8]>(&generator_bytes.as_ref())
+    }
+}
+
+type BackendScalar<P> = <<P as SchemeParams>::Curve as CurveArithmetic>::Scalar;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
 pub(crate) struct Scalar<P: SchemeParams>(<P::Curve as CurveArithmetic>::Scalar);
 
 impl<P: SchemeParams> Scalar<P> {
-    pub const ZERO: Self = Self(ScalarSh::<P>::ZERO);
-    pub const ONE: Self = Self(ScalarSh::<P>::ONE);
+    pub const ZERO: Self = Self(BackendScalar::<P>::ZERO);
+    pub const ONE: Self = Self(BackendScalar::<P>::ONE);
 
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self(ScalarPrimitive::<P::Curve>::random(rng).into())
@@ -92,22 +104,24 @@ impl<P: SchemeParams> Scalar<P> {
         self.0.invert().map(Self)
     }
 
+    // Problem:
+    // - we need to read twice the Scalar-length number of bytes from the XofReader and then turn that into a GenericArray of the same shape as the `Reduce` implementation in tiny-curve and k256. This should be trivial but isn't.
+    // - the second issue is that once we have a GenericArray<u8, { FieldBytesSize<P::Curve> * 2}> (fake Rust syntax), we need a Reduce impl for the wide generic array. k256 has this Reduce<U512> for this purpose, but the tiny-curves do not.
+    // Things to try:
+    // 1. Use const-generics and pass in N: usize, and M: usize sort of like what crypto-bigint does in some places
+    // 2. Another possible approach is to read twice the number of bytes and then hash them to get to the Scalar-length, then reduce. We'd need a hasher that outputs a configurable length.
     pub fn from_xof_reader(reader: &mut impl XofReader) -> Self {
-        // TODO(dp): this is wrong. Must add the `HasWide` and `Default` traits to P::HashOutput and use `<P::HashOutput as HasWide>::Wide` here.
-        let mut bytes = FieldBytes::<P::Curve>::default();
-        // let mut bytes = k256::WideBytes::default();
-        reader.read(&mut bytes);
+        let bytes = reader.read_boxed(Self::repr_len() * 1); // <– This needs to be * 2, to get twice the length, i.e. 384 bits for the tiny curves, and 512 for k256.
 
+        // The second problem is that P::Curve::Scalar needs to be Reduce<Double<FieldBytesSize<P::Curve>>> and this seems tricky.
+        Self::from_reduced_bytes(bytes)
         // Self(<BackendScalar as Reduce<U512>>::reduce_bytes(&bytes))
-        Self(<<P::Curve as CurveArithmetic>::Scalar as Reduce<
-            <P::Curve as Curve>::Uint, // <–– This is also wrong I think; why was this U512 before? Are k256 Scalars 512-bit? No!
-        >>::reduce_bytes(&bytes))
     }
 
     /// Convert a 32-byte hash digest into a scalar as per SEC1:
     /// <https://www.secg.org/sec1-v2.pdf< Section 4.1.3 steps 5-6 page 45
     ///
-    /// SEC1 specifies to subtract the secp256k1 modulus when the byte array
+    /// SEC1 specifies to subtract the curve modulus when the byte array
     /// is larger than the modulus.
     pub fn from_reduced_bytes(bytes: impl AsRef<[u8]>) -> Self {
         Self(<<P::Curve as CurveArithmetic>::Scalar as Reduce<
@@ -124,7 +138,7 @@ impl<P: SchemeParams> Scalar<P> {
         <FieldBytesSize<P::Curve> as Unsigned>::to_usize()
     }
 
-    pub(crate) fn to_backend(self) -> ScalarSh<P> {
+    pub(crate) fn to_backend(self) -> BackendScalar<P> {
         self.0
     }
 
@@ -133,7 +147,7 @@ impl<P: SchemeParams> Scalar<P> {
         let arr = GenericArray::<u8, FieldBytesSize<P::Curve>>::from_exact_iter(bytes.iter().cloned())
             .ok_or("Invalid length of a curve scalar")?;
 
-        ScalarSh::<P>::from_repr_vartime(arr)
+        BackendScalar::<P>::from_repr_vartime(arr)
             .map(Self)
             .ok_or_else(|| "Invalid curve scalar representation".into())
     }
@@ -186,29 +200,16 @@ where
     }
 }
 
-// TODO(dp): ConditionallySelectable requires Copy. We can have one but not both.
-impl<P> ConstantTimeSelect for Scalar<P>
+impl<P> ConditionallySelectable for Scalar<P>
 where
     P: SchemeParams,
 {
-    fn ct_select(a: &Self, b: &Self, choice: Choice) -> Self {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Self(<P::Curve as CurveArithmetic>::Scalar::conditional_select(
             &a.0, &b.0, choice,
         ))
     }
 }
-
-// TODO(dp): See above. Which to pick?
-// impl<P> ConditionallySelectable for Scalar<P>
-// where
-//     P: SchemeParams,
-// {
-//     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-//         Self(<P::Curve as CurveArithmetic>::Scalar::conditional_select(
-//             &a.0, &b.0, choice,
-//         ))
-//     }
-// }
 
 impl<P> Serialize for Scalar<P>
 where
@@ -244,7 +245,9 @@ where
 
     pub fn x_coordinate(&self) -> Scalar<P> {
         let bytes = self.0.to_affine().x();
-        Scalar(<ScalarSh<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(&bytes))
+        Scalar(<BackendScalar<P> as Reduce<<P::Curve as Curve>::Uint>>::reduce_bytes(
+            &bytes,
+        ))
     }
 
     pub fn from_verifying_key(key: &VerifyingKey<P::Curve>) -> Self {
@@ -267,8 +270,10 @@ where
             .ok_or_else(|| "Invalid curve point representation".into())
     }
 
-    pub(crate) fn to_compressed_array(self) -> GenericArray<u8, CompressedPointSize<P>> {
-        GenericArray::<u8, CompressedPointSize<P>>::from_exact_iter(
+    pub(crate) fn to_compressed_array(
+        self,
+    ) -> GenericArray<u8, <FieldBytesSize<P::Curve> as ModulusSize>::CompressedPointSize> {
+        GenericArray::from_exact_iter(
             self.0.to_affine().to_encoded_point(true).as_bytes().iter().cloned(),
         ).expect("An AffinePoint is composed of elements of the correct size and their slice repr fits in the `CompressedPointSize`-sized array.")
     }
@@ -311,7 +316,7 @@ where
     P: SchemeParams,
 {
     fn from(val: u64) -> Self {
-        Self(ScalarSh::<P>::from(val))
+        Self(BackendScalar::<P>::from(val))
     }
 }
 
@@ -504,7 +509,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::TestParams;
+    use crate::{cggmp21::TestParams32, TestParams};
 
     use super::Scalar;
     use rand::SeedableRng;
@@ -531,5 +536,32 @@ mod test {
 
         let s_from_le_bytes = Scalar::try_from_be_bytes(&le_bytes).expect("bytes are valid-ish");
         assert_ne!(s, s_from_le_bytes, "Using LE bytes should not work")
+    }
+
+    #[test]
+    fn to_and_from_bytes_tiny32() {
+        let mut rng = ChaChaRng::from_seed([7u8; 32]);
+        let s = Scalar::<TestParams32>::random(&mut rng);
+
+        // Round trip works
+        let bytes = s.to_be_bytes();
+        let s_from_bytes = Scalar::try_from_be_bytes(bytes.as_ref()).expect("bytes are valid");
+        assert_eq!(s, s_from_bytes);
+
+        // …but building a `Scalar` from LE bytes does not.
+        let mut bytes = bytes;
+        let le_bytes = bytes
+            .chunks_exact_mut(8)
+            .flat_map(|word_bytes| {
+                word_bytes.reverse();
+                word_bytes.to_vec()
+            })
+            .collect::<Vec<u8>>();
+
+        let s_from_le_bytes = Scalar::<TestParams32>::try_from_be_bytes(&le_bytes);
+        assert!(s_from_le_bytes.is_err());
+        assert!(s_from_le_bytes
+            .unwrap_err()
+            .contains("Invalid curve scalar representation"));
     }
 }

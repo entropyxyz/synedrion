@@ -15,6 +15,8 @@ use primeorder::elliptic_curve::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+use tiny_curve::TinyCurve32;
 use tiny_curve::TinyCurve64;
 
 use crate::{
@@ -112,35 +114,34 @@ impl PaillierParams for PaillierProduction112 {
 }
 
 /// Signing scheme parameters.
-pub trait SchemeParams:  'static + Debug + Clone + Send + PartialEq + Eq + Send + Sync
-+ Ord
-+ /* This comes from ShareId, Scalar and Point etc being Copy. */
-Copy
-+ Serialize + for<'x> Deserialize<'x>
+pub trait SchemeParams:
+    'static + Debug + Clone + Send + PartialEq + Eq + Send + Sync + Ord + Copy + Serialize + for<'x> Deserialize<'x>
 where
-    // TODO(dp): This insanity all stems from the `FromEncodedPoint` bound. WTH?
     <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
     <Self::Curve as Curve>::FieldBytesSize: ModulusSize,
     <<Self::Curve as Curve>::FieldBytesSize as ArrayLength<u8>>::ArrayType: Copy,
-    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::Curve>,
-    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::Curve>,
-    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: DecompressPoint<Self::Curve>,
-    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: VerifyPrimitive<Self::Curve>,
+    <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::Curve>
+        + FromEncodedPoint<Self::Curve>
+        + DecompressPoint<Self::Curve>
+        + VerifyPrimitive<Self::Curve>,
     <Self::Curve as CurveArithmetic>::Scalar: Copy + SignPrimitive<Self::Curve> + Ord,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
 {
-    /// Elliptic curve of prime order used.
-    type Curve: CurveArithmetic
-        + PrimeCurve
-        + HashableType
-        + DigestPrimitive;
+    /// The elliptic curve (of prime order) used.
+    type Curve: CurveArithmetic + PrimeCurve + HashableType + DigestPrimitive;
 
-    // TODO(dp): I think it can be Copy. Should it?
+    // TODO(dp): I think it can be Copy. Should it? Is this even necessary?
     /// Bla
-    type HashOutput: Clone + Debug  + Send + Sync+PartialEq
+    type HashOutput: Clone
+        + Default
+        + Debug
+        + Send
+        + Sync
+        + PartialEq
         + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>>
         + AsRef<[u8]>
-        + Serialize + for<'x> Deserialize<'x>;
+        + Serialize
+        + for<'x> Deserialize<'x>;
 
     /// The number of bits of security provided by the scheme.
     const SECURITY_BITS: usize; // $m$ in the paper
@@ -200,7 +201,30 @@ pub struct TestParams;
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
-    // 8*24 = 192, which is the ModulusSize-hack Bogdan put in. This should be 8.
+    // TODO: 8*24 = 192, this is to work around an issue with the ModulusSize-trait. This should be ideally be 8 bytes long.
+    type HashOutput = [u8; 24];
+    const SECURITY_BITS: usize = 16;
+    const SECURITY_PARAMETER: usize = 10;
+    const L_BOUND: u32 = 256;
+    const LP_BOUND: u32 = 256;
+    const EPS_BOUND: u32 = 320;
+    type Paillier = PaillierTest;
+    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
+    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
+        convert_uint(upcast_uint(Self::Curve::ORDER))
+            .to_nz()
+            .expect("Correct by construction");
+}
+
+#[cfg(test)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct TestParams32;
+#[cfg(test)]
+impl SchemeParams for TestParams32 {
+    type Curve = TinyCurve32;
     type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
     const SECURITY_PARAMETER: usize = 10;
