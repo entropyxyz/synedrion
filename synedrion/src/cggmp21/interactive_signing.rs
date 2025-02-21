@@ -2369,10 +2369,6 @@ pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
 #[serde(bound(deserialize = "
     P: for<'x> Deserialize<'x>,
 "))]
-// #[serde(bound(deserialize = "
-//     DecProof<P>: for<'x> Deserialize<'x>,
-//     AffGStarProof<P>: for<'x> Deserialize<'x>,
-// "))]
 pub(super) struct Round6EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psi_star: DecProof<P>,
     pub(super) hat_psis: BTreeMap<Id, AffGStarProof<P>>,

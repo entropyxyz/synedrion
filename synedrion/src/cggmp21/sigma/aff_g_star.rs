@@ -59,7 +59,6 @@ struct AffGStarProofEphemeral<P: SchemeParams> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-// #[serde(bound(deserialize = "for<'x> AffGStarProofCommitment<P>: Deserialize<'x>"))]
 #[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
 struct AffGStarProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
@@ -80,10 +79,6 @@ struct AffGStarProofElement<P: SchemeParams> {
     AffGStarProofCommitment<P>: Serialize,
     AffGStarProofElement<P>: Serialize,
 "))]
-// #[serde(bound(deserialize = "
-//     AffGStarProofCommitment<P>: for<'x> Deserialize<'x>,
-//     AffGStarProofElement<P>: for<'x> Deserialize<'x>,
-// "))]
 #[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
 pub(crate) struct AffGStarProof<P: SchemeParams> {
     e: BitVec,
