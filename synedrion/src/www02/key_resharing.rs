@@ -260,10 +260,6 @@ struct Round1<P: SchemeParams, I: Ord> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-// for<'x> Round1BroadcastMessage<P>: ,
-// for<'x> PublicPolynomial<P>: Deserialize<'x>,
-// for<'x> ShareId<P>: Deserialize<'x>
-// #[serde(bound(deserialize = ""))]
 #[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 struct Round1BroadcastMessage<P: SchemeParams> {
     public_polynomial: PublicPolynomial<P>,
@@ -271,8 +267,6 @@ struct Round1BroadcastMessage<P: SchemeParams> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-// TODO(dp): What is the right bound here? Whatever I put in leads to "overflow evaluating the requirement `for<'x> key_resharing::Round1DirectMessage<P>: Deserialize<'x>`"
-// #[serde(bound(deserialize = ""))]
 #[serde(bound(deserialize = "for<'x> Round1DirectMessage<P>: "))]
 struct Round1DirectMessage<P: SchemeParams> {
     subshare: Secret<Scalar<P>>,

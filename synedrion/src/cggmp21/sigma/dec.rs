@@ -53,8 +53,6 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
 
 /// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-// TODO(dp): I had just this: #[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))] –– maybe better?
-// #[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 #[serde(bound(serialize = "
     DecProofCommitment<P>: Serialize,
     DecProofElement<P>: Serialize,
@@ -62,11 +60,6 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
 #[serde(bound(deserialize = "
 	P: for<'x> Deserialize<'x>,
 "))]
-// #[serde(bound(deserialize = "
-// 	P: for<'x> Deserialize<'x>,
-//     DecProofCommitment<P>: for<'x> Deserialize<'x>,
-//     DecProofElement<P>: for<'x> Deserialize<'x>,
-// "))]
 pub(crate) struct DecProof<P: SchemeParams> {
     e: BitVec,
     commitments: Box<[DecProofCommitment<P>]>,
@@ -80,9 +73,6 @@ struct DecProofEphemeral<P: SchemeParams> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-// #[serde(bound(deserialize = "
-// 	DecProofCommitment<P>: for<'x> Deserialize<'x>
-// "))]
 #[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
 pub(crate) struct DecProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
