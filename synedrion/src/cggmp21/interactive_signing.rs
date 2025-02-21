@@ -2116,10 +2116,10 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
         let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar<P>>() + self.sigma;
 
         let signature = RecoverableSignature::from_scalars(
-            &self.presigning_data.cap_gamma_combined.x_coordinate(),
-            &assembled_sigma,
-            &self.context.key_share.verifying_key_as_point(),
-            &self.context.scalar_message,
+            self.presigning_data.cap_gamma_combined.x_coordinate(),
+            assembled_sigma,
+            self.context.key_share.verifying_key_as_point(),
+            self.context.scalar_message,
         );
 
         if let Some(signature) = signature {

@@ -126,6 +126,7 @@ where
         + VerifyPrimitive<Self::Curve>,
     <Self::Curve as CurveArithmetic>::Scalar: Copy + SignPrimitive<Self::Curve> + Ord,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
+    <<<Self::Curve as Curve>::FieldBytesSize as Add>::Output as ArrayLength<u8>>::ArrayType: Copy,
     <Self::Curve as Curve>::Uint: Concat<Output = Self::WideCurveUint>,
 {
     /// The elliptic curve (of prime order) used.
@@ -133,7 +134,7 @@ where
     /// Double the curve Scalar-width integer type.
     type WideCurveUint: primeorder::elliptic_curve::bigint::Integer
         + primeorder::elliptic_curve::bigint::Split<Output = <Self::Curve as Curve>::Uint>;
-    // TODO(dp): We should get rid of this entirely
+    // TODO: We should get rid of this entirely, along with the FofHasher. Instead generate a Box<[u8]> of length 2 * P::SECURITY_BITS and use that.
     /// Bla
     type HashOutput: Clone
         + Default

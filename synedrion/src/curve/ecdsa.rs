@@ -8,8 +8,7 @@ use rand_core::CryptoRngCore;
 use super::arithmetic::{Point, Scalar};
 
 /// A wrapper for a signature and public key recovery info.
-// TODO(dp): `Copy` would have been nice here but would require `FieldBytesSize as Add>::Output` which is possible but probably unpalatable.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct RecoverableSignature<P: SchemeParams> {
     signature: BackendSignature<P::Curve>,
     recovery_id: RecoveryId,
@@ -26,8 +25,7 @@ where
         Some(Self { signature, recovery_id })
     }
 
-    // TODO(dp): investigate call-sites of this and see if we can pass by value instead and remove the clones.
-    pub(crate) fn from_scalars(r: &Scalar<P>, s: &Scalar<P>, vkey: &Point<P>, message: &Scalar<P>) -> Option<Self> {
+    pub(crate) fn from_scalars(r: Scalar<P>, s: Scalar<P>, vkey: Point<P>, message: Scalar<P>) -> Option<Self> {
         let signature = BackendSignature::from_scalars(r.to_backend(), s.to_backend()).ok()?;
 
         // Normalize the `s` component.
