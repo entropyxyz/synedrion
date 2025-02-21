@@ -116,7 +116,7 @@ impl<P: SchemeParams> Scalar<P> {
         let uint_lo = <P::Curve as Curve>::Uint::decode_field_bytes(bytes_lo);
         let uint_hi = <P::Curve as Curve>::Uint::decode_field_bytes(bytes_hi);
         let wide_uint = uint_lo.concat(&uint_hi);
-        // TODO: When elliptic curve stack upgrades to crypto-bigint 0.6 we can use RemMixed and
+        // TODO: When the elliptic curve stack upgrades to crypto-bigint v0.6 we can use RemMixed and
         // avoid casting the ORDER to a wide.
         let wide_order =
             NonZero::new(<P::Curve as Curve>::Uint::ZERO.concat(&P::Curve::ORDER)).expect("ORDER is non-zero");
