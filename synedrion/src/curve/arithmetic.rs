@@ -1,5 +1,5 @@
 use alloc::{format, string::String, vec, vec::Vec};
-use core::ops::{Add, Mul, Neg, Sub};
+use core::ops::{Add, Mul, Neg, Rem, Sub};
 #[cfg(test)]
 use tiny_curve::TinyCurve32;
 use tiny_curve::TinyCurve64;
@@ -7,14 +7,16 @@ use tiny_curve::TinyCurve64;
 use digest::XofReader;
 use ecdsa::{SigningKey, VerifyingKey};
 use primeorder::elliptic_curve::{
+    bigint::{Concat, NonZero, Split, Zero},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     group::{Curve as _, GroupEncoding},
     ops::Reduce,
     point::AffineCoordinates,
+    scalar::FromUintUnchecked,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, Group, NonZeroScalar, PrimeField, ScalarPrimitive,
-    SecretKey,
+    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesEncoding, FieldBytesSize, Group, NonZeroScalar, PrimeField,
+    ScalarPrimitive, SecretKey,
 };
 
 use rand_core::CryptoRngCore;
@@ -104,18 +106,25 @@ impl<P: SchemeParams> Scalar<P> {
         self.0.invert().map(Self)
     }
 
-    // Problem:
-    // - we need to read twice the Scalar-length number of bytes from the XofReader and then turn that into a GenericArray of the same shape as the `Reduce` implementation in tiny-curve and k256. This should be trivial but isn't.
-    // - the second issue is that once we have a GenericArray<u8, { FieldBytesSize<P::Curve> * 2}> (fake Rust syntax), we need a Reduce impl for the wide generic array. k256 has this Reduce<U512> for this purpose, but the tiny-curves do not.
-    // Things to try:
-    // 1. Use const-generics and pass in N: usize, and M: usize sort of like what crypto-bigint does in some places
-    // 2. Another possible approach is to read twice the number of bytes and then hash them to get to the Scalar-length, then reduce. We'd need a hasher that outputs a configurable length.
+    /// Read twice the number of bytes in a curve [`Scalar`] from the [`XofReader`], then reduce
+    /// modulo the curve order to ensure a valid, unbiased scalar.
     pub fn from_xof_reader(reader: &mut impl XofReader) -> Self {
-        let bytes = reader.read_boxed(Self::repr_len() * 1); // <– This needs to be * 2, to get twice the length, i.e. 384 bits for the tiny curves, and 512 for k256.
-
-        // The second problem is that P::Curve::Scalar needs to be Reduce<Double<FieldBytesSize<P::Curve>>> and this seems tricky.
-        Self::from_reduced_bytes(bytes)
-        // Self(<BackendScalar as Reduce<U512>>::reduce_bytes(&bytes))
+        let bytes_lo = reader.read_boxed(Self::repr_len());
+        let bytes_lo = GenericArray::<_, FieldBytesSize<P::Curve>>::from_slice(&bytes_lo);
+        let bytes_hi = reader.read_boxed(Self::repr_len());
+        let bytes_hi = GenericArray::<_, FieldBytesSize<P::Curve>>::from_slice(&bytes_hi);
+        let uint_lo = <P::Curve as Curve>::Uint::decode_field_bytes(bytes_lo);
+        let uint_hi = <P::Curve as Curve>::Uint::decode_field_bytes(bytes_hi);
+        let wide_uint = uint_lo.concat(&uint_hi);
+        // TODO: When elliptic curve stack upgrades to crypto-bigint 0.6 we can use RemMixed and
+        // avoid casting the ORDER to a wide.
+        let wide_order =
+            NonZero::new(<P::Curve as Curve>::Uint::ZERO.concat(&P::Curve::ORDER)).expect("ORDER is non-zero");
+        let wide_reduced = wide_uint.rem(wide_order);
+        let (_, reduced) = wide_reduced.split();
+        debug_assert!(reduced < P::Curve::ORDER && reduced != <P::Curve as Curve>::Uint::ZERO);
+        let scalar = BackendScalar::<P>::from_uint_unchecked(reduced);
+        Self(scalar)
     }
 
     /// Convert a 32-byte hash digest into a scalar as per SEC1:
