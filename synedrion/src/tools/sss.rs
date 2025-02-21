@@ -99,9 +99,7 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-// TODO(dp): this "works" in isolation, but when a PublicPolynomial is used in Round1BroadcastMessage the deser derivation fails with "overflow"
-// #[serde(bound(deserialize = "PublicPolynomial<P>: for<'x> Deserialize<'x>"))]
-#[serde(bound(deserialize = ""))]
+#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub(crate) struct PublicPolynomial<P: SchemeParams>(Vec<Point<P>>);
 
 impl<P> PublicPolynomial<P>

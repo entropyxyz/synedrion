@@ -202,13 +202,11 @@ fn full_sequence() {
     for (_verifier, signature) in signatures {
         let (sig, rec_id) = signature.to_backend();
 
-        // TODO(dp): bip32 dependent
         // Check that the signature can be verified
         child_vkey.verify_prehash(message, &sig).unwrap();
 
         // Check that the key can be recovered
         let recovered_key = VerifyingKey::recover_from_prehash(message, &sig, rec_id).unwrap();
-        // TODO(dp): bip32 dependent
         assert_eq!(recovered_key, child_vkey);
     }
     info!("Done. Interactive signing took {:?}", now.elapsed());

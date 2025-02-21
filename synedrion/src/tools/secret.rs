@@ -6,7 +6,7 @@ use core::{
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{Choice, ConditionallyNegatable, ConditionallySelectable},
-    ConstantTimeSelect, Integer, Monty, NonZero, WrappingAdd, WrappingMul, WrappingNeg, WrappingSub,
+    Integer, Monty, NonZero, WrappingAdd, WrappingMul, WrappingNeg, WrappingSub,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -412,23 +412,12 @@ where
     }
 }
 
-// TODO(dp): Decide whether we should keep this impl or ditch it given we have ConstantTimeSelect
-// Can't implement `ConditionallySelectable` itself since it is bounded on `Copy`.
 impl<T> Secret<T>
 where
     T: Zeroize + ConditionallySelectable,
 {
     pub fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Secret::init_with(|| T::conditional_select(a.expose_secret(), b.expose_secret(), choice))
-    }
-}
-
-impl<T> ConstantTimeSelect for Secret<T>
-where
-    T: ConstantTimeSelect + Zeroize,
-{
-    fn ct_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        Secret::init_with(|| T::ct_select(a.expose_secret(), b.expose_secret(), choice))
     }
 }
 

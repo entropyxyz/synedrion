@@ -1,7 +1,6 @@
 use digest::{Digest, ExtendableOutput, FixedOutput, Update};
 use ecdsa::hazmat::DigestPrimitive;
 use hashing_serializer::HashingSerializer;
-// TODO(dp): we're going to need these.
 use serde::Serialize;
 use sha3::{Shake256, Shake256Reader};
 
@@ -9,9 +8,7 @@ use crate::SchemeParams;
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
-    type Digest: Update;
-
-    fn as_digest_mut(&mut self) -> &mut Self::Digest;
+    fn as_digest_mut(&mut self) -> &mut impl Update;
 
     /// Hash raw bytes.
     ///
@@ -42,10 +39,7 @@ impl<P> Chain for FofHasher<P>
 where
     P: SchemeParams,
 {
-    // TODO(dp): this assoc type seems redundant given that self.0 is already a Digest.
-    type Digest = <P::Curve as DigestPrimitive>::Digest;
-
-    fn as_digest_mut(&mut self) -> &mut Self::Digest {
+    fn as_digest_mut(&mut self) -> &mut impl Update {
         &mut self.0
     }
 
@@ -57,8 +51,6 @@ where
 impl<P> FofHasher<P>
 where
     P: SchemeParams,
-    // TODO(dp): How do I express that the digest output size is the same as P::HashOutput's size?
-    // <BackendDigest<P> as OutputSizeUser>::OutputSize: <P::HashOutput>::SIZE,
 {
     fn new() -> Self {
         Self(<P::Curve as DigestPrimitive>::Digest::new())
@@ -68,7 +60,6 @@ where
         Self::new().chain_bytes(dst)
     }
 
-    // TODO(dp): the `into()` call here is a bit sketchy. Does it work? :/
     pub(crate) fn finalize(self) -> P::HashOutput {
         self.0.finalize_fixed().into()
     }
@@ -78,9 +69,7 @@ where
 pub struct XofHasher(Shake256);
 
 impl Chain for XofHasher {
-    type Digest = Shake256;
-
-    fn as_digest_mut(&mut self) -> &mut Self::Digest {
+    fn as_digest_mut(&mut self) -> &mut impl Update {
         &mut self.0
     }
 

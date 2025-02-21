@@ -26,15 +26,22 @@ pub trait DeriveChildKey<C: CurveArithmetic + PrimeCurve>: Sized {
     fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error>;
 }
 
-// TODO(dp): Seal this, or at least mark no-docs, or make private.
+mod sealed {
+    use super::*;
+    pub trait Sealed {}
+    impl Sealed for VerifyingKey<tiny_curve::TinyCurve64> {}
+    impl Sealed for VerifyingKey<k256::Secp256k1> {}
+    impl Sealed for SigningKey<tiny_curve::TinyCurve64> {}
+    impl Sealed for SigningKey<k256::Secp256k1> {}
+}
+
 /// Trait for types that can derive BIP32 style "tweaks" from public keys.
-pub trait PubTweakable {
+pub trait PubTweakable: sealed::Sealed {
     fn tweakable_pk(&self) -> impl bip32::PublicKey + Clone;
 }
 
-// TODO(dp): Seal this, or at least mark no-docs, or make private.
 /// Trait for types that can derive BIP32 style "tweaks" from secret keys.
-pub trait SecretTweakable {
+pub trait SecretTweakable: sealed::Sealed {
     /// Convert `self` into something that can be used for BIP32 derivation.
     fn tweakable_sk(&self) -> impl bip32::PrivateKey + Clone;
 }
@@ -188,13 +195,11 @@ where
     <C as Curve>::FieldBytesSize: ModulusSize,
     <C as CurveArithmetic>::AffinePoint: FromEncodedPoint<C> + ToEncodedPoint<C>,
 {
-    tracing::info!("apply_tweaks_public: {:?}", public_key.to_bytes());
     let mut public_key = public_key;
     for tweak in tweaks {
         public_key = public_key.derive_child(*tweak)?;
     }
-    // TODO(dp): not sure if this is ok. Also: map the error to something sensible.
-    let offset = 32 - <C as Curve>::FieldBytesSize::USIZE;
+    let offset = bip32::KEY_SIZE - <C as Curve>::FieldBytesSize::USIZE;
     let bytes = public_key.to_bytes();
     let bytes = bytes.get(offset..).ok_or(bip32::Error::Decode)?;
     VerifyingKey::from_sec1_bytes(bytes).map_err(|_e| bip32::Error::Decode)

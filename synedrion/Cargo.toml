@@ -25,13 +25,9 @@ tracing = { version = "0.1.41", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
 rand = { version = "0.8", default-features = false }
 
-# TODO(dp): feature gate this
 tiny-curve = { version = "0.1", features = ["serde", "pkcs8", "ecdsa", "bip32"] }
-# TODO(dp): feature gate this
 k256 = { version = "0.13", default-features = false, features = ["arithmetic", "serde", "ecdsa"] }
 primeorder = { version = "0.13", features = ["serde"] }
-# TODO(dp): Cribbed from tiny-curve, but are these the right features?
-# TODO(dp): "pem" and "serde" are both needed for VerifyingKey<C> to be Serialize. Wut?
 ecdsa = { version = "0.16", default-features = false, features = ["arithmetic", "digest", "hazmat", "serde", "pem"] }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
@@ -59,8 +55,6 @@ tracing-subscriber = "0.3.19"
 
 [features]
 private_benches = ["criterion"]
-
-# TODO(dp): Do we need a default feature?
 
 [[bench]]
 bench = true

@@ -175,7 +175,6 @@ impl HasWide for U4096 {
     type Wide = U8192;
 }
 
-// TODO(dp): Suggest crypto-bigint update nlimbs! macro.
 pub type U512Mod = MontyForm<{ 512u32.div_ceil(Limb::BITS) as usize }>;
 pub type U1024Mod = MontyForm<{ 1024u32.div_ceil(Limb::BITS) as usize }>;
 pub type U2048Mod = MontyForm<{ 2048u32.div_ceil(Limb::BITS) as usize }>;

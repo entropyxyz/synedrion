@@ -1,4 +1,4 @@
-use crypto_bigint::{BitOps, ConstantTimeSelect, Encoding, Zero};
+use crypto_bigint::{BitOps, Encoding, Zero};
 
 use super::params::SchemeParams;
 use crate::{
@@ -128,5 +128,5 @@ pub(crate) fn secret_scalar_from_signed<P: SchemeParams>(
     value: &SecretSigned<<P::Paillier as PaillierParams>::Uint>,
 ) -> Secret<Scalar<P>> {
     let abs_value = secret_scalar_from_uint::<P>(&value.abs_value());
-    Secret::<Scalar<P>>::ct_select(&abs_value, &-&abs_value, value.is_negative())
+    Secret::<Scalar<P>>::conditional_select(&abs_value, &-&abs_value, value.is_negative())
 }
