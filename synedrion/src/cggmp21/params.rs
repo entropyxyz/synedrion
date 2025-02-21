@@ -275,7 +275,7 @@ impl SchemeParams for ProductionParams112 {
 mod tests {
     use super::{
         bigintv05::{U256, U64},
-        upcast_uint, ProductionParams112, SchemeParams, TestParams, TestParams32,
+        upcast_uint, ProductionParams112, SchemeParams,
     };
 
     #[test]
