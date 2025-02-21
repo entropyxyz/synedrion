@@ -125,7 +125,7 @@ where
     ) -> Result<VerifyingKey<P::Curve>, bip32::Error> {
         let public_key = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
         let tweakable_pk = public_key.tweakable_pk();
-        let tweaks = derive_tweaks::<<TestParams as SchemeParams>::Curve>(&tweakable_pk, derivation_path)?;
+        let tweaks = derive_tweaks::<<P as SchemeParams>::Curve>(&tweakable_pk, derivation_path)?;
         apply_tweaks_public(tweakable_pk, &tweaks)
     }
 }
