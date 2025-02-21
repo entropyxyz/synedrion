@@ -7,8 +7,8 @@ use core::{fmt::Debug, ops::Add};
 use crypto_bigint::{BitOps, NonZero, Uint, U1024, U2048, U4096, U512, U8192};
 use digest::generic_array::{ArrayLength, GenericArray};
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
-use k256::elliptic_curve::bigint::Uint as Other256Uint;
 use primeorder::elliptic_curve::{
+    bigint::{Concat, Uint as CurveUint},
     point::DecompressPoint,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve,
@@ -29,7 +29,7 @@ use crate::{
 pub struct PaillierTest;
 
 #[allow(clippy::indexing_slicing)]
-const fn upcast_uint<const N1: usize, const N2: usize>(value: Other256Uint<N1>) -> Other256Uint<N2> {
+const fn upcast_uint<const N1: usize, const N2: usize>(value: CurveUint<N1>) -> CurveUint<N2> {
     assert!(N2 >= N1, "Upcast target must be bigger than the upcast candidate");
     let mut result_words = [0; N2];
     let mut i = 0;
@@ -38,10 +38,10 @@ const fn upcast_uint<const N1: usize, const N2: usize>(value: Other256Uint<N1>) 
         result_words[i] = words[i];
         i += 1;
     }
-    Other256Uint::from_words(result_words)
+    CurveUint::from_words(result_words)
 }
 
-const fn convert_uint<const N: usize>(value: Other256Uint<N>) -> Uint<N> {
+const fn convert_uint<const N: usize>(value: CurveUint<N>) -> Uint<N> {
     Uint::from_words(value.to_words())
 }
 
@@ -126,11 +126,14 @@ where
         + VerifyPrimitive<Self::Curve>,
     <Self::Curve as CurveArithmetic>::Scalar: Copy + SignPrimitive<Self::Curve> + Ord,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
+    <Self::Curve as Curve>::Uint: Concat<Output = Self::WideCurveUint>,
 {
     /// The elliptic curve (of prime order) used.
     type Curve: CurveArithmetic + PrimeCurve + HashableType + DigestPrimitive;
-
-    // TODO(dp): I think it can be Copy. Should it? Is this even necessary?
+    /// Double the curve Scalar-width integer type.
+    type WideCurveUint: primeorder::elliptic_curve::bigint::Integer
+        + primeorder::elliptic_curve::bigint::Split<Output = <Self::Curve as Curve>::Uint>;
+    // TODO(dp): We should get rid of this entirely
     /// Bla
     type HashOutput: Clone
         + Default
@@ -201,6 +204,7 @@ pub struct TestParams;
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
+    type WideCurveUint = primeorder::elliptic_curve::bigint::U384;
     // TODO: 8*24 = 192, this is to work around an issue with the ModulusSize-trait. This should be ideally be 8 bytes long.
     type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
@@ -225,6 +229,7 @@ pub struct TestParams32;
 #[cfg(test)]
 impl SchemeParams for TestParams32 {
     type Curve = TinyCurve32;
+    type WideCurveUint = primeorder::elliptic_curve::bigint::U384;
     type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
     const SECURITY_PARAMETER: usize = 10;
@@ -248,6 +253,7 @@ pub struct ProductionParams112;
 
 impl SchemeParams for ProductionParams112 {
     type Curve = k256::Secp256k1;
+    type WideCurveUint = primeorder::elliptic_curve::bigint::U512;
     type HashOutput = [u8; 32];
     const SECURITY_BITS: usize = 112;
     const SECURITY_PARAMETER: usize = 256;
