@@ -688,7 +688,7 @@ checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 [[package]]
 name = "manul"
 version = "0.2.0-dev"
-source = "git+https://github.com/entropyxyz/manul.git#9810d0188d64d4fca3c95efd75e3b565c5db4233"
+source = "git+https://github.com/entropyxyz/manul.git?rev=9810d0188d64d4fca3c95efd75e3b565c5db4233#9810d0188d64d4fca3c95efd75e3b565c5db4233"
 dependencies = [
  "derive-where",
  "digest",
