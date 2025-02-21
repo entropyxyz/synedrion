@@ -2637,7 +2637,7 @@ mod tests {
             .unwrap();
 
         for signature in signatures.values() {
-            let (sig, rec_id) = signature.clone().to_backend();
+            let (sig, rec_id) = signature.to_backend();
 
             let vkey = key_shares[&ids[0]].verifying_key();
 
