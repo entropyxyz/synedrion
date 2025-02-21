@@ -28,7 +28,8 @@ fn uint_from_scalar<P: SchemeParams>(value: &Scalar<P>) -> <P::Paillier as Paill
 pub(crate) fn public_signed_from_scalar<P: SchemeParams>(
     value: &Scalar<P>,
 ) -> PublicSigned<<P::Paillier as PaillierParams>::Uint> {
-    // TODO(dp): the Integer trait from crypto-bigint v.0.5.5 does not implement BitOps so need a solution for that.
+    // TODO: When elliptic-curve upgrades to crypto-bigint v0.6 the Integer trait will implement
+    // BitOps so we can do `P::CURVE_ORDER.bits_vartime()` directly I reckon.
     let order_bits = BitOps::bits_vartime(&P::CURVE_ORDER.get());
     PublicSigned::new_positive(uint_from_scalar::<P>(value), order_bits).expect(concat![
         "a curve scalar value is smaller than the half of `PaillierParams::Uint` range, ",
