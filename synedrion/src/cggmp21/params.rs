@@ -8,7 +8,7 @@ use crypto_bigint::{BitOps, NonZero, Uint, U1024, U2048, U4096, U512, U8192};
 use digest::generic_array::{ArrayLength, GenericArray};
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use primeorder::elliptic_curve::{
-    bigint::{Concat, Uint as CurveUint},
+    bigint::{self as bigintv05, Concat, Uint as CurveUint},
     point::DecompressPoint,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve,
@@ -132,8 +132,7 @@ where
     /// The elliptic curve (of prime order) used.
     type Curve: CurveArithmetic + PrimeCurve + HashableType + DigestPrimitive;
     /// Double the curve Scalar-width integer type.
-    type WideCurveUint: primeorder::elliptic_curve::bigint::Integer
-        + primeorder::elliptic_curve::bigint::Split<Output = <Self::Curve as Curve>::Uint>;
+    type WideCurveUint: bigintv05::Integer + bigintv05::Split<Output = <Self::Curve as Curve>::Uint>;
     // TODO: We should get rid of this entirely, along with the FofHasher. Instead generate a Box<[u8]> of length 2 * P::SECURITY_BITS and use that.
     /// Bla
     type HashOutput: Clone
@@ -205,7 +204,7 @@ pub struct TestParams;
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
-    type WideCurveUint = primeorder::elliptic_curve::bigint::U384;
+    type WideCurveUint = bigintv05::U384;
     // TODO: 8*24 = 192, this is to work around an issue with the ModulusSize-trait. This should be ideally be 8 bytes long.
     type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
@@ -230,7 +229,7 @@ pub struct TestParams32;
 #[cfg(test)]
 impl SchemeParams for TestParams32 {
     type Curve = TinyCurve32;
-    type WideCurveUint = primeorder::elliptic_curve::bigint::U384;
+    type WideCurveUint = bigintv05::U384;
     type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
     const SECURITY_PARAMETER: usize = 10;
@@ -254,7 +253,7 @@ pub struct ProductionParams112;
 
 impl SchemeParams for ProductionParams112 {
     type Curve = k256::Secp256k1;
-    type WideCurveUint = primeorder::elliptic_curve::bigint::U512;
+    type WideCurveUint = bigintv05::U512;
     type HashOutput = [u8; 32];
     const SECURITY_BITS: usize = 112;
     const SECURITY_PARAMETER: usize = 256;
@@ -274,9 +273,10 @@ impl SchemeParams for ProductionParams112 {
 
 #[cfg(test)]
 mod tests {
-    use primeorder::elliptic_curve::bigint::{U256, U64};
-
-    use super::{upcast_uint, ProductionParams112, SchemeParams};
+    use super::{
+        bigintv05::{U256, U64},
+        upcast_uint, ProductionParams112, SchemeParams, TestParams, TestParams32,
+    };
 
     #[test]
     fn upcast_uint_results_in_a_bigger_type() {
@@ -304,5 +304,7 @@ mod tests {
     #[test]
     fn parameter_consistency() {
         assert!(ProductionParams112::are_self_consistent());
+        assert!(TestParams::are_self_consistent());
+        assert!(TestParams32::are_self_consistent());
     }
 }

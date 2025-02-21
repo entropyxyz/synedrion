@@ -112,7 +112,7 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 pub struct KeyShareChange<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.
-    pub(crate) secret_share_change: Secret<Scalar<P>>,
+    pub(crate) secret_share_change: Secret<Scalar<P>>, // `x_i^* - x_i == \sum_{j} x_j^i`
     /// The values to be added to the public shares of remote nodes.
     pub(crate) public_share_changes: BTreeMap<I, Point<P>>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
 }

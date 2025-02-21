@@ -45,7 +45,7 @@ use crate::{
 };
 
 /// Prehashed message to sign.
-// TODO: Type aliases are not enforced by the compiler, but it should be. Maybe one day it will?
+// TODO: Type aliases are not enforced by the compiler, but they should be. Maybe one?
 #[allow(type_alias_bounds)]
 pub type PrehashedMessage<C: Curve> = FieldBytes<C>;
 

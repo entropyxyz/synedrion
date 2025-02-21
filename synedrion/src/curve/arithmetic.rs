@@ -83,7 +83,7 @@ impl HashableType for TinyCurve32 {
 type BackendScalar<P> = <<P as SchemeParams>::Curve as CurveArithmetic>::Scalar;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Zeroize)]
-pub(crate) struct Scalar<P: SchemeParams>(<P::Curve as CurveArithmetic>::Scalar);
+pub(crate) struct Scalar<P: SchemeParams>(BackendScalar<P>);
 
 impl<P: SchemeParams> Scalar<P> {
     pub const ZERO: Self = Self(BackendScalar::<P>::ZERO);
