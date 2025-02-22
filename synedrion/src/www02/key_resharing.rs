@@ -338,7 +338,6 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         }
     }
 
-    #[allow(unused)]
     fn receive_message(
         &self,
         deserializer: &Deserializer,

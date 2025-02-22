@@ -31,8 +31,7 @@ pub use cggmp21::{
     InteractiveSigningProtocol, KeyInit, KeyInitAssociatedData, KeyInitProtocol, KeyRefresh, KeyRefreshAssociatedData,
     KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, ProductionParams112, SchemeParams, TestParams,
 };
-pub use curve::RecoverableSignature;
-pub use www02::DeriveChildKey;
+pub use curve::{DeriveChildKey, RecoverableSignature};
 pub use www02::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
 
 #[cfg(feature = "private_benches")]

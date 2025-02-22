@@ -15,8 +15,6 @@ use primeorder::elliptic_curve::{
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
-use tiny_curve::TinyCurve32;
 use tiny_curve::TinyCurve64;
 
 use crate::{
@@ -223,30 +221,6 @@ impl SchemeParams for TestParams {
             .expect("Correct by construction");
 }
 
-#[cfg(test)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct TestParams32;
-#[cfg(test)]
-impl SchemeParams for TestParams32 {
-    type Curve = TinyCurve32;
-    type WideCurveUint = bigintv05::U384;
-    type HashOutput = [u8; 24];
-    const SECURITY_BITS: usize = 16;
-    const SECURITY_PARAMETER: usize = 10;
-    const L_BOUND: u32 = 256;
-    const LP_BOUND: u32 = 256;
-    const EPS_BOUND: u32 = 320;
-    type Paillier = PaillierTest;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        convert_uint(upcast_uint(Self::Curve::ORDER))
-            .to_nz()
-            .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        convert_uint(upcast_uint(Self::Curve::ORDER))
-            .to_nz()
-            .expect("Correct by construction");
-}
-
 /// Production strength parameters.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct ProductionParams112;
@@ -306,6 +280,5 @@ mod tests {
         assert!(ProductionParams112::are_self_consistent());
         // TODO: These are not consistent right now.
         // assert!(TestParams::are_self_consistent());
-        // assert!(TestParams32::are_self_consistent());
     }
 }

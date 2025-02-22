@@ -13,7 +13,6 @@ use crate::{
     tools::Secret,
     SchemeParams,
 };
-use primeorder::elliptic_curve::CurveArithmetic;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
@@ -133,7 +132,6 @@ where
 pub(crate) fn interpolation_coeff<P>(share_ids: &BTreeSet<ShareId<P>>, share_id: &ShareId<P>) -> Scalar<P>
 where
     P: SchemeParams,
-    <P::Curve as CurveArithmetic>::Scalar: Copy,
 {
     share_ids
         .iter()

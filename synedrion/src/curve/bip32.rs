@@ -1,5 +1,3 @@
-use core::fmt::Debug;
-
 use crate::{
     curve::{Point, Scalar},
     tools::Secret,
@@ -11,14 +9,14 @@ use bip32::{ChainCode, DerivationPath, PrivateKey as _, PrivateKeyBytes};
 use digest::typenum::Unsigned;
 use digest::Digest;
 use ecdsa::{hazmat::DigestPrimitive, SigningKey, VerifyingKey};
+use manul::protocol::PartyId;
 use primeorder::elliptic_curve::{
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve, PublicKey, SecretKey,
 };
-use serde::{Deserialize, Serialize};
 use tiny_curve::{PrivateKeyBip32, PublicKeyBip32};
 
-use super::ThresholdKeyShare;
+use crate::www02::ThresholdKeyShare;
 
 /// Used for deriving child keys from a parent type.
 pub trait DeriveChildKey<C: CurveArithmetic + PrimeCurve>: Sized {
@@ -80,7 +78,7 @@ where
     P: SchemeParams,
     VerifyingKey<P::Curve>: PubTweakable,
     SigningKey<P::Curve>: SecretTweakable,
-    I: Clone + Ord + PartialEq + Debug + Serialize + for<'x> Deserialize<'x>,
+    I: PartyId,
 {
     /// Deterministically derives a child share using BIP-32 standard.
     pub fn derive_bip32(&self, derivation_path: &DerivationPath) -> Result<Self, bip32::Error> {
@@ -123,7 +121,7 @@ where
 impl<P, I> DeriveChildKey<P::Curve> for ThresholdKeyShare<P, I>
 where
     P: SchemeParams,
-    I: Clone + Ord + PartialEq + Debug + Serialize + for<'x> Deserialize<'x>,
+    I: PartyId,
     VerifyingKey<P::Curve>: PubTweakable,
 {
     fn derive_verifying_key_bip32(

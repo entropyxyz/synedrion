@@ -3,7 +3,7 @@ use alloc::{
     format,
 };
 use core::fmt::Debug;
-use manul::session::LocalError;
+use manul::{protocol::PartyId, session::LocalError};
 
 use ecdsa::{SigningKey, VerifyingKey};
 use rand_core::CryptoRngCore;
@@ -35,7 +35,7 @@ pub struct ThresholdKeyShare<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> 
 impl<P, I> ThresholdKeyShare<P, I>
 where
     P: SchemeParams,
-    I: Clone + Ord + PartialEq + Debug + Serialize + for<'x> Deserialize<'x>,
+    I: PartyId,
 {
     /// Threshold share ID.
     pub fn share_id(&self) -> Result<&ShareId<P>, LocalError> {

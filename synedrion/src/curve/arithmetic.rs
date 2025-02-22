@@ -1,8 +1,5 @@
 use alloc::{format, string::String, vec, vec::Vec};
 use core::ops::{Add, Mul, Neg, Rem, Sub};
-#[cfg(test)]
-use tiny_curve::TinyCurve32;
-use tiny_curve::TinyCurve64;
 
 use digest::XofReader;
 use ecdsa::{SigningKey, VerifyingKey};
@@ -51,7 +48,7 @@ impl HashableType for k256::Secp256k1 {
     }
 }
 
-impl HashableType for TinyCurve64 {
+impl HashableType for tiny_curve::TinyCurve64 {
     fn chain_type<C: Chain>(digest: C) -> C {
         let mut digest = digest;
         // TODO: see the k256 implementation above.
@@ -66,7 +63,7 @@ impl HashableType for TinyCurve64 {
 }
 
 #[cfg(test)]
-impl HashableType for TinyCurve32 {
+impl HashableType for tiny_curve::TinyCurve32 {
     fn chain_type<C: Chain>(digest: C) -> C {
         let mut digest = digest;
         // TODO: see the k256 implementation above.
@@ -518,7 +515,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{cggmp21::TestParams32, TestParams};
+    use crate::TestParams;
 
     use super::Scalar;
     use rand::SeedableRng;
@@ -545,32 +542,5 @@ mod test {
 
         let s_from_le_bytes = Scalar::try_from_be_bytes(&le_bytes).expect("bytes are valid-ish");
         assert_ne!(s, s_from_le_bytes, "Using LE bytes should not work")
-    }
-
-    #[test]
-    fn to_and_from_bytes_tiny32() {
-        let mut rng = ChaChaRng::from_seed([7u8; 32]);
-        let s = Scalar::<TestParams32>::random(&mut rng);
-
-        // Round trip works
-        let bytes = s.to_be_bytes();
-        let s_from_bytes = Scalar::try_from_be_bytes(bytes.as_ref()).expect("bytes are valid");
-        assert_eq!(s, s_from_bytes);
-
-        // …but building a `Scalar` from LE bytes does not.
-        let mut bytes = bytes;
-        let le_bytes = bytes
-            .chunks_exact_mut(8)
-            .flat_map(|word_bytes| {
-                word_bytes.reverse();
-                word_bytes.to_vec()
-            })
-            .collect::<Vec<u8>>();
-
-        let s_from_le_bytes = Scalar::<TestParams32>::try_from_be_bytes(&le_bytes);
-        assert!(s_from_le_bytes.is_err());
-        assert!(s_from_le_bytes
-            .unwrap_err()
-            .contains("Invalid curve scalar representation"));
     }
 }
