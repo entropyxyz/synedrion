@@ -4,9 +4,8 @@ use crate::{
     ProductionParams112, SchemeParams, TestParams,
 };
 use alloc::vec::Vec;
-use bip32::{ChainCode, DerivationPath, PrivateKey as _, PrivateKeyBytes};
+use bip32::{ChainCode, DerivationPath, PrivateKey as _, PrivateKeyBytes, PublicKey as _};
 
-use digest::typenum::Unsigned;
 use digest::Digest;
 use ecdsa::{hazmat::DigestPrimitive, SigningKey, VerifyingKey};
 use manul::protocol::PartyId;
@@ -35,41 +34,64 @@ mod sealed {
 
 /// Trait for types that can derive BIP32 style "tweaks" from public keys.
 pub trait PublicTweakable: sealed::Sealed {
-    fn tweakable_pk(&self) -> impl bip32::PublicKey + Clone;
+    type Bip32Pk: bip32::PublicKey + Clone;
+    fn tweakable_pk(&self) -> Self::Bip32Pk;
+    fn convert_back(pk: &Self::Bip32Pk) -> Self;
 }
 
 /// Trait for types that can derive BIP32 style "tweaks" from secret keys.
 pub trait SecretTweakable: sealed::Sealed {
+    type Bip32Sk: bip32::PrivateKey + Clone;
     /// Convert `self` into something that can be used for BIP32 derivation.
-    fn tweakable_sk(&self) -> impl bip32::PrivateKey + Clone;
+    fn tweakable_sk(&self) -> Self::Bip32Sk;
+    fn convert_back(pk: &Self::Bip32Sk) -> Self;
 }
 
 impl PublicTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
-    fn tweakable_pk(&self) -> impl bip32::PublicKey + Clone {
+    type Bip32Pk = PublicKeyBip32<<TestParams as SchemeParams>::Curve>;
+    fn tweakable_pk(&self) -> Self::Bip32Pk {
         let pk: PublicKey<_> = self.into();
         let wrapped_pk: PublicKeyBip32<_> = pk.into();
         wrapped_pk
     }
+    fn convert_back(pk: &Self::Bip32Pk) -> Self {
+        VerifyingKey::from(pk.as_ref())
+    }
 }
 
 impl PublicTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Curve> {
-    fn tweakable_pk(&self) -> impl bip32::PublicKey + Clone {
+    type Bip32Pk = VerifyingKey<<ProductionParams112 as SchemeParams>::Curve>;
+    fn tweakable_pk(&self) -> Self::Bip32Pk {
         *self
+    }
+    fn convert_back(pk: &Self::Bip32Pk) -> Self {
+        *pk
     }
 }
 
 impl SecretTweakable for SigningKey<<TestParams as SchemeParams>::Curve> {
-    fn tweakable_sk(&self) -> impl bip32::PrivateKey + Clone {
+    type Bip32Sk = PrivateKeyBip32<<TestParams as SchemeParams>::Curve>;
+
+    fn tweakable_sk(&self) -> Self::Bip32Sk {
         let sk: SecretKey<_> = self.into();
         let wrapped_sk: PrivateKeyBip32<_> = sk.into();
         wrapped_sk
     }
+
+    fn convert_back(sk: &Self::Bip32Sk) -> Self {
+        SigningKey::from(sk.as_ref())
+    }
 }
 
 impl SecretTweakable for SigningKey<<ProductionParams112 as SchemeParams>::Curve> {
-    fn tweakable_sk(&self) -> impl bip32::PrivateKey + Clone {
-        let sk: SecretKey<_> = self.into();
-        sk
+    type Bip32Sk = SigningKey<<ProductionParams112 as SchemeParams>::Curve>;
+
+    fn tweakable_sk(&self) -> Self::Bip32Sk {
+        self.clone()
+    }
+
+    fn convert_back(sk: &Self::Bip32Sk) -> Self {
+        sk.clone()
     }
 }
 
@@ -92,10 +114,8 @@ where
         for tweak in &tweaks {
             tweakable_sk = tweakable_sk.derive_child(*tweak)?;
         }
-        let bytes = tweakable_sk.to_bytes();
-        let bytes = bytes.get(32 - Scalar::<P>::repr_len()..).ok_or(bip32::Error::Decode)?;
-        let secret_share = Scalar::try_from_be_bytes(bytes).map_err(|_e| bip32::Error::Decode)?;
-        let secret_share = Secret::init_with(|| secret_share);
+        let sk: SigningKey<P::Curve> = SecretTweakable::convert_back(&tweakable_sk);
+        let secret_share = Secret::init_with(|| Scalar::new(sk.as_nonzero_scalar().as_ref().clone()));
 
         let public_shares = self
             .public_shares
@@ -104,7 +124,7 @@ where
             .map(|(id, point)|
             // Will fail here if the final or one of the intermediate points is an identity
             point.to_verifying_key().ok_or(bip32::Error::Crypto)
-                .and_then(|vkey| apply_tweaks_public(vkey.tweakable_pk(), &tweaks))
+                .and_then(|vkey| apply_tweaks_public(&vkey, &tweaks))
                 .map(|vkey| (id, Point::from_verifying_key(&vkey))))
             .collect::<Result<_, _>>()?;
 
@@ -131,7 +151,7 @@ where
         let public_key = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
         let tweakable_pk = public_key.tweakable_pk();
         let tweaks = derive_tweaks::<<P as SchemeParams>::Curve>(&tweakable_pk, derivation_path)?;
-        apply_tweaks_public(tweakable_pk, &tweaks)
+        apply_tweaks_public(&public_key, &tweaks)
     }
 }
 
@@ -145,7 +165,7 @@ where
     fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error> {
         let tweakable = self.tweakable_pk();
         let tweaks = derive_tweaks::<C>(&tweakable, derivation_path)?;
-        apply_tweaks_public(tweakable, &tweaks)
+        apply_tweaks_public(self, &tweaks)
     }
 }
 
@@ -185,20 +205,18 @@ where
 }
 
 fn apply_tweaks_public<C>(
-    public_key: impl bip32::PublicKey + Clone,
+    public_key: &VerifyingKey<C>,
     tweaks: &[PrivateKeyBytes],
 ) -> Result<VerifyingKey<C>, bip32::Error>
 where
     C: CurveArithmetic + PrimeCurve,
     <C as Curve>::FieldBytesSize: ModulusSize,
     <C as CurveArithmetic>::AffinePoint: FromEncodedPoint<C> + ToEncodedPoint<C>,
+    VerifyingKey<C>: PublicTweakable,
 {
-    let mut public_key = public_key;
+    let mut public_key = public_key.tweakable_pk();
     for tweak in tweaks {
         public_key = public_key.derive_child(*tweak)?;
     }
-    let offset = bip32::KEY_SIZE - <C as Curve>::FieldBytesSize::USIZE;
-    let bytes = public_key.to_bytes();
-    let bytes = bytes.get(offset..).ok_or(bip32::Error::Decode)?;
-    VerifyingKey::from_sec1_bytes(bytes).map_err(|_e| bip32::Error::Decode)
+    Ok(PublicTweakable::convert_back(&public_key))
 }

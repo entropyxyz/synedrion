@@ -86,6 +86,10 @@ impl<P: SchemeParams> Scalar<P> {
     pub const ZERO: Self = Self(BackendScalar::<P>::ZERO);
     pub const ONE: Self = Self(BackendScalar::<P>::ONE);
 
+    pub fn new(backend_scalar: BackendScalar<P>) -> Self {
+        Self(backend_scalar)
+    }
+
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self(ScalarPrimitive::<P::Curve>::random(rng).into())
     }
