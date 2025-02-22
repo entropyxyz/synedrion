@@ -34,7 +34,7 @@ mod sealed {
 }
 
 /// Trait for types that can derive BIP32 style "tweaks" from public keys.
-pub trait PubTweakable: sealed::Sealed {
+pub trait PublicTweakable: sealed::Sealed {
     fn tweakable_pk(&self) -> impl bip32::PublicKey + Clone;
 }
 
@@ -44,7 +44,7 @@ pub trait SecretTweakable: sealed::Sealed {
     fn tweakable_sk(&self) -> impl bip32::PrivateKey + Clone;
 }
 
-impl PubTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
+impl PublicTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
     fn tweakable_pk(&self) -> impl bip32::PublicKey + Clone {
         let pk: PublicKey<_> = self.into();
         let wrapped_pk: PublicKeyBip32<_> = pk.into();
@@ -52,7 +52,7 @@ impl PubTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
     }
 }
 
-impl PubTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Curve> {
+impl PublicTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Curve> {
     fn tweakable_pk(&self) -> impl bip32::PublicKey + Clone {
         *self
     }
@@ -76,7 +76,7 @@ impl SecretTweakable for SigningKey<<ProductionParams112 as SchemeParams>::Curve
 impl<P, I> ThresholdKeyShare<P, I>
 where
     P: SchemeParams,
-    VerifyingKey<P::Curve>: PubTweakable,
+    VerifyingKey<P::Curve>: PublicTweakable,
     SigningKey<P::Curve>: SecretTweakable,
     I: PartyId,
 {
@@ -122,7 +122,7 @@ impl<P, I> DeriveChildKey<P::Curve> for ThresholdKeyShare<P, I>
 where
     P: SchemeParams,
     I: PartyId,
-    VerifyingKey<P::Curve>: PubTweakable,
+    VerifyingKey<P::Curve>: PublicTweakable,
 {
     fn derive_verifying_key_bip32(
         &self,
@@ -140,7 +140,7 @@ where
     C: CurveArithmetic + PrimeCurve + DigestPrimitive,
     <C as CurveArithmetic>::AffinePoint: FromEncodedPoint<C> + ToEncodedPoint<C>,
     <C as Curve>::FieldBytesSize: ModulusSize,
-    VerifyingKey<C>: PubTweakable,
+    VerifyingKey<C>: PublicTweakable,
 {
     fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error> {
         let tweakable = self.tweakable_pk();
@@ -160,7 +160,7 @@ where
 {
     let mut public_key = public_key.clone();
 
-    // Note: deriving the initial chain code from public information. Is this okay? <–– PROBABLY NOT OK?
+    // TODO(#134): deriving the initial chain code from public information. Is this okay?
     let pubkey_bytes = public_key.to_bytes();
     let initial_chain_code = <C as DigestPrimitive>::Digest::new()
         .chain_update(b"chain-code-derivation")

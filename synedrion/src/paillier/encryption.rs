@@ -108,7 +108,8 @@ impl<P: PaillierParams> Ciphertext<P> {
         // and then compare the results.
         // (And the value can be larger than `pk` because of some restrictions on
         // `SchemeParameters`/`PaillierParameters` values in tests, which can only
-        // be overcome by fixing #27 and using a small 32- or 64-bit curve for tests)
+        // be overcome by fixing #27 and using a small 32- or 64-bit curve for tests).
+        // TODO(#192): fix the issue with `TestParams` and remove the comment above.
 
         // Calculate the ciphertext `C = (N + 1)^m * rho^N mod N^2`
         // where `N` is the Paillier composite modulus, `m` is the plaintext,

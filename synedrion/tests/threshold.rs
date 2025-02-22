@@ -190,9 +190,9 @@ fn full_sequence() {
         })
         .collect();
 
-    info!("AuxGen took {:?}", now.elapsed()); // ~42 sec
+    info!("AuxGen took {:?}", now.elapsed());
     let now = std::time::Instant::now();
-    info!("\nRunning InteractiveSigning\n"); // ~3 sec
+    info!("\nRunning InteractiveSigning\n");
     let signatures = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
         .results()
