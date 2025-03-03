@@ -19,7 +19,7 @@ use tiny_curve::TinyCurve64;
 
 use crate::{
     paillier::PaillierParams,
-    tools::hashing::{Chain, HashableType},
+    tools::hashing::HashableType,
     uint::{U1024Mod, U2048Mod, U4096Mod, U512Mod},
 };
 
@@ -175,12 +175,6 @@ where
         // (it says $\approx$, not $=$, but it is not clear how approximately this should hold,
         // so to be on the safe side we require equality).
         && Self::L_BOUND * 2 + Self::EPS_BOUND == Self::Paillier::PRIME_BITS
-    }
-}
-
-impl<P: SchemeParams> HashableType for P {
-    fn chain_type<C: Chain>(digest: C) -> C {
-        digest.chain_type::<P::Curve>()
     }
 }
 

@@ -122,7 +122,7 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     associated_data: &KeyInitAssociatedData<Id>,
 ) -> P::HashOutput {
     FofHasher::<P>::new_with_dst(b"KeyInit SID")
-        .chain_type::<P>()
+        .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
         .finalize()

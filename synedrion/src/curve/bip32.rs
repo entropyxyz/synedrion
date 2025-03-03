@@ -118,7 +118,7 @@ where
             tweakable_sk = tweakable_sk.derive_child(*tweak)?;
         }
         let sk: SigningKey<P::Curve> = SecretTweakable::key_from_tweakable_sk(&tweakable_sk);
-        let secret_share = Secret::init_with(|| Scalar::new(sk.as_nonzero_scalar().as_ref().clone()));
+        let secret_share = Secret::init_with(|| Scalar::new(*sk.as_nonzero_scalar().as_ref()));
 
         let public_shares = self
             .public_shares

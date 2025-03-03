@@ -240,7 +240,7 @@ fn make_epid<P: SchemeParams, Id: PartyId>(
     associated_data: &InteractiveSigningAssociatedData<P, Id>,
 ) -> P::HashOutput {
     FofHasher::<P>::new_with_dst(b"InteractiveSigning EPID")
-        .chain_type::<P>()
+        .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.shares)
         .chain(&associated_data.aux)
@@ -2037,7 +2037,6 @@ struct Round4<P: SchemeParams, Id: Ord> {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>,"))]
-
 pub(super) struct Round4NormalBroadcast<P: SchemeParams> {
     pub(crate) sigma: Scalar<P>,
 }

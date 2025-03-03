@@ -6,7 +6,7 @@ use ecdsa::{SigningKey, VerifyingKey};
 use primeorder::elliptic_curve::{
     bigint::{Concat, NonZero, Split, Zero},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
-    group::{Curve as _, GroupEncoding},
+    group::Curve as _,
     ops::Reduce,
     point::AffineCoordinates,
     scalar::FromUintUnchecked,
@@ -29,51 +29,31 @@ use crate::{
     SchemeParams,
 };
 
-impl HashableType for k256::Secp256k1 {
-    fn chain_type<C: Chain>(digest: C) -> C {
+impl<C> HashableType for C
+where
+    C: Curve + CurveArithmetic,
+    <C as CurveArithmetic>::AffinePoint: ToEncodedPoint<C>,
+    <C as Curve>::FieldBytesSize: ModulusSize,
+{
+    fn chain_type<D: Chain>(digest: D) -> D {
         let mut digest = digest;
 
         // TODO: `k256 0.14` depends on `crypto-bigint` that supports `Serialize` for `Uint`'s,
         // so we can just chain `ORDER`. For now we have to do it manually.
-        // Note that since only `to_words` is available, we need to chain it
+        // Note that since only `as_ref` (yielding `&[Limb]`) is available, we need to chain it
         // so that the result is the same on 32- and 64-bit targets - that is, in low-endian order.
-        let words = Self::ORDER.to_words();
-        for word in words {
-            digest = digest.chain(&word.to_le_bytes());
+        let order = Self::ORDER;
+        let limbs = order.as_ref();
+        for limb in limbs {
+            digest = digest.chain(&limb.0.to_le_bytes());
         }
 
+        // TODO: in `k256` the `generator()` method is deprecated in favor of `GENERATOR` but that is not exported for other curves.
         #[allow(deprecated)]
-        let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator().to_bytes();
-        digest.chain::<&[u8]>(&generator_bytes.as_ref())
-    }
-}
-
-impl HashableType for tiny_curve::TinyCurve64 {
-    fn chain_type<C: Chain>(digest: C) -> C {
-        let mut digest = digest;
-        // TODO: see the k256 implementation above.
-        let words = Self::ORDER.to_words();
-        for word in words {
-            digest = digest.chain(&word.to_le_bytes());
-        }
-
-        let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator().to_bytes();
-        digest.chain::<&[u8]>(&generator_bytes.as_ref())
-    }
-}
-
-#[cfg(test)]
-impl HashableType for tiny_curve::TinyCurve32 {
-    fn chain_type<C: Chain>(digest: C) -> C {
-        let mut digest = digest;
-        // TODO: see the k256 implementation above.
-        let words = Self::ORDER.to_words();
-        for word in words {
-            digest = digest.chain(&word.to_le_bytes());
-        }
-
-        let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator().to_bytes();
-        digest.chain::<&[u8]>(&generator_bytes.as_ref())
+        let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator()
+            .to_affine()
+            .to_encoded_point(true);
+        digest.chain::<&[u8]>(&generator_bytes.as_bytes())
     }
 }
 
