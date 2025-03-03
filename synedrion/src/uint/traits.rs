@@ -1,8 +1,9 @@
 use crypto_bigint::{
     modular::MontyForm,
+    nlimbs,
     subtle::{ConditionallySelectable, CtOption},
-    Bounded, ConcatMixed, Encoding, Gcd, Integer, Invert, Limb, Monty, PowBoundedExp, RandomMod, SplitMixed,
-    WideningMul, Zero, U1024, U2048, U4096, U512, U8192,
+    Bounded, ConcatMixed, Encoding, Gcd, Integer, Invert, Monty, PowBoundedExp, RandomMod, SplitMixed, WideningMul,
+    Zero, U1024, U2048, U4096, U512, U8192,
 };
 use digest::XofReader;
 use zeroize::Zeroize;
@@ -175,7 +176,7 @@ impl HasWide for U4096 {
     type Wide = U8192;
 }
 
-pub type U512Mod = MontyForm<{ 512u32.div_ceil(Limb::BITS) as usize }>;
-pub type U1024Mod = MontyForm<{ 1024u32.div_ceil(Limb::BITS) as usize }>;
-pub type U2048Mod = MontyForm<{ 2048u32.div_ceil(Limb::BITS) as usize }>;
-pub type U4096Mod = MontyForm<{ 4096u32.div_ceil(Limb::BITS) as usize }>;
+pub type U512Mod = MontyForm<{ nlimbs!(512) }>;
+pub type U1024Mod = MontyForm<{ nlimbs!(1024) }>;
+pub type U2048Mod = MontyForm<{ nlimbs!(2048) }>;
+pub type U4096Mod = MontyForm<{ nlimbs!(4096) }>;
