@@ -603,7 +603,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                     .ok_or_else(|| ProtocolValidationError::InvalidEvidence("`delta` is not invertible".into()))?;
                 let tilde_cap_delta = r3_nb.cap_delta * delta_inv;
                 let tilde_cap_s = r3_nb.cap_s * delta_inv;
-                let scalar_message = Scalar::from_reduced_bytes(associated_data.message);
+                let scalar_message = Scalar::from_reduced_bytes(associated_data.message.clone());
 
                 verify_that(cap_gamma * r4_nb.sigma != tilde_cap_delta * scalar_message + tilde_cap_s * nonce)
             }
@@ -981,7 +981,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
             &InteractiveSigningAssociatedData {
                 shares: key_share.public().clone(),
                 aux: aux_info.public().clone(),
-                message: self.message,
+                message: self.message.clone(),
             },
         );
 
@@ -2627,14 +2627,13 @@ mod tests {
             })
             .collect();
 
-        let signatures = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
+        let mut signatures = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
             .unwrap()
             .results()
             .unwrap();
 
-        for signature in signatures.values() {
+        while let Some((_, signature)) = signatures.pop_first() {
             let (sig, rec_id) = signature.to_backend();
-
             let vkey = key_shares[&ids[0]].verifying_key();
 
             // Check that the signature can be verified

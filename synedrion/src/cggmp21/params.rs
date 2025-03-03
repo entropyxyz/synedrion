@@ -117,14 +117,12 @@ pub trait SchemeParams:
 where
     <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
     <Self::Curve as Curve>::FieldBytesSize: ModulusSize,
-    <<Self::Curve as Curve>::FieldBytesSize as ArrayLength<u8>>::ArrayType: Copy,
     <<Self as SchemeParams>::Curve as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::Curve>
         + FromEncodedPoint<Self::Curve>
         + DecompressPoint<Self::Curve>
         + VerifyPrimitive<Self::Curve>,
-    <Self::Curve as CurveArithmetic>::Scalar: Copy + SignPrimitive<Self::Curve> + Ord,
+    <Self::Curve as CurveArithmetic>::Scalar: SignPrimitive<Self::Curve> + Ord,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
-    <<<Self::Curve as Curve>::FieldBytesSize as Add>::Output as ArrayLength<u8>>::ArrayType: Copy,
     <Self::Curve as Curve>::Uint: Concat<Output = Self::WideCurveUint>,
 {
     /// The elliptic curve (of prime order) used.

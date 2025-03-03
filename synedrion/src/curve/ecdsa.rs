@@ -8,7 +8,7 @@ use rand_core::CryptoRngCore;
 use super::arithmetic::{Point, Scalar};
 
 /// A wrapper for a signature and public key recovery info.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct RecoverableSignature<P: SchemeParams> {
     signature: BackendSignature<P::Curve>,
     recovery_id: RecoveryId,
