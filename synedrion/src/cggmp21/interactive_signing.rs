@@ -2036,9 +2036,7 @@ struct Round4<P: SchemeParams, Id: Ord> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "
-    Scalar<P>: for<'x> Deserialize<'x>,
-"))]
+#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>,"))]
 
 pub(super) struct Round4NormalBroadcast<P: SchemeParams> {
     pub(crate) sigma: Scalar<P>,

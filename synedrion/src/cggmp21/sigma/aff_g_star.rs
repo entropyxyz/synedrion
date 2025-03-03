@@ -59,10 +59,7 @@ struct AffGStarProofEphemeral<P: SchemeParams> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "
-    Point<P>: for<'x> Deserialize<'x>,
-    CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>,
-"))]
+#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>,"))]
 struct AffGStarProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
     cap_r: Point<P>,
