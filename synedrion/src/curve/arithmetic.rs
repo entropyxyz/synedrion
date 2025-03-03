@@ -4,7 +4,7 @@ use core::ops::{Add, Mul, Neg, Rem, Sub};
 use digest::XofReader;
 use ecdsa::{SigningKey, VerifyingKey};
 use primeorder::elliptic_curve::{
-    bigint::{Concat, NonZero, Split, Zero},
+    bigint::{ArrayEncoding, Concat, NonZero, Split, Zero},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     group::Curve as _,
     ops::Reduce,
@@ -12,8 +12,8 @@ use primeorder::elliptic_curve::{
     scalar::FromUintUnchecked,
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
-    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesEncoding, FieldBytesSize, Group, NonZeroScalar, PrimeField,
-    ScalarPrimitive, SecretKey,
+    Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, Group, NonZeroScalar, PrimeField, ScalarPrimitive,
+    SecretKey,
 };
 
 use rand_core::CryptoRngCore;
@@ -91,12 +91,15 @@ impl<P: SchemeParams> Scalar<P> {
     /// modulo the curve order to ensure a valid, unbiased scalar.
     pub fn from_xof_reader(reader: &mut impl XofReader) -> Self {
         let bytes_lo = reader.read_boxed(Self::repr_len());
-        let bytes_lo = GenericArray::<_, FieldBytesSize<P::Curve>>::from_slice(&bytes_lo);
+        let bytes_lo = GenericArray::<_, <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize>::from_slice(&bytes_lo);
+        let uint_lo = <P::Curve as Curve>::Uint::from_be_byte_array(bytes_lo.clone());
+
         let bytes_hi = reader.read_boxed(Self::repr_len());
-        let bytes_hi = GenericArray::<_, FieldBytesSize<P::Curve>>::from_slice(&bytes_hi);
-        let uint_lo = <P::Curve as Curve>::Uint::decode_field_bytes(bytes_lo);
-        let uint_hi = <P::Curve as Curve>::Uint::decode_field_bytes(bytes_hi);
-        let wide_uint = uint_lo.concat(&uint_hi);
+        let bytes_hi = GenericArray::<_, <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize>::from_slice(&bytes_hi);
+        let uint_hi = <P::Curve as Curve>::Uint::from_be_byte_array(bytes_hi.clone());
+
+        // TODO: Invert the order when the elliptic curve stack upgrades (bigint v0.5 used hi/lo, but v0.6 switches to lo/hi)
+        let wide_uint = uint_hi.concat(&uint_lo);
         // TODO: When the elliptic curve stack upgrades to crypto-bigint v0.6 we can use RemMixed and
         // avoid casting the ORDER to a wide.
         let wide_order =
