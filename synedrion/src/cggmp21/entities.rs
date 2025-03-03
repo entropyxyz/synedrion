@@ -35,13 +35,7 @@ where
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
-pub struct PublicKeyShares<P, I>
-where
-    P: SchemeParams,
-    I: Ord,
-{
-    shares: BTreeMap<I, Point<P>>, // `X_j`
-}
+pub struct PublicKeyShares<P: SchemeParams, I: Ord>(BTreeMap<I, Point<P>>);
 
 /// The result of the AuxGen protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,7 +135,7 @@ impl<P: SchemeParams, I: Ord> PublicAuxInfos<P, I> {
 
 impl<P: SchemeParams, I: Clone + Ord + Debug> PublicKeyShares<P, I> {
     pub(crate) fn as_map(&self) -> &BTreeMap<I, Point<P>> {
-        &self.shares
+        &self.0
     }
 }
 
@@ -161,7 +155,7 @@ where
         Ok(KeyShare {
             owner,
             secret,
-            public: PublicKeyShares { shares: public_shares },
+            public: PublicKeyShares(public_shares),
         })
     }
 
@@ -173,10 +167,10 @@ where
                 self.owner, change.owner
             )));
         }
-        if self.public.shares.len() != change.public_share_changes.len() {
+        if self.public.0.len() != change.public_share_changes.len() {
             return Err(LocalError::new(format!(
                 "Inconsistent number of public key shares in updated share set (expected {}, was {})",
-                self.public.shares.len(),
+                self.public.0.len(),
                 change.public_share_changes.len()
             )));
         }
@@ -184,7 +178,7 @@ where
         let secret = self.secret + change.secret_share_change;
         let public_shares = self
             .public
-            .shares
+            .0
             .iter()
             .map(|(id, public_share)| {
                 Ok((
@@ -201,7 +195,7 @@ where
         Ok(Self {
             owner: self.owner,
             secret,
-            public: PublicKeyShares { shares: public_shares },
+            public: PublicKeyShares(public_shares),
         })
     }
 
@@ -232,9 +226,7 @@ where
                     KeyShare {
                         owner: id.clone(),
                         secret: secret_share,
-                        public: PublicKeyShares {
-                            shares: public_shares.clone(),
-                        },
+                        public: PublicKeyShares(public_shares.clone()),
                     },
                 )
             })
@@ -242,7 +234,7 @@ where
     }
 
     pub(crate) fn verifying_key_as_point(&self) -> Point<P> {
-        self.public.shares.values().sum()
+        self.public.0.values().sum()
     }
 
     /// Return the verifying key to which this set of shares corresponds.
@@ -267,12 +259,12 @@ where
     }
 
     pub(crate) fn public_shares(&self) -> &BTreeMap<I, Point<P>> {
-        &self.public.shares
+        &self.public.0
     }
 
     /// Returns the set of parties holding other shares from the set.
     pub fn all_parties(&self) -> BTreeSet<I> {
-        self.public.shares.keys().cloned().collect()
+        self.public.0.keys().cloned().collect()
     }
 }
 
