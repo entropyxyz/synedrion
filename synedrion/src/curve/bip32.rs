@@ -35,8 +35,11 @@ mod sealed {
 /// Trait for types that can derive BIP32 style "tweaks" from public keys.
 pub trait PublicTweakable: sealed::Sealed {
     type Bip32Pk: bip32::PublicKey + Clone;
+    /// Convert `self` into something that can be used for BIP32 derivation.
     fn tweakable_pk(&self) -> Self::Bip32Pk;
-    fn convert_back(pk: &Self::Bip32Pk) -> Self;
+    /// Convert a BIP32 public key back into the original type. For "real" BIP32 compatible curves
+    /// such as secp256k1, this is just a clone.
+    fn key_from_tweakable_pk(pk: &Self::Bip32Pk) -> Self;
 }
 
 /// Trait for types that can derive BIP32 style "tweaks" from secret keys.
@@ -44,7 +47,7 @@ pub trait SecretTweakable: sealed::Sealed {
     type Bip32Sk: bip32::PrivateKey + Clone;
     /// Convert `self` into something that can be used for BIP32 derivation.
     fn tweakable_sk(&self) -> Self::Bip32Sk;
-    fn convert_back(pk: &Self::Bip32Sk) -> Self;
+    fn key_from_tweakable_sk(pk: &Self::Bip32Sk) -> Self;
 }
 
 impl PublicTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
@@ -54,7 +57,7 @@ impl PublicTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
         let wrapped_pk: PublicKeyBip32<_> = pk.into();
         wrapped_pk
     }
-    fn convert_back(pk: &Self::Bip32Pk) -> Self {
+    fn key_from_tweakable_pk(pk: &Self::Bip32Pk) -> Self {
         VerifyingKey::from(pk.as_ref())
     }
 }
@@ -64,7 +67,7 @@ impl PublicTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Cur
     fn tweakable_pk(&self) -> Self::Bip32Pk {
         *self
     }
-    fn convert_back(pk: &Self::Bip32Pk) -> Self {
+    fn key_from_tweakable_pk(pk: &Self::Bip32Pk) -> Self {
         *pk
     }
 }
@@ -78,7 +81,7 @@ impl SecretTweakable for SigningKey<<TestParams as SchemeParams>::Curve> {
         wrapped_sk
     }
 
-    fn convert_back(sk: &Self::Bip32Sk) -> Self {
+    fn key_from_tweakable_sk(sk: &Self::Bip32Sk) -> Self {
         SigningKey::from(sk.as_ref())
     }
 }
@@ -90,7 +93,7 @@ impl SecretTweakable for SigningKey<<ProductionParams112 as SchemeParams>::Curve
         self.clone()
     }
 
-    fn convert_back(sk: &Self::Bip32Sk) -> Self {
+    fn key_from_tweakable_sk(sk: &Self::Bip32Sk) -> Self {
         sk.clone()
     }
 }
@@ -114,7 +117,7 @@ where
         for tweak in &tweaks {
             tweakable_sk = tweakable_sk.derive_child(*tweak)?;
         }
-        let sk: SigningKey<P::Curve> = SecretTweakable::convert_back(&tweakable_sk);
+        let sk: SigningKey<P::Curve> = SecretTweakable::key_from_tweakable_sk(&tweakable_sk);
         let secret_share = Secret::init_with(|| Scalar::new(sk.as_nonzero_scalar().as_ref().clone()));
 
         let public_shares = self
@@ -218,5 +221,5 @@ where
     for tweak in tweaks {
         public_key = public_key.derive_child(*tweak)?;
     }
-    Ok(PublicTweakable::convert_back(&public_key))
+    Ok(PublicTweakable::key_from_tweakable_pk(&public_key))
 }
