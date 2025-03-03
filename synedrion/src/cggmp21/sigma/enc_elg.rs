@@ -46,7 +46,10 @@ pub struct EncElgPublicInputs<'a, P: SchemeParams> {
 
 /// ZK proof: Paillier encryption in range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
+#[serde(bound(deserialize = "
+    Scalar<P>: for<'x> Deserialize<'x>,
+    Point<P>: for<'x> Deserialize<'x>
+"))]
 pub(crate) struct EncElgProof<P: SchemeParams> {
     e: Scalar<P>,
     cap_s: RPCommitmentWire<P::Paillier>,

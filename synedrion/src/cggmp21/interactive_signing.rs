@@ -1849,7 +1849,7 @@ pub(super) struct Round3<P: SchemeParams, Id: Ord> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>,"))]
 pub(super) struct Round3EchoBroadcast<P: SchemeParams> {
     pub(super) delta: Scalar<P>,
 }
@@ -2036,7 +2036,10 @@ struct Round4<P: SchemeParams, Id: Ord> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "
+    Scalar<P>: for<'x> Deserialize<'x>,
+"))]
+
 pub(super) struct Round4NormalBroadcast<P: SchemeParams> {
     pub(crate) sigma: Scalar<P>,
 }
@@ -2367,7 +2370,9 @@ pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
     AffGStarProof<P>: Serialize,
 "))]
 #[serde(bound(deserialize = "
-    P: for<'x> Deserialize<'x>,
+    Id: for<'x> Deserialize<'x>,
+    DecProof<P>: for<'x> Deserialize<'x>,
+    AffGStarProof<P>: for<'x> Deserialize<'x>
 "))]
 pub(super) struct Round6EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psi_star: DecProof<P>,

@@ -58,7 +58,8 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
     DecProofElement<P>: Serialize,
 "))]
 #[serde(bound(deserialize = "
-	P: for<'x> Deserialize<'x>,
+    DecProofCommitment<P>: for<'x> Deserialize<'x>,
+    DecProofElement<P>: for<'x> Deserialize<'x>
 "))]
 pub(crate) struct DecProof<P: SchemeParams> {
     e: BitVec,
@@ -73,7 +74,7 @@ struct DecProofEphemeral<P: SchemeParams> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
+#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>,"))]
 pub(crate) struct DecProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
     cap_b: Point<P>,

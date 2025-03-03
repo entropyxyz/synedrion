@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "for<'x> Scalar<P>: Deserialize<'x>"))]
 pub struct ShareId<P: SchemeParams>(Scalar<P>);
 
 impl<P> ShareId<P>
@@ -98,7 +98,7 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "for<'x> Point<P>: Deserialize<'x>"))]
 pub(crate) struct PublicPolynomial<P: SchemeParams>(Vec<Point<P>>);
 
 impl<P> PublicPolynomial<P>

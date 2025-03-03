@@ -145,7 +145,7 @@ where
 
 /// KeyRefresh error
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>, Id: for<'x> Deserialize<'x>"))]
+#[serde(bound(deserialize = "Id: for<'x> Deserialize<'x>"))]
 enum Error<P, Id>
 where
     P: SchemeParams,
@@ -919,6 +919,7 @@ struct Round3<P: SchemeParams, Id> {
 "))]
 #[serde(bound(deserialize = "
     SchProof<P>: for<'x> Deserialize<'x>,
+    Id: for<'x> Deserialize<'x>,
 "))]
 pub(super) struct Round3EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psis: BTreeMap<Id, SchProof<P>>,

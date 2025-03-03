@@ -34,7 +34,10 @@ pub(crate) struct ElogPublicInputs<'a, P: SchemeParams> {
 
 /// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
+#[serde(bound(deserialize = "
+    Scalar<P>: for<'x> Deserialize<'x>,
+    Point<P>: for<'x> Deserialize<'x>
+"))]
 pub(crate) struct ElogProof<P: SchemeParams> {
     e: Scalar<P>,
     cap_a: Point<P>,

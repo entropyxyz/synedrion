@@ -260,14 +260,17 @@ struct Round1<P: SchemeParams, I: Ord> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "
+    for<'x> PublicPolynomial<P>: Deserialize<'x>,
+    for<'x> ShareId<P>: Deserialize<'x>
+"))]
 struct Round1BroadcastMessage<P: SchemeParams> {
     public_polynomial: PublicPolynomial<P>,
     old_share_id: ShareId<P>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> Round1DirectMessage<P>: "))]
+#[serde(bound(deserialize = "Secret<Scalar<P>>: for<'x> Deserialize<'x>"))]
 struct Round1DirectMessage<P: SchemeParams> {
     subshare: Secret<Scalar<P>>,
 }

@@ -112,8 +112,7 @@ impl PaillierParams for PaillierProduction112 {
 }
 
 /// Signing scheme parameters.
-pub trait SchemeParams:
-    'static + Debug + Clone + Send + PartialEq + Eq + Send + Sync + Ord + Copy + Serialize + for<'x> Deserialize<'x>
+pub trait SchemeParams: 'static + Debug + Clone + Send + PartialEq + Eq + Send + Sync + Ord + Copy + Serialize
 where
     <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
     <Self::Curve as Curve>::FieldBytesSize: ModulusSize,

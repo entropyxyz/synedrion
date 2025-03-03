@@ -51,7 +51,10 @@ pub(crate) struct AffGPublicInputs<'a, P: SchemeParams> {
 
 /// ZK proof: Paillier Affine Operation with Group Commitment in Range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "
+    Scalar<P>: for<'x> Deserialize<'x>,
+    Point<P>: for<'x> Deserialize<'x>
+"))]
 pub(crate) struct AffGProof<P: SchemeParams> {
     e: Scalar<P>,
     cap_a: CiphertextWire<P::Paillier>,

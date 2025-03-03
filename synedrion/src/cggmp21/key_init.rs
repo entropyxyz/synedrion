@@ -207,7 +207,6 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
 pub(super) struct PublicData<P: SchemeParams> {
     cap_x: Point<P>,
     pub(super) cap_a: SchCommitment<P>,
@@ -400,7 +399,7 @@ struct Round2EchoBroadcast {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>"))]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams> {
     cap_x: Point<P>,
     cap_a: SchCommitment<P>,
@@ -529,7 +528,7 @@ pub(super) struct Round3<P: SchemeParams, Id> {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "SchProof<P>: for<'x> Deserialize<'x>"))]
 pub(super) struct Round3NormalBroadcast<P: SchemeParams> {
     pub(super) psi: SchProof<P>,
 }

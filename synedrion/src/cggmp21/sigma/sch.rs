@@ -32,7 +32,7 @@ impl<P: SchemeParams> SchSecret<P> {
 
 /// Public data for the proof (~ verifying key)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
+#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>"))]
 pub(crate) struct SchCommitment<P: SchemeParams>(Point<P>);
 
 impl<P: SchemeParams> SchCommitment<P> {
@@ -42,7 +42,7 @@ impl<P: SchemeParams> SchCommitment<P> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> P: Deserialize<'x>"))]
+#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>"))]
 struct SchChallenge<P: SchemeParams>(Scalar<P>);
 
 impl<P: SchemeParams> SchChallenge<P> {
@@ -58,7 +58,7 @@ impl<P: SchemeParams> SchChallenge<P> {
 
 /// ZK proof: Schnorr proof of knowledge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: for<'x> Deserialize<'x>"))]
+#[serde(bound(deserialize = "for<'x> SchChallenge<P>: Deserialize<'x>"))]
 pub(crate) struct SchProof<P: SchemeParams> {
     challenge: SchChallenge<P>,
     proof: Scalar<P>,
