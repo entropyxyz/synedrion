@@ -1262,7 +1262,8 @@ dependencies = [
 [[package]]
 name = "tiny-curve"
 version = "0.2.0"
-source = "git+https://github.com/fjarri/tiny-curve#7d18942152b7351a529b18cf9e35325e64ed277f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fee0da040bad62e743441300bd31f211b6d8d34786ff816be58a345ad79dcd8"
 dependencies = [
  "bip32",
  "ecdsa",

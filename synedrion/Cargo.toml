@@ -25,12 +25,7 @@ tracing = { version = "0.1.41", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
 rand = { version = "0.8", default-features = false }
 
-tiny-curve = { version = "0.2", features = [
-	"serde",
-	"pkcs8",
-	"ecdsa",
-	"bip32",
-], git = "https://github.com/fjarri/tiny-curve" }
+tiny-curve = { version = "0.2", features = ["serde", "pkcs8", "ecdsa", "bip32"] }
 k256 = { version = "0.13", default-features = false, features = ["arithmetic", "serde", "ecdsa"] }
 primeorder = { version = "0.13", features = ["serde"] }
 ecdsa = { version = "0.16", default-features = false, features = ["arithmetic", "digest", "hazmat", "serde", "pem"] }
