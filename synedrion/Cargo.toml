@@ -25,7 +25,7 @@ tracing = { version = "0.1.41", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
 rand = { version = "0.8", default-features = false }
 
-tiny-curve = { version = "0.1", features = [
+tiny-curve = { version = "0.2", features = [
 	"serde",
 	"pkcs8",
 	"ecdsa",

@@ -1261,8 +1261,8 @@ dependencies = [
 
 [[package]]
 name = "tiny-curve"
-version = "0.1.0"
-source = "git+https://github.com/fjarri/tiny-curve#ae8933c552d77ed21b58facd5718139cc034804f"
+version = "0.2.0"
+source = "git+https://github.com/fjarri/tiny-curve#7d18942152b7351a529b18cf9e35325e64ed277f"
 dependencies = [
  "bip32",
  "ecdsa",
