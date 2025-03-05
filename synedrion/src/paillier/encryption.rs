@@ -194,7 +194,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     /// Decrypts this ciphertext assuming that the plaintext is in range `[-N/2, N/2]`.
     pub fn decrypt(&self, sk: &SecretKeyPaillier<P>) -> SecretSigned<P::Uint> {
-        assert_eq!(sk.public_key(), &self.pk);
+        assert_eq!(sk.public_key(), &self.pk, "Public key mismatch");
 
         let pk = sk.public_key();
         let totient_wide = sk.totient_wide_unsigned();

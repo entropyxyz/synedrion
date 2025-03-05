@@ -204,7 +204,7 @@ where
     T: Zeroize + Integer + Bounded,
 {
     fn checked_add(&self, rhs: &SecretSigned<T>) -> CtOption<Self> {
-        let bound = core::cmp::max(self.bound, rhs.bound) + 1;
+        let bound = core::cmp::max(self.bound, rhs.bound);
         let in_range = bound.ct_lt(&T::BITS);
         let result = Self {
             bound,
@@ -219,6 +219,7 @@ where
     T: Zeroize + Integer + Bounded,
 {
     fn checked_add(&self, rhs: &PublicSigned<T>) -> CtOption<Self> {
+        // TODO(dp): Need to remove this +1 increment too?
         let bound = core::cmp::max(self.bound, rhs.bound()) + 1;
         let in_range = bound.ct_lt(&T::BITS);
         let result = Self {
@@ -234,6 +235,7 @@ where
     T: Zeroize + Integer + Bounded,
 {
     fn checked_sub(&self, rhs: &SecretSigned<T>) -> CtOption<Self> {
+        // TODO(dp): Need to remove this +1 increment too?
         let bound = core::cmp::max(self.bound, rhs.bound()) + 1;
         let in_range = bound.ct_lt(&T::BITS);
         let result = Self {
@@ -422,7 +424,7 @@ where
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         self.checked_add(&rhs)
-            .expect("the caller ensured the bounds will not overflow")
+            .expect("Add<SecretSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
@@ -433,7 +435,7 @@ where
     type Output = Self;
     fn add(self, rhs: &SecretSigned<T>) -> Self::Output {
         self.checked_add(rhs)
-            .expect("the caller ensured the bounds will not overflow")
+            .expect("Add<&SecretSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
@@ -444,7 +446,7 @@ where
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         self.checked_sub(&rhs)
-            .expect("the caller ensured the bounds will not overflow")
+            .expect("Sub<SecretSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
@@ -455,7 +457,7 @@ where
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
         self.checked_mul(&rhs)
-            .expect("the caller ensured the bounds will not overflow")
+            .expect("Mul<SecretSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
@@ -466,7 +468,7 @@ where
     type Output = Self;
     fn mul(self, rhs: &Self) -> Self::Output {
         self.checked_mul(rhs)
-            .expect("the caller ensured the bounds will not overflow")
+            .expect("Mul<&SecretSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
@@ -478,7 +480,7 @@ where
 
     fn add(self, rhs: PublicSigned<T>) -> Self::Output {
         self.checked_add(&rhs)
-            .expect("the caller ensured the bounds will not overflow")
+            .expect("Add<PublicSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
@@ -490,7 +492,7 @@ where
 
     fn mul(self, rhs: PublicSigned<T>) -> Self::Output {
         self.checked_mul(&rhs)
-            .expect("the caller ensured the bounds will not overflow")
+            .expect("Mul<PublicSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
@@ -502,7 +504,7 @@ where
 
     fn mul(self, rhs: PublicSigned<T>) -> Self::Output {
         self.checked_mul(&rhs)
-            .expect("the caller ensured the bounds will not overflow")
+            .expect("Mul<PublicSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
@@ -547,20 +549,18 @@ mod tests {
     }
 
     #[test]
-    fn adding_signed_numbers_increases_the_bound() {
+    fn adding_signed_numbers_uses_the_biggest_bound() {
         let s1 = test_new_from_unsigned(U128::from_u8(5), 13).unwrap();
         let s2 = test_new_from_unsigned(U128::from_u8(3), 10).unwrap();
-        // The sum has a bound that is equal to the biggest bound of the operands + 1
-        assert_eq!((s1 + s2).bound(), 14);
+        assert_eq!((s1 + s2).bound(), 13);
     }
 
     #[test]
-    #[should_panic]
-    fn adding_signed_numbers_with_max_bounds_panics() {
+    fn adding_signed_numbers_with_max_bounds_works() {
         let s1 = test_new_from_unsigned(U128::from_u8(5), 127).unwrap();
         let s2 = test_new_from_unsigned(U128::from_u8(3), 127).unwrap();
 
-        let _ = s1 + s2;
+        assert_eq!((s1 + s2).bound(), 127);
     }
 
     #[test]
