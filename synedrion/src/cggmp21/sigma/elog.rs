@@ -1,7 +1,5 @@
 //! Dlog with El-Gamal Commitment ($\Pi^{elog}$, Section A.1, Fig. 23)
 
-use core::marker::PhantomData;
-
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -16,41 +14,44 @@ use crate::{
 
 const HASH_TAG: &[u8] = b"P_elog";
 
-pub(crate) struct ElogSecretInputs<'a> {
-    pub y: &'a Secret<Scalar>,
-    pub lambda: &'a Secret<Scalar>,
+pub(crate) struct ElogSecretInputs<'a, P: SchemeParams> {
+    pub y: &'a Secret<Scalar<P>>,
+    pub lambda: &'a Secret<Scalar<P>>,
 }
 
-pub(crate) struct ElogPublicInputs<'a> {
+pub(crate) struct ElogPublicInputs<'a, P: SchemeParams> {
     /// Point $L = g * \lambda$, where $g$ is the curve generator.
-    pub cap_l: &'a Point,
+    pub cap_l: &'a Point<P>,
     /// Point $M = g * y + X * \lambda$, where $g$ is the curve generator.
-    pub cap_m: &'a Point,
+    pub cap_m: &'a Point<P>,
     /// Point $X$, satisfying the condition above.
-    pub cap_x: &'a Point,
+    pub cap_x: &'a Point<P>,
     /// Point $Y = h * y$.
-    pub cap_y: &'a Point,
+    pub cap_y: &'a Point<P>,
     /// Point $h$, satisfying the condition above.
-    pub h: &'a Point,
+    pub h: &'a Point<P>,
 }
 
 /// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "
+    Scalar<P>: for<'x> Deserialize<'x>,
+    Point<P>: for<'x> Deserialize<'x>
+"))]
 pub(crate) struct ElogProof<P: SchemeParams> {
-    e: Scalar,
-    cap_a: Point,
-    cap_n: Point,
-    cap_b: Point,
-    z: Scalar,
-    u: Scalar,
-    phantom: PhantomData<P>,
+    e: Scalar<P>,
+    cap_a: Point<P>,
+    cap_n: Point<P>,
+    cap_b: Point<P>,
+    z: Scalar<P>,
+    u: Scalar<P>,
 }
 
 impl<P: SchemeParams> ElogProof<P> {
     pub fn new(
         rng: &mut impl CryptoRngCore,
-        secret: ElogSecretInputs<'_>,
-        public: ElogPublicInputs<'_>,
+        secret: ElogSecretInputs<'_, P>,
+        public: ElogPublicInputs<'_, P>,
         aux: &impl Hashable,
     ) -> Self {
         let alpha = Secret::init_with(|| Scalar::random(rng));
@@ -87,11 +88,10 @@ impl<P: SchemeParams> ElogProof<P> {
             cap_b,
             z,
             u,
-            phantom: PhantomData,
         }
     }
 
-    pub fn verify(&self, public: ElogPublicInputs<'_>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, public: ElogPublicInputs<'_, P>, aux: &impl Hashable) -> bool {
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_a)

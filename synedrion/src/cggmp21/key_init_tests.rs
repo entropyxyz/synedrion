@@ -162,7 +162,7 @@ fn r2_hash_mismatch() {
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P>>(deserializer)
                     .unwrap();
 
                 // Replace `u` with something other than we committed to when hashing it in Round 1.

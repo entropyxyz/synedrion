@@ -46,15 +46,19 @@ pub(crate) struct AffGPublicInputs<'a, P: SchemeParams> {
     /// Paillier ciphertext $Y = enc_1(y, \rho_y)$.
     pub cap_y: &'a Ciphertext<P::Paillier>,
     /// Point $X = g * x$, where $g$ is the curve generator.
-    pub cap_x: &'a Point,
+    pub cap_x: &'a Point<P>,
 }
 
 /// ZK proof: Paillier Affine Operation with Group Commitment in Range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "
+    Scalar<P>: for<'x> Deserialize<'x>,
+    Point<P>: for<'x> Deserialize<'x>
+"))]
 pub(crate) struct AffGProof<P: SchemeParams> {
-    e: Scalar,
+    e: Scalar<P>,
     cap_a: CiphertextWire<P::Paillier>,
-    cap_b_x: Point,
+    cap_b_x: Point<P>,
     cap_b_y: CiphertextWire<P::Paillier>,
     cap_e: RPCommitmentWire<P::Paillier>,
     cap_s: RPCommitmentWire<P::Paillier>,

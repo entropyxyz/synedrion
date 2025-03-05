@@ -11,9 +11,8 @@ readme = "README.md"
 categories = ["cryptography", "no-std"]
 
 [dependencies]
-manul = { git = "https://github.com/entropyxyz/manul.git", rev = "f4c9515eaeb97a17ab3eef908b73be6159f7d9d2" }
+manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233" }
 signature = { version = "2", default-features = false, features = ["alloc"] }
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
 rand_core = { version = "0.6.4", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
@@ -26,14 +25,14 @@ tracing = { version = "0.1.41", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
 rand = { version = "0.8", default-features = false }
 
+tiny-curve = { version = "0.2", features = ["serde", "pkcs8", "ecdsa", "bip32"] }
+k256 = { version = "0.13", default-features = false, features = ["arithmetic", "serde", "ecdsa"] }
+primeorder = { version = "0.13", features = ["serde"] }
+ecdsa = { version = "0.16", default-features = false, features = ["arithmetic", "digest", "hazmat", "serde", "pem"] }
+
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
-crypto-bigint = { version = "0.6", default-features = false, features = [
-	"serde",
-	"alloc",
-	"rand_core",
-	"zeroize",
-] }
+crypto-bigint = { version = "0.6", default-features = false, features = ["serde", "alloc", "rand_core", "zeroize"] }
 crypto-primes = { version = "0.6", default-features = false }
 
 serde = { version = "1", default-features = false, features = ["derive"] }
@@ -43,7 +42,9 @@ displaydoc = { version = "0.2", default-features = false }
 criterion = { version = "0.5", optional = true }
 
 [dev-dependencies]
-manul = { git = "https://github.com/entropyxyz/manul.git", rev = "f4c9515eaeb97a17ab3eef908b73be6159f7d9d2", features = ["dev"] }
+manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233", features = [
+	"dev",
+] }
 serde_assert = "0.8"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = { version = "0.8", features = ["getrandom"] }

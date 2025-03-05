@@ -11,7 +11,7 @@ use alloc::{
 };
 use core::{fmt::Debug, marker::PhantomData};
 
-use k256::ecdsa::VerifyingKey;
+use ecdsa::VerifyingKey;
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EchoRoundParticipation, EntryPoint,
     FinalizeOutcome, LocalError, MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError,
@@ -97,16 +97,16 @@ impl<I> ProtocolError<I> for KeyResharingError {
 
 /// Old share data.
 #[derive(Debug, Clone)]
-pub struct OldHolder<P: SchemeParams, I: Ord> {
+pub struct OldHolder<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
     /// The threshold key share.
     pub key_share: ThresholdKeyShare<P, I>,
 }
 
 /// New share data.
 #[derive(Debug, Clone)]
-pub struct NewHolder<I: Ord> {
+pub struct NewHolder<P: SchemeParams, I: Ord> {
     /// The verifying key the old shares add up to.
-    pub verifying_key: VerifyingKey,
+    pub verifying_key: VerifyingKey<P::Curve>,
     /// The old threshold.
     pub old_threshold: usize,
     /// Some of the holders of the old shares (at least `old_threshold` of them).
@@ -115,22 +115,26 @@ pub struct NewHolder<I: Ord> {
 
 /// An entry point for the [`KeyResharingProtocol`].
 #[derive(Debug, Clone)]
-pub struct KeyResharing<P: SchemeParams, I: Ord> {
+pub struct KeyResharing<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
     /// Old share data if the node holds it, or `None`.
     old_holder: Option<OldHolder<P, I>>,
     /// New share data if the node is one of the new holders, or `None`.
-    new_holder: Option<NewHolder<I>>,
+    new_holder: Option<NewHolder<P, I>>,
     /// The new holders of the shares.
     new_holders: BTreeSet<I>,
     /// The new threshold.
     new_threshold: usize,
 }
 
-impl<P: SchemeParams, I: Ord> KeyResharing<P, I> {
+impl<P, I> KeyResharing<P, I>
+where
+    P: SchemeParams,
+    I: Ord + for<'x> Deserialize<'x>,
+{
     /// Creates a new entry point for the node with the given ID.
     pub fn new(
         old_holder: Option<OldHolder<P, I>>,
-        new_holder: Option<NewHolder<I>>,
+        new_holder: Option<NewHolder<P, I>>,
         new_holders: BTreeSet<I>,
         new_threshold: usize,
     ) -> Self {
@@ -143,7 +147,11 @@ impl<P: SchemeParams, I: Ord> KeyResharing<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
+impl<P, I> EntryPoint<I> for KeyResharing<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     type Protocol = KeyResharingProtocol<P, I>;
 
     fn entry_round_id() -> RoundId {
@@ -227,22 +235,22 @@ impl<P: SchemeParams, I: PartyId> EntryPoint<I> for KeyResharing<P, I> {
 }
 
 #[derive(Debug)]
-struct OldHolderData {
-    share_id: ShareId,
-    polynomial: Polynomial,
-    public_polynomial: PublicPolynomial,
+struct OldHolderData<P: SchemeParams> {
+    share_id: ShareId<P>,
+    polynomial: Polynomial<P>,
+    public_polynomial: PublicPolynomial<P>,
 }
 
 #[derive(Debug)]
-struct NewHolderData<I: Ord> {
-    inputs: NewHolder<I>,
+struct NewHolderData<P: SchemeParams, I: Ord> {
+    inputs: NewHolder<P, I>,
 }
 
 #[derive(Debug)]
 struct Round1<P: SchemeParams, I: Ord> {
-    old_holder: Option<OldHolderData>,
-    new_holder: Option<NewHolderData<I>>,
-    new_share_ids: BTreeMap<I, ShareId>,
+    old_holder: Option<OldHolderData<P>>,
+    new_holder: Option<NewHolderData<P, I>>,
+    new_share_ids: BTreeMap<I, ShareId<P>>,
     new_threshold: usize,
     my_id: I,
     message_destinations: BTreeSet<I>,
@@ -252,20 +260,24 @@ struct Round1<P: SchemeParams, I: Ord> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Round1BroadcastMessage {
-    public_polynomial: PublicPolynomial,
-    old_share_id: ShareId,
+#[serde(bound(deserialize = "
+    for<'x> PublicPolynomial<P>: Deserialize<'x>,
+    for<'x> ShareId<P>: Deserialize<'x>
+"))]
+struct Round1BroadcastMessage<P: SchemeParams> {
+    public_polynomial: PublicPolynomial<P>,
+    old_share_id: ShareId<P>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Round1DirectMessage {
-    subshare: Secret<Scalar>,
+#[serde(bound(deserialize = "Secret<Scalar<P>>: for<'x> Deserialize<'x>"))]
+struct Round1DirectMessage<P: SchemeParams> {
+    subshare: Secret<Scalar<P>>,
 }
-
-struct Round1Payload {
-    subshare: Secret<Scalar>,
-    public_polynomial: PublicPolynomial,
-    old_share_id: ShareId,
+struct Round1Payload<P: SchemeParams> {
+    subshare: Secret<Scalar<P>>,
+    public_polynomial: PublicPolynomial<P>,
+    old_share_id: ShareId<P>,
 }
 
 impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
@@ -321,7 +333,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                 destination
             )))?;
 
-            let subshare = old_holder.polynomial.evaluate(their_share_id);
+            let subshare: Secret<Scalar<P>> = old_holder.polynomial.evaluate(their_share_id);
             let dm = DirectMessage::new(serializer, Round1DirectMessage { subshare })?;
             Ok((dm, None))
         } else {
@@ -338,10 +350,10 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
         message.normal_broadcast.assert_is_none()?;
         let echo_broadcast = message
             .echo_broadcast
-            .deserialize::<Round1BroadcastMessage>(deserializer)?;
+            .deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
         let direct_message = message
             .direct_message
-            .deserialize::<Round1DirectMessage>(deserializer)?;
+            .deserialize::<Round1DirectMessage<P>>(deserializer)?;
 
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder.inputs.old_holders.contains(from) {
@@ -350,7 +362,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                     &self.my_id
                 )))?;
                 let public_subshare_from_poly = echo_broadcast.public_polynomial.evaluate(my_share_id);
-                let public_subshare_from_private = direct_message.subshare.mul_by_generator();
+                let public_subshare_from_private = Secret::mul_by_generator(&direct_message.subshare);
 
                 // Check that the public polynomial sent in the broadcast corresponds to the secret share
                 // sent in the direct message.
@@ -380,7 +392,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             None => return Ok(FinalizeOutcome::Result(None)),
         };
 
-        let mut payloads = payloads.downcast_all::<Round1Payload>()?;
+        let mut payloads = payloads.downcast_all::<Round1Payload<P>>()?;
 
         let share_id = self
             .new_share_ids
@@ -457,7 +469,6 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             secret_share,
             share_ids: self.new_share_ids,
             public_shares,
-            phantom: PhantomData,
         })))
     }
 }

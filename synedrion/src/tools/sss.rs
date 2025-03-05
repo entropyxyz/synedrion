@@ -11,18 +11,26 @@ use serde::{Deserialize, Serialize};
 use crate::{
     curve::{Point, Scalar},
     tools::Secret,
+    SchemeParams,
 };
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ShareId(Scalar);
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(bound(deserialize = "for<'x> Scalar<P>: Deserialize<'x>"))]
+pub struct ShareId<P: SchemeParams>(Scalar<P>);
 
-impl ShareId {
+impl<P> ShareId<P>
+where
+    P: SchemeParams,
+{
     pub fn new(idx: u64) -> Self {
         Self(Scalar::from(idx))
     }
 }
 
-pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareId> {
+pub(crate) fn shamir_evaluation_points<P>(num_shares: usize) -> Vec<ShareId<P>>
+where
+    P: SchemeParams,
+{
     // For now we are hardcoding the points to be 1, 2, ..., n.
     // Potentially we can derive them from Session ID.
     (1..=u64::try_from(num_shares).expect("no more than 2^64-1 shares needed"))
@@ -30,9 +38,10 @@ pub(crate) fn shamir_evaluation_points(num_shares: usize) -> Vec<ShareId> {
         .collect()
 }
 
-fn evaluate_polynomial<T>(coeffs: &[T], x: &Scalar) -> T
+fn evaluate_polynomial<T, P>(coeffs: &[T], x: &Scalar<P>) -> T
 where
-    T: Copy + Add<T, Output = T> + for<'a> Mul<&'a Scalar, Output = T>,
+    T: Copy + Add<T, Output = T> + for<'a> Mul<&'a Scalar<P>, Output = T> + Clone,
+    P: SchemeParams,
 {
     assert!(coeffs.len() > 1, "Expected coefficients to be non-empty");
     // Evaluate in reverse to save on multiplications.
@@ -45,7 +54,10 @@ where
     })
 }
 
-fn evaluate_polynomial_secret(coeffs: &[Secret<Scalar>], x: &Scalar) -> Secret<Scalar> {
+fn evaluate_polynomial_secret<P>(coeffs: &[Secret<Scalar<P>>], x: &Scalar<P>) -> Secret<Scalar<P>>
+where
+    P: SchemeParams,
+{
     // Evaluate in reverse to save on multiplications.
     // Basically: a0 + a1 x + a2 x^2 + a3 x^3 == (((a3 x) + a2) x + a1) x + a0
     let (acc, coeffs) = coeffs.split_last().expect("Coefficients is not empty");
@@ -56,10 +68,13 @@ fn evaluate_polynomial_secret(coeffs: &[Secret<Scalar>], x: &Scalar) -> Secret<S
 }
 
 #[derive(Debug)]
-pub(crate) struct Polynomial(Vec<Secret<Scalar>>);
+pub(crate) struct Polynomial<P: SchemeParams>(Vec<Secret<Scalar<P>>>);
 
-impl Polynomial {
-    pub fn random(rng: &mut impl CryptoRngCore, coeff0: Secret<Scalar>, degree: usize) -> Self {
+impl<P> Polynomial<P>
+where
+    P: SchemeParams,
+{
+    pub fn random(rng: &mut impl CryptoRngCore, coeff0: Secret<Scalar<P>>, degree: usize) -> Self {
         let mut coeffs = Vec::with_capacity(degree);
         coeffs.push(coeff0);
         for _ in 1..degree {
@@ -68,11 +83,11 @@ impl Polynomial {
         Self(coeffs)
     }
 
-    pub fn evaluate(&self, x: &ShareId) -> Secret<Scalar> {
+    pub fn evaluate(&self, x: &ShareId<P>) -> Secret<Scalar<P>> {
         evaluate_polynomial_secret(&self.0, &x.0)
     }
 
-    pub fn public(&self) -> PublicPolynomial {
+    pub fn public(&self) -> PublicPolynomial<P> {
         PublicPolynomial(
             self.0
                 .iter()
@@ -83,31 +98,41 @@ impl Polynomial {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct PublicPolynomial(Vec<Point>);
+#[serde(bound(deserialize = "for<'x> Point<P>: Deserialize<'x>"))]
+pub(crate) struct PublicPolynomial<P: SchemeParams>(Vec<Point<P>>);
 
-impl PublicPolynomial {
-    pub fn evaluate(&self, x: &ShareId) -> Point {
+impl<P> PublicPolynomial<P>
+where
+    P: SchemeParams,
+{
+    pub fn evaluate(&self, x: &ShareId<P>) -> Point<P> {
         evaluate_polynomial(&self.0, &x.0)
     }
 
-    pub fn coeff0(&self) -> Result<&Point, LocalError> {
+    pub fn coeff0(&self) -> Result<&Point<P>, LocalError> {
         self.0
             .first()
             .ok_or_else(|| LocalError::new("Invalid PublicPolynomial"))
     }
 }
 
-pub(crate) fn shamir_split(
+pub(crate) fn shamir_split<P>(
     rng: &mut impl CryptoRngCore,
-    secret: Secret<Scalar>,
+    secret: Secret<Scalar<P>>,
     threshold: usize,
-    indices: &[ShareId],
-) -> BTreeMap<ShareId, Secret<Scalar>> {
+    indices: &[ShareId<P>],
+) -> BTreeMap<ShareId<P>, Secret<Scalar<P>>>
+where
+    P: SchemeParams,
+{
     let polynomial = Polynomial::random(rng, secret, threshold);
     indices.iter().map(|idx| (*idx, polynomial.evaluate(idx))).collect()
 }
 
-pub(crate) fn interpolation_coeff(share_ids: &BTreeSet<ShareId>, share_id: &ShareId) -> Scalar {
+pub(crate) fn interpolation_coeff<P>(share_ids: &BTreeSet<ShareId<P>>, share_id: &ShareId<P>) -> Scalar<P>
+where
+    P: SchemeParams,
+{
     share_ids
         .iter()
         .filter(|id| id != &share_id)
@@ -119,7 +144,10 @@ pub(crate) fn interpolation_coeff(share_ids: &BTreeSet<ShareId>, share_id: &Shar
         .product()
 }
 
-pub(crate) fn shamir_join_scalars(pairs: BTreeMap<ShareId, Secret<Scalar>>) -> Secret<Scalar> {
+pub(crate) fn shamir_join_scalars<P>(pairs: BTreeMap<ShareId<P>, Secret<Scalar<P>>>) -> Secret<Scalar<P>>
+where
+    P: SchemeParams,
+{
     let share_ids = pairs.keys().cloned().collect::<BTreeSet<_>>();
     let mut sum = Secret::init_with(|| Scalar::ZERO);
 
@@ -130,7 +158,10 @@ pub(crate) fn shamir_join_scalars(pairs: BTreeMap<ShareId, Secret<Scalar>>) -> S
     sum
 }
 
-pub(crate) fn shamir_join_points(pairs: &BTreeMap<ShareId, Point>) -> Point {
+pub(crate) fn shamir_join_points<P>(pairs: &BTreeMap<ShareId<P>, Point<P>>) -> Point<P>
+where
+    P: SchemeParams,
+{
     let share_ids = pairs.keys().cloned().collect::<BTreeSet<_>>();
     pairs
         .iter()
@@ -143,11 +174,11 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{evaluate_polynomial, shamir_evaluation_points, shamir_join_scalars, shamir_split};
-    use crate::{curve::Scalar, tools::Secret};
+    use crate::{curve::Scalar, tools::Secret, TestParams};
 
     #[test]
     fn evaluate() {
-        let x = Scalar::random(&mut OsRng);
+        let x = Scalar::<TestParams>::random(&mut OsRng);
         let coeffs = (0..4).map(|_| Scalar::random(&mut OsRng)).collect::<Vec<_>>();
 
         let actual = evaluate_polynomial(&coeffs, &x);
@@ -160,7 +191,7 @@ mod tests {
     fn split_and_join() {
         let threshold = 3;
         let num_shares = 5;
-        let secret = Secret::init_with(|| Scalar::random(&mut OsRng));
+        let secret = Secret::init_with(|| Scalar::<TestParams>::random(&mut OsRng));
         let points = shamir_evaluation_points(num_shares);
         let mut shares = shamir_split(&mut OsRng, secret.clone(), threshold, &points);
 

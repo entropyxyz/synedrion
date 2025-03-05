@@ -1,13 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+use digest::typenum::Unsigned;
+use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
+use primeorder::{elliptic_curve::Curve, FieldBytes};
 use rand_core::OsRng;
 use synedrion::{
-    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, TestParams,
+    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams,
     ThresholdKeyShare,
 };
 use tracing::info;
@@ -22,6 +24,9 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
 
 #[test_log::test]
 fn full_sequence() {
+    type Params = synedrion::TestParams;
+    type C = <Params as SchemeParams>::Curve;
+    let now = std::time::Instant::now();
     let t = 3;
     let n = 5;
     let (signers, verifiers) = make_signers(n);
@@ -33,11 +38,12 @@ fn full_sequence() {
     let entry_points = signers[..t]
         .iter()
         .map(|signer| {
-            let entry_point = KeyInit::<TestParams, TestVerifier>::new(old_holders.clone()).unwrap();
+            let entry_point = KeyInit::<Params, TestVerifier>::new(old_holders.clone()).unwrap();
             (*signer, entry_point)
         })
         .collect();
-
+    info!("Setup took {:?}", now.elapsed());
+    let now = std::time::Instant::now();
     info!("\nRunning KeyInit\n");
     let key_shares = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
@@ -64,7 +70,7 @@ fn full_sequence() {
     // Reshare to `n` nodes
 
     // This will need to be published so that new holders can see it and verify the received data
-    let new_holder = NewHolder {
+    let new_holder = NewHolder::<Params, _> {
         verifying_key: t_key_shares[&verifiers[0]].verifying_key().unwrap(),
         old_threshold: t_key_shares[&verifiers[0]].threshold(),
         old_holders,
@@ -73,7 +79,7 @@ fn full_sequence() {
     // Old holders' sessions (which will also hold the newly reshared parts)
     let mut entry_points = (0..t)
         .map(|idx| {
-            let entry_point = KeyResharing::<TestParams, TestVerifier>::new(
+            let entry_point = KeyResharing::<Params, TestVerifier>::new(
                 Some(OldHolder {
                     key_share: t_key_shares[&verifiers[idx]].clone(),
                 }),
@@ -89,13 +95,14 @@ fn full_sequence() {
     let new_holder_entry_points = (t..n)
         .map(|idx| {
             let entry_point =
-                KeyResharing::<TestParams, TestVerifier>::new(None, Some(new_holder.clone()), all_verifiers.clone(), t);
+                KeyResharing::<Params, TestVerifier>::new(None, Some(new_holder.clone()), all_verifiers.clone(), t);
             (signers[idx], entry_point)
         })
         .collect::<Vec<_>>();
 
     entry_points.extend(new_holder_entry_points);
-
+    info!("KeyInit took {:?}", now.elapsed());
+    let now = std::time::Instant::now();
     info!("\nRunning KeyReshare\n");
     let new_t_key_shares = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
@@ -123,16 +130,19 @@ fn full_sequence() {
 
     let entry_points = (0..n)
         .map(|idx| {
-            let entry_point = AuxGen::<TestParams, TestVerifier>::new(all_verifiers.clone()).unwrap();
+            let entry_point = AuxGen::<Params, TestVerifier>::new(all_verifiers.clone()).unwrap();
             (signers[idx], entry_point)
         })
         .collect::<Vec<_>>();
 
-    info!("\nRunning AuxGen\n");
+    info!("KeyReshare took {:?}", now.elapsed());
+    let now = std::time::Instant::now();
+    let runsync_t = std::time::Instant::now();
     let aux_infos = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
         .results()
         .unwrap();
+    info!("run_sync AuxInfo took {:?}", runsync_t.elapsed());
 
     // For signing, we select `t` parties and these parties:
     // - derive child key shares
@@ -165,7 +175,8 @@ fn full_sequence() {
 
     // Perform signing with the key shares
 
-    let message = b"abcdefghijklmnopqrstuvwxyz123456";
+    let message =
+        FieldBytes::<C>::from_slice(&b"abcdefghijklmnopqrstuvwxyz123456"[..<C as Curve>::FieldBytesSize::USIZE]);
 
     let entry_points = (0..3)
         .map(|idx| {
@@ -179,6 +190,8 @@ fn full_sequence() {
         })
         .collect();
 
+    info!("AuxGen took {:?}", now.elapsed());
+    let now = std::time::Instant::now();
     info!("\nRunning InteractiveSigning\n");
     let signatures = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
         .unwrap()
@@ -195,4 +208,5 @@ fn full_sequence() {
         let recovered_key = VerifyingKey::recover_from_prehash(message, &sig, rec_id).unwrap();
         assert_eq!(recovered_key, child_vkey);
     }
+    info!("Done. Interactive signing took {:?}", now.elapsed());
 }

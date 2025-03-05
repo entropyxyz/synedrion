@@ -28,7 +28,7 @@ pub struct EncElgSecretInputs<'a, P: SchemeParams> {
     /// $\rho$, a Paillier randomizer for the public key $N_0$.
     pub rho: &'a Randomizer<P::Paillier>,
     /// Scalar $b$.
-    pub b: &'a Secret<Scalar>,
+    pub b: &'a Secret<Scalar<P>>,
 }
 
 pub struct EncElgPublicInputs<'a, P: SchemeParams> {
@@ -37,24 +37,28 @@ pub struct EncElgPublicInputs<'a, P: SchemeParams> {
     /// Paillier ciphertext $C = enc_0(x, \rho)$.
     pub cap_c: &'a Ciphertext<P::Paillier>,
     /// Point $A = g^a$, where $g$ is the curve generator.
-    pub cap_a: &'a Point,
+    pub cap_a: &'a Point<P>,
     /// Point $B = g^b$, where $g$ is the curve generator.
-    pub cap_b: &'a Point,
+    pub cap_b: &'a Point<P>,
     /// Point $X = g^(a b + x)$, where $g$ is the curve generator.
-    pub cap_x: &'a Point,
+    pub cap_x: &'a Point<P>,
 }
 
 /// ZK proof: Paillier encryption in range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "
+    Scalar<P>: for<'x> Deserialize<'x>,
+    Point<P>: for<'x> Deserialize<'x>
+"))]
 pub(crate) struct EncElgProof<P: SchemeParams> {
-    e: Scalar,
+    e: Scalar<P>,
     cap_s: RPCommitmentWire<P::Paillier>,
     cap_d: CiphertextWire<P::Paillier>,
-    cap_y: Point,
-    cap_z: Point,
+    cap_y: Point<P>,
+    cap_z: Point<P>,
     cap_t: RPCommitmentWire<P::Paillier>,
     z1: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
-    w: Scalar,
+    w: Scalar<P>,
     z2: MaskedRandomizer<P::Paillier>,
     z3: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
 }

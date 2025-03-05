@@ -688,7 +688,7 @@ checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 [[package]]
 name = "manul"
 version = "0.2.0-dev"
-source = "git+https://github.com/entropyxyz/manul.git?rev=f4c9515eaeb97a17ab3eef908b73be6159f7d9d2#f4c9515eaeb97a17ab3eef908b73be6159f7d9d2"
+source = "git+https://github.com/entropyxyz/manul.git?rev=9810d0188d64d4fca3c95efd75e3b565c5db4233#9810d0188d64d4fca3c95efd75e3b565c5db4233"
 dependencies = [
  "derive-where",
  "digest",
@@ -848,6 +848,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "primeorder"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
+dependencies = [
+ "elliptic-curve",
+ "serdect 0.2.0",
 ]
 
 [[package]]
@@ -1192,11 +1202,13 @@ dependencies = [
  "crypto-primes",
  "digest",
  "displaydoc",
+ "ecdsa",
  "hashing-serializer",
  "hex",
  "impls",
  "k256",
  "manul",
+ "primeorder",
  "rand",
  "rand_chacha",
  "rand_core",
@@ -1208,6 +1220,7 @@ dependencies = [
  "sha3",
  "signature",
  "test-log",
+ "tiny-curve",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1244,6 +1257,20 @@ checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
 dependencies = [
  "cfg-if",
  "once_cell",
+]
+
+[[package]]
+name = "tiny-curve"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fee0da040bad62e743441300bd31f211b6d8d34786ff816be58a345ad79dcd8"
+dependencies = [
+ "bip32",
+ "ecdsa",
+ "elliptic-curve",
+ "num-traits",
+ "primeorder",
+ "sha2",
 ]
 
 [[package]]

@@ -47,7 +47,7 @@ impl<P: SchemeParams> FacProof<P> {
     ) -> Self {
         let pk0 = sk0.public_key();
 
-        // TODO (#27): this assertion is currently not satisfied for TestParams.
+        // TODO (#192): this assertion is currently not satisfied for TestParams.
         // assert!(pk0.modulus().bits_vartime() > 4 * P::L_BOUND);
 
         let hat_cap_n = setup.modulus(); // $\hat{N}$

@@ -30,7 +30,7 @@ use crate::{
     },
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, FofHasher, HashOutput},
+        hashing::{Chain, FofHasher},
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
     },
 };
@@ -62,7 +62,7 @@ impl<P: SchemeParams, Id: PartyId> Protocol<Id> for AuxGenProtocol<P, Id> {
         message: &EchoBroadcast,
     ) -> Result<(), MessageValidationError> {
         match round_id {
-            r if r == &1 => message.verify_is_not::<Round1EchoBroadcast>(deserializer),
+            r if r == &1 => message.verify_is_not::<Round1EchoBroadcast<P>>(deserializer),
             r if r == &2 => message.verify_is_not::<Round2EchoBroadcast<P>>(deserializer),
             r if r == &3 => message.verify_is_some(),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
@@ -166,9 +166,9 @@ pub struct AuxGenAssociatedData<Id> {
 fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &AuxGenAssociatedData<Id>,
-) -> HashOutput {
-    FofHasher::new_with_dst(b"AuxGen SID")
-        .chain_type::<P>()
+) -> P::HashOutput {
+    FofHasher::<P>::new_with_dst(b"AuxGen SID")
+        .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
         .finalize()
@@ -223,7 +223,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for AuxGenError<P, Id> {
                 let r1_eb = previous_messages
                     .get_round(1)?
                     .echo_broadcast
-                    .deserialize::<Round1EchoBroadcast>(deserializer)?;
+                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
                 let r2_nb = message
                     .normal_broadcast
                     .deserialize::<Round2NormalBroadcast<P>>(deserializer)?;
@@ -313,8 +313,8 @@ pub(super) struct PublicData<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> PublicData<P> {
-    pub(super) fn hash<Id: PartyId>(&self, sid: &HashOutput, id: &Id) -> HashOutput {
-        FofHasher::new_with_dst(b"KeyInit")
+    pub(super) fn hash<Id: PartyId>(&self, sid: &P::HashOutput, id: &Id) -> P::HashOutput {
+        FofHasher::<P>::new_with_dst(b"KeyInit")
             .chain(sid)
             .chain(id)
             .chain(&self.paillier_pk.clone().into_wire())
@@ -344,7 +344,11 @@ impl<P, Id: PartyId> AuxGen<P, Id> {
     }
 }
 
-impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for AuxGen<P, Id> {
+impl<P, Id> EntryPoint<Id> for AuxGen<P, Id>
+where
+    P: SchemeParams,
+    Id: PartyId,
+{
     type Protocol = AuxGenProtocol<P, Id>;
 
     fn entry_round_id() -> RoundId {
@@ -415,7 +419,7 @@ pub(super) struct Context<P: SchemeParams, Id> {
     rp_params: RPParams<P::Paillier>,
     pub(super) my_id: Id,
     other_ids: BTreeSet<Id>,
-    pub(super) sid: HashOutput,
+    pub(super) sid: P::HashOutput,
 }
 
 #[derive(Debug)]
@@ -425,12 +429,12 @@ pub(super) struct Round1<P: SchemeParams, Id: PartyId> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct Round1EchoBroadcast {
-    pub(super) cap_v: HashOutput,
+pub(super) struct Round1EchoBroadcast<P: SchemeParams> {
+    pub(super) cap_v: P::HashOutput,
 }
 
-struct Round1Payload {
-    cap_v: HashOutput,
+struct Round1Payload<P: SchemeParams> {
+    cap_v: P::HashOutput,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
@@ -457,7 +461,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
         _rng: &mut impl CryptoRngCore,
         serializer: &Serializer,
     ) -> Result<EchoBroadcast, LocalError> {
-        let message = Round1EchoBroadcast {
+        let message = Round1EchoBroadcast::<P> {
             cap_v: self.public_data.hash(&self.context.sid, &self.context.my_id),
         };
         EchoBroadcast::new(serializer, message)
@@ -473,8 +477,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
         message.direct_message.assert_is_none()?;
         let echo_broadcast = message
             .echo_broadcast
-            .deserialize::<Round1EchoBroadcast>(deserializer)?;
-        let payload = Round1Payload {
+            .deserialize::<Round1EchoBroadcast<P>>(deserializer)?;
+        let payload = Round1Payload::<P> {
             cap_v: echo_broadcast.cap_v,
         };
         Ok(Payload::new(payload))
@@ -486,7 +490,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
         payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round1Payload>()?;
+        let payloads = payloads.downcast_all::<Round1Payload<P>>()?;
         let cap_vs = payloads.map_values(|payload| payload.cap_v);
         let next_round = Round2 {
             context: self.context,
@@ -501,7 +505,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
 struct Round2<P: SchemeParams, Id: PartyId> {
     context: Context<P, Id>,
     public_data: PublicData<P>,
-    cap_vs: BTreeMap<Id, HashOutput>,
+    cap_vs: BTreeMap<Id, P::HashOutput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

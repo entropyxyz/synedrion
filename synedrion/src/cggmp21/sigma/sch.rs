@@ -12,18 +12,19 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
+    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_sch";
 
 /// Secret data the proof is based on (~ signing key)
 #[derive(Debug, Clone)]
-pub(crate) struct SchSecret(
-    /// $\alpha$
-    Secret<Scalar>,
+pub(crate) struct SchSecret<P: SchemeParams>(
+    /// `\alpha`
+    Secret<Scalar<P>>,
 );
 
-impl SchSecret {
+impl<P: SchemeParams> SchSecret<P> {
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         Self(Secret::init_with(|| Scalar::random(rng)))
     }
@@ -31,19 +32,21 @@ impl SchSecret {
 
 /// Public data for the proof (~ verifying key)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SchCommitment(Point);
+#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>"))]
+pub(crate) struct SchCommitment<P: SchemeParams>(Point<P>);
 
-impl SchCommitment {
-    pub fn new(secret: &SchSecret) -> Self {
+impl<P: SchemeParams> SchCommitment<P> {
+    pub fn new(secret: &SchSecret<P>) -> Self {
         Self(secret.0.mul_by_generator())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SchChallenge(Scalar);
+#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>"))]
+struct SchChallenge<P: SchemeParams>(Scalar<P>);
 
-impl SchChallenge {
-    fn new(public: &Point, commitment: &SchCommitment, aux: &impl Hashable) -> Self {
+impl<P: SchemeParams> SchChallenge<P> {
+    fn new(public: &Point<P>, commitment: &SchCommitment<P>, aux: &impl Hashable) -> Self {
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             .chain(aux)
             .chain(public)
@@ -55,27 +58,28 @@ impl SchChallenge {
 
 /// ZK proof: Schnorr proof of knowledge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SchProof {
-    challenge: SchChallenge,
-    proof: Scalar,
+#[serde(bound(deserialize = "for<'x> SchChallenge<P>: Deserialize<'x>"))]
+pub(crate) struct SchProof<P: SchemeParams> {
+    challenge: SchChallenge<P>,
+    proof: Scalar<P>,
 }
 
-impl SchProof {
+impl<P: SchemeParams> SchProof<P> {
     pub fn new(
-        proof_secret: &SchSecret,
-        x: &Secret<Scalar>,
-        commitment: &SchCommitment,
-        cap_x: &Point,
+        proof_secret: &SchSecret<P>,
+        x: &Secret<Scalar<P>>,
+        commitment: &SchCommitment<P>,
+        cap_x: &Point<P>,
         aux: &impl Hashable,
     ) -> Self {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        let proof = *(&proof_secret.0 + x * challenge.0).expose_secret();
+        let proof: Scalar<P> = *(&proof_secret.0 + x * challenge.0).expose_secret();
         Self { challenge, proof }
     }
 
-    pub fn verify(&self, commitment: &SchCommitment, cap_x: &Point, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, commitment: &SchCommitment<P>, cap_x: &Point<P>, aux: &impl Hashable) -> bool {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
-        challenge == self.challenge && self.proof.mul_by_generator() == commitment.0 + cap_x * challenge.0
+        challenge == self.challenge && (commitment.0 + cap_x * challenge.0) == self.proof.mul_by_generator()
     }
 }
 
@@ -85,11 +89,11 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{SchCommitment, SchProof, SchSecret};
-    use crate::{curve::Scalar, tools::Secret};
+    use crate::{curve::Scalar, tools::Secret, TestParams};
 
     #[test]
     fn prove_and_verify() {
-        let secret = Secret::init_with(|| Scalar::random(&mut OsRng));
+        let secret = Secret::init_with(|| Scalar::<TestParams>::random(&mut OsRng));
         let public = secret.mul_by_generator();
         let aux: &[u8] = b"abcde";
 
@@ -101,7 +105,7 @@ mod tests {
         let res = BinaryFormat::serialize(proof);
         assert!(res.is_ok());
         let payload = res.unwrap();
-        let proof: SchProof = BinaryFormat::deserialize(&payload).unwrap();
+        let proof: SchProof<TestParams> = BinaryFormat::deserialize(&payload).unwrap();
 
         assert!(proof.verify(&commitment, &public, &aux));
     }

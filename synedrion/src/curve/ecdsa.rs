@@ -1,4 +1,6 @@
-use k256::ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
+use crate::SchemeParams;
+use ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
+use primeorder::elliptic_curve::group::Curve as _;
 
 #[cfg(test)]
 use rand_core::CryptoRngCore;
@@ -6,21 +8,24 @@ use rand_core::CryptoRngCore;
 use super::arithmetic::{Point, Scalar};
 
 /// A wrapper for a signature and public key recovery info.
-#[derive(Debug, Clone, Copy)]
-pub struct RecoverableSignature {
-    signature: BackendSignature,
+#[derive(Debug, Clone)]
+pub struct RecoverableSignature<P: SchemeParams> {
+    signature: BackendSignature<P::Curve>,
     recovery_id: RecoveryId,
 }
 
-impl RecoverableSignature {
+impl<P> RecoverableSignature<P>
+where
+    P: SchemeParams,
+{
     #[cfg(test)]
     pub(crate) fn random(rng: &mut impl CryptoRngCore) -> Option<Self> {
-        let sk = k256::ecdsa::SigningKey::random(rng);
+        let sk = ecdsa::SigningKey::random(rng);
         let (signature, recovery_id) = sk.sign_recoverable(b"test message").ok()?;
         Some(Self { signature, recovery_id })
     }
 
-    pub(crate) fn from_scalars(r: &Scalar, s: &Scalar, vkey: &Point, message: &Scalar) -> Option<Self> {
+    pub(crate) fn from_scalars(r: Scalar<P>, s: Scalar<P>, vkey: Point<P>, message: Scalar<P>) -> Option<Self> {
         let signature = BackendSignature::from_scalars(r.to_backend(), s.to_backend()).ok()?;
 
         // Normalize the `s` component.
@@ -40,7 +45,7 @@ impl RecoverableSignature {
     }
 
     /// Unwraps into the signature and recovery info objects from the backend crate.
-    pub fn to_backend(self) -> (BackendSignature, RecoveryId) {
+    pub fn to_backend(self) -> (BackendSignature<P::Curve>, RecoveryId) {
         (self.signature, self.recovery_id)
     }
 }

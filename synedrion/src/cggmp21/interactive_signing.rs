@@ -16,6 +16,7 @@ use manul::protocol::{
     ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
     Serializer,
 };
+use primeorder::{elliptic_curve::Curve, FieldBytes};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +34,7 @@ use crate::{
     curve::{Point, RecoverableSignature, Scalar},
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
     tools::{
-        hashing::{Chain, FofHasher, HashOutput},
+        hashing::{Chain, FofHasher},
         protocol_shortcuts::{
             sum_non_empty, sum_non_empty_ref, verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet,
             Without,
@@ -44,15 +45,20 @@ use crate::{
 };
 
 /// Prehashed message to sign.
-pub type PrehashedMessage = [u8; 32];
+// TODO: Type aliases are not enforced by the compiler, but they should be. Maybe one?
+#[allow(type_alias_bounds)]
+pub type PrehashedMessage<C: Curve> = FieldBytes<C>;
 
 #[derive(Debug, Clone)]
-struct PresigningData<Id> {
-    cap_gamma_combined: Point,             // $\Gamma$
-    tilde_k: Secret<Scalar>,               // $k / \delta$
-    tilde_chi: Secret<Scalar>,             // $chi / \delta$
-    tilde_cap_deltas: BTreeMap<Id, Point>, // $\Delta_j^{\delta^{-1}}$ for all $j$
-    tilde_cap_ss: BTreeMap<Id, Point>,     // $S_j^{\delta^{-1}}$ for all $j$
+struct PresigningData<P, Id>
+where
+    P: SchemeParams,
+{
+    cap_gamma_combined: Point<P>,             // $\Gamma$
+    tilde_k: Secret<Scalar<P>>,               // $k / \delta$
+    tilde_chi: Secret<Scalar<P>>,             // $chi / \delta$
+    tilde_cap_deltas: BTreeMap<Id, Point<P>>, // $\Delta_j^{\delta^{-1}}$ for all $j$
+    tilde_cap_ss: BTreeMap<Id, Point<P>>,     // $S_j^{\delta^{-1}}$ for all $j$
 }
 
 /// A protocol for creating all the data necessary for signing
@@ -61,7 +67,7 @@ struct PresigningData<Id> {
 pub struct InteractiveSigningProtocol<P: SchemeParams, Id: Debug>(PhantomData<(P, Id)>);
 
 impl<P: SchemeParams, Id: PartyId> Protocol<Id> for InteractiveSigningProtocol<P, Id> {
-    type Result = RecoverableSignature;
+    type Result = RecoverableSignature<P>;
     type ProtocolError = InteractiveSigningError<P, Id>;
 
     fn verify_direct_message_is_invalid(
@@ -88,7 +94,7 @@ impl<P: SchemeParams, Id: PartyId> Protocol<Id> for InteractiveSigningProtocol<P
         match round_id {
             r if r == &1 => message.verify_is_not::<Round1EchoBroadcast<P>>(deserializer),
             r if r == &2 => message.verify_is_not::<Round2EchoBroadcast<P, Id>>(deserializer),
-            r if r == &3 => message.verify_is_not::<Round3EchoBroadcast>(deserializer),
+            r if r == &3 => message.verify_is_not::<Round3EchoBroadcast<P>>(deserializer),
             r if r == &4 => message.verify_is_some(),
             r if r == &5 => message.verify_is_not::<Round5EchoBroadcast<P, Id>>(deserializer),
             r if r == &6 => message.verify_is_not::<Round6EchoBroadcast<P, Id>>(deserializer),
@@ -105,7 +111,7 @@ impl<P: SchemeParams, Id: PartyId> Protocol<Id> for InteractiveSigningProtocol<P
             r if r == &1 => message.verify_is_some(),
             r if r == &2 => message.verify_is_not::<Round2NormalBroadcast<P, Id>>(deserializer),
             r if r == &3 => message.verify_is_not::<Round3NormalBroadcast<P>>(deserializer),
-            r if r == &4 => message.verify_is_not::<Round4NormalBroadcast>(deserializer),
+            r if r == &4 => message.verify_is_not::<Round4NormalBroadcast<P>>(deserializer),
             r if r == &5 => message.verify_is_some(),
             r if r == &6 => message.verify_is_some(),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
@@ -202,13 +208,13 @@ pub struct InteractiveSigningAssociatedData<P: SchemeParams, Id: PartyId> {
     /// Auxiliary data of all participating nodes.
     pub aux: PublicAuxInfos<P, Id>,
     /// The message to be signed.
-    pub message: PrehashedMessage,
+    pub message: PrehashedMessage<P::Curve>,
 }
 
 impl<P: SchemeParams, Id: PartyId> InteractiveSigningAssociatedData<P, Id> {
     /// Creates the associated data for evidence verification of InteractiveSigning.
     pub fn new(
-        message: PrehashedMessage,
+        message: PrehashedMessage<P::Curve>,
         public_key_shares: PublicKeyShares<P, Id>,
         public_aux_infos: PublicAuxInfos<P, Id>,
     ) -> Result<Self, LocalError> {
@@ -232,9 +238,9 @@ impl<P: SchemeParams, Id: PartyId> InteractiveSigningAssociatedData<P, Id> {
 fn make_epid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &InteractiveSigningAssociatedData<P, Id>,
-) -> HashOutput {
-    FofHasher::new_with_dst(b"InteractiveSigning EPID")
-        .chain_type::<P>()
+) -> P::HashOutput {
+    FofHasher::<P>::new_with_dst(b"InteractiveSigning EPID")
+        .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.shares)
         .chain(&associated_data.aux)
@@ -537,7 +543,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                         cap_m: &r1_eb.cap_b2,
                         cap_x: &r1_eb.cap_y,
                         cap_y: &r2_eb.cap_gamma,
-                        h: &Point::GENERATOR,
+                        h: &Point::generator(),
                     },
                     &aux,
                 ))
@@ -581,23 +587,23 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                     .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
                 let r3_ebs = combined_echos
                     .get_round(3)?
-                    .deserialize_all::<Round3EchoBroadcast>(deserializer)?;
+                    .deserialize_all::<Round3EchoBroadcast<P>>(deserializer)?;
                 let r3_eb = previous_messages
                     .get_round(3)?
                     .echo_broadcast
-                    .deserialize::<Round3EchoBroadcast>(deserializer)?;
+                    .deserialize::<Round3EchoBroadcast<P>>(deserializer)?;
                 let r4_nb = message
                     .normal_broadcast
-                    .deserialize::<Round4NormalBroadcast>(deserializer)?;
+                    .deserialize::<Round4NormalBroadcast<P>>(deserializer)?;
 
                 let cap_gamma = r2_eb.cap_gamma + r2_ebs.values().map(|eb| eb.cap_gamma).sum();
                 let nonce = cap_gamma.x_coordinate();
-                let delta = r3_eb.delta + r3_ebs.values().map(|eb| eb.delta).sum::<Scalar>();
-                let delta_inv = Option::<Scalar>::from(delta.invert())
+                let delta = r3_eb.delta + r3_ebs.values().map(|eb| eb.delta).sum::<Scalar<P>>();
+                let delta_inv = Option::<Scalar<P>>::from(delta.invert())
                     .ok_or_else(|| ProtocolValidationError::InvalidEvidence("`delta` is not invertible".into()))?;
                 let tilde_cap_delta = r3_nb.cap_delta * delta_inv;
                 let tilde_cap_s = r3_nb.cap_s * delta_inv;
-                let scalar_message = Scalar::from_reduced_bytes(&associated_data.message);
+                let scalar_message = Scalar::from_reduced_bytes(associated_data.message.clone());
 
                 verify_that(cap_gamma * r4_nb.sigma != tilde_cap_delta * scalar_message + tilde_cap_s * nonce)
             }
@@ -669,7 +675,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                         cap_x: &r2_eb.cap_gamma,
                         cap_d: &cap_d,
                         cap_s: &r3_nb.cap_delta,
-                        cap_g: &Point::GENERATOR,
+                        cap_g: &Point::generator(),
                     },
                     &rp,
                     &aux,
@@ -903,16 +909,20 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
 
 /// An entry point for the [`InteractiveSigningProtocol`].
 #[derive(Debug, Clone)]
-pub struct InteractiveSigning<P: SchemeParams, Id: Ord> {
+pub struct InteractiveSigning<P, Id>
+where
+    P: SchemeParams,
+    Id: Ord + Debug + Clone,
+{
     key_share: KeyShare<P, Id>,
     aux_info: AuxInfo<P, Id>,
-    message: PrehashedMessage,
+    message: PrehashedMessage<P::Curve>,
 }
 
 impl<P: SchemeParams, Id: PartyId> InteractiveSigning<P, Id> {
     /// Creates a new entry point given a share of the secret key.
     pub fn new(
-        message: PrehashedMessage,
+        message: PrehashedMessage<P::Curve>,
         key_share: KeyShare<P, Id>,
         aux_info: AuxInfo<P, Id>,
     ) -> Result<Self, LocalError> {
@@ -971,7 +981,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
             &InteractiveSigningAssociatedData {
                 shares: key_share.public().clone(),
                 aux: aux_info.public().clone(),
-                message: self.message,
+                message: self.message.clone(),
             },
         );
 
@@ -1012,7 +1022,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
 
         Ok(BoxedRound::new_dynamic(Round1 {
             context: Context {
-                scalar_message: Scalar::from_reduced_bytes(&self.message),
+                scalar_message: Scalar::from_reduced_bytes(self.message),
                 epid,
                 my_id: id.clone(),
                 other_ids,
@@ -1032,18 +1042,22 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
 }
 
 #[derive(Debug)]
-pub(super) struct Context<P: SchemeParams, Id: Ord> {
-    scalar_message: Scalar,
-    pub(super) epid: HashOutput,
+pub(super) struct Context<P, Id>
+where
+    P: SchemeParams,
+    Id: Ord,
+{
+    scalar_message: Scalar<P>,
+    pub(super) epid: P::HashOutput,
     pub(super) my_id: Id,
     other_ids: BTreeSet<Id>,
     all_ids: BTreeSet<Id>,
     key_share: KeyShare<P, Id>,
     pub(super) aux_info: AuxInfoPrecomputed<P, Id>,
-    k: Secret<Scalar>,
-    pub(super) gamma: Secret<Scalar>,
-    a: Secret<Scalar>,
-    pub(super) b: Secret<Scalar>,
+    k: Secret<Scalar<P>>,
+    pub(super) gamma: Secret<Scalar<P>>,
+    a: Secret<Scalar<P>>,
+    pub(super) b: Secret<Scalar<P>>,
     rho: Randomizer<P::Paillier>,
     nu: Randomizer<P::Paillier>,
 }
@@ -1051,9 +1065,9 @@ pub(super) struct Context<P: SchemeParams, Id: Ord> {
 impl<P, Id> Context<P, Id>
 where
     P: SchemeParams,
-    Id: Clone + Ord + Debug,
+    Id: Ord + Debug + Clone + Serialize + for<'x> Deserialize<'x>,
 {
-    pub fn public_share(&self, i: &Id) -> Result<&Point, LocalError> {
+    pub fn public_share(&self, i: &Id) -> Result<&Point<P>, LocalError> {
         self.key_share.public_shares().safe_get("public share", i)
     }
 
@@ -1063,7 +1077,11 @@ where
 }
 
 #[derive(Debug)]
-struct Round1<P: SchemeParams, Id: Ord> {
+struct Round1<P, Id>
+where
+    P: SchemeParams,
+    Id: Ord + Serialize + Clone + Debug + for<'x> Deserialize<'x>,
+{
     context: Context<P, Id>,
     r1_echo_broadcast: Round1EchoBroadcast<P>,
 }
@@ -1074,11 +1092,11 @@ struct Round1<P: SchemeParams, Id: Ord> {
 pub(super) struct Round1EchoBroadcast<P: SchemeParams> {
     pub(super) cap_k: CiphertextWire<P::Paillier>,
     pub(super) cap_g: CiphertextWire<P::Paillier>,
-    pub(super) cap_y: Point,
-    pub(super) cap_a1: Point,
-    pub(super) cap_a2: Point,
-    pub(super) cap_b1: Point,
-    pub(super) cap_b2: Point,
+    pub(super) cap_y: Point<P>,
+    pub(super) cap_a1: Point<P>,
+    pub(super) cap_a2: Point<P>,
+    pub(super) cap_b1: Point<P>,
+    pub(super) cap_b2: Point<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1092,11 +1110,11 @@ struct Round1DirectMessage<P: SchemeParams> {
 #[derive(Debug)]
 pub(super) struct Round1Payload<P: SchemeParams> {
     pub(super) cap_k: Ciphertext<P::Paillier>,
-    cap_y: Point,
-    cap_a1: Point,
-    cap_a2: Point,
-    cap_b1: Point,
-    cap_b2: Point,
+    cap_y: Point<P>,
+    cap_a1: Point<P>,
+    cap_a2: Point<P>,
+    cap_b1: Point<P>,
+    cap_b2: Point<P>,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
@@ -1285,7 +1303,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
                 cap_m: &self.r1_echo_broadcast.cap_b2,
                 cap_x: &self.r1_echo_broadcast.cap_y,
                 cap_y: &cap_gamma,
-                h: &Point::GENERATOR,
+                h: &Point::generator(),
             },
             &aux,
         );
@@ -1436,7 +1454,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round2<P: SchemeParams, Id: Ord> {
+pub(super) struct Round2<P: SchemeParams, Id: Ord + Clone + Debug> {
     pub(super) context: Context<P, Id>,
     betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
     rs: BTreeMap<Id, Randomizer<P::Paillier>>,
@@ -1446,7 +1464,7 @@ pub(super) struct Round2<P: SchemeParams, Id: Ord> {
     hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
     r1_payloads: BTreeMap<Id, Round1Payload<P>>,
     cap_k: Ciphertext<P::Paillier>,
-    pub(super) cap_gamma: Point,
+    pub(super) cap_gamma: Point<P>,
     psi_elog: ElogProof<P>,
     cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
     cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
@@ -1481,15 +1499,15 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
     CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>,
 "))]
 pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
-    pub(super) cap_gamma: Point,
+    pub(super) cap_gamma: Point<P>,
     pub(super) cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
     pub(super) hat_cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
 }
 
 struct Round2Payload<P: SchemeParams, Id: PartyId> {
-    cap_gamma: Point,
-    alpha: Secret<Scalar>,
-    hat_alpha: Secret<Scalar>,
+    cap_gamma: Point<P>,
+    alpha: Secret<Scalar<P>>,
+    hat_alpha: Secret<Scalar<P>>,
     cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
     cap_fs: BTreeMap<Id, Ciphertext<P::Paillier>>,
     hat_cap_ds: BTreeMap<Id, Ciphertext<P::Paillier>>,
@@ -1654,7 +1672,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
                 cap_m: &sender_payload.cap_b2,
                 cap_x: &sender_payload.cap_y,
                 cap_y: &echo_broadcast.cap_gamma,
-                h: &Point::GENERATOR,
+                h: &Point::generator(),
             },
             &aux,
         ) {
@@ -1698,12 +1716,12 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 
         let x = self.context.key_share.secret_share();
 
-        let alpha_sum: Secret<Scalar> = payloads.values().map(|payload| &payload.alpha).sum();
-        let beta_sum: Secret<Scalar> = self.betas.values().map(secret_scalar_from_signed::<P>).sum();
+        let alpha_sum: Secret<Scalar<P>> = payloads.values().map(|payload| &payload.alpha).sum();
+        let beta_sum: Secret<Scalar<P>> = self.betas.values().map(secret_scalar_from_signed::<P>).sum();
         let delta = *(&self.context.gamma * &self.context.k + alpha_sum + beta_sum).expose_secret();
 
-        let hat_alpha_sum: Secret<Scalar> = payloads.values().map(|payload| &payload.hat_alpha).sum();
-        let hat_beta_sum: Secret<Scalar> = self.hat_betas.values().map(secret_scalar_from_signed::<P>).sum();
+        let hat_alpha_sum: Secret<Scalar<P>> = payloads.values().map(|payload| &payload.hat_alpha).sum();
+        let hat_beta_sum: Secret<Scalar<P>> = self.hat_betas.values().map(secret_scalar_from_signed::<P>).sum();
         let chi = x * &self.context.k + hat_alpha_sum + hat_beta_sum;
 
         let cap_s = cap_gamma_combined * &chi;
@@ -1812,15 +1830,15 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 pub(super) struct Round3<P: SchemeParams, Id: Ord> {
     pub(super) context: Context<P, Id>,
     pub(super) cap_k: Ciphertext<P::Paillier>,
-    pub(super) cap_gamma_combined: Point,
-    pub(super) chi: Secret<Scalar>,
+    pub(super) cap_gamma_combined: Point<P>,
+    pub(super) chi: Secret<Scalar<P>>,
     pub(super) r1_payloads: BTreeMap<Id, Round1Payload<P>>,
-    pub(super) cap_gammas: BTreeMap<Id, Point>,
+    pub(super) cap_gammas: BTreeMap<Id, Point<P>>,
     pub(super) cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $D_{i,j}$ for all $i, j$ where $i != j$.
     pub(super) cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $F_{i,j}$ for all $i, j$ where $i != j$.
     pub(super) hat_cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{D}_{i,j}$ for all $i, j$ where $i != j$.
     pub(super) hat_cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for all $i, j$ where $i != j$.
-    pub(super) r3_echo_broadcast: Round3EchoBroadcast,
+    pub(super) r3_echo_broadcast: Round3EchoBroadcast<P>,
     pub(super) r3_normal_broadcast: Round3NormalBroadcast<P>,
     pub(super) betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
     pub(super) rs: BTreeMap<Id, Randomizer<P::Paillier>>,
@@ -1831,23 +1849,24 @@ pub(super) struct Round3<P: SchemeParams, Id: Ord> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct Round3EchoBroadcast {
-    pub(super) delta: Scalar,
+#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>,"))]
+pub(super) struct Round3EchoBroadcast<P: SchemeParams> {
+    pub(super) delta: Scalar<P>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "ElogProof<P>: Serialize"))]
 #[serde(bound(deserialize = "ElogProof<P>: for<'x> Deserialize<'x>"))]
 pub(super) struct Round3NormalBroadcast<P: SchemeParams> {
-    pub(super) cap_delta: Point,
+    pub(super) cap_delta: Point<P>,
     psi_prime: ElogProof<P>,
-    pub(super) cap_s: Point,
+    pub(super) cap_s: Point<P>,
 }
 
-pub(super) struct Round3Payload {
-    pub(super) delta: Scalar,
-    cap_delta: Point,
-    pub(super) cap_s: Point,
+pub(super) struct Round3Payload<P: SchemeParams> {
+    pub(super) delta: Scalar<P>,
+    cap_delta: Point<P>,
+    pub(super) cap_s: Point<P>,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
@@ -1894,7 +1913,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         message.direct_message.assert_is_none()?;
         let echo_broadcast = message
             .echo_broadcast
-            .deserialize::<Round3EchoBroadcast>(deserializer)?;
+            .deserialize::<Round3EchoBroadcast<P>>(deserializer)?;
         let normal_broadcast = message
             .normal_broadcast
             .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
@@ -1928,7 +1947,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
-        let mut payloads = payloads.downcast_all::<Round3Payload>()?;
+        let mut payloads = payloads.downcast_all::<Round3Payload<P>>()?;
         let my_payload = Round3Payload {
             delta: self.r3_echo_broadcast.delta,
             cap_delta: self.r3_normal_broadcast.cap_delta,
@@ -1938,10 +1957,10 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 
         let deltas = payloads.map_values_ref(|payload| payload.delta);
 
-        let delta_combined = deltas.values().sum::<Scalar>();
+        let delta_combined = deltas.values().sum::<Scalar<P>>();
         let cap_delta = payloads.values().map(|payload| payload.cap_delta).sum();
 
-        let cap_s = payloads.values().map(|payload| payload.cap_s).sum::<Point>();
+        let cap_s = payloads.values().map(|payload| payload.cap_s).sum::<Point<P>>();
         let cap_x = self.context.key_share.verifying_key_as_point();
 
         if delta_combined.mul_by_generator() != cap_delta {
@@ -1986,7 +2005,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 
         // Intentionally making delta = 0 would require coordination from all the participants,
         // so it is very unlikely to happen.
-        let delta_combined_inv = Option::<Scalar>::from(delta_combined.invert())
+        let delta_combined_inv = Option::<Scalar<P>>::from(delta_combined.invert())
             .ok_or_else(|| LocalError::new("The combined delta is not invertible"))?;
 
         let presigning_data = PresigningData {
@@ -2012,17 +2031,18 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 #[derive(Debug)]
 struct Round4<P: SchemeParams, Id: Ord> {
     context: Context<P, Id>,
-    presigning_data: PresigningData<Id>,
-    sigma: Scalar,
+    presigning_data: PresigningData<P, Id>,
+    sigma: Scalar<P>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(super) struct Round4NormalBroadcast {
-    pub(crate) sigma: Scalar,
+#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>,"))]
+pub(super) struct Round4NormalBroadcast<P: SchemeParams> {
+    pub(crate) sigma: Scalar<P>,
 }
 
-struct Round4Payload {
-    sigma: Scalar,
+struct Round4Payload<P: SchemeParams> {
+    sigma: Scalar<P>,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
@@ -2066,7 +2086,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
         message.direct_message.assert_is_none()?;
         let normal_broadcast = message
             .normal_broadcast
-            .deserialize::<Round4NormalBroadcast>(deserializer)?;
+            .deserialize::<Round4NormalBroadcast<P>>(deserializer)?;
 
         let nonce = self.presigning_data.cap_gamma_combined.x_coordinate();
         let tilde_cap_delta = self
@@ -2091,15 +2111,15 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
         payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
-        let payloads = payloads.downcast_all::<Round4Payload>()?;
+        let payloads = payloads.downcast_all::<Round4Payload<P>>()?;
 
-        let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar>() + self.sigma;
+        let assembled_sigma = payloads.values().map(|payload| payload.sigma).sum::<Scalar<P>>() + self.sigma;
 
         let signature = RecoverableSignature::from_scalars(
-            &self.presigning_data.cap_gamma_combined.x_coordinate(),
-            &assembled_sigma,
-            &self.context.key_share.verifying_key_as_point(),
-            &self.context.scalar_message,
+            self.presigning_data.cap_gamma_combined.x_coordinate(),
+            assembled_sigma,
+            self.context.key_share.verifying_key_as_point(),
+            self.context.scalar_message,
         );
 
         if let Some(signature) = signature {
@@ -2113,11 +2133,11 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round4<P, Id> {
 #[derive(Debug)]
 pub(super) struct Round5<P: SchemeParams, Id: PartyId> {
     pub(super) context: Context<P, Id>,
-    pub(super) deltas: BTreeMap<Id, Scalar>,
+    pub(super) deltas: BTreeMap<Id, Scalar<P>>,
     pub(super) betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
     pub(super) ss: BTreeMap<Id, Randomizer<P::Paillier>>,
     pub(super) rs: BTreeMap<Id, Randomizer<P::Paillier>>,
-    pub(super) cap_gammas: BTreeMap<Id, Point>,
+    pub(super) cap_gammas: BTreeMap<Id, Point<P>>,
     pub(super) cap_ks: BTreeMap<Id, Ciphertext<P::Paillier>>, // $K_i$ for all $i$ ($i$ is locally generated, others received)
     pub(super) cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $D_{i,j}$ for $j != i$
     pub(super) cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $F_{i,j}$ for $j != i$
@@ -2207,7 +2227,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
                 cap_x: &self.context.gamma.mul_by_generator(),
                 cap_d: &cap_d,
                 cap_s: &delta.mul_by_generator(),
-                cap_g: &Point::GENERATOR,
+                cap_g: &Point::generator(),
             },
             rp,
             &aux,
@@ -2277,7 +2297,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
                 cap_x: self.cap_gammas.safe_get("`Gamma` map", from)?,
                 cap_d: &cap_d,
                 cap_s: &self.deltas.safe_get("`delta` map", from)?.mul_by_generator(),
-                cap_g: &Point::GENERATOR,
+                cap_g: &Point::generator(),
             },
             sender_rp,
             &aux,
@@ -2331,12 +2351,12 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
 #[derive(Debug)]
 pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
     pub(super) context: Context<P, Id>,
-    pub(super) cap_gamma_combined: Point,
+    pub(super) cap_gamma_combined: Point<P>,
     pub(super) hat_betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
     pub(super) hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
     pub(super) hat_rs: BTreeMap<Id, Randomizer<P::Paillier>>,
     pub(super) cap_ks: BTreeMap<Id, Ciphertext<P::Paillier>>, // $K_i$ for all $i$ ($i$ is locally generated, others received)
-    pub(super) cap_ss: BTreeMap<Id, Point>,
+    pub(super) cap_ss: BTreeMap<Id, Point<P>>,
     pub(super) hat_cap_ds: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{D}_{i,j}$ for $j != i$
     pub(super) hat_cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for $j != i$
 }
@@ -2347,8 +2367,9 @@ pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
     AffGStarProof<P>: Serialize,
 "))]
 #[serde(bound(deserialize = "
+    Id: for<'x> Deserialize<'x>,
     DecProof<P>: for<'x> Deserialize<'x>,
-    AffGStarProof<P>: for<'x> Deserialize<'x>,
+    AffGStarProof<P>: for<'x> Deserialize<'x>
 "))]
 pub(super) struct Round6EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psi_star: DecProof<P>,
@@ -2571,15 +2592,20 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
 mod tests {
     use alloc::collections::BTreeSet;
 
-    use k256::ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+    use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
     use manul::{
         dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
         signature::Keypair,
     };
+    use primeorder::FieldBytes;
     use rand_core::{OsRng, RngCore};
 
     use super::InteractiveSigning;
-    use crate::cggmp21::{AuxInfo, KeyShare, TestParams};
+    use crate::{
+        cggmp21::{AuxInfo, KeyShare, TestParams},
+        SchemeParams,
+    };
+    type Curve = <TestParams as SchemeParams>::Curve;
 
     #[test]
     fn execute_interactive_signing() {
@@ -2590,7 +2616,7 @@ mod tests {
         let key_shares = KeyShare::<TestParams, TestVerifier>::new_centralized(&mut OsRng, &ids_set, None);
         let aux_infos = AuxInfo::new_centralized(&mut OsRng, &ids_set);
 
-        let mut message = [0u8; 32];
+        let mut message = FieldBytes::<Curve>::default();
         OsRng.fill_bytes(&mut message);
 
         let entry_points = signers
@@ -2603,21 +2629,20 @@ mod tests {
             })
             .collect();
 
-        let signatures = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
+        let mut signatures = run_sync::<_, TestSessionParams<BinaryFormat>>(&mut OsRng, entry_points)
             .unwrap()
             .results()
             .unwrap();
 
-        for signature in signatures.values() {
+        while let Some((_, signature)) = signatures.pop_first() {
             let (sig, rec_id) = signature.to_backend();
-
             let vkey = key_shares[&ids[0]].verifying_key();
 
             // Check that the signature can be verified
             vkey.verify_prehash(&message, &sig).unwrap();
 
             // Check that the key can be recovered
-            let recovered_key = VerifyingKey::recover_from_prehash(&message, &sig, rec_id).unwrap();
+            let recovered_key = VerifyingKey::recover_from_prehash(message.as_ref(), &sig, rec_id).unwrap();
             assert_eq!(recovered_key, vkey);
         }
     }

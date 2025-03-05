@@ -160,8 +160,8 @@ fn r2_hash_mismatch() {
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
                 // Send a wrong hash in the Round 1 message
-                let message = Round1EchoBroadcast {
-                    cap_v: FofHasher::new_with_dst(b"bad hash").finalize(),
+                let message = Round1EchoBroadcast::<P> {
+                    cap_v: FofHasher::<P>::new_with_dst(b"bad hash").finalize(),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);
@@ -218,7 +218,7 @@ fn r2_wrong_ids_x() {
                 let mut data = round1.public_data.clone();
                 data.cap_xs.pop_first();
 
-                let message = Round1EchoBroadcast {
+                let message = Round1EchoBroadcast::<P> {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
@@ -255,7 +255,7 @@ fn r2_wrong_ids_y() {
                 let mut data = round1.public_data.clone();
                 data.cap_ys.pop_first();
 
-                let message = Round1EchoBroadcast {
+                let message = Round1EchoBroadcast::<P> {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
@@ -323,7 +323,7 @@ fn r2_wrong_ids_a() {
 
                 data.cap_as.pop_first();
 
-                let message = Round1EchoBroadcast {
+                let message = Round1EchoBroadcast::<P> {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
@@ -382,7 +382,7 @@ fn r2_paillier_modulus_too_small() {
                 let round1 = round.downcast_ref::<Round1<P, Id>>()?;
                 let mut data = round1.public_data.clone();
                 data.paillier_pk = make_small_modulus_pk::<<P as SchemeParams>::Paillier>().into_precomputed();
-                let message = Round1EchoBroadcast {
+                let message = Round1EchoBroadcast::<P> {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
@@ -424,7 +424,7 @@ fn r2_rp_modulus_too_small() {
                 let mut data = round1.public_data.clone();
                 data.rp_params = make_small_modulus_rp_params::<<P as SchemeParams>::Paillier>().to_precomputed();
 
-                let message = Round1EchoBroadcast {
+                let message = Round1EchoBroadcast::<P> {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
@@ -470,7 +470,7 @@ fn r2_non_zero_sum_of_changes() {
                 let mut rng = ChaCha8Rng::seed_from_u64(123);
                 data.cap_xs.insert(id, Scalar::random(&mut rng).mul_by_generator());
 
-                let message = Round1EchoBroadcast {
+                let message = Round1EchoBroadcast::<P> {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
@@ -532,7 +532,7 @@ fn r2_prm_failed() {
                 let rp_params = RPParams::random_with_secret(&mut rng, &secret);
                 data.psi = PrmProof::new(&mut rng, &secret, &rp_params, &1u8);
 
-                let message = Round1EchoBroadcast {
+                let message = Round1EchoBroadcast::<P> {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
@@ -691,7 +691,7 @@ fn r3_wrong_ids_hat_psi() {
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 3 {
                 let mut message = echo_broadcast
-                    .deserialize::<Round3EchoBroadcast<Id>>(deserializer)
+                    .deserialize::<Round3EchoBroadcast<P, Id>>(deserializer)
                     .unwrap();
                 message.hat_psis.pop_first();
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
@@ -722,7 +722,7 @@ fn r3_sch_failed() {
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 3 {
                 let mut message = echo_broadcast
-                    .deserialize::<Round3EchoBroadcast<Id>>(deserializer)
+                    .deserialize::<Round3EchoBroadcast<P, Id>>(deserializer)
                     .unwrap();
                 let (id, _hat_psi) = message.hat_psis.pop_last().unwrap();
                 let x = Secret::init_with(|| Scalar::random(rng));

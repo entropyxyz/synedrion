@@ -24,8 +24,6 @@ mod www02;
 
 // Some re-exports to avoid the need for version-matching
 pub use bip32;
-pub use k256;
-pub use k256::ecdsa;
 pub use signature;
 
 pub use cggmp21::{
@@ -33,10 +31,11 @@ pub use cggmp21::{
     InteractiveSigningProtocol, KeyInit, KeyInitAssociatedData, KeyInitProtocol, KeyRefresh, KeyRefreshAssociatedData,
     KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, ProductionParams112, SchemeParams, TestParams,
 };
-pub use curve::RecoverableSignature;
-pub use www02::{DeriveChildKey, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
+pub use curve::{DeriveChildKey, RecoverableSignature};
+pub use www02::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
 
 #[cfg(feature = "private_benches")]
 #[allow(missing_docs)]
+#[doc(hidden)]
 // Hack to expose internals for benchmarking purposes
 pub mod private_benches;

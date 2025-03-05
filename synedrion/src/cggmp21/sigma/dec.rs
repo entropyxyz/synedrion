@@ -38,17 +38,17 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
     // Fig. 28 says `enc_0(z, \rho) = ...` which is a typo.
     pub cap_k: &'a Ciphertext<P::Paillier>,
     /// Point $X = g^x$, where $g$ is the curve generator.
-    pub cap_x: &'a Point,
+    pub cap_x: &'a Point<P>,
     /// Paillier ciphertext $D$, see the doc for `cap_k` above.
     pub cap_d: &'a Ciphertext<P::Paillier>,
     /// Point $S = G^y$.
-    pub cap_s: &'a Point,
+    pub cap_s: &'a Point<P>,
     /// The base point $G$.
     // DEVIATION FROM THE PAPER.
     // In Fig. 28 it is not mentioned in the list of parameters and taken to be $g$.
     // But it is explicitly mentioned in Fig. 8 and 9, and the ZK proof in the error round
     // (for $\hat{D}$ and $\hat{F}$) uses a value different from $g$.
-    pub cap_g: &'a Point,
+    pub cap_g: &'a Point<P>,
 }
 
 /// ZK proof: Paillier decryption modulo $q$.
@@ -59,7 +59,7 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
 "))]
 #[serde(bound(deserialize = "
     DecProofCommitment<P>: for<'x> Deserialize<'x>,
-    DecProofElement<P>: for<'x> Deserialize<'x>,
+    DecProofElement<P>: for<'x> Deserialize<'x>
 "))]
 pub(crate) struct DecProof<P: SchemeParams> {
     e: BitVec,
@@ -74,10 +74,11 @@ struct DecProofEphemeral<P: SchemeParams> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>,"))]
 pub(crate) struct DecProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
-    cap_b: Point,
-    cap_c: Point,
+    cap_b: Point<P>,
+    cap_c: Point<P>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

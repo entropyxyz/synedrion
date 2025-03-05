@@ -87,7 +87,7 @@ pub mod aff_g_proof {
         Ciphertext<Paillier>,
         Ciphertext<Paillier>,
         Ciphertext<Paillier>,
-        Point,
+        Point<Params>,
         RPParams<Paillier>,
         &'static [u8],
     ) {
@@ -226,7 +226,7 @@ pub mod aff_g_star_proof {
         Ciphertext<Paillier>,
         Ciphertext<Paillier>,
         Ciphertext<Paillier>,
-        Point,
+        Point<Params>,
         &'static [u8],
     ) {
         let sk0 = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
@@ -348,10 +348,10 @@ pub mod dec_proof {
         Randomizer<Paillier>,
         PublicKeyPaillier<Paillier>,
         Ciphertext<Paillier>,
-        Point,
+        Point<Params>,
         Ciphertext<Paillier>,
-        Point,
-        Point,
+        Point<Params>,
+        Point<Params>,
         RPParams<Paillier>,
         &'static [u8],
     ) {
@@ -746,7 +746,7 @@ pub mod sch_proof {
         move |b: &mut Bencher<'_>| {
             b.iter_batched(
                 || {
-                    let secret = Secret::init_with(|| Scalar::random(&mut rng));
+                    let secret = Secret::init_with(|| Scalar::<Params>::random(&mut rng));
                     let public = secret.mul_by_generator();
                     let aux: &[u8] = b"abcde";
 
@@ -766,7 +766,7 @@ pub mod sch_proof {
         move |b: &mut Bencher<'_>| {
             b.iter_batched(
                 || {
-                    let secret = Secret::init_with(|| Scalar::random(&mut rng));
+                    let secret = Secret::init_with(|| Scalar::<Params>::random(&mut rng));
                     let public = secret.mul_by_generator();
                     let aux: &[u8] = b"abcde";
 

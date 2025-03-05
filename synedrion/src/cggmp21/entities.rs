@@ -3,10 +3,10 @@ use alloc::{
     format,
     vec::Vec,
 };
-use core::{fmt::Debug, marker::PhantomData};
+use core::fmt::Debug;
 use manul::session::LocalError;
 
-use k256::ecdsa::VerifyingKey;
+use ecdsa::VerifyingKey;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -21,19 +21,21 @@ use crate::{
 
 /// The result of the KeyInit protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyShare<P, I: Ord> {
+#[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
+pub struct KeyShare<P, I>
+where
+    P: SchemeParams,
+    I: Ord,
+{
     owner: I,
     /// Secret key share of this node.
-    secret: Secret<Scalar>, // `x_i`
+    secret: Secret<Scalar<P>>, // `x_i`
     public: PublicKeyShares<P, I>, // `X_j`
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublicKeyShares<P, I: Ord> {
-    shares: BTreeMap<I, Point>, // `X_j`
-    // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
-    phantom: PhantomData<P>,
-}
+#[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
+pub struct PublicKeyShares<P: SchemeParams, I: Ord>(BTreeMap<I, Point<P>>);
 
 /// The result of the AuxGen protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,14 +102,13 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
 pub struct KeyShareChange<P: SchemeParams, I: Ord> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.
-    pub(crate) secret_share_change: Secret<Scalar>, // `x_i^* - x_i == \sum_{j} x_j^i`
+    pub(crate) secret_share_change: Secret<Scalar<P>>, // `x_i^* - x_i == \sum_{j} x_j^i`
     /// The values to be added to the public shares of remote nodes.
-    pub(crate) public_share_changes: BTreeMap<I, Point>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
-    // TODO (#27): this won't be needed when Scalar/Point are a part of `P`
-    pub(crate) phantom: PhantomData<P>,
+    pub(crate) public_share_changes: BTreeMap<I, Point<P>>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
 }
 
 impl<P: SchemeParams, I: Ord> PublicAuxInfos<P, I> {
@@ -133,23 +134,28 @@ impl<P: SchemeParams, I: Ord> PublicAuxInfos<P, I> {
 }
 
 impl<P: SchemeParams, I: Clone + Ord + Debug> PublicKeyShares<P, I> {
-    pub(crate) fn as_map(&self) -> &BTreeMap<I, Point> {
-        &self.shares
+    pub(crate) fn as_map(&self) -> &BTreeMap<I, Point<P>> {
+        &self.0
     }
 }
 
-impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
-    pub(crate) fn new(owner: I, secret: Secret<Scalar>, public_shares: BTreeMap<I, Point>) -> Result<Self, LocalError> {
-        if public_shares.values().sum::<Point>() == Point::IDENTITY {
+impl<P, I> KeyShare<P, I>
+where
+    P: SchemeParams,
+    I: Ord + Debug + Clone,
+{
+    pub(crate) fn new(
+        owner: I,
+        secret: Secret<Scalar<P>>,
+        public_shares: BTreeMap<I, Point<P>>,
+    ) -> Result<Self, LocalError> {
+        if public_shares.values().sum::<Point<P>>() == Point::identity() {
             return Err(LocalError::new("Secret key shares add up to zero"));
         }
         Ok(KeyShare {
             owner,
             secret,
-            public: PublicKeyShares {
-                shares: public_shares,
-                phantom: PhantomData,
-            },
+            public: PublicKeyShares(public_shares),
         })
     }
 
@@ -161,10 +167,10 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
                 self.owner, change.owner
             )));
         }
-        if self.public.shares.len() != change.public_share_changes.len() {
+        if self.public.0.len() != change.public_share_changes.len() {
             return Err(LocalError::new(format!(
                 "Inconsistent number of public key shares in updated share set (expected {}, was {})",
-                self.public.shares.len(),
+                self.public.0.len(),
                 change.public_share_changes.len()
             )));
         }
@@ -172,7 +178,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
         let secret = self.secret + change.secret_share_change;
         let public_shares = self
             .public
-            .shares
+            .0
             .iter()
             .map(|(id, public_share)| {
                 Ok((
@@ -189,10 +195,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
         Ok(Self {
             owner: self.owner,
             secret,
-            public: PublicKeyShares {
-                shares: public_shares,
-                phantom: PhantomData,
-            },
+            public: PublicKeyShares(public_shares),
         })
     }
 
@@ -201,7 +204,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
     pub fn new_centralized(
         rng: &mut impl CryptoRngCore,
         ids: &BTreeSet<I>,
-        signing_key: Option<&k256::ecdsa::SigningKey>,
+        signing_key: Option<&ecdsa::SigningKey<P::Curve>>,
     ) -> BTreeMap<I, Self> {
         let secret = Secret::init_with(|| match signing_key {
             None => Scalar::random(rng),
@@ -223,22 +226,19 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
                     KeyShare {
                         owner: id.clone(),
                         secret: secret_share,
-                        public: PublicKeyShares {
-                            shares: public_shares.clone(),
-                            phantom: PhantomData,
-                        },
+                        public: PublicKeyShares(public_shares.clone()),
                     },
                 )
             })
             .collect()
     }
 
-    pub(crate) fn verifying_key_as_point(&self) -> Point {
-        self.public.shares.values().sum()
+    pub(crate) fn verifying_key_as_point(&self) -> Point<P> {
+        self.public.0.values().sum()
     }
 
     /// Return the verifying key to which this set of shares corresponds.
-    pub fn verifying_key(&self) -> VerifyingKey {
+    pub fn verifying_key(&self) -> VerifyingKey<P::Curve> {
         // All the constructors ensure that the shares add up to a non-infinity point.
         self.verifying_key_as_point()
             .to_verifying_key()
@@ -250,7 +250,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
         &self.owner
     }
 
-    pub(crate) fn secret_share(&self) -> &Secret<Scalar> {
+    pub(crate) fn secret_share(&self) -> &Secret<Scalar<P>> {
         &self.secret
     }
 
@@ -258,13 +258,13 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> KeyShare<P, I> {
         &self.public
     }
 
-    pub(crate) fn public_shares(&self) -> &BTreeMap<I, Point> {
-        &self.public.shares
+    pub(crate) fn public_shares(&self) -> &BTreeMap<I, Point<P>> {
+        &self.public.0
     }
 
     /// Returns the set of parties holding other shares from the set.
     pub fn all_parties(&self) -> BTreeSet<I> {
-        self.public.shares.keys().cloned().collect()
+        self.public.0.keys().cloned().collect()
     }
 }
 
@@ -359,11 +359,11 @@ impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
 mod tests {
     use alloc::collections::BTreeSet;
 
-    use k256::ecdsa::{SigningKey, VerifyingKey};
+    use ecdsa::{SigningKey, VerifyingKey};
     use rand_core::OsRng;
 
     use super::KeyShare;
-    use crate::cggmp21::TestParams;
+    use crate::{cggmp21::TestParams, SchemeParams};
 
     #[test]
     fn key_share_centralized() {
@@ -373,7 +373,11 @@ mod tests {
             .map(|_| *SigningKey::random(&mut OsRng).verifying_key())
             .collect::<BTreeSet<_>>();
 
-        let shares = KeyShare::<TestParams, VerifyingKey>::new_centralized(&mut OsRng, &ids, Some(&sk));
+        let shares = KeyShare::<TestParams, VerifyingKey<<TestParams as SchemeParams>::Curve>>::new_centralized(
+            &mut OsRng,
+            &ids,
+            Some(&sk),
+        );
         assert!(shares
             .values()
             .all(|share| &share.verifying_key() == sk.verifying_key()));
