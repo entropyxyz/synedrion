@@ -27,8 +27,10 @@ mod sealed {
     use super::*;
     pub trait Sealed {}
     impl Sealed for VerifyingKey<tiny_curve::TinyCurve64> {}
+    impl Sealed for VerifyingKey<tiny_curve::TinyCurve32> {}
     impl Sealed for VerifyingKey<k256::Secp256k1> {}
     impl Sealed for SigningKey<tiny_curve::TinyCurve64> {}
+    impl Sealed for SigningKey<tiny_curve::TinyCurve32> {}
     impl Sealed for SigningKey<k256::Secp256k1> {}
 }
 
