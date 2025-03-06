@@ -2,7 +2,7 @@ use core::ops::{Add, Mul, Neg, Sub};
 
 use crypto_bigint::{
     rand_core::CryptoRngCore,
-    subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
+    subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess, CtOption},
     zeroize::Zeroize,
     BitOps, Bounded, CheckedAdd, CheckedMul, CheckedSub, Integer, NonZero, RandomMod, ShlVartime, WrappingAdd,
     WrappingMul, WrappingNeg, WrappingSub,
@@ -205,11 +205,23 @@ where
 {
     fn checked_add(&self, rhs: &SecretSigned<T>) -> CtOption<Self> {
         let bound = core::cmp::max(self.bound, rhs.bound);
-        let in_range = bound.ct_lt(&T::BITS);
-        let result = Self {
-            bound,
-            value: self.value.wrapping_add(&rhs.value),
-        };
+        let in_bounds = bound.ct_lt(&T::BITS);
+
+        let self_sign = self.is_negative();
+        let rhs_sign = rhs.is_negative();
+
+        let sum = self.value.wrapping_add(&rhs.value);
+        let sum_sign = Choice::from(sum.expose_secret().bit_vartime(T::BITS - 1) as u8);
+
+        // When the sign of the sum is different from the signs of the operands we have an overflow.
+        let flipped_sign = self_sign.ct_eq(&rhs_sign) & self_sign.ct_ne(&sum_sign);
+        // When the sum wraps around to the negative side, we need to check if it is the case of `-0`.
+        let mut minus_zero = T::zero();
+        minus_zero.set_bit_vartime(T::BITS - 1, true);
+        let did_wrap = Choice::from((sum.expose_secret() == &minus_zero) as u8);
+        let in_range = in_bounds & !flipped_sign & !did_wrap;
+
+        let result = Self { bound, value: sum };
         CtOption::new(result, in_range)
     }
 }
@@ -523,7 +535,7 @@ mod tests {
 
     use crypto_bigint::{
         subtle::{Choice, ConditionallySelectable},
-        Bounded, CheckedMul, CheckedSub, Integer, U1024, U128,
+        Bounded, CheckedAdd, CheckedMul, CheckedSub, Integer, U1024, U128,
     };
     use rand::SeedableRng;
     use rand_chacha::{self, ChaCha8Rng};
@@ -561,6 +573,60 @@ mod tests {
         let s2 = test_new_from_unsigned(U128::from_u8(3), 127).unwrap();
 
         assert_eq!((s1 + s2).bound(), 127);
+    }
+
+    #[test_log::test]
+    fn adding_signed_numbers_with_max_bounds() {
+        // pos + pos, no overflow
+        let s1 = test_new_from_unsigned(U128::from_u8(5), 127).unwrap();
+        let s2 = test_new_from_unsigned(U128::from_u8(3), 127).unwrap();
+        let result = s1 + s2;
+        assert_eq!(result.value.expose_secret(), &U128::from_u8(8));
+
+        // pos + neg, no overflow
+        let five = test_new_from_unsigned(U128::from_u8(5), 127).unwrap();
+        let minus_3 = test_new_from_abs(U128::from_u8(3), 127, true).unwrap();
+        let result = five + minus_3;
+        assert_eq!(result.value.expose_secret(), &U128::from_u8(2));
+
+        // pos + pos, overflow
+        let max_pos = test_new_from_unsigned(U128::MAX >> 1, 127).unwrap();
+        let one = test_new_from_unsigned(U128::from_u8(1), 127).unwrap();
+        assert!(
+            bool::from(max_pos.checked_add(&one).is_none()),
+            "maximum positive plus one overflows"
+        );
+
+        // neg + neg, no overflow
+        let minus_5 = test_new_from_abs(U128::from_u8(5), 127, true).unwrap();
+        let minus_3 = test_new_from_abs(U128::from_u8(3), 127, true).unwrap();
+        let result = minus_5 + minus_3;
+        assert_eq!(
+            result.value.expose_secret(),
+            &U128::from_u8(8).wrapping_neg(),
+            "|-5 + -3| = 8"
+        );
+        assert!(bool::from(result.is_negative()), "The result is negative");
+
+        // neg + neg, overflow
+        let max_neg = test_new_from_abs(U128::MAX >> 1, 127, true).unwrap(); // b11111111
+        let minus_1 = test_new_from_abs(U128::from_u8(1), 127, true).unwrap(); // b10000001
+        assert!(
+            bool::from(max_neg.checked_add(&minus_1).is_none()),
+            "Smallest signed minus 1 overflows"
+        );
+
+        // 1 + -1 = 0
+        let one = test_new_from_unsigned(U128::from_u8(1), 127).unwrap();
+        let minus_one = test_new_from_abs(U128::from_u8(1), 127, true).unwrap();
+        let result = one + minus_one;
+        assert_eq!(result.value.expose_secret(), &U128::ZERO, "1 + -1 = 0");
+
+        // -1 + 1 = 0
+        let minus_one = test_new_from_abs(U128::from_u8(1), 127, true).unwrap();
+        let one = test_new_from_unsigned(U128::from_u8(1), 127).unwrap();
+        let result = minus_one + one;
+        assert_eq!(result.value.expose_secret(), &U128::ZERO, "-1 + 1 = 0");
     }
 
     #[test]
@@ -716,24 +782,32 @@ mod tests {
         assert_eq!(n.clone().neg().neg().to_public(), n.to_public());
     }
 
+    #[test_log::test]
+    #[should_panic(expected = "Add<SecretSigned<T>>: the caller ensured the bounds will not overflow")]
+    fn add_panics_on_overflow() {
+        let max_int = U128::from_u128(u128::MAX >> 1);
+        let one_signed = test_new_from_abs(U128::ONE, U128::BITS - 1, false).unwrap();
+        let max_signed = test_new_from_abs(max_int, U128::BITS - 1, false).expect("|2^127| is a valid SecretSigned");
+        let _ = max_signed + one_signed;
+    }
+
     #[test]
-    #[should_panic(expected = "the caller ensured the bounds will not overflow")]
+    #[should_panic(expected = "Sub<SecretSigned<T>>: the caller ensured the bounds will not overflow")]
     fn sub_panics_on_underflow() {
         // Biggest/smallest SecretSigned<U128> is |2^127|:
-        use crypto_bigint::U128;
-        let max_uint = U128::from_u128(u128::MAX >> 1);
+        let max_int = U128::from_u128(u128::MAX >> 1);
         let one_signed = test_new_from_abs(U128::ONE, U128::BITS - 1, false).unwrap();
-        let min_signed = test_new_from_abs(max_uint, U128::BITS - 1, true).expect("|2^127| is a valid SecretSigned");
+        let min_signed = test_new_from_abs(max_int, U128::BITS - 1, true).expect("|2^127| is a valid SecretSigned");
         let _ = min_signed - one_signed;
     }
 
     #[test]
-    #[should_panic(expected = "the caller ensured the bounds will not overflow")]
+    #[should_panic(expected = "Sub<SecretSigned<T>>: the caller ensured the bounds will not overflow")]
     fn sub_panics_on_underflow_1024() {
         // Biggest/smallest SecretSigned<U1024> is |2^1023|:
-        let max_uint = U1024::MAX >> 1;
+        let max_int = U1024::MAX >> 1;
         let one_signed = test_new_from_abs(U1024::ONE, U1024::BITS - 1, false).unwrap();
-        let min_signed = test_new_from_abs(max_uint, U1024::BITS - 1, true).expect("|2^1023| is a valid SecretSigned");
+        let min_signed = test_new_from_abs(max_int, U1024::BITS - 1, true).expect("|2^1023| is a valid SecretSigned");
         let _ = min_signed - one_signed;
     }
 
