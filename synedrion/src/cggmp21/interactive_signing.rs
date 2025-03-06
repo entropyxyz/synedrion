@@ -4,12 +4,13 @@
 //! - Failed Nonce error round (Fig. 9) - Round 5.
 //! - Failed Chi error round (Section 4.3.1) - Round 6.
 
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
 };
-
+use digest::typenum::Unsigned;
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
     MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
@@ -34,7 +35,7 @@ use crate::{
     curve::{Point, RecoverableSignature, Scalar},
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
     tools::{
-        hashing::{Chain, FofHasher},
+        hashing::{Chain, XofHasher},
         protocol_shortcuts::{
             sum_non_empty, sum_non_empty_ref, verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet,
             Without,
@@ -238,13 +239,13 @@ impl<P: SchemeParams, Id: PartyId> InteractiveSigningAssociatedData<P, Id> {
 fn make_epid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &InteractiveSigningAssociatedData<P, Id>,
-) -> P::HashOutput {
-    FofHasher::<P>::new_with_dst(b"InteractiveSigning EPID")
+) -> Box<[u8]> {
+    XofHasher::new_with_dst(b"InteractiveSigning EPID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.shares)
         .chain(&associated_data.aux)
-        .finalize()
+        .finalize_boxed(<P::Curve as Curve>::FieldBytesSize::USIZE)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError<P, Id> {
@@ -1048,7 +1049,7 @@ where
     Id: Ord,
 {
     scalar_message: Scalar<P>,
-    pub(super) epid: P::HashOutput,
+    pub(super) epid: Box<[u8]>,
     pub(super) my_id: Id,
     other_ids: BTreeSet<Id>,
     all_ids: BTreeSet<Id>,

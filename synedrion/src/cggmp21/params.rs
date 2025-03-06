@@ -5,7 +5,7 @@ use core::{fmt::Debug, ops::Add};
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::{BitOps, NonZero, Uint, U1024, U2048, U4096, U512, U8192};
-use digest::generic_array::{ArrayLength, GenericArray};
+use digest::generic_array::ArrayLength;
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use primeorder::elliptic_curve::{
     bigint::{self as bigintv05, Concat, Uint as CurveUint},
@@ -128,18 +128,6 @@ where
     type Curve: CurveArithmetic + PrimeCurve + HashableType + DigestPrimitive;
     /// Double the curve Scalar-width integer type.
     type WideCurveUint: bigintv05::Integer + bigintv05::Split<Output = <Self::Curve as Curve>::Uint>;
-    // TODO: We should get rid of this entirely, along with the FofHasher. Instead generate a Box<[u8]> of length 2 * P::SECURITY_BITS and use that.
-    /// Bla
-    type HashOutput: Clone
-        + Default
-        + Debug
-        + Send
-        + Sync
-        + PartialEq
-        + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>>
-        + AsRef<[u8]>
-        + Serialize
-        + for<'x> Deserialize<'x>;
 
     /// The number of bits of security provided by the scheme.
     const SECURITY_BITS: usize; // $m$ in the paper
@@ -194,8 +182,8 @@ pub struct TestParams;
 impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
     type WideCurveUint = bigintv05::U384;
-    // TODO: 8*24 = 192, this is to work around an issue with the ModulusSize-trait. This should be ideally be 8 bytes long.
-    type HashOutput = [u8; 24];
+    // // TODO: 8*24 = 192, this is to work around an issue with the ModulusSize-trait. This should be ideally be 8 bytes long.
+    // type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
     const SECURITY_PARAMETER: usize = 10;
     const L_BOUND: u32 = 256;
@@ -219,7 +207,7 @@ pub struct ProductionParams112;
 impl SchemeParams for ProductionParams112 {
     type Curve = k256::Secp256k1;
     type WideCurveUint = bigintv05::U512;
-    type HashOutput = [u8; 32];
+    // type HashOutput = [u8; 32];
     const SECURITY_BITS: usize = 112;
     const SECURITY_PARAMETER: usize = 256;
     const L_BOUND: u32 = 256;

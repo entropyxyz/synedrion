@@ -1,10 +1,8 @@
-use digest::{Digest, ExtendableOutput, FixedOutput, Update};
-use ecdsa::hazmat::DigestPrimitive;
+use alloc::boxed::Box;
+use digest::{ExtendableOutput, Update, XofReader};
 use hashing_serializer::HashingSerializer;
 use serde::Serialize;
 use sha3::{Shake256, Shake256Reader};
-
-use crate::SchemeParams;
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
@@ -29,39 +27,6 @@ pub trait Chain: Sized {
 
     fn chain_type<T: HashableType>(self) -> Self {
         T::chain_type(self)
-    }
-}
-
-/// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub(crate) struct FofHasher<P: SchemeParams>(<P::Curve as DigestPrimitive>::Digest);
-
-impl<P> Chain for FofHasher<P>
-where
-    P: SchemeParams,
-{
-    fn as_digest_mut(&mut self) -> &mut impl Update {
-        &mut self.0
-    }
-
-    fn chain_raw_bytes(self, bytes: &[u8]) -> Self {
-        Self(self.0.chain_update(bytes))
-    }
-}
-
-impl<P> FofHasher<P>
-where
-    P: SchemeParams,
-{
-    fn new() -> Self {
-        Self(<P::Curve as DigestPrimitive>::Digest::new())
-    }
-
-    pub fn new_with_dst(dst: &[u8]) -> Self {
-        Self::new().chain_bytes(dst)
-    }
-
-    pub(crate) fn finalize(self) -> P::HashOutput {
-        self.0.finalize_fixed().into()
     }
 }
 
@@ -91,6 +56,10 @@ impl XofHasher {
 
     pub fn finalize_to_reader(self) -> Shake256Reader {
         self.0.finalize_xof()
+    }
+
+    pub fn finalize_boxed(self, len: usize) -> Box<[u8]> {
+        self.0.finalize_xof().read_boxed(len)
     }
 }
 
