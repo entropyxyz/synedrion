@@ -19,6 +19,31 @@ pub(crate) struct SecretSigned<T: Zeroize> {
     value: Secret<T>,
 }
 
+// Utility function to check if the result of an operation is in the range of `T`.
+// Returns a `Choice` indicating if the result is in range and the bound of the result.
+#[inline(always)]
+fn in_range<T>(lhs: &SecretSigned<T>, rhs: &SecretSigned<T>, op_result: &Secret<T>) -> (Choice, u32)
+where
+    T: Zeroize + Integer + Bounded,
+{
+    // Check bounds
+    let bound = core::cmp::max(lhs.bound, rhs.bound());
+    let in_bounds = bound.ct_lt(&T::BITS);
+
+    // Check if the sign flipped: is the sign of the result different from the sign of the operands?
+    let lhs_sign = lhs.is_negative();
+    let rhs_sign = rhs.is_negative();
+    let op_result_sign = Choice::from(op_result.expose_secret().bit_vartime(T::BITS - 1) as u8);
+    let flipped_sign = lhs_sign.ct_eq(&rhs_sign) & lhs_sign.ct_ne(&op_result_sign);
+
+    // Check if the operation wrapped and this is a case of -0.
+    let mut minus_zero = T::zero();
+    minus_zero.set_bit_vartime(T::BITS - 1, true);
+    let did_wrap = Choice::from((op_result.expose_secret() == &minus_zero) as u8);
+
+    (in_bounds & !flipped_sign & !did_wrap, bound)
+}
+
 impl<T> SecretSigned<T>
 where
     T: Zeroize + Integer + Bounded,
@@ -204,40 +229,9 @@ where
     T: Zeroize + Integer + Bounded,
 {
     fn checked_add(&self, rhs: &SecretSigned<T>) -> CtOption<Self> {
-        let bound = core::cmp::max(self.bound, rhs.bound);
-        let in_bounds = bound.ct_lt(&T::BITS);
-
-        let self_sign = self.is_negative();
-        let rhs_sign = rhs.is_negative();
-
         let sum = self.value.wrapping_add(&rhs.value);
-        let sum_sign = Choice::from(sum.expose_secret().bit_vartime(T::BITS - 1) as u8);
-
-        // When the sign of the sum is different from the signs of the operands we have an overflow.
-        let flipped_sign = self_sign.ct_eq(&rhs_sign) & self_sign.ct_ne(&sum_sign);
-        // When the sum wraps around to the negative side, we need to check if it is the case of `-0`.
-        let mut minus_zero = T::zero();
-        minus_zero.set_bit_vartime(T::BITS - 1, true);
-        let did_wrap = Choice::from((sum.expose_secret() == &minus_zero) as u8);
-        let in_range = in_bounds & !flipped_sign & !did_wrap;
-
+        let (in_range, bound) = in_range(self, rhs, &sum);
         let result = Self { bound, value: sum };
-        CtOption::new(result, in_range)
-    }
-}
-
-impl<T> CheckedAdd<PublicSigned<T>> for SecretSigned<T>
-where
-    T: Zeroize + Integer + Bounded,
-{
-    fn checked_add(&self, rhs: &PublicSigned<T>) -> CtOption<Self> {
-        // TODO(dp): Need to remove this +1 increment too?
-        let bound = core::cmp::max(self.bound, rhs.bound()) + 1;
-        let in_range = bound.ct_lt(&T::BITS);
-        let result = Self {
-            bound,
-            value: Secret::init_with(|| self.value.expose_secret().wrapping_add(rhs.value())),
-        };
         CtOption::new(result, in_range)
     }
 }
@@ -247,13 +241,9 @@ where
     T: Zeroize + Integer + Bounded,
 {
     fn checked_sub(&self, rhs: &SecretSigned<T>) -> CtOption<Self> {
-        // TODO(dp): Need to remove this +1 increment too?
-        let bound = core::cmp::max(self.bound, rhs.bound()) + 1;
-        let in_range = bound.ct_lt(&T::BITS);
-        let result = Self {
-            bound,
-            value: self.value.wrapping_sub(&rhs.value),
-        };
+        let diff = self.value.wrapping_sub(&rhs.value);
+        let (in_range, bound) = in_range(self, rhs, &diff);
+        let result = Self { bound, value: diff };
         CtOption::new(result, in_range)
     }
 }
@@ -481,18 +471,6 @@ where
     fn mul(self, rhs: &Self) -> Self::Output {
         self.checked_mul(rhs)
             .expect("Mul<&SecretSigned<T>>: the caller ensured the bounds will not overflow")
-    }
-}
-
-impl<T> Add<PublicSigned<T>> for SecretSigned<T>
-where
-    T: Zeroize + Integer + Bounded,
-{
-    type Output = SecretSigned<T>;
-
-    fn add(self, rhs: PublicSigned<T>) -> Self::Output {
-        self.checked_add(&rhs)
-            .expect("Add<PublicSigned<T>>: the caller ensured the bounds will not overflow")
     }
 }
 
