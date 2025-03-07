@@ -1,72 +1,87 @@
-Q&A about the CGGN paper https://eprint.iacr.org/2021/060
+Q&A about the CGGN paper https://eprint.iacr.org/2021/060 (the figure and section numbers refer to the 2024-10-21 revision)
 
 Replies from Nikos Makriyannis are marked as (NM)
 
 
 # Notation
 
-- `rid`: (NM) `rid` stands for random identifier, it's supposed to be an unpredictable identifier for the protocol which is chosen via coin-toss.
-- `sid` and `ssid`: (NM) The `sid` is the "session identifier" while the `ssid` is the "sub-session identifier". The sid does not change while the ssid changes after each key refresh.
 - `[m]` (e.g. in Fig. 17): (NM) `[m]={1,...,m}`.
 - `Z_N^*`: (NM) all the invertible elements mod N, so it includes 1.
-- In Definition 2.2, the `\rho` argument is the randomizer - it should be freshly sampled each time (and therefore it is omitted as an argument when `enc()` is used later in the protocol)
-- Intervals: `I = +- 2^l`, `J = +- 2^l_prime`, `I_eps = +- 2^(l + eps)`, `J_eps = +- 2^(l_prime + eps)` (In Section 3, but seems to be present only in the working copy of the paper)
-- The subscript `j` in `П^enc`, `П^log` etc (e.g. in Fig. 7) indicates which party's Pedersen parameters -- the tuple `(\hat{N}, s, t)` -- should be used when generating the proof.
+- In Definition 3.2, the `\rho` argument is the randomizer - it should be freshly sampled each time (and therefore it is omitted as an argument when `enc()` is used later in the protocol)
+- Intervals: `I = ±2^l`, `J = ±2^l_prime`, `I_eps = ±2^(l + eps)`, `J_eps = ±2^(l_prime + eps)` (See Nota Bene just before Section 4.1)
+- The subscript `j` in `П^{enc-elg}`, `П^log` etc (e.g. in Fig. 8) indicates which party's Pedersen parameters -- the tuple `(\hat{N}, s, t)` -- should be used when generating the proof.
+- Not notation from the paper per se, but used throughout the code: `(+)` and `(*)` stand for the homomorphic addition of Paillier ciphertexts and the homomorphic multiplication of a ciphertext and a plaintext. That is, `A (+) B == A B mod N^2` and `A (*) x == A^x mod N^2`, where `N` is the Paillier modulus.
 
 
 # Typos
 
-The randomness derivation (`\mu` in Output, step 1, in Fig. 6) is overly complicated - `\mu = (C mod N)^(N^(-1) mod phi(N))` works just as well. Also, `(1 + N)^m mod N^2 == (1 + m * N) mod N^2`, which is much faster to compute, but I guess the exponential form is conventional.
+In `П^{dec}` (Fig. 28), Inputs, the condition `(1 + N)^z` should read `(1 + N)^y`. Also note that at the point where it is used, the first secret argument corresponds to `y`, and the second to `x`.
 
-In `П^{fac}` (Fig. 28), step 2: `q` the curve order, not to be confused with `q` the RSA prime in the Inputs.
+Also in `П^{dec}`: In Fig. 8 and 9, and in Section 4.3.1, where `П^{dec}` is used it is given a fifth public parameter, not mentioned in Fig. 28. It seems that Fig. 28 takes it to be `g` (curve generator), which is the case in Figs. 8 and 9, but in Section 4.3.1 it is given the point `\Gamma` instead.
 
-In `П^{aff-g}` (Fig. 15) I had to modify the proof to account for how `D` is actually constructed in the Presigning protocol. In the proof it is assumed that `D = C (*) x (+) enc(y)` (where `(*)` and `(+)` are homomorphic operations on Paillier ciphertexts), but in the Presigning it's actually `D = C (*) x (+) enc(-y)` (see Fig. 7, Round 2, step 2). So I had to modify the following:
+In `П^{aff-g}` (Fig. 25) I had to modify the proof to account for how `D` is actually constructed in the Presigning protocol. In the proof it is assumed that `D = C (*) x (+) enc(y)` (where `(*)` and `(+)` are homomorphic operations on Paillier ciphertexts), but in the Presigning it's actually `D = C (*) x (+) enc(-y)` (see Fig. 8, Round 2, step 2). So I had to modify the following:
 - (prover) `T = s^{-y} t^\mu \mod \hat{N}`
 - (prover) `z_2 = \beta - e y`
-- (prover) `\omega_y = r_y \rho_y^{-e} \mod N_1`
-- (verifier checks) `enc_1(z_2, \omega_y) = B_y (+) Y (*) (-e)`
+- (prover) `w_y = r_y \rho_y^{-e} \mod N_1`
+- (verifier checks) `enc_1(z_2, w_y) = B_y (+) Y (*) (-e)`
 
-In `П^{mul*}`, Fig. 30:
-- the prover creates `B_x`, but sends `B` - a typo, and they're the same thing;
-- the prover creates `r_y`, but it is unused - a typo;
-- `\beta` used to create `A` is not mentioned anywhere else (and judging by the condition the verifier checks, it should be equal to zero) - should be ignored (set to 0).
+Same applies to `П^{aff-g*}` (Fig. 27).
 
-In Presigning (Fig. 7), Round 2, step 2 `r_{i,j}` and `\hat{r}_{i,j}` should be drawn from `\mathbb{Z}_{N_i}`, and not `N_j`, judging by how they are used later.
+In `П^{enc-elg}` (Fig. 24) the secret parameter `a` is not actually used in the proof - it is an ephemeral secret.
+
+In Presigning (Fig. 8), Round 2, step 2 `r_{i,j}` and `\hat{r}_{i,j}` should be drawn from `\mathbb{Z}_{N_i}`, and not `N_j`, judging by how they are used later.
+
+Fig. 7 (KeyRefresh): there is a variable `B` that is not introduced anywhere, but used in hashes - must be forgotten from the previous revision.
+
+Fig. 7 (KeyRefresh): `srid` is not introduced anywhere - probably should be `rid`.
+
+Fig. 7 (KeyRefresh), Output, 1. (c): should be `\hat{\psi}_{j,k}`, not `\psi_{j,k}`. `\psi_{j,k}` are `П^{fac}`, not `П^{sch}`.
+
+Fig. 8 (Presigning): the order of public parameters for `П^{elog}` is different from the one in Fig. 23. For example, in Round 2, 2a), the order is `\Gamma_i, g, B_{i,1}, B_{i,2}, Y_i`, but it should be `B_{i,1}, B_{i,2}, Y_i, \Gamma_i, g`.
+
+Fig. 9, Output potentially needs `D_{k,j}` for all `k, j` (`k != j`) to calculate `D_j`. But, with the messages described in Fig. 8, a party `i` would only have `D_{j,i}`, `j!=i` (the ones it created in Round 2), and `D_{i,j}`, `j!=i` (the ones it received from other nodes). How are we supposed to obtain the rest? One option is to echo-broadcast (echo, so that they could be used to generate a verifiable evidence, too) all `D_{j,i}` and `F_{j,i}` in Round 2 instead of sending each `D_{j,i}` and `F_{j,i}` to the corresponding node `j`. Same goes for `\hat{D}` and `\hat{F}`.
+
+The above item leads to another problem. If those values are indeed echo-broadcasted, what malicious actions of one node can lead to passing the `П^{dec}` check on other nodes, but failing one of the `П^{aff-g*}` ones?
+
+Fig. 8, Round 2, 2b) - `\psi_{j,i}` creation requires `F_{i,j}` which are not yet available since they're the ones created on other nodes. The previous paper version has `F_{j,i}` there. Same for `\hat{\psi_{j,i}}`.
+
+
+# Echo-broadcasting
+
+In order to be able to generate verifiable evidence for each failure, some values have to be echo-broadcasted instead of normal broadcast/direct messaging given in the paper. Here is the list of such variables
+
+KeyInit (Fig. 6):
+- `rho_i` in Round 2
+
+KeyRefresh (Fig. 7):
+- `rid_i`, `\hat{N}_i`, `s_i`, `t_i`, `\vec{Y}` in Round 2
+
+Presigning (Fig. 8):
+- `\Gamma_i`, `F_{j,i}` for all `j`, `\hat{F}_{j,i}` for all `j` in Round 2
+- `\delta_i` in Round 3
 
 
 # Protocol
 
-Q: `\ell`, `ell_prime`, `\eps`, and corresponding intervals (\mathcal{I} and \mathcal{J}, see e.g. Fig. 7) - what are they equal to? It is mentioned that they will be "determined by the analysis", but I could not find the values specified. I found one mention of the range parameters (and the security parameter `m`): the caption of Table 2 in Appendix D. It gives `m = 80`, `\ell = \kappa`, `\ell^\prime = 5 \kappa`, `\eps = 2 \kappa`, where `\kappa` is the bit length of the curve order, so 256 for secp256k1. Also Fig. 28 in Section C.5 fixes the size of the RSA modulus as `log2(N) = 4 \ell + 2 \eps` (which gives 2048 bit). I'm currently using these as production parameters, but it seems weird that they're hidden in such obscure places.
-
-A (NM): Those are the recommended values.
-
----
-
-Q: In Fig. 5 the initial commitment in the Schnorr proof (`A_i`) is sent twice (in R2 and then R3, as a part of `psi_i`), and then the equality of those two values is checked in Output, right before checking the proof itself. But the commitment value is used right after that in the `vrfy` step, so if it doesn't match the rest of the proof, the verification will fail. So is there any security reason for sending the commitment twice? (I understand that it does constitute a minor performance optimization)
+Q: In Fig. 6 the initial commitment in the Schnorr proof (`A_i`) is sent twice (in R2 and then R3, as a part of `psi_i`), and then the equality of those two values is checked in Output, right before checking the proof itself. But the commitment value is used right after that in the `vrfy` step, so if it doesn't match the rest of the proof, the verification will fail. So is there any security reason for sending the commitment twice? (I understand that it does constitute a minor performance optimization)
 
 A (NM): There is no security reason afaict. You could only send it once.
 
 ---
 
-Q: Similarly, the challenge value (`e` in Fig. 2) is sent once with the proof (`psi_i`), and then re-calculated during the `vrfy` step. If we are going to re-calculate it anyway, why include it in `psi_i`? If the re-calculated value is wrong, the proof verification will simply fail.
+Q: Similarly, the challenge value (`e` in Fig. 3) is sent once with the proof (`psi_i`), and then re-calculated during the `vrfy` step. If we are going to re-calculate it anyway, why include it in `psi_i`? If the re-calculated value is wrong, the proof verification will simply fail.
 
 A (NM): That's correct
 
 ---
 
-Q: What is the purpose of the randomness `u` in Fig. 5? It is only used in hashing in R1, but that hash is already randomized by the inclusion of `rid`.
+Q: What is the purpose of the randomness `u` in Fig. 6? It is only used in hashing in R1, but that hash is already randomized by the inclusion of `rid`.
 
 A (NM): The standard way of computing commitments for m with a random oracle H is to calculate H(m,u) for a random u. You could argue that m has enough entropy that you don't need u, but that's your call.
 
 ---
 
-Q: In Fig. 3, Key Generation step 2, it says "Run the auxiliary info phase from Fig. 6". That phase takes as input `sid` with some other data, and returns some data that is packed into `ssid`. But in Fig. 6, `ssid` is already present as input, and used throughout the algorithm. Is it a typo?
-
-A (NM): Sorry for the confusion, it's a typo indeed.
-
----
-
-Q: There is different phrasing used to describe sending messages, e.g. in Figs. 5 and 6:
+Q: There is different phrasing used to describe sending messages, e.g. in Figs. 6 and 7:
 - "send <...> to all"
 - "send <...> to all P_j"
 - "broadcast <...>"
@@ -76,7 +91,7 @@ A (NM): There is a meaningful difference where "broadcast" indicates that securi
 
 ---
 
-Q: How do we set `m` in the algorithms from Fig. 16 and 17? Does it depend on the security parameter `kappa`? It does not seem to be listed as a parameter when these algorithms are used (e.g. in Fig. 6).
+Q: How do we set `m` in the algorithms from Fig. 12 and 13? Does it depend on the security parameter `kappa`? It does not seem to be listed as a parameter when these algorithms are used (e.g. in Fig. 6).
 
 A (NM): `m` is the statistical security parameter for the proofs in question (which becomes a computational parameter via Fiat Shamir). Using `kappa = m` is fine.
 
@@ -88,33 +103,9 @@ A (NM): Sampling the Paillier modulus in the same way as an RSA modulus is reaso
 
 ---
 
-Q: In Fig.6, in the step 1 of Output, there's a special value `\mu` calculated if `x_j^i` does not correspond to `X_j^i`. Is it explained somewhere what that value is, and why the protocol does not just fail?
+Q: How does the range limitation in `П^{fac}` (Fig. 26) work? Specifically, how does the range check on `z_1` and `z_2` guarantee `p, q > 2^\ell`? I suppose there's a probabilistic guarantee that `p, q < 2^\eps \sqrt{N_0}`, which, along with the condition `p q = N_0` gives `p, q > 2^\eps` (but then the range check for `z_1` and `z_2` should perhaps be at `\sqrt{N_0} * 2^{\ell + \eps + 1}`).
 
-A (NM): This `\mu` is the randomizer of the ciphertext `C_j^i` i.e. `enc(x_j^i; \mu)=C_j^i`. The purpose of this is for the other parties to re-calculate the encryption and be convinced that `Pj` sent the wrong value (i.e. there is a discrepancy between small `x_j^i` and big `X_j^i` -- the other parties cannot know this without some help from `P_i`).
-
----
-
-Q: Also, in the calculation of `\mu`, what is `N` without the index? Is it supposed to be `N_j`?
-
-A (NM): It's supposed to be `N_i` (the party that knows the private key for this `N`)
-
----
-
-Q: During the KeyRefresh/Auxiliary protocol each node generates ring-Pedersen parameters `s` and `t`. I looked through Presigning and all the proofs used there, and they don't seem to be used anywhere. One possibility is that these are actually the setup parameters for the proofs, but then it's strange that the paper doesn't mention generating the corresponding public Paillier key `\hat{N}`. I guess, a possibility is that the Paillier key each node generates *is* the auxiliary setup for ZK proofs. That would certainly make things faster since we would only have to generate one Paillier key instead of two, and that is the slowest part of key refresh.
-
-A (NM): Using the same value for `N` and `\hat{N}` does not affect security as far as we can tell.
-
----
-
-Q: According to according to "Generating the Setup Parameter for the Range Proofs" in Section 2.3, the setup parameters `(\hat{N}, s, t)` used in several ZK proofs (`fac`, `enc`, `aff-g`, `log*` etc) are generated once by each node separately and then sent to other nodes along with `П^{prm}` and `П^{mod}`. This is not present explicitly in any protocols, so my current theory is that each node generates them once in KeyRefresh/Auxiliary protocol, along with the main Paillier key, and then other nodes use it later in KeyRefresh/Auxiliary and Presigning when creating the proofs. Is that correct?
-
-A (NM): The setup parameters should be chosen afresh with each key-refresh.
-
----
-
-Q: How does the range limitation in `П^{fac}` (Fig. 28) work? Specifically, how does the range check on `z_1` and `z_2` guarantee `p, q > 2^\ell`? I suppose there's a probabilistic guarantee that `p, q < 2^\eps \sqrt{N_0}`, which, along with the condition `p q = N_0` gives `p, q > 2^\eps` (but then the range check for `z_1` and `z_2` should perhaps be at `\sqrt{N_0} * 2^{\ell + \eps + 1}`).
-
-A (NM): The parties check that `z1,z2 < \pm \sqrt{N0}*2^{\ell+\eps}` which means that `p, q < \pm \sqrt{N0}*2^{\ell+\eps}`. Since `N0` is a biprime (and it only has two factors), it follows that `p,q > 2^\ell` because `N0 \approx 2^{\ell} * \sqrt{N0}*2^{\ell+\eps}`.
+A (NM): The parties check that `z1,z2 < ±\sqrt{N0}*2^{\ell+\eps}` which means that `p, q < ±\sqrt{N0}*2^{\ell+\eps}`. Since `N0` is a biprime (and it only has two factors), it follows that `p,q > 2^\ell` because `N0 \approx 2^{\ell} * \sqrt{N0}*2^{\ell+\eps}`.
 
 ---
 
@@ -124,7 +115,7 @@ A (NM): We want N0 not to have small factors in order for the ZK proofs elsewher
 
 ---
 
-Q: What should I take as `\sqrt{N_0}` in `П^{fac}` (Fig. 28)? Lower bound (2^1023), upper bound (2^1024), faithful square root?
+Q: What should I take as `\sqrt{N_0}` in `П^{fac}` (Fig. 26)? Lower bound (2^1023), upper bound (2^1024), faithful square root?
 
 A (NM): Either one should be fine.
 

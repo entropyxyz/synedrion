@@ -1,18 +1,14 @@
-use crypto_bigint::{Encoding, Integer, NonZero};
-use digest::{Digest, ExtendableOutput, Update, XofReader};
+use digest::{Digest, ExtendableOutput, FixedOutput, Update};
+use ecdsa::hazmat::DigestPrimitive;
 use hashing_serializer::HashingSerializer;
-use serde::{Deserialize, Serialize};
-use serde_encoded_bytes::{ArrayLike, Hex};
-use sha2::Sha256;
+use serde::Serialize;
 use sha3::{Shake256, Shake256Reader};
 
-use crate::curve::Scalar;
+use crate::SchemeParams;
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
-    type Digest: Update;
-
-    fn as_digest_mut(&mut self) -> &mut Self::Digest;
+    fn as_digest_mut(&mut self) -> &mut impl Update;
 
     /// Hash raw bytes.
     ///
@@ -36,15 +32,14 @@ pub trait Chain: Sized {
     }
 }
 
-pub(crate) type BackendDigest = Sha256;
-
 /// Wraps a fixed output hash for easier replacement, and standardizes the use of DST.
-pub(crate) struct FofHasher(BackendDigest);
+pub(crate) struct FofHasher<P: SchemeParams>(<P::Curve as DigestPrimitive>::Digest);
 
-impl Chain for FofHasher {
-    type Digest = BackendDigest;
-
-    fn as_digest_mut(&mut self) -> &mut Self::Digest {
+impl<P> Chain for FofHasher<P>
+where
+    P: SchemeParams,
+{
+    fn as_digest_mut(&mut self) -> &mut impl Update {
         &mut self.0
     }
 
@@ -53,33 +48,20 @@ impl Chain for FofHasher {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct HashOutput(
-    // Length of the BackendDigest output. Unfortunately we can't get it in compile-time.
-    #[serde(with = "ArrayLike::<Hex>")] pub(crate) [u8; 32],
-);
-
-impl AsRef<[u8]> for HashOutput {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl FofHasher {
+impl<P> FofHasher<P>
+where
+    P: SchemeParams,
+{
     fn new() -> Self {
-        Self(BackendDigest::new())
+        Self(<P::Curve as DigestPrimitive>::Digest::new())
     }
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
     }
 
-    pub(crate) fn finalize(self) -> HashOutput {
-        HashOutput(self.0.finalize().into())
-    }
-
-    pub fn finalize_to_scalar(self) -> Scalar {
-        Scalar::from_digest(self.0)
+    pub(crate) fn finalize(self) -> P::HashOutput {
+        self.0.finalize_fixed().into()
     }
 }
 
@@ -87,9 +69,7 @@ impl FofHasher {
 pub struct XofHasher(Shake256);
 
 impl Chain for XofHasher {
-    type Digest = Shake256;
-
-    fn as_digest_mut(&mut self) -> &mut Self::Digest {
+    fn as_digest_mut(&mut self) -> &mut impl Update {
         &mut self.0
     }
 
@@ -144,43 +124,5 @@ impl<T: Serialize> Hashable for T {
         self.serialize(serializer).expect("The type is serializable");
 
         digest
-    }
-}
-
-/// Build a `T` integer from an extendable Reader function. The resulting `T` is guaranteed to be
-/// smaller than the modulus (uses rejection sampling).
-pub(crate) fn uint_from_xof<T>(reader: &mut impl XofReader, modulus: &NonZero<T>) -> T
-where
-    T: Integer + Encoding,
-{
-    let backend_modulus = modulus.as_ref();
-
-    let n_bits = backend_modulus.bits_vartime();
-    let n_bytes = n_bits.div_ceil(8) as usize;
-
-    // If the number of bits is not a multiple of 8, use a mask to zeroize the high bits in the
-    // gererated random bytestring, so that we don't have to reject too much.
-    let mask = if n_bits & 7 != 0 {
-        (1 << (n_bits & 7)) - 1
-    } else {
-        u8::MAX
-    };
-
-    let mut bytes = T::zero().to_le_bytes();
-    loop {
-        let buf = bytes
-            .as_mut()
-            .get_mut(0..n_bytes)
-            .expect("The modulus is a T and has at least n_bytes that can be read.");
-        reader.read(buf);
-        bytes.as_mut().last_mut().map(|byte| {
-            *byte &= mask;
-            Some(byte)
-        });
-        let n = T::from_le_bytes(bytes);
-
-        if n.ct_lt(backend_modulus).into() {
-            return n;
-        }
     }
 }

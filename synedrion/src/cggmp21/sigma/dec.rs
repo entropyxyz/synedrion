@@ -1,27 +1,30 @@
-//! Paillier decryption modulo $q$ ($\Pi^{dec}$, Section C.6, Fig. 30)
+//! Paillier Special Decryption in the Exponent ($\Pi^{dec}$, Section A.6, Fig. 28)
+
+use alloc::{boxed::Box, vec::Vec};
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use super::super::{
-    conversion::{scalar_from_signed, scalar_from_wide_signed, secret_scalar_from_signed},
+    conversion::{scalar_from_signed, secret_scalar_from_signed},
     SchemeParams,
 };
 use crate::{
-    curve::Scalar,
-    paillier::{
-        Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
-        Randomizer,
+    curve::Point,
+    paillier::{Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPParams, Randomizer},
+    tools::{
+        bitvec::BitVec,
+        hashing::{Chain, Hashable, XofHasher},
     },
-    tools::hashing::{Chain, Hashable, XofHasher},
     uint::{PublicSigned, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_dec";
 
 pub(crate) struct DecSecretInputs<'a, P: SchemeParams> {
-    /// $y$ (technically any integer since it will be implicitly reduced modulo $q$ or $\phi(N_0)$,
-    /// but we limit its size to `Uint` since that's what we use in this library).
+    /// $x ∈ \mathbb{I}$, that is $x ∈ ±2^\ell$ (see N.B. just before Section 4.1)
+    pub x: &'a SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    /// $y ∈ \mathbb{J}$, that is $y ∈ ±2^{\ell^\prime}$ (see N.B. just before Section 4.1)
     pub y: &'a SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     /// $\rho$, a Paillier randomizer for the public key $N_0$.
     pub rho: &'a Randomizer<P::Paillier>,
@@ -30,23 +33,59 @@ pub(crate) struct DecSecretInputs<'a, P: SchemeParams> {
 pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
     /// Paillier public key $N_0$.
     pub pk0: &'a PublicKeyPaillier<P::Paillier>,
-    /// Scalar $x = y \mod q$, where $q$ is the curve order.
-    pub x: &'a Scalar,
-    /// Paillier ciphertext $C = enc_0(y, \rho)$.
-    pub cap_c: &'a Ciphertext<P::Paillier>,
+    /// Paillier ciphertext $K$ such that $enc_0(y, \rho) = K (*) x (+) D$.
+    // DEVIATION FROM THE PAPER.
+    // Fig. 28 says `enc_0(z, \rho) = ...` which is a typo.
+    pub cap_k: &'a Ciphertext<P::Paillier>,
+    /// Point $X = g^x$, where $g$ is the curve generator.
+    pub cap_x: &'a Point<P>,
+    /// Paillier ciphertext $D$, see the doc for `cap_k` above.
+    pub cap_d: &'a Ciphertext<P::Paillier>,
+    /// Point $S = G^y$.
+    pub cap_s: &'a Point<P>,
+    /// The base point $G$.
+    // DEVIATION FROM THE PAPER.
+    // In Fig. 28 it is not mentioned in the list of parameters and taken to be $g$.
+    // But it is explicitly mentioned in Fig. 8 and 9, and the ZK proof in the error round
+    // (for $\hat{D}$ and $\hat{F}$) uses a value different from $g$.
+    pub cap_g: &'a Point<P>,
 }
 
 /// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(serialize = "
+    DecProofCommitment<P>: Serialize,
+    DecProofElement<P>: Serialize,
+"))]
+#[serde(bound(deserialize = "
+    DecProofCommitment<P>: for<'x> Deserialize<'x>,
+    DecProofElement<P>: for<'x> Deserialize<'x>
+"))]
 pub(crate) struct DecProof<P: SchemeParams> {
-    e: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
-    cap_s: RPCommitmentWire<P::Paillier>,
-    cap_t: RPCommitmentWire<P::Paillier>,
+    e: BitVec,
+    commitments: Box<[DecProofCommitment<P>]>,
+    elements: Box<[DecProofElement<P>]>,
+}
+
+struct DecProofEphemeral<P: SchemeParams> {
+    alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    beta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
+    r: Randomizer<P::Paillier>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>,"))]
+pub(crate) struct DecProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
-    gamma: Scalar,
-    z1: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-    z2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-    omega: MaskedRandomizer<P::Paillier>,
+    cap_b: Point<P>,
+    cap_c: Point<P>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct DecProofElement<P: SchemeParams> {
+    z: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    w: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
+    nu: MaskedRandomizer<P::Paillier>,
 }
 
 impl<P: SchemeParams> DecProof<P> {
@@ -57,101 +96,157 @@ impl<P: SchemeParams> DecProof<P> {
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> Self {
-        assert_eq!(public.cap_c.public_key(), public.pk0);
+        secret.x.assert_exponent_range(P::L_BOUND);
+        // TODO (#187): currently fails since `y` comes from decrypting a ciphertext.
+        // secret.y.assert_exponent_range(P::LP_BOUND);
+        assert_eq!(public.cap_k.public_key(), public.pk0);
+        assert_eq!(public.cap_d.public_key(), public.pk0);
 
-        let hat_cap_n = setup.modulus(); // $\hat{N}$
+        let (ephemerals, commitments): (Vec<_>, Vec<_>) = (0..P::SECURITY_PARAMETER)
+            .map(|_| {
+                let alpha = SecretSigned::random_in_exponent_range(rng, P::L_BOUND + P::EPS_BOUND);
+                let beta = SecretSigned::random_in_exponent_range(rng, P::LP_BOUND + P::EPS_BOUND);
+                let r = Randomizer::random(rng, public.pk0);
 
-        let alpha = SecretSigned::random_in_exp_range(rng, P::L_BOUND + P::EPS_BOUND);
-        let mu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND, hat_cap_n);
-        let nu = SecretSigned::random_in_exp_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-        let r = Randomizer::random(rng, public.pk0);
+                let cap_a =
+                    (public.cap_k * &-&alpha + Ciphertext::new_with_randomizer(public.pk0, &beta, &r)).to_wire();
 
-        let cap_s = setup.commit_secret_mixed(secret.y, &mu).to_wire();
-        let cap_t = setup.commit_secret_mixed(&alpha, &nu).to_wire();
-        let cap_a = Ciphertext::new_with_randomizer_signed(public.pk0, &alpha, &r).to_wire();
+                // DEVIATION FROM THE PAPER.
+                // See the comment in `DecPublicInputs`.
+                // Using the public `G` point instead of the generator.
+                let cap_b = public.cap_g * secret_scalar_from_signed::<P>(&beta);
+                let cap_c = secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
 
-        // `alpha` is secret, but `gamma` only uncovers $\ell$ bits of `alpha`'s full $\ell + \eps$ bits,
-        // and it's transmitted to another node, so it can be considered public.
-        let gamma = *secret_scalar_from_signed::<P>(&alpha).expose_secret();
+                let ephemeral = DecProofEphemeral::<P> { alpha, beta, r };
+                let commitment = DecProofCommitment { cap_a, cap_b, cap_c };
+
+                (ephemeral, commitment)
+            })
+            .unzip();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
-            // NOTE: the paper only says "sends (A, gamma) to the verifier",
-            // but clearly S and T are sent too since the verifier needs access to them.
-            // So they're also being hashed as commitments.
-            .chain(&cap_s)
-            .chain(&cap_t)
-            .chain(&cap_a)
-            .chain(&gamma)
+            .chain(&commitments)
             // public parameters
             .chain(public.pk0.as_wire())
-            .chain(public.x)
-            .chain(&public.cap_c.to_wire())
+            .chain(&public.cap_k.to_wire())
+            .chain(&public.cap_x)
+            .chain(&public.cap_d.to_wire())
+            .chain(&public.cap_s)
+            .chain(&public.cap_g)
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = BitVec::from_xof_reader(&mut reader, P::SECURITY_PARAMETER);
 
-        let z1 = (alpha.to_wide() + secret.y.mul_wide(&e)).to_public();
-        let z2 = (nu + mu * e.to_wide()).to_public();
+        let elements = ephemerals
+            .into_iter()
+            .zip(e.bits())
+            .map(|(ephemeral, e_bit)| {
+                let DecProofEphemeral { alpha, beta, r } = ephemeral;
 
-        let omega = secret.rho.to_masked(&r, &e);
+                let z = if *e_bit { alpha + secret.x } else { alpha };
+                let w = if *e_bit { beta + secret.y } else { beta };
+
+                let exponent = if *e_bit {
+                    PublicSigned::one()
+                } else {
+                    PublicSigned::zero()
+                };
+                let nu = secret.rho.to_masked(&r, &exponent);
+
+                DecProofElement {
+                    z: z.to_public(),
+                    w: w.to_public(),
+                    nu,
+                }
+            })
+            .collect::<Vec<_>>();
 
         Self {
             e,
-            cap_s,
-            cap_t,
-            cap_a,
-            gamma,
-            z1,
-            z2,
-            omega,
+            elements: elements.into(),
+            commitments: commitments.into(),
         }
     }
 
     pub fn verify(&self, public: DecPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
-        assert_eq!(public.cap_c.public_key(), public.pk0);
-
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
-            .chain(&self.cap_s)
-            .chain(&self.cap_t)
-            .chain(&self.cap_a)
-            .chain(&self.gamma)
+            .chain(&self.commitments)
             // public parameters
             .chain(public.pk0.as_wire())
-            .chain(public.x)
-            .chain(&public.cap_c.to_wire())
+            .chain(&public.cap_k.to_wire())
+            .chain(&public.cap_x)
+            .chain(&public.cap_d.to_wire())
+            .chain(&public.cap_s)
+            .chain(&public.cap_g)
             .chain(&setup.to_wire())
             .chain(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
-        let e = PublicSigned::from_xof_reader_bounded(&mut reader, &P::CURVE_ORDER);
+        let e = BitVec::from_xof_reader(&mut reader, P::SECURITY_PARAMETER);
 
         if e != self.e {
             return false;
         }
 
-        // enc(z_1, \omega) == A (+) C (*) e
-        if Ciphertext::new_public_with_randomizer_wide(public.pk0, &self.z1, &self.omega)
-            != self.cap_a.to_precomputed(public.pk0) + public.cap_c * &e
+        if e.bits().len() != self.commitments.len() || e.bits().len() != self.elements.len() {
+            return false;
+        }
+
+        for ((e_bit, commitment), element) in e
+            .bits()
+            .iter()
+            .copied()
+            .zip(self.commitments.iter())
+            .zip(self.elements.iter())
         {
-            return false;
-        }
+            // enc(w_j, \nu_j) (+) K (*) (-z_j) == A_j (+) D (*) e_j
+            let cap_a = commitment.cap_a.to_precomputed(public.pk0);
+            let lhs = Ciphertext::new_public_with_randomizer(public.pk0, &element.w, &element.nu)
+                + public.cap_k * &-element.z;
+            let rhs = if e_bit { cap_a + public.cap_d } else { cap_a };
+            if lhs != rhs {
+                return false;
+            }
 
-        // z_1 == \gamma + e x \mod q
-        if scalar_from_wide_signed::<P>(&self.z1) != self.gamma + scalar_from_signed::<P>(&e) * *public.x {
-            return false;
-        }
+            // g^z_j == C_j X^{e_j}
+            let lhs = scalar_from_signed::<P>(&element.z).mul_by_generator();
+            let rhs = if e_bit {
+                commitment.cap_c + *public.cap_x
+            } else {
+                commitment.cap_c
+            };
+            if lhs != rhs {
+                return false;
+            }
 
-        // s^{z_1} t^{z_2} == T S^e
-        let cap_s = self.cap_s.to_precomputed(setup);
-        let cap_t = self.cap_t.to_precomputed(setup);
-        if setup.commit_pub(&self.z1, &self.z2) != &cap_t * &cap_s.pow(&e) {
-            return false;
+            // DEVIATION FROM THE PAPER.
+            // See the comment in `DecPublicInputs`.
+            // Using the public `G` point instead of the generator, so the condition is now `G^{w_j} == B_j S^{e_j}`.
+            let lhs = public.cap_g * scalar_from_signed::<P>(&element.w);
+            let rhs = if e_bit {
+                commitment.cap_b + *public.cap_s
+            } else {
+                commitment.cap_b
+            };
+            if lhs != rhs {
+                return false;
+            }
+
+            // Range checks.
+
+            if !element.z.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
+                return false;
+            }
+
+            if !element.w.is_in_exponent_range(P::LP_BOUND + P::EPS_BOUND) {
+                return false;
+            }
         }
 
         true
@@ -160,11 +255,13 @@ impl<P: SchemeParams> DecProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{DecProof, DecPublicInputs, DecSecretInputs};
     use crate::{
         cggmp21::{conversion::secret_scalar_from_signed, SchemeParams, TestParams},
+        curve::Scalar,
         paillier::{Ciphertext, PaillierParams, RPParams, Randomizer, SecretKeyPaillierWire},
         uint::SecretSigned,
     };
@@ -181,31 +278,59 @@ mod tests {
 
         let aux: &[u8] = b"abcde";
 
-        // We need something within the range -N/2..N/2 so that it doesn't wrap around.
-        let y = SecretSigned::random_in_exp_range(&mut OsRng, Paillier::PRIME_BITS * 2 - 2);
-        let x = *secret_scalar_from_signed::<Params>(&y).expose_secret();
-
+        let x = SecretSigned::random_in_exponent_range(&mut OsRng, Params::L_BOUND);
+        let y = SecretSigned::random_in_exponent_range(&mut OsRng, Params::LP_BOUND);
         let rho = Randomizer::random(&mut OsRng, pk);
-        let cap_c = Ciphertext::new_with_randomizer_signed(pk, &y, &rho);
+
+        // We need $enc_0(y, \rho) = K (*) x + D$,
+        // so we can choose the plaintext of `K` at random, and derive the plaintext of `D`
+        // (not deriving `y` since we want it to be in a specific range).
+
+        let k = SecretSigned::random_in_exponent_range(&mut OsRng, Paillier::PRIME_BITS * 2 - 1);
+        let cap_k = Ciphertext::new(&mut OsRng, pk, &k);
+        let cap_d = Ciphertext::new_with_randomizer(pk, &y, &rho) + &cap_k * &-&x;
+
+        let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
+
+        let cap_g = Scalar::random(&mut OsRng).mul_by_generator();
+        let cap_s = cap_g * secret_scalar_from_signed::<Params>(&y);
 
         let proof = DecProof::<Params>::new(
             &mut OsRng,
-            DecSecretInputs { y: &y, rho: &rho },
+            DecSecretInputs {
+                x: &x,
+                y: &y,
+                rho: &rho,
+            },
             DecPublicInputs {
                 pk0: pk,
-                x: &x,
-                cap_c: &cap_c,
+                cap_k: &cap_k,
+                cap_x: &cap_x,
+                cap_d: &cap_d,
+                cap_s: &cap_s,
+                cap_g: &cap_g,
             },
             &setup,
             &aux,
         );
+
+        // Roundtrip works
+        let res = BinaryFormat::serialize(proof);
+        assert!(res.is_ok());
+        let payload = res.unwrap();
+        let proof: DecProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+        let rp_params = setup.to_wire().to_precomputed();
+
         assert!(proof.verify(
             DecPublicInputs {
                 pk0: pk,
-                x: &x,
-                cap_c: &cap_c
+                cap_k: &cap_k,
+                cap_x: &cap_x,
+                cap_d: &cap_d,
+                cap_s: &cap_s,
+                cap_g: &cap_g
             },
-            &setup,
+            &rp_params,
             &aux
         ));
     }

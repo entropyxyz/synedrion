@@ -27,6 +27,20 @@ pub(crate) struct RPSecret<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> RPSecret<P> {
+    #[cfg(test)]
+    pub fn random_small(rng: &mut impl CryptoRngCore) -> Self {
+        let primes = SecretPrimesWire::<P>::random_small_safe(rng).into_precomputed();
+        let bound = NonZero::new(primes.totient().expose_secret().wrapping_shr_vartime(2))
+            .expect("totient / 4 is still non-zero because p, q >= 5");
+        let lambda = SecretUnsigned::new(
+            Secret::init_with(|| P::Uint::random_mod(rng, &bound)),
+            P::MODULUS_BITS - 2,
+        )
+        .expect("totient < N < 2^MODULUS_BITS, so totient / 4 < 2^(MODULUS_BITS - 2)");
+
+        Self { primes, lambda }
+    }
+
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         let primes = SecretPrimesWire::<P>::random_safe(rng).into_precomputed();
 
@@ -75,6 +89,12 @@ pub(crate) struct RPParams<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> RPParams<P> {
+    #[cfg(test)]
+    pub fn random_small(rng: &mut impl CryptoRngCore) -> Self {
+        let secret = RPSecret::random_small(rng);
+        Self::random_with_secret(rng, &secret)
+    }
+
     pub fn random(rng: &mut impl CryptoRngCore) -> Self {
         let secret = RPSecret::random(rng);
         Self::random_with_secret(rng, &secret)
@@ -169,11 +189,19 @@ impl<P: PaillierParams> RPParams<P> {
     }
 
     /// Creates a commitment for a secret `randomizer` and the value 0.
-    pub fn commit_zero<R>(&self, randomizer: &R) -> RPCommitment<P>
+    pub fn commit_zero_value<R>(&self, randomizer: &R) -> RPCommitment<P>
     where
         P::UintMod: Exponentiable<R>,
     {
         RPCommitment(self.base_randomizer.pow(randomizer))
+    }
+
+    /// Creates a commitment for a secret `randomizer` and the value 0.
+    pub fn commit_zero_randomizer<R>(&self, value: &R) -> RPCommitment<P>
+    where
+        P::UintMod: Exponentiable<R>,
+    {
+        RPCommitment(self.base_value.pow(value))
     }
 
     pub fn to_wire(&self) -> RPParamsWire<P> {
@@ -245,6 +273,10 @@ pub(crate) struct RPParamsWire<P: PaillierParams> {
 }
 
 impl<P: PaillierParams> RPParamsWire<P> {
+    pub fn modulus(&self) -> &P::Uint {
+        self.modulus.modulus()
+    }
+
     pub fn to_precomputed(&self) -> RPParams<P> {
         let modulus = self.modulus.clone().into_precomputed();
         let base_randomizer = self.base_randomizer.to_montgomery(modulus.monty_params_mod_n());
