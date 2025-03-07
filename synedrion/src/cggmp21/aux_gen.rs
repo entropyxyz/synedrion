@@ -18,6 +18,7 @@ use manul::protocol::{
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+use serde_encoded_bytes::{Hex, SliceLike};
 
 use super::{
     entities::{AuxInfo, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
@@ -431,6 +432,7 @@ pub(super) struct Round1<P: SchemeParams, Id: PartyId> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Round1EchoBroadcast {
+    #[serde(with = "SliceLike::<Hex>")]
     pub(super) cap_v: Box<[u8]>,
 }
 

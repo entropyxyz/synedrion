@@ -17,6 +17,7 @@ use manul::protocol::{
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+use serde_encoded_bytes::{Hex, SliceLike};
 
 use super::{
     entities::KeyShare,
@@ -317,6 +318,7 @@ struct Round1<P: SchemeParams, Id> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Round1EchoBroadcast {
+    #[serde(with = "SliceLike::<Hex>")]
     cap_v: Box<[u8]>,
 }
 
