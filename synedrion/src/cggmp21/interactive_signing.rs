@@ -10,7 +10,7 @@ use core::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
 };
-use digest::typenum::Unsigned;
+
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
     MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
@@ -240,13 +240,12 @@ fn make_epid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &InteractiveSigningAssociatedData<P, Id>,
 ) -> Box<[u8]> {
-    let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
     XofHasher::new_with_dst(b"InteractiveSigning EPID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.shares)
         .chain(&associated_data.aux)
-        .finalize_boxed(len)
+        .finalize_boxed(P::SECURITY_BITS)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError<P, Id> {

@@ -8,18 +8,16 @@ use core::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
 };
-use crypto_bigint::BitOps;
-use digest::typenum::Unsigned;
-use primeorder::elliptic_curve::Curve;
-use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
+use crypto_bigint::BitOps;
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
     MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
     ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
     Serializer,
 };
+use rand_core::CryptoRngCore;
+use serde::{Deserialize, Serialize};
 
 use super::{
     entities::{AuxInfo, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
@@ -170,12 +168,11 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &AuxGenAssociatedData<Id>,
 ) -> Box<[u8]> {
-    let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
     XofHasher::new_with_dst(b"AuxGen SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
-        .finalize_boxed(len)
+        .finalize_boxed(P::SECURITY_BITS)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for AuxGenError<P, Id> {
@@ -318,7 +315,6 @@ pub(super) struct PublicData<P: SchemeParams> {
 
 impl<P: SchemeParams> PublicData<P> {
     pub(super) fn hash<Id: PartyId>(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
         XofHasher::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
@@ -327,7 +323,7 @@ impl<P: SchemeParams> PublicData<P> {
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize_boxed(len)
+            .finalize_boxed(P::SECURITY_BITS)
     }
 }
 

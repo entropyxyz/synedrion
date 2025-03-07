@@ -8,8 +8,6 @@ use core::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
 };
-use digest::typenum::Unsigned;
-use primeorder::elliptic_curve::Curve;
 
 use crypto_bigint::BitOps;
 use manul::protocol::{
@@ -211,12 +209,11 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &KeyRefreshAssociatedData<Id>,
 ) -> Box<[u8]> {
-    let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
     XofHasher::new_with_dst(b"KeyRefresh SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
-        .finalize_boxed(len)
+        .finalize_boxed(P::SECURITY_BITS)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> {
@@ -469,7 +466,6 @@ pub(super) struct PublicData<P: SchemeParams, Id> {
 
 impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
     pub(super) fn hash(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
         XofHasher::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
@@ -481,7 +477,7 @@ impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize_boxed(len)
+            .finalize_boxed(P::SECURITY_BITS)
     }
 }
 

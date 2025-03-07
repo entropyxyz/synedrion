@@ -1,6 +1,5 @@
 use alloc::collections::BTreeSet;
 
-use digest::typenum::Unsigned;
 use manul::{
     combinators::misbehave::Misbehaving,
     dev::{BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
@@ -10,7 +9,6 @@ use manul::{
     },
     signature::Keypair,
 };
-use primeorder::elliptic_curve::Curve;
 use rand_chacha::ChaCha8Rng;
 use rand_core::{CryptoRngCore, OsRng, SeedableRng};
 
@@ -161,8 +159,7 @@ fn r2_hash_mismatch() {
             if round.id() == 1 {
                 // Send a wrong hash in the Round 1 message
                 let message = Round1EchoBroadcast {
-                    cap_v: XofHasher::new_with_dst(b"bad hash")
-                        .finalize_boxed(<<P as SchemeParams>::Curve as Curve>::FieldBytesSize::USIZE * 2),
+                    cap_v: XofHasher::new_with_dst(b"bad hash").finalize_boxed(P::SECURITY_BITS),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);

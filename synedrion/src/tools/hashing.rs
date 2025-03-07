@@ -58,8 +58,11 @@ impl XofHasher {
         self.0.finalize_xof()
     }
 
-    pub fn finalize_boxed(self, len: usize) -> Box<[u8]> {
-        self.0.finalize_xof().read_boxed(len)
+    /// Finalizes into enough bytes to bring the collision probability under `2^(-security_bits)`.
+    pub fn finalize_boxed(self, security_bits: usize) -> Box<[u8]> {
+        // A common heuristic for hashes is that the log2 of the collision probability is half the output size.
+        // We may not have enough output bytes, but this constitutes the best effort.
+        self.0.finalize_xof().read_boxed((security_bits * 2).div_ceil(8))
     }
 }
 

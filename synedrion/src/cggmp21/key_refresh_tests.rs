@@ -1,6 +1,4 @@
 use alloc::collections::BTreeSet;
-use digest::typenum::Unsigned;
-use primeorder::elliptic_curve::Curve;
 
 use manul::{
     combinators::misbehave::Misbehaving,
@@ -163,8 +161,7 @@ fn r2_hash_mismatch() {
             if round.id() == 1 {
                 // Send a wrong hash in the Round 1 message
                 let message = Round1EchoBroadcast {
-                    cap_v: XofHasher::new_with_dst(b"bad hash")
-                        .finalize_boxed(<<P as SchemeParams>::Curve as Curve>::FieldBytesSize::USIZE * 2),
+                    cap_v: XofHasher::new_with_dst(b"bad hash").finalize_boxed(P::SECURITY_BITS),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);

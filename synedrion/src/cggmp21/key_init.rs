@@ -8,8 +8,6 @@ use core::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
 };
-use digest::typenum::Unsigned;
-use primeorder::elliptic_curve::Curve;
 
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
@@ -124,12 +122,11 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &KeyInitAssociatedData<Id>,
 ) -> Box<[u8]> {
-    let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
     XofHasher::new_with_dst(b"KeyInit SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
-        .finalize_boxed(len)
+        .finalize_boxed(P::SECURITY_BITS)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
@@ -223,7 +220,6 @@ where
     P: SchemeParams,
 {
     pub(super) fn hash<Id: Serialize>(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
         XofHasher::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
@@ -231,7 +227,7 @@ where
             .chain(&self.cap_a)
             .chain(&self.rho)
             .chain(&self.u)
-            .finalize_boxed(len)
+            .finalize_boxed(P::SECURITY_BITS)
     }
 }
 
