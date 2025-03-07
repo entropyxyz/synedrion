@@ -1,7 +1,7 @@
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, ConstantTimeGreater, CtOption},
-    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, PowBoundedExp, RandomMod,
+    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, PowBoundedExp, RandomBits, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     type HalfUint: Integer<Monty = Self::HalfUintMod>
         + Bounded
         + RandomMod
+        + RandomBits
         + RandomPrimeWithRng
         + Serialize
         + for<'de> Deserialize<'de>

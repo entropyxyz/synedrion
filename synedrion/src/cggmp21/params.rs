@@ -4,14 +4,14 @@ use core::{fmt::Debug, ops::Add};
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{BitOps, NonZero, Uint, U1024, U128, U2048, U256, U4096, U512, U8192};
+use crypto_bigint::{NonZero, Uint, U1024, U128, U2048, U256, U4096, U512, U8192};
 use digest::generic_array::ArrayLength;
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use primeorder::elliptic_curve::{
     bigint::{self as bigintv05, Concat, Uint as CurveUint},
     point::DecompressPoint,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    Curve, CurveArithmetic, PrimeCurve,
+    Curve, CurveArithmetic, PrimeCurve, PrimeField,
 };
 use serde::{Deserialize, Serialize};
 
@@ -157,7 +157,7 @@ where
     /// required for them to be used for the CGGMP scheme.
     fn are_self_consistent() -> bool {
         // See Appendix C.1
-        Self::CURVE_ORDER.as_ref().bits_vartime() == Self::SECURITY_PARAMETER as u32
+        <<Self::Curve as CurveArithmetic>::Scalar as PrimeField>::NUM_BITS == Self::SECURITY_PARAMETER as u32
         && Self::L_BOUND >= Self::SECURITY_PARAMETER as u32
         && Self::EPS_BOUND >= Self::L_BOUND + Self::SECURITY_PARAMETER as u32
         && Self::LP_BOUND >= Self::L_BOUND * 3 + Self::EPS_BOUND

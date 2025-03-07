@@ -1,4 +1,5 @@
 use crypto_bigint::{BitOps, Encoding, Zero};
+use primeorder::elliptic_curve::{CurveArithmetic, PrimeField};
 
 use super::params::SchemeParams;
 use crate::{
@@ -113,7 +114,7 @@ pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
     SecretSigned::new_modulo(
         secret_uint_from_scalar::<P>(value),
         &P::CURVE_ORDER,
-        P::CURVE_ORDER.as_ref().bits_vartime(),
+        <<P::Curve as CurveArithmetic>::Scalar as PrimeField>::NUM_BITS,
     )
     .expect(concat![
         "a curve scalar value is smaller than the curve order, ",
