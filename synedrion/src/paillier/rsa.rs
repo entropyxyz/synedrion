@@ -1,5 +1,8 @@
 use crypto_bigint::{BitOps, CheckedSub, Integer, Monty, NonZero, Odd, RandomMod, Square};
-use crypto_primes::RandomPrimeWithRng;
+use crypto_primes::{
+    hazmat::{SetBits, SmallPrimesSieveFactory},
+    is_prime_with_rng, sieve_and_find, RandomPrimeWithRng,
+};
 use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -13,7 +16,9 @@ use crate::{
 #[cfg(test)]
 fn random_small_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
     loop {
-        let prime = P::HalfUint::generate_prime_with_rng(rng, P::PRIME_BITS - 2);
+        let sieve = SmallPrimesSieveFactory::<P::HalfUint>::new(P::PRIME_BITS - 2, SetBits::TwoMsb);
+        let prime: <P as PaillierParams>::HalfUint =
+            sieve_and_find(rng, sieve, is_prime_with_rng).expect("will produce a result eventually");
         if prime.as_ref().first().expect("First Limb exists").0 & 3 == 3 {
             return prime;
         }
@@ -22,7 +27,9 @@ fn random_small_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngC
 
 fn random_paillier_blum_prime<P: PaillierParams>(rng: &mut impl CryptoRngCore) -> P::HalfUint {
     loop {
-        let prime = P::HalfUint::generate_prime_with_rng(rng, P::PRIME_BITS);
+        let sieve = SmallPrimesSieveFactory::<P::HalfUint>::new(P::PRIME_BITS, SetBits::TwoMsb);
+        let prime: <P as PaillierParams>::HalfUint =
+            sieve_and_find(rng, sieve, is_prime_with_rng).expect("will produce a result eventually");
         if prime.as_ref().first().expect("First Limb exists").0 & 3 == 3 {
             return prime;
         }
