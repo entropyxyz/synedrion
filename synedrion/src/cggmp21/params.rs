@@ -182,8 +182,6 @@ pub struct TestParams;
 impl SchemeParams for TestParams {
     type Curve = TinyCurve64;
     type WideCurveUint = bigintv05::U384;
-    // // TODO: 8*24 = 192, this is to work around an issue with the ModulusSize-trait. This should be ideally be 8 bytes long.
-    // type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
     const SECURITY_PARAMETER: usize = 10;
     const L_BOUND: u32 = 256;
@@ -207,7 +205,6 @@ pub struct ProductionParams112;
 impl SchemeParams for ProductionParams112 {
     type Curve = k256::Secp256k1;
     type WideCurveUint = bigintv05::U512;
-    // type HashOutput = [u8; 32];
     const SECURITY_BITS: usize = 112;
     const SECURITY_PARAMETER: usize = 256;
     const L_BOUND: u32 = 256;

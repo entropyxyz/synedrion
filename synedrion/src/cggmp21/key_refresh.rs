@@ -211,11 +211,12 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &KeyRefreshAssociatedData<Id>,
 ) -> Box<[u8]> {
+    let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
     XofHasher::new_with_dst(b"KeyRefresh SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
-        .finalize_boxed(<P::Curve as Curve>::FieldBytesSize::USIZE)
+        .finalize_boxed(len)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> {
@@ -468,6 +469,7 @@ pub(super) struct PublicData<P: SchemeParams, Id> {
 
 impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
     pub(super) fn hash(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
+        let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
         XofHasher::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
@@ -479,7 +481,7 @@ impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize_boxed(<P::Curve as Curve>::FieldBytesSize::USIZE)
+            .finalize_boxed(len)
     }
 }
 

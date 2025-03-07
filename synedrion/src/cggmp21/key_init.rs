@@ -124,11 +124,12 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &KeyInitAssociatedData<Id>,
 ) -> Box<[u8]> {
+    let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
     XofHasher::new_with_dst(b"KeyInit SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
-        .finalize_boxed(<P::Curve as Curve>::FieldBytesSize::USIZE)
+        .finalize_boxed(len)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
@@ -219,10 +220,10 @@ pub(super) struct PublicData<P: SchemeParams> {
 
 impl<P> PublicData<P>
 where
-    // TODO(dp): don't need this
     P: SchemeParams,
 {
     pub(super) fn hash<Id: Serialize>(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
+        let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
         XofHasher::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
@@ -230,7 +231,7 @@ where
             .chain(&self.cap_a)
             .chain(&self.rho)
             .chain(&self.u)
-            .finalize_boxed(<P::Curve as Curve>::FieldBytesSize::USIZE)
+            .finalize_boxed(len)
     }
 }
 

@@ -162,7 +162,7 @@ fn r2_hash_mismatch() {
                 // Send a wrong hash in the Round 1 message
                 let message = Round1EchoBroadcast {
                     cap_v: XofHasher::new_with_dst(b"bad hash")
-                        .finalize_boxed(<<P as SchemeParams>::Curve as Curve>::FieldBytesSize::USIZE),
+                        .finalize_boxed(<<P as SchemeParams>::Curve as Curve>::FieldBytesSize::USIZE * 2),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);

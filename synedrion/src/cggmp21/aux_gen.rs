@@ -170,11 +170,12 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &AuxGenAssociatedData<Id>,
 ) -> Box<[u8]> {
+    let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
     XofHasher::new_with_dst(b"AuxGen SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
-        .finalize_boxed(<P::Curve as Curve>::FieldBytesSize::USIZE)
+        .finalize_boxed(len)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for AuxGenError<P, Id> {
@@ -317,6 +318,7 @@ pub(super) struct PublicData<P: SchemeParams> {
 
 impl<P: SchemeParams> PublicData<P> {
     pub(super) fn hash<Id: PartyId>(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
+        let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
         XofHasher::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
@@ -325,7 +327,7 @@ impl<P: SchemeParams> PublicData<P> {
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize_boxed(<P::Curve as Curve>::FieldBytesSize::USIZE)
+            .finalize_boxed(len)
     }
 }
 

@@ -240,12 +240,13 @@ fn make_epid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &InteractiveSigningAssociatedData<P, Id>,
 ) -> Box<[u8]> {
+    let len = <P::Curve as Curve>::FieldBytesSize::USIZE * 2;
     XofHasher::new_with_dst(b"InteractiveSigning EPID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.shares)
         .chain(&associated_data.aux)
-        .finalize_boxed(<P::Curve as Curve>::FieldBytesSize::USIZE)
+        .finalize_boxed(len)
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError<P, Id> {
