@@ -502,25 +502,27 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::TestParams;
+    use crate::{SchemeParams, TestParams};
 
     use super::Scalar;
     use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
-    #[test]
+
+    #[test_log::test]
     fn to_and_from_bytes() {
         let mut rng = ChaChaRng::from_seed([7u8; 32]);
         let s = Scalar::<TestParams>::random(&mut rng);
 
         // Round trip works
-        let bytes = s.to_be_bytes();
-        let s_from_bytes = Scalar::try_from_be_bytes(bytes.as_ref()).expect("bytes are valid");
-        assert_eq!(s, s_from_bytes);
+        let be_bytes = s.to_be_bytes();
+        let s_from_be_bytes = Scalar::try_from_be_bytes(be_bytes.as_ref()).expect("bytes are valid");
+        assert_eq!(s, s_from_be_bytes);
 
+        let chunk_size = TestParams::SECURITY_PARAMETER / 8;
         // …but building a `Scalar` from LE bytes does not.
-        let mut bytes = bytes;
+        let mut bytes = be_bytes;
         let le_bytes = bytes
-            .chunks_exact_mut(8)
+            .chunks_exact_mut(chunk_size)
             .flat_map(|word_bytes| {
                 word_bytes.reverse();
                 word_bytes.to_vec()
