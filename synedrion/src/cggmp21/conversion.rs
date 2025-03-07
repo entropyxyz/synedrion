@@ -1,4 +1,4 @@
-use crypto_bigint::{BitOps, Encoding, Zero};
+use crypto_bigint::{BitOps, Bounded, Encoding, Zero};
 
 use super::params::SchemeParams;
 use crate::{
@@ -110,12 +110,11 @@ fn secret_uint_from_scalar<P: SchemeParams>(
 pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar<P>>,
 ) -> SecretSigned<<P::Paillier as PaillierParams>::Uint> {
-    SecretSigned::new_modulo(
-        secret_uint_from_scalar::<P>(value),
-        &P::CURVE_ORDER,
-        P::CURVE_ORDER.as_ref().bits_vartime(),
-    )
-    .expect(concat![
+    debug_assert!(
+        P::CURVE_ORDER.as_ref().bits_vartime() < <<P::Paillier as PaillierParams>::Uint as Bounded>::BITS,
+        "the curve order is expected to be smaller than the `Uint` type"
+    );
+    SecretSigned::new_modulo(secret_uint_from_scalar::<P>(value), &P::CURVE_ORDER).expect(concat![
         "a curve scalar value is smaller than the curve order, ",
         "and the curve order fits in `PaillierParams::Uint`"
     ])

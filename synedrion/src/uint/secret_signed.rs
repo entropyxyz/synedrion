@@ -124,19 +124,13 @@ where
     /// (since it is the bound for the absolute value).
     ///
     /// Returns `None` if the bound is too large, or if `abs(value)` is greater or equal to `2^bound`.
-    pub fn new_modulo(positive_value: Secret<T>, modulus: &NonZero<T>, modulus_bound: u32) -> Option<Self> {
-        // We are taking a `bound` explicitly and not deriving it from the `modulus`
-        // because we want it to be the same across different runs, and the RSA modulus, being a product of two randoms,
-        // can have varying size (e.g. for two random 1024 bit primes it can be 2046-2048 bits long).
-        // TODO (#183): after this issue is fixed, this comment needs to be amended
-        // (but we will probably still need the explicit `modulus_bound`).
-
+    pub fn new_modulo(positive_value: Secret<T>, modulus: &NonZero<T>) -> Option<Self> {
         let half_modulus = modulus.as_ref().wrapping_shr_vartime(1);
         let is_negative = positive_value.expose_secret().ct_gt(&half_modulus);
         // Can't define a `Sub<Secret>` for `Uint`, so have to re-wrap manually.
-        let negative_value = Secret::init_with(|| *modulus.as_ref() - positive_value.expose_secret()).wrapping_neg();
+        let negative_value = Secret::init_with(|| (*modulus.as_ref() - positive_value.expose_secret()).wrapping_neg());
         let value = Secret::<T>::conditional_select(&positive_value, &negative_value, is_negative);
-        Self::new_from_unsigned(value, modulus_bound - 1)
+        Self::new_from_unsigned(value, modulus.bits_vartime() - 1)
     }
 
     /// Asserts that the value is within the interval the paper denotes as $±2^exp$.

@@ -221,7 +221,7 @@ impl<P: PaillierParams> Ciphertext<P> {
         // Note that this is in range `[0, N)`
         let positive_result = (x_mod * sk.inv_totient()).retrieve();
 
-        SecretSigned::new_modulo(positive_result, &pk.modulus_nonzero(), P::MODULUS_BITS)
+        SecretSigned::new_modulo(positive_result, &pk.modulus_nonzero())
             .expect("the value is within `[0, N)` by construction and the modulus fits into `P::Uint`")
     }
 
@@ -387,12 +387,7 @@ mod tests {
 
     /// Calculates `val` modulo `modulus`, returning the result in range `[-N/2, N/2]`
     fn reduce<P: PaillierParams>(val: &SecretSigned<P::Uint>, modulus: &NonZero<P::Uint>) -> SecretSigned<P::Uint> {
-        SecretSigned::new_modulo(
-            Secret::init_with(|| reduce_unsigned(val, modulus)),
-            modulus,
-            P::MODULUS_BITS,
-        )
-        .unwrap()
+        SecretSigned::new_modulo(Secret::init_with(|| reduce_unsigned(val, modulus)), modulus).unwrap()
     }
 
     /// Calculates `lhs * rhs` modulo `modulus`, returning the result in range `[-N/2, N/2]`
@@ -409,7 +404,7 @@ mod tests {
         let wide_product = lhs.mul_wide(&rhs);
         let wide_modulus = modulus.as_ref().to_wide();
         let result = P::Uint::try_from_wide(&(wide_product % NonZero::new(wide_modulus).unwrap())).unwrap();
-        SecretSigned::new_modulo(Secret::init_with(|| result), modulus, P::MODULUS_BITS).unwrap()
+        SecretSigned::new_modulo(Secret::init_with(|| result), modulus).unwrap()
     }
 
     /// Calculates `lhs + rhs` modulo `modulus`, returning the result in range `[-N/2, N/2]`
@@ -421,7 +416,7 @@ mod tests {
         let lhs = reduce_unsigned(lhs, modulus);
         let rhs = reduce_unsigned(rhs, modulus);
         let sum = lhs.add_mod(&rhs, modulus);
-        SecretSigned::new_modulo(Secret::init_with(|| sum), modulus, P::MODULUS_BITS).unwrap()
+        SecretSigned::new_modulo(Secret::init_with(|| sum), modulus).unwrap()
     }
 
     #[test]
