@@ -75,7 +75,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     type WideUint: Integer<Monty = Self::WideUintMod>
         + Bounded
         + ConditionallySelectable
-        + Encoding
+        + Encoding<Repr: Zeroize>
         + Hashable
         + HasWide<Wide = Self::ExtraWideUint>
         + RandomMod

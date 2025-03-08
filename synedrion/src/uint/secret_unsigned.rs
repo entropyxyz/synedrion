@@ -78,20 +78,6 @@ where
 
 impl<T> SecretUnsigned<T>
 where
-    T: Zeroize + Integer + Bounded + HasWide,
-    T::Wide: Zeroize + Integer + Bounded,
-{
-    pub fn mul_wide(&self, rhs: &T) -> SecretUnsigned<T::Wide> {
-        SecretUnsigned::new(
-            Secret::init_with(|| self.value.expose_secret().mul_wide(rhs)),
-            self.bound + rhs.bits_vartime(),
-        )
-        .expect("the new bound is valid since the constituent ones were")
-    }
-}
-
-impl<T> SecretUnsigned<T>
-where
     T: Zeroize + Clone + HasWide,
     T::Wide: Zeroize,
 {

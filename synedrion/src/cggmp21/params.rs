@@ -44,51 +44,7 @@ const fn convert_uint<const N: usize>(value: CurveUint<N>) -> Uint<N> {
 }
 
 impl PaillierParams for PaillierTest {
-    /*
-    The prime size is chosen to be minimal for which the `TestSchemeParams` still work.
-    In the presigning, we are effectively constructing a ciphertext of
-
-        d = x * sum(j=1..P) y_i + sum(j=1..2*(P-1)) z_j
-
-    where
-
-        0 < x, y_i < q < 2^L, and
-        -2^LP < z < 2^LP
-
-    (`q` is the curve order, `L` and `LP` are constants in `TestSchemeParams`,
-    `P` is the number of parties).
-    This is `delta_i` or `chi_i`.
-
-    During signing `chi_i` gets additionally multiplied by `r` (nonce, a scalar).
-
-    We need the final result to be `-N/2 < d < N/2`
-    (that is, it may be negative, and it cannot wrap around modulo N),
-    so that it could fit in a Paillier ciphertext without wrapping around.
-    This is needed for ZK proofs to work.
-
-    `N` is a product of two primes of the size `PRIME_BITS`, so `N > 2^(2 * PRIME_BITS - 2)`.
-    The upper bound on `log2(d * r)` is
-
-        max(2 * L, LP + 2) + ceil(log2(CURVE_ORDER)) + ceil(log2(P))
-
-    (note that in reality, due to numbers being random, the distribution will have a distinct peak,
-    and the upper bound will have a low probability of being reached)
-
-    Therefore we require
-
-        max(2 * L, LP + 2) + ceil(log2(CURVE_ORDER)) + ceil(log2(P)) < 2 * PRIME_BITS - 2`
-
-    For tests we assume `ceil(log2(P)) = 5` (we won't run tests with more than 32 nodes),
-    and since in `TestSchemeParams` `L = LP = 256`, this leads to `PRIME_BITS >= 397`.
-
-    For production it does not matter since 2*L, LP, and log2(CURVE_ORDER)
-    are much smaller than 2*PRIME_BITS.
-    */
-
-    // TODO: `PRIME_BITS` should be 128 bits, but that doesn't work yet.
-    // See https://github.com/entropyxyz/synedrion/pull/193#issuecomment-2703197306
-    // and related issue #187.
-    const PRIME_BITS: u32 = 127;
+    const PRIME_BITS: u32 = 128;
     type HalfUint = U128;
     type HalfUintMod = U128Mod;
     type Uint = U256;
@@ -174,14 +130,6 @@ where
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct TestParams;
 
-// Some requirements from range proofs etc:
-// - $П_{enc}$, safe two's complement representation of $\alpha$ requires
-//   `L_BOUND + EPS_BOUND + 1 < Uint::BITS - 1`
-// - $П_{enc}$, safe two's complement representation of $z_1$ requires
-//   `L_BOUND + max(EPS_BOUND, log2(q)) + 1 < Uint::BITS - 1`
-//   (where `q` is the curve order)
-// - Range checks will fail with the probability $q / 2^\eps$, so $\eps$ should be large enough.
-// - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
     type Curve = TinyCurve32;
     // TODO: ReprUint is typenum::U192 because of RustCrypto stack internals, hence the U384 here,
@@ -230,7 +178,7 @@ impl SchemeParams for ProductionParams112 {
 mod tests {
     use super::{
         bigintv05::{U256, U64},
-        upcast_uint, ProductionParams112, SchemeParams,
+        upcast_uint, ProductionParams112, SchemeParams, TestParams,
     };
 
     #[test]
@@ -259,9 +207,6 @@ mod tests {
     #[test]
     fn parameter_consistency() {
         assert!(ProductionParams112::are_self_consistent());
-        // TODO: `PRIME_BITS` should be 128 bits, but that doesn't work yet.
-        // See https://github.com/entropyxyz/synedrion/pull/193#issuecomment-2703197306
-        // and related issue #187.
-        // assert!(TestParams::are_self_consistent());
+        assert!(TestParams::are_self_consistent());
     }
 }
