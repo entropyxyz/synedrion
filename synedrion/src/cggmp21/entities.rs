@@ -112,6 +112,10 @@ pub struct KeyShareChange<P: SchemeParams, I: Ord> {
 }
 
 impl<P: SchemeParams, I: Ord> PublicAuxInfos<P, I> {
+    pub(crate) fn num_parties(&self) -> usize {
+        self.0.len()
+    }
+
     pub(crate) fn as_map(&self) -> &BTreeMap<I, PublicAuxInfo<P>> {
         &self.0
     }
