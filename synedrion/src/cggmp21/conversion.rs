@@ -6,7 +6,7 @@ use crate::{
     curve::Scalar,
     paillier::PaillierParams,
     tools::Secret,
-    uint::{PublicSigned, SecretSigned},
+    uint::{HasWide, PublicSigned, SecretSigned},
 };
 
 fn uint_from_scalar<P: SchemeParams>(value: &Scalar<P>) -> <P::Paillier as PaillierParams>::Uint {
@@ -37,8 +37,8 @@ pub(crate) fn public_signed_from_scalar<P: SchemeParams>(
 }
 
 /// Converts an integer to the associated curve scalar type.
-pub(crate) fn scalar_from_uint<P: SchemeParams>(value: &<P::Paillier as PaillierParams>::Uint) -> Scalar<P> {
-    let r = *value % P::CURVE_ORDER;
+pub(crate) fn scalar_from_wide_uint<P: SchemeParams>(value: &<P::Paillier as PaillierParams>::WideUint) -> Scalar<P> {
+    let r = *value % P::CURVE_ORDER_WIDE;
 
     let repr = r.to_be_bytes();
     let uint_len = repr.as_ref().len();
@@ -57,7 +57,18 @@ pub(crate) fn scalar_from_uint<P: SchemeParams>(value: &<P::Paillier as Paillier
 pub(crate) fn scalar_from_signed<P: SchemeParams>(
     value: &PublicSigned<<P::Paillier as PaillierParams>::Uint>,
 ) -> Scalar<P> {
-    let abs_value = scalar_from_uint::<P>(&value.abs());
+    let abs_value = scalar_from_wide_uint::<P>(&value.abs().to_wide());
+    if value.is_negative() {
+        -abs_value
+    } else {
+        abs_value
+    }
+}
+
+pub(crate) fn scalar_from_wide_signed<P: SchemeParams>(
+    value: &PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
+) -> Scalar<P> {
+    let abs_value = scalar_from_wide_uint::<P>(&value.abs());
     if value.is_negative() {
         -abs_value
     } else {
@@ -66,10 +77,10 @@ pub(crate) fn scalar_from_signed<P: SchemeParams>(
 }
 
 /// Converts a secret-wrapped uint to a secret-wrapped [`Scalar`], reducing the value modulo curve order.
-fn secret_scalar_from_uint<P: SchemeParams>(
-    value: &Secret<<P::Paillier as PaillierParams>::Uint>,
+fn secret_scalar_from_wide_uint<P: SchemeParams>(
+    value: &Secret<<P::Paillier as PaillierParams>::WideUint>,
 ) -> Secret<Scalar<P>> {
-    let r = value % &P::CURVE_ORDER;
+    let r = value % &P::CURVE_ORDER_WIDE;
 
     let repr = Secret::init_with(|| r.expose_secret().to_be_bytes());
     let uint_len = repr.expose_secret().as_ref().len();
@@ -126,6 +137,14 @@ pub(crate) fn secret_signed_from_scalar<P: SchemeParams>(
 pub(crate) fn secret_scalar_from_signed<P: SchemeParams>(
     value: &SecretSigned<<P::Paillier as PaillierParams>::Uint>,
 ) -> Secret<Scalar<P>> {
-    let abs_value = secret_scalar_from_uint::<P>(&value.abs_value());
+    let abs_value = secret_scalar_from_wide_uint::<P>(&value.abs_value().to_wide());
+    Secret::<Scalar<P>>::conditional_select(&abs_value, &-&abs_value, value.is_negative())
+}
+
+/// Converts a [`SecretSigned`] to a secret-wrapped [`Scalar`].
+pub(crate) fn secret_scalar_from_wide_signed<P: SchemeParams>(
+    value: &SecretSigned<<P::Paillier as PaillierParams>::WideUint>,
+) -> Secret<Scalar<P>> {
+    let abs_value = secret_scalar_from_wide_uint::<P>(&value.abs_value());
     Secret::<Scalar<P>>::conditional_select(&abs_value, &-&abs_value, value.is_negative())
 }

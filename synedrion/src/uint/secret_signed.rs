@@ -143,14 +143,7 @@ where
         Self::new_from_unsigned(value, modulus_bits - 1)
     }
 
-    /// Asserts that the value is within the interval the paper denotes as $±2^exp$.
-    /// Panics if it is not the case.
-    ///
-    /// That is, the value must be within $[-2^{exp-1}+1, 2^{exp-1}]$
-    /// (See Section 3, Groups & Fields).
-    ///
-    /// Variable time w.r.t. `exp`.
-    pub fn assert_exponent_range(&self, exp: u32) {
+    fn is_in_exponent_range(&self, exp: u32) -> bool {
         let abs = self.abs();
 
         // Check if $abs(self) ∈ [0, 2^{exp-1}-1]$, that is $self ∈ [-2^{exp-1}+1, 2^{exp-1}-1]$.
@@ -160,7 +153,40 @@ where
 
         // Have to check for the high end of the range too
         let is_high_end = abs.expose_secret().ct_eq(&(T::one() << (exp - 1))) & !self.is_negative();
-        assert!(bool::from(in_bound | is_high_end), "out of bounds $±2^{exp}$",)
+
+        bool::from(in_bound | is_high_end)
+    }
+
+    /// Asserts that the value is within the interval the paper denotes as $±2^exp$.
+    /// Panics if it is not the case.
+    ///
+    /// That is, the value must be within $[-2^{exp-1}+1, 2^{exp-1}]$
+    /// (See Section 3, Groups & Fields).
+    ///
+    /// Variable time w.r.t. `exp`.
+    pub fn assert_exponent_range(&self, exp: u32) {
+        assert!(self.is_in_exponent_range(exp), "out of bounds $±2^{exp}$",)
+    }
+
+    /// Checks if the value is within the interval the paper denotes as $±2^exp$,
+    /// in which case returns the value with an updated bound, or `None` otherwise.
+    ///
+    /// That is, the value must be within $[-2^{exp-1}+1, 2^{exp-1}]$
+    /// (See Section 3, Groups & Fields).
+    ///
+    /// Variable time w.r.t. `exp`.
+    pub fn ensure_exponent_range(self, exp: u32) -> Option<Self> {
+        if exp >= T::BITS - 1 {
+            return None;
+        }
+        if self.is_in_exponent_range(exp) {
+            Some(Self {
+                value: self.value,
+                bound: exp + 1,
+            })
+        } else {
+            None
+        }
     }
 }
 

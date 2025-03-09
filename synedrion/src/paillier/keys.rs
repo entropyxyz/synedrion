@@ -313,6 +313,8 @@ impl<P: PaillierParams> PublicKeyPaillierWire<P> {
 pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
     modulus: PublicModulus<P>,
     monty_params_mod_n_squared: <P::WideUintMod as Monty>::Params,
+    /// N converted to Motgomery form modulo N^2
+    modulus_mod_modulus_squared: P::WideUintMod,
     /// The minimal public key (for hashing purposes)
     public_key_wire: PublicKeyPaillierWire<P>,
 }
@@ -323,6 +325,8 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
             Odd::new(modulus.modulus().mul_wide(modulus.modulus())).expect("Square of odd number is odd"),
         );
 
+        let modulus_mod_modulus_squared = modulus.modulus().to_wide().to_montgomery(&monty_params_mod_n_squared);
+
         let public_key_wire = PublicKeyPaillierWire {
             modulus: modulus.to_wire(),
         };
@@ -330,6 +334,7 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
         PublicKeyPaillier {
             modulus,
             monty_params_mod_n_squared,
+            modulus_mod_modulus_squared,
             public_key_wire,
         }
     }
@@ -366,6 +371,11 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     /// Returns precomputed parameters for integers modulo N^2
     pub fn monty_params_mod_n_squared(&self) -> &<P::WideUintMod as Monty>::Params {
         &self.monty_params_mod_n_squared
+    }
+
+    /// Returns the precomputed N in the Montgomery representation modulo N^2
+    pub fn modulus_mod_modulus_squared(&self) -> &P::WideUintMod {
+        &self.modulus_mod_modulus_squared
     }
 
     /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.

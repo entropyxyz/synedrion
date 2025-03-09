@@ -46,6 +46,22 @@ The above item leads to another problem. If those values are indeed echo-broadca
 Fig. 8, Round 2, 2b) - `\psi_{j,i}` creation requires `F_{i,j}` which are not yet available since they're the ones created on other nodes. The previous paper version has `F_{j,i}` there. Same for `\hat{\psi_{j,i}}`.
 
 
+# Range of `delta_i`
+
+There is some inconsistency with ranges in the Presigning protocol (Fig. 8).
+
+When we construct `delta_i` in Round 3, step 2, its range is `±2^{\ell^\prime + \eps + 1 + ceil(log2(n))}` where `n` is the number of parties.
+`\ell^\prime + \eps` is the range of a single `beta_{j,i}` coming from another node (as proven by `П^{aff-g}` in step 1); all the other terms have much smaller ranges, so adding them results in increasing the range by at most 1 bit.
+Since there are `n` `beta_{j,i}` in the sum, we add `ceil(log2(n))`, getting the final expression.
+
+If we reach the error round (Fig. 9) and need to construct `П^{dec}`, `delta_i` serves as the `y` argument.
+But the description of the proof (Fig. 28) requires `y ∈ ±2^{\ell^\prime}` (and correspondingly, `\beta` is sampled from `±2^{\ell^\prime + \eps}` to mask `y`).
+
+So to accommodate for the actual range of `delta_i`, we have to bump the range of `beta` and the range check of `w` by `\eps + 1 + ceil(log2(n))`, and add the number of parties to the public parameters of `П^{dec}`.
+
+Same applies to `chi_i`.
+
+
 # Echo-broadcasting
 
 In order to be able to generate verifiable evidence for each failure, some values have to be echo-broadcasted instead of normal broadcast/direct messaging given in the paper. Here is the list of such variables
