@@ -1,5 +1,5 @@
 use crypto_bigint::{BitOps, Encoding, Zero};
-use primeorder::elliptic_curve::{CurveArithmetic, PrimeField};
+use elliptic_curve::{CurveArithmetic, PrimeField};
 
 use super::params::SchemeParams;
 use crate::{

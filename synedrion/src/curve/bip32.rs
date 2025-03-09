@@ -8,11 +8,11 @@ use bip32::{ChainCode, DerivationPath, PrivateKey as _, PrivateKeyBytes, PublicK
 
 use digest::Digest;
 use ecdsa::{hazmat::DigestPrimitive, SigningKey, VerifyingKey};
-use manul::protocol::PartyId;
-use primeorder::elliptic_curve::{
+use elliptic_curve::{
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve, PublicKey, SecretKey,
 };
+use manul::protocol::PartyId;
 use tiny_curve::{PrivateKeyBip32, PublicKeyBip32};
 
 use crate::www02::ThresholdKeyShare;

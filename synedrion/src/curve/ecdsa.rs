@@ -1,6 +1,6 @@
 use crate::SchemeParams;
 use ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
-use primeorder::elliptic_curve::group::Curve as _;
+use elliptic_curve::group::Curve as _;
 
 #[cfg(test)]
 use rand_core::CryptoRngCore;

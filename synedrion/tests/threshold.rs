@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use digest::typenum::Unsigned;
 use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+use elliptic_curve::{Curve, FieldBytes};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
-use primeorder::{elliptic_curve::Curve, FieldBytes};
 use rand_core::OsRng;
 use synedrion::{
     AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams,
