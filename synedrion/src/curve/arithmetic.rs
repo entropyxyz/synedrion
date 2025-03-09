@@ -88,13 +88,13 @@ impl<P: SchemeParams> Scalar<P> {
     /// Read twice the number of bytes in a curve [`Scalar`] from the [`XofReader`], then reduce
     /// modulo the curve order to ensure a valid, unbiased scalar.
     pub fn from_xof_reader(reader: &mut impl XofReader) -> Self {
-        let bytes_lo = reader.read_boxed(Self::repr_len());
-        let bytes_lo = GenericArray::<_, <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize>::from_slice(&bytes_lo);
-        let uint_lo = <P::Curve as Curve>::Uint::from_be_byte_array(bytes_lo.clone());
+        let mut buf = GenericArray::<u8, <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize>::default();
 
-        let bytes_hi = reader.read_boxed(Self::repr_len());
-        let bytes_hi = GenericArray::<_, <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize>::from_slice(&bytes_hi);
-        let uint_hi = <P::Curve as Curve>::Uint::from_be_byte_array(bytes_hi.clone());
+        reader.read(&mut buf);
+        let uint_lo = <P::Curve as Curve>::Uint::from_be_byte_array(buf.clone());
+
+        reader.read(&mut buf);
+        let uint_hi = <P::Curve as Curve>::Uint::from_be_byte_array(buf.clone());
 
         // TODO: Invert the order when the elliptic curve stack upgrades (bigint v0.5 used hi/lo, but v0.6 switches to lo/hi)
         let wide_uint = uint_hi.concat(&uint_lo);
