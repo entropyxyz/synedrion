@@ -8,7 +8,7 @@ use crypto_bigint::{NonZero, Uint, U1024, U128, U2048, U256, U4096, U512, U8192}
 use digest::generic_array::ArrayLength;
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use elliptic_curve::{
-    bigint::{self as bigintv05, Concat, Uint as CurveUint},
+    bigint::{self as bigintv05, Concat, Split, Uint as CurveUint},
     point::DecompressPoint,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve, PrimeField,
@@ -86,7 +86,7 @@ where
     /// The elliptic curve (of prime order) used.
     type Curve: CurveArithmetic + PrimeCurve + HashableType + DigestPrimitive;
     /// Double the curve Scalar-width integer type.
-    type WideCurveUint: bigintv05::Integer + bigintv05::Split<Output = <Self::Curve as Curve>::Uint>;
+    type WideCurveUint: bigintv05::Integer + Split<Output = <Self::Curve as Curve>::Uint>;
 
     /// The number of bits of security provided by the scheme.
     const SECURITY_BITS: usize; // $m$ in the paper
