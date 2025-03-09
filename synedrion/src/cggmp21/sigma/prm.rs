@@ -136,7 +136,7 @@ mod tests {
 
     use super::PrmProof;
     use crate::{
-        cggmp21::TestParams,
+        dev::TestParams,
         paillier::{RPParams, RPSecret},
     };
 

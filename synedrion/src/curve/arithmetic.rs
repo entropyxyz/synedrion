@@ -500,7 +500,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{SchemeParams, TestParams};
+    use crate::{dev::TestParams, SchemeParams};
 
     use super::Scalar;
     use rand::SeedableRng;

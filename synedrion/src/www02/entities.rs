@@ -231,7 +231,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::ThresholdKeyShare;
-    use crate::{cggmp21::TestParams, curve::Scalar};
+    use crate::{curve::Scalar, dev::TestParams};
 
     #[test]
     fn threshold_key_share_centralized() {

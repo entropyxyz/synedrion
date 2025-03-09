@@ -627,7 +627,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::KeyInit;
-    use crate::{cggmp21::TestParams, tools::protocol_shortcuts::MapValues};
+    use crate::{dev::TestParams, tools::protocol_shortcuts::MapValues};
 
     #[test]
     fn execute_keygen() {

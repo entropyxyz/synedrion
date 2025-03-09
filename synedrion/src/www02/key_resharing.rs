@@ -484,7 +484,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{KeyResharing, NewHolder, OldHolder, ThresholdKeyShare};
-    use crate::TestParams;
+    use crate::dev::TestParams;
 
     #[test]
     fn execute_key_reshare() {

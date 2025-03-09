@@ -1,7 +1,7 @@
 use crate::{
     curve::{Point, Scalar},
     tools::Secret,
-    ProductionParams112, SchemeParams, TestParams,
+    SchemeParams,
 };
 use alloc::vec::Vec;
 use bip32::{ChainCode, DerivationPath, PrivateKey as _, PrivateKeyBytes, PublicKey as _};
@@ -10,10 +10,9 @@ use digest::Digest;
 use ecdsa::{hazmat::DigestPrimitive, SigningKey, VerifyingKey};
 use elliptic_curve::{
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    Curve, CurveArithmetic, PrimeCurve, PublicKey, SecretKey,
+    Curve, CurveArithmetic, PrimeCurve,
 };
 use manul::protocol::PartyId;
-use tiny_curve::{PrivateKeyBip32, PublicKeyBip32};
 
 use crate::www02::ThresholdKeyShare;
 
@@ -23,19 +22,9 @@ pub trait DeriveChildKey<C: CurveArithmetic + PrimeCurve>: Sized {
     fn derive_verifying_key_bip32(&self, derivation_path: &DerivationPath) -> Result<VerifyingKey<C>, bip32::Error>;
 }
 
-mod sealed {
-    use super::*;
-    pub trait Sealed {}
-    impl Sealed for VerifyingKey<tiny_curve::TinyCurve64> {}
-    impl Sealed for VerifyingKey<tiny_curve::TinyCurve32> {}
-    impl Sealed for VerifyingKey<k256::Secp256k1> {}
-    impl Sealed for SigningKey<tiny_curve::TinyCurve64> {}
-    impl Sealed for SigningKey<tiny_curve::TinyCurve32> {}
-    impl Sealed for SigningKey<k256::Secp256k1> {}
-}
-
 /// Trait for types that can derive BIP32 style "tweaks" from public keys.
-pub trait PublicTweakable: sealed::Sealed {
+pub trait PublicTweakable {
+    /// The public key type implementing [`bip32::PublicKey`].
     type Bip32Pk: bip32::PublicKey + Clone;
     /// Convert `self` into something that can be used for BIP32 derivation.
     fn tweakable_pk(&self) -> Self::Bip32Pk;
@@ -45,59 +34,13 @@ pub trait PublicTweakable: sealed::Sealed {
 }
 
 /// Trait for types that can derive BIP32 style "tweaks" from secret keys.
-pub trait SecretTweakable: sealed::Sealed {
+pub trait SecretTweakable {
+    /// The private key type implementing [`bip32::PrivateKey`].
     type Bip32Sk: bip32::PrivateKey + Clone;
     /// Convert `self` into something that can be used for BIP32 derivation.
     fn tweakable_sk(&self) -> Self::Bip32Sk;
+    /// Convert the BIP32-supporting private key into `self`.
     fn key_from_tweakable_sk(pk: &Self::Bip32Sk) -> Self;
-}
-
-impl PublicTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
-    type Bip32Pk = PublicKeyBip32<<TestParams as SchemeParams>::Curve>;
-    fn tweakable_pk(&self) -> Self::Bip32Pk {
-        let pk: PublicKey<_> = self.into();
-        let wrapped_pk: PublicKeyBip32<_> = pk.into();
-        wrapped_pk
-    }
-    fn key_from_tweakable_pk(pk: &Self::Bip32Pk) -> Self {
-        VerifyingKey::from(pk.as_ref())
-    }
-}
-
-impl PublicTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Curve> {
-    type Bip32Pk = VerifyingKey<<ProductionParams112 as SchemeParams>::Curve>;
-    fn tweakable_pk(&self) -> Self::Bip32Pk {
-        *self
-    }
-    fn key_from_tweakable_pk(pk: &Self::Bip32Pk) -> Self {
-        *pk
-    }
-}
-
-impl SecretTweakable for SigningKey<<TestParams as SchemeParams>::Curve> {
-    type Bip32Sk = PrivateKeyBip32<<TestParams as SchemeParams>::Curve>;
-
-    fn tweakable_sk(&self) -> Self::Bip32Sk {
-        let sk: SecretKey<_> = self.into();
-        let wrapped_sk: PrivateKeyBip32<_> = sk.into();
-        wrapped_sk
-    }
-
-    fn key_from_tweakable_sk(sk: &Self::Bip32Sk) -> Self {
-        SigningKey::from(sk.as_ref())
-    }
-}
-
-impl SecretTweakable for SigningKey<<ProductionParams112 as SchemeParams>::Curve> {
-    type Bip32Sk = SigningKey<<ProductionParams112 as SchemeParams>::Curve>;
-
-    fn tweakable_sk(&self) -> Self::Bip32Sk {
-        self.clone()
-    }
-
-    fn key_from_tweakable_sk(sk: &Self::Bip32Sk) -> Self {
-        sk.clone()
-    }
 }
 
 impl<P, I> ThresholdKeyShare<P, I>

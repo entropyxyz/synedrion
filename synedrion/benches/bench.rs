@@ -7,7 +7,7 @@ use manul::{
     signature::Keypair,
 };
 use rand_core::{OsRng, RngCore};
-use synedrion::{AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, SchemeParams, TestParams};
+use synedrion::{dev::TestParams, AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, SchemeParams};
 
 fn bench_happy_paths(c: &mut Criterion) {
     let mut group = c.benchmark_group("happy path");

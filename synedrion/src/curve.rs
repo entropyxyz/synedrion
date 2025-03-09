@@ -9,4 +9,4 @@ mod ecdsa;
 pub(crate) use arithmetic::{secret_split, Point, Scalar};
 
 pub use self::ecdsa::RecoverableSignature;
-pub use bip32::DeriveChildKey;
+pub use bip32::{DeriveChildKey, PublicTweakable, SecretTweakable};

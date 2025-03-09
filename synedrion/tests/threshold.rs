@@ -24,7 +24,7 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
 
 #[test_log::test]
 fn full_sequence() {
-    type Params = synedrion::TestParams;
+    type Params = synedrion::dev::TestParams;
     type C = <Params as SchemeParams>::Curve;
     let now = std::time::Instant::now();
     let t = 3;

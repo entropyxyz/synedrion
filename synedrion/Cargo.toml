@@ -24,9 +24,6 @@ bip32 = { version = "0.5", default-features = false, features = ["alloc", "secp2
 tracing = { version = "0.1.41", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
 rand = { version = "0.8", default-features = false }
-
-tiny-curve = { version = "0.2", features = ["serde", "pkcs8", "ecdsa", "bip32"] }
-k256 = { version = "0.13", default-features = false, features = ["arithmetic", "serde", "ecdsa"] }
 elliptic-curve = { version = "0.13", default-features = false }
 ecdsa = { version = "0.16", default-features = false, features = ["arithmetic", "digest", "hazmat", "serde", "pem"] }
 
@@ -40,6 +37,9 @@ serde-encoded-bytes = { version = "0.1", default-features = false, features = ["
 displaydoc = { version = "0.2", default-features = false }
 criterion = { version = "0.5", optional = true }
 
+tiny-curve = { version = "0.2", optional = true, features = ["serde", "pkcs8", "ecdsa", "bip32"] }
+k256 = { version = "0.13", optional = true, default-features = false, features = ["arithmetic", "serde", "ecdsa"] }
+
 [dev-dependencies]
 manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233", features = [
 	"dev",
@@ -49,13 +49,16 @@ tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = { version = "0.8", features = ["getrandom"] }
 criterion = "0.5"
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "pem", "serde"] }
+tiny-curve = { version = "0.2", features = ["serde", "pkcs8", "ecdsa", "bip32"] }
 impls = "1"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 test-log = { version = "0.2.16", default-features = false, features = ["trace", "color"] }
 tracing-subscriber = "0.3.19"
 
 [features]
-private_benches = ["criterion"]
+private_benches = ["criterion", "k256"]
+k256 = ["dep:k256"]
+dev = ["tiny-curve"]
 
 [[bench]]
 bench = true

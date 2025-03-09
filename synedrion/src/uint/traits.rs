@@ -1,6 +1,4 @@
 use crypto_bigint::{
-    modular::MontyForm,
-    nlimbs,
     subtle::{ConditionallySelectable, CtOption},
     Bounded, ConcatMixed, Encoding, Gcd, Integer, Invert, Monty, PowBoundedExp, RandomMod, SplitMixed, WideningMul,
     Zero, U1024, U128, U2048, U256, U4096, U512, U8192,
@@ -183,10 +181,3 @@ impl HasWide for U2048 {
 impl HasWide for U4096 {
     type Wide = U8192;
 }
-
-pub type U128Mod = MontyForm<{ nlimbs!(128) }>;
-pub type U256Mod = MontyForm<{ nlimbs!(256) }>;
-pub type U512Mod = MontyForm<{ nlimbs!(512) }>;
-pub type U1024Mod = MontyForm<{ nlimbs!(1024) }>;
-pub type U2048Mod = MontyForm<{ nlimbs!(2048) }>;
-pub type U4096Mod = MontyForm<{ nlimbs!(4096) }>;
