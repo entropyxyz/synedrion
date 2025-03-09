@@ -39,7 +39,6 @@ serde = { version = "1", default-features = false, features = ["derive"] }
 serde-encoded-bytes = { version = "0.1", default-features = false, features = ["hex", "base64"] }
 bincode = { version = "2.0.0-rc.3", default-features = false, features = ["serde", "alloc"] }
 displaydoc = { version = "0.2", default-features = false }
-criterion = { version = "0.5", optional = true }
 
 [dev-dependencies]
 manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233", features = [
@@ -53,10 +52,9 @@ k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arith
 impls = "1"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 test-log = { version = "0.2.16", default-features = false, features = ["trace", "color"] }
-tracing-subscriber = "0.3.19"
 
 [features]
-private_benches = ["criterion"]
+private_benches = []
 
 [[bench]]
 bench = true

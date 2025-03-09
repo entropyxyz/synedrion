@@ -30,6 +30,7 @@ pub(crate) struct AffGSecretInputs<'a, P: SchemeParams> {
     pub rho_y: &'a Randomizer<P::Paillier>,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct AffGPublicInputs<'a, P: SchemeParams> {
     /// Paillier public keys $N_0$.
     pub pk0: &'a PublicKeyPaillier<P::Paillier>,
@@ -297,25 +298,22 @@ mod tests {
         let cap_y = Ciphertext::new_with_randomizer(pk1, &y, &rho_y);
         let cap_x = secret_scalar_from_signed::<TestParams>(&x).mul_by_generator();
 
-        let proof = AffGProof::<Params>::new(
-            &mut OsRng,
-            AffGSecretInputs {
-                x: &x,
-                y: &y,
-                rho: &rho,
-                rho_y: &rho_y,
-            },
-            AffGPublicInputs {
-                pk0,
-                pk1,
-                cap_c: &cap_c,
-                cap_d: &cap_d,
-                cap_y: &cap_y,
-                cap_x: &cap_x,
-            },
-            &rp_params,
-            &aux,
-        );
+        let secret = AffGSecretInputs {
+            x: &x,
+            y: &y,
+            rho: &rho,
+            rho_y: &rho_y,
+        };
+        let public = AffGPublicInputs {
+            pk0,
+            pk1,
+            cap_c: &cap_c,
+            cap_d: &cap_d,
+            cap_y: &cap_y,
+            cap_x: &cap_x,
+        };
+
+        let proof = AffGProof::<Params>::new(&mut OsRng, secret, public, &rp_params, &aux);
 
         // Roundtrip works
         let res = BinaryFormat::serialize(proof);
@@ -325,17 +323,6 @@ mod tests {
 
         let rp_params = rp_params.to_wire().to_precomputed();
 
-        assert!(proof.verify(
-            AffGPublicInputs {
-                pk0,
-                pk1,
-                cap_c: &cap_c,
-                cap_d: &cap_d,
-                cap_y: &cap_y,
-                cap_x: &cap_x,
-            },
-            &rp_params,
-            &aux
-        ));
+        assert!(proof.verify(public, &rp_params, &aux));
     }
 }
