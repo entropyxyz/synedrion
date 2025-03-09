@@ -11,13 +11,13 @@ use core::{
     marker::PhantomData,
 };
 
+use elliptic_curve::{Curve, FieldBytes};
 use manul::protocol::{
     Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
     MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
     ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
     Serializer,
 };
-use primeorder::{elliptic_curve::Curve, FieldBytes};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -2612,11 +2612,11 @@ mod tests {
     use alloc::collections::BTreeSet;
 
     use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+    use elliptic_curve::FieldBytes;
     use manul::{
         dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
         signature::Keypair,
     };
-    use primeorder::FieldBytes;
     use rand_core::{OsRng, RngCore};
 
     use super::InteractiveSigning;

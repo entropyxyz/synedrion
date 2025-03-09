@@ -1,5 +1,6 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 
+use elliptic_curve::FieldBytes;
 use manul::{
     combinators::misbehave::{FinalizeOverride, Misbehaving},
     dev::{BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
@@ -9,7 +10,6 @@ use manul::{
     },
     signature::Keypair,
 };
-use primeorder::FieldBytes;
 use rand_core::{CryptoRngCore, OsRng, RngCore};
 
 use super::{

@@ -7,7 +7,7 @@ use core::{fmt::Debug, ops::Add};
 use crypto_bigint::{NonZero, Uint, U1024, U128, U2048, U256, U4096, U512, U8192};
 use digest::generic_array::ArrayLength;
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
-use primeorder::elliptic_curve::{
+use elliptic_curve::{
     bigint::{self as bigintv05, Concat, Uint as CurveUint},
     point::DecompressPoint,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},

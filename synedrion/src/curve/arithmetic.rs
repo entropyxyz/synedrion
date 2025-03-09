@@ -3,7 +3,7 @@ use core::ops::{Add, Mul, Neg, Rem, Sub};
 
 use digest::XofReader;
 use ecdsa::{SigningKey, VerifyingKey};
-use primeorder::elliptic_curve::{
+use elliptic_curve::{
     bigint::{ArrayEncoding, Concat, NonZero, Split, Zero},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     group::Curve as _,

@@ -27,7 +27,7 @@ rand = { version = "0.8", default-features = false }
 
 tiny-curve = { version = "0.2", features = ["serde", "pkcs8", "ecdsa", "bip32"] }
 k256 = { version = "0.13", default-features = false, features = ["arithmetic", "serde", "ecdsa"] }
-primeorder = { version = "0.13", features = ["serde"] }
+elliptic-curve = { version = "0.13", default-features = false }
 ecdsa = { version = "0.16", default-features = false, features = ["arithmetic", "digest", "hazmat", "serde", "pem"] }
 
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
