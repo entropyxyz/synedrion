@@ -7,18 +7,22 @@ use core::fmt::Debug;
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::{modular::MontyForm, nlimbs, NonZero, U1024, U2048, U4096, U8192};
-use ecdsa::{SigningKey, VerifyingKey};
 use elliptic_curve::{
     bigint::{self as bigintv05},
     Curve,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::curve::{PublicTweakable, SecretTweakable};
+#[cfg(feature = "bip32")]
+use ecdsa::{SigningKey, VerifyingKey};
+
 use crate::{
     cggmp21::{convert_uint, upcast_uint, SchemeParams},
     paillier::PaillierParams,
 };
+
+#[cfg(feature = "bip32")]
+use crate::curve::{PublicTweakable, SecretTweakable};
 
 type U1024Mod = MontyForm<{ nlimbs!(1024) }>;
 type U2048Mod = MontyForm<{ nlimbs!(2048) }>;
@@ -63,6 +67,7 @@ impl SchemeParams for ProductionParams112 {
             .expect("Correct by construction");
 }
 
+#[cfg(feature = "bip32")]
 impl SecretTweakable for SigningKey<<ProductionParams112 as SchemeParams>::Curve> {
     type Bip32Sk = SigningKey<<ProductionParams112 as SchemeParams>::Curve>;
 
@@ -75,6 +80,7 @@ impl SecretTweakable for SigningKey<<ProductionParams112 as SchemeParams>::Curve
     }
 }
 
+#[cfg(feature = "bip32")]
 impl PublicTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Curve> {
     type Bip32Pk = VerifyingKey<<ProductionParams112 as SchemeParams>::Curve>;
     fn tweakable_pk(&self) -> Self::Bip32Pk {

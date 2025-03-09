@@ -50,10 +50,6 @@ where
     pub fn try_init_with<E>(ctr: impl FnOnce() -> Result<T, E>) -> Result<Self, E> {
         Ok(Self(SecretBox::try_init_with(ctr)?))
     }
-
-    pub fn maybe_init_with(ctr: impl FnOnce() -> Option<T>) -> Option<Self> {
-        Self::try_init_with(|| ctr().ok_or(())).ok()
-    }
 }
 
 impl<T> Clone for Secret<T>

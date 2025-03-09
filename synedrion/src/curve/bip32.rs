@@ -1,20 +1,12 @@
-use crate::{
-    curve::{Point, Scalar},
-    tools::Secret,
-    SchemeParams,
-};
 use alloc::vec::Vec;
-use bip32::{ChainCode, DerivationPath, PrivateKey as _, PrivateKeyBytes, PublicKey as _};
 
+use bip32::{ChainCode, DerivationPath, PrivateKeyBytes, PublicKey as _};
 use digest::Digest;
-use ecdsa::{hazmat::DigestPrimitive, SigningKey, VerifyingKey};
+use ecdsa::{hazmat::DigestPrimitive, VerifyingKey};
 use elliptic_curve::{
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve,
 };
-use manul::protocol::PartyId;
-
-use crate::www02::ThresholdKeyShare;
 
 /// Used for deriving child keys from a parent type.
 pub trait DeriveChildKey<C: CurveArithmetic + PrimeCurve>: Sized {
@@ -43,66 +35,6 @@ pub trait SecretTweakable {
     fn key_from_tweakable_sk(pk: &Self::Bip32Sk) -> Self;
 }
 
-impl<P, I> ThresholdKeyShare<P, I>
-where
-    P: SchemeParams,
-    VerifyingKey<P::Curve>: PublicTweakable,
-    SigningKey<P::Curve>: SecretTweakable,
-    I: PartyId,
-{
-    /// Deterministically derives a child share using BIP-32 standard.
-    pub fn derive_bip32(&self, derivation_path: &DerivationPath) -> Result<Self, bip32::Error> {
-        let pk = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
-        let tweakable_pk = pk.tweakable_pk();
-        let tweaks = derive_tweaks::<P::Curve>(&tweakable_pk, derivation_path)?;
-
-        // Will fail here if secret share is zero
-        let secret_share = self.secret_share.clone().to_signing_key().ok_or(bip32::Error::Crypto)?;
-        let mut tweakable_sk = secret_share.tweakable_sk();
-        for tweak in &tweaks {
-            tweakable_sk = tweakable_sk.derive_child(*tweak)?;
-        }
-        let sk: SigningKey<P::Curve> = SecretTweakable::key_from_tweakable_sk(&tweakable_sk);
-        let secret_share = Secret::init_with(|| Scalar::new(*sk.as_nonzero_scalar().as_ref()));
-
-        let public_shares = self
-            .public_shares
-            .clone()
-            .into_iter()
-            .map(|(id, point)|
-            // Will fail here if the final or one of the intermediate points is an identity
-            point.to_verifying_key().ok_or(bip32::Error::Crypto)
-                .and_then(|vkey| apply_tweaks_public(&vkey, &tweaks))
-                .map(|vkey| (id, Point::from_verifying_key(&vkey))))
-            .collect::<Result<_, _>>()?;
-
-        Ok(Self {
-            owner: self.owner.clone(),
-            threshold: self.threshold,
-            share_ids: self.share_ids.clone(),
-            secret_share,
-            public_shares,
-        })
-    }
-}
-
-impl<P, I> DeriveChildKey<P::Curve> for ThresholdKeyShare<P, I>
-where
-    P: SchemeParams,
-    I: PartyId,
-    VerifyingKey<P::Curve>: PublicTweakable,
-{
-    fn derive_verifying_key_bip32(
-        &self,
-        derivation_path: &DerivationPath,
-    ) -> Result<VerifyingKey<P::Curve>, bip32::Error> {
-        let public_key = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
-        let tweakable_pk = public_key.tweakable_pk();
-        let tweaks = derive_tweaks::<<P as SchemeParams>::Curve>(&tweakable_pk, derivation_path)?;
-        apply_tweaks_public(&public_key, &tweaks)
-    }
-}
-
 impl<C> DeriveChildKey<C> for VerifyingKey<C>
 where
     C: CurveArithmetic + PrimeCurve + DigestPrimitive,
@@ -117,7 +49,7 @@ where
     }
 }
 
-fn derive_tweaks<C>(
+pub(crate) fn derive_tweaks<C>(
     public_key: &(impl bip32::PublicKey + Clone),
     derivation_path: &DerivationPath,
 ) -> Result<Vec<PrivateKeyBytes>, bip32::Error>
@@ -152,7 +84,7 @@ where
     Ok(tweaks)
 }
 
-fn apply_tweaks_public<C>(
+pub(crate) fn apply_tweaks_public<C>(
     public_key: &VerifyingKey<C>,
     tweaks: &[PrivateKeyBytes],
 ) -> Result<VerifyingKey<C>, bip32::Error>

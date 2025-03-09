@@ -1,18 +1,27 @@
 //! Parameters intended for testing, scaled down to small curve orders and integer sizes.
 
 use crypto_bigint::{modular::MontyForm, nlimbs, NonZero, U1024, U128, U256, U512};
-use ecdsa::{SigningKey, VerifyingKey};
-use elliptic_curve::bigint::{self as bigintv05};
-use elliptic_curve::{Curve, PublicKey, SecretKey};
+use elliptic_curve::{
+    bigint::{self as bigintv05},
+    Curve,
+};
 use serde::{Deserialize, Serialize};
 use tiny_curve::TinyCurve32;
-use tiny_curve::{PrivateKeyBip32, PublicKeyBip32};
 
-use crate::curve::{PublicTweakable, SecretTweakable};
+#[cfg(feature = "bip32")]
+use ::{
+    ecdsa::{SigningKey, VerifyingKey},
+    elliptic_curve::{PublicKey, SecretKey},
+    tiny_curve::{PrivateKeyBip32, PublicKeyBip32},
+};
+
 use crate::{
     cggmp21::{convert_uint, upcast_uint, SchemeParams},
     paillier::PaillierParams,
 };
+
+#[cfg(feature = "bip32")]
+use crate::curve::{PublicTweakable, SecretTweakable};
 
 type U128Mod = MontyForm<{ nlimbs!(128) }>;
 type U256Mod = MontyForm<{ nlimbs!(256) }>;
@@ -112,6 +121,7 @@ impl SchemeParams for TestParams {
             .expect("Correct by construction");
 }
 
+#[cfg(feature = "bip32")]
 impl PublicTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
     type Bip32Pk = PublicKeyBip32<<TestParams as SchemeParams>::Curve>;
     fn tweakable_pk(&self) -> Self::Bip32Pk {
@@ -124,6 +134,7 @@ impl PublicTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
     }
 }
 
+#[cfg(feature = "bip32")]
 impl SecretTweakable for SigningKey<<TestParams as SchemeParams>::Curve> {
     type Bip32Sk = PrivateKeyBip32<<TestParams as SchemeParams>::Curve>;
 

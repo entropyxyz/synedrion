@@ -38,5 +38,5 @@ pub use key_init::{KeyInit, KeyInitAssociatedData, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshAssociatedData, KeyRefreshProtocol};
 pub use params::SchemeParams;
 
-#[cfg(any(feature = "k256", feature = "dev"))]
+#[cfg(any(test, feature = "k256", feature = "dev"))]
 pub(crate) use params::{convert_uint, upcast_uint};

@@ -33,7 +33,7 @@ pub(crate) const fn upcast_uint<const N1: usize, const N2: usize>(
     elliptic_curve::bigint::Uint::from_words(result_words)
 }
 
-#[cfg(any(feature = "k256", feature = "dev"))]
+#[cfg(any(test, feature = "k256", feature = "dev"))]
 pub(crate) const fn convert_uint<const N: usize>(value: elliptic_curve::bigint::Uint<N>) -> crypto_bigint::Uint<N> {
     crypto_bigint::Uint::from_words(value.to_words())
 }
