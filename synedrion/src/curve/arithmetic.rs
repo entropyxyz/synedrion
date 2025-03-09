@@ -48,8 +48,6 @@ where
             digest = digest.chain(&limb.0.to_le_bytes());
         }
 
-        // TODO: in `k256` the `generator()` method is deprecated in favor of `GENERATOR` but that is not exported for other curves.
-        #[allow(deprecated)]
         let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator()
             .to_affine()
             .to_encoded_point(true);
