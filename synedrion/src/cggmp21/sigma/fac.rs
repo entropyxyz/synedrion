@@ -223,14 +223,10 @@ mod tests {
 
         let proof = FacProof::<Params>::new(&mut OsRng, &sk, &setup, &aux);
 
-        // Roundtrip works
-        let res = BinaryFormat::serialize(proof);
-        assert!(res.is_ok());
-        let payload = res.unwrap();
-        let proof: FacProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<FacProof<Params>>(&serialized).unwrap();
 
-        let rp_params = setup.to_wire().to_precomputed();
-        let pubkey = pk.clone().into_wire().into_precomputed();
-        assert!(proof.verify(&pubkey, &rp_params, &aux));
+        assert!(proof.verify(pk, &setup, &aux));
     }
 }

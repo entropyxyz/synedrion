@@ -135,6 +135,7 @@ impl<P: SchemeParams> ElogProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{ElogProof, ElogPublicInputs, ElogSecretInputs};
@@ -165,6 +166,11 @@ mod tests {
         };
 
         let proof = ElogProof::<Params>::new(&mut OsRng, secret, public, &aux);
+
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<ElogProof<Params>>(&serialized).unwrap();
+
         assert!(proof.verify(public, &aux));
     }
 }

@@ -151,11 +151,9 @@ mod tests {
 
         let proof = PrmProof::<Params>::new(&mut OsRng, &secret, &setup, &aux);
 
-        // Roundtrip works
-        let res = BinaryFormat::serialize(proof);
-        assert!(res.is_ok());
-        let payload = res.unwrap();
-        let proof: PrmProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<PrmProof<Params>>(&serialized).unwrap();
 
         assert!(proof.verify(&setup, &aux));
     }

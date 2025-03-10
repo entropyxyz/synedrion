@@ -341,13 +341,10 @@ mod tests {
 
         let proof = DecProof::<Params>::new(&mut OsRng, secret, public, &setup, &aux);
 
-        // Roundtrip works
-        let res = BinaryFormat::serialize(proof);
-        assert!(res.is_ok());
-        let payload = res.unwrap();
-        let proof: DecProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
-        let rp_params = setup.to_wire().to_precomputed();
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<DecProof<Params>>(&serialized).unwrap();
 
-        assert!(proof.verify(public, &rp_params, &aux));
+        assert!(proof.verify(public, &setup, &aux));
     }
 }

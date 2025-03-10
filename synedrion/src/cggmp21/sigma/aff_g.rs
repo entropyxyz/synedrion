@@ -315,13 +315,9 @@ mod tests {
 
         let proof = AffGProof::<Params>::new(&mut OsRng, secret, public, &rp_params, &aux);
 
-        // Roundtrip works
-        let res = BinaryFormat::serialize(proof);
-        assert!(res.is_ok());
-        let payload = res.unwrap();
-        let proof: AffGProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
-
-        let rp_params = rp_params.to_wire().to_precomputed();
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<AffGProof<Params>>(&serialized).unwrap();
 
         assert!(proof.verify(public, &rp_params, &aux));
     }
