@@ -23,7 +23,6 @@ type PUint = <<Params as SchemeParams>::Paillier as PaillierParams>::Uint;
 
 pub mod fac_proof {
     use super::*;
-
     /// Benchmark Fac-proof construction
     pub fn fac_proof_prove<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
         let mut rng2 = rng.clone();

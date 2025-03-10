@@ -1,7 +1,8 @@
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, ConstantTimeGreater, CtOption},
-    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, PowBoundedExp, RandomBits, RandomMod,
+    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, MultiExponentiateBoundedExp, PowBoundedExp, RandomBits,
+    RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use serde::{Deserialize, Serialize};
@@ -65,6 +66,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + PowBoundedExp<Self::Uint>
         + PowBoundedExp<Self::WideUint>
         + PowBoundedExp<Self::ExtraWideUint>
+        + MultiExponentiateBoundedExp<Self::WideUint, [(Self::UintMod, Self::WideUint); 2]>
+        + MultiExponentiateBoundedExp<Self::ExtraWideUint, [(Self::UintMod, Self::ExtraWideUint); 2]>
         + Monty<Integer = Self::Uint>
         + Retrieve<Output = Self::Uint>
         + Invert<Output = CtOption<Self::UintMod>>

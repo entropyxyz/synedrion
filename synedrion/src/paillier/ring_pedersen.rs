@@ -1,9 +1,13 @@
 /// Implements the Definition 3.3 from the CGGMP'21 paper and related operations.
 use core::ops::Mul;
 
-use crypto_bigint::{modular::Retrieve, Monty, NonZero, RandomMod, ShrVartime};
+use crypto_bigint::{
+    modular::Retrieve, subtle::ConditionallySelectable, Bounded, Integer, Invert, Monty, MultiExponentiateBoundedExp,
+    NonZero, RandomMod, ShrVartime,
+};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use super::{
     rsa::{PublicModulus, PublicModulusWire, SecretPrimes, SecretPrimesWire},
@@ -11,13 +15,14 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Exponentiable, SecretUnsigned, ToMontgomery},
+    uint::{Exponentiable, HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 /// Ring-Pedersen secret.
 #[derive(Debug, Clone)]
 pub(crate) struct RPSecret<P: PaillierParams> {
     primes: SecretPrimes<P>,
+    /// λ is a random number mod ϕ(N)/4
     lambda: SecretUnsigned<P::Uint>,
 }
 
@@ -124,12 +129,71 @@ impl<P: PaillierParams> RPParams<P> {
         self.modulus.monty_params_mod_n()
     }
 
-    /// Creates a commitment for a secret `value` with a secret `randomizer`.
-    pub fn commit<V, R>(&self, value: &V, randomizer: &R) -> RPCommitment<P>
+    /// Creates a commitment for a public `value` with a `randomizer`.
+    pub(crate) fn commit_pub<E>(&self, value: &PublicSigned<E>, randomizer: &PublicSigned<E>) -> RPCommitment<P>
     where
-        P::UintMod: Exponentiable<V> + Exponentiable<R>,
+        E: Integer + Bounded,
+        P::UintMod: MultiExponentiateBoundedExp<E, [(P::UintMod, E); 2]>,
     {
-        RPCommitment(self.base_value.pow(value) * self.base_randomizer.pow(randomizer))
+        let signs = (value.is_negative(), randomizer.is_negative());
+
+        let r = randomizer.abs();
+        let v = value.abs();
+
+        self.commit(signs, v, r, randomizer.bound())
+    }
+
+    /// Creates a commitment for a public `value` with a `randomizer` where the `randomizer` is twice the size of the `value`.
+    pub(crate) fn commit_pub_mixed<E>(
+        &self,
+        value: &PublicSigned<E>,
+        randomizer: &PublicSigned<E::Wide>,
+    ) -> RPCommitment<P>
+    where
+        E: HasWide + Bounded,
+        <E as HasWide>::Wide: Integer + Bounded + Zeroize + ConditionallySelectable,
+        P::UintMod: MultiExponentiateBoundedExp<E::Wide, [(P::UintMod, E::Wide); 2]>,
+    {
+        let signs = (value.is_negative(), randomizer.is_negative());
+
+        let r = randomizer.abs();
+        let v = value.abs().to_wide();
+
+        self.commit(signs, v, r, randomizer.bound())
+    }
+
+    /// Creates a commitment for a secret `value` with a `randomizer`.
+    pub(crate) fn commit_secret<E>(&self, value: &SecretSigned<E>, randomizer: &SecretSigned<E>) -> RPCommitment<P>
+    where
+        E: Integer + Bounded + Zeroize + ConditionallySelectable,
+        P::UintMod: MultiExponentiateBoundedExp<E, [(P::UintMod, E); 2]>,
+    {
+        let signs = (bool::from(value.is_negative()), bool::from(randomizer.is_negative()));
+
+        let r = *randomizer.abs_value().expose_secret();
+        let v = *value.abs_value().expose_secret();
+
+        self.commit(signs, v, r, randomizer.bound())
+    }
+
+    /// Creates a commitment for a secret `value` with a `randomizer` where the `randomizer` is twice the size of the `value`.
+    pub(crate) fn commit_secret_mixed<E>(
+        &self,
+        value: &SecretSigned<E>,
+        randomizer: &SecretSigned<E::Wide>,
+    ) -> RPCommitment<P>
+    where
+        E: Integer + Bounded + Zeroize + ConditionallySelectable,
+        E: HasWide,
+        <E as HasWide>::Wide: Integer + Bounded + Zeroize + ConditionallySelectable,
+        P::UintMod: MultiExponentiateBoundedExp<E::Wide, [(P::UintMod, E::Wide); 2]>,
+    {
+        let signs = (bool::from(value.is_negative()), bool::from(randomizer.is_negative()));
+
+        let r = *randomizer.abs_value().expose_secret();
+        let v = value.abs_value().expose_secret().to_wide();
+
+        self.commit(signs, v, r, randomizer.bound())
     }
 
     /// Creates a commitment for a secret `randomizer` and the value 0.
@@ -154,6 +218,51 @@ impl<P: PaillierParams> RPParams<P> {
             base_randomizer: self.base_randomizer.retrieve(),
             base_value: self.base_value.retrieve(),
         }
+    }
+
+    #[inline]
+    fn bases_and_exponents<I>(&self, signs: (bool, bool), v: I, r: I) -> [(P::UintMod, I); 2] {
+        match signs {
+            (true, true) => {
+                // both negative => multi-exp and then invert
+                [(self.base_value, v), (self.base_randomizer, r)]
+            }
+            (true, false) => {
+                // v neg, r pos => invert self.base_value, then multi-exp
+                [
+                    (self.base_value.invert_vartime().expect("base_value is constructed by raising an invertible number to a power; exponentiation preserves invertibility."), v),
+                    (self.base_randomizer, r),
+                ]
+            }
+            (false, false) => {
+                // both positive => multi-exp
+                [(self.base_value, v), (self.base_randomizer, r)]
+            }
+            (false, true) => {
+                // v pos, r neg => invert self.base_randomizer, then multi-exp
+                [
+                    (self.base_value, v),
+                    (
+                        self.base_randomizer.invert_vartime().expect("base_randomizer is a square of an invertible number; exponentiation preserves invertibility."),
+                        r,
+                    ),
+                ]
+            }
+        }
+    }
+
+    #[inline]
+    fn commit<E>(&self, signs: (bool, bool), v: E, r: E, bound: u32) -> RPCommitment<P>
+    where
+        P::UintMod: MultiExponentiateBoundedExp<E, [(P::UintMod, E); 2]>,
+    {
+        let bases_and_exponents = self.bases_and_exponents(signs, v, r);
+        let mut commitment = P::UintMod::multi_exponentiate_bounded_exp(&bases_and_exponents, bound);
+        // If both exponents are negative, we can do the exponentiation with the absolute values and then invert in the end.
+        if signs == (true, true) {
+            commitment = commitment.invert_vartime().expect("Invertible numbers forms a group; groups are closed under multiplication, so this product is also invertible")
+        }
+        RPCommitment(commitment)
     }
 }
 
