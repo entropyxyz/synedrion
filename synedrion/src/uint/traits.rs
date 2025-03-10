@@ -3,7 +3,7 @@ use crypto_bigint::{
     nlimbs,
     subtle::{ConditionallySelectable, CtOption},
     Bounded, ConcatMixed, Encoding, Gcd, Integer, Invert, Monty, PowBoundedExp, RandomMod, SplitMixed, WideningMul,
-    Zero, U1024, U2048, U4096, U512, U8192,
+    Zero, U1024, U128, U2048, U256, U4096, U512, U8192,
 };
 use digest::XofReader;
 use zeroize::Zeroize;
@@ -160,6 +160,14 @@ pub trait HasWide:
     }
 }
 
+impl HasWide for U128 {
+    type Wide = U256;
+}
+
+impl HasWide for U256 {
+    type Wide = U512;
+}
+
 impl HasWide for U512 {
     type Wide = U1024;
 }
@@ -176,6 +184,8 @@ impl HasWide for U4096 {
     type Wide = U8192;
 }
 
+pub type U128Mod = MontyForm<{ nlimbs!(128) }>;
+pub type U256Mod = MontyForm<{ nlimbs!(256) }>;
 pub type U512Mod = MontyForm<{ nlimbs!(512) }>;
 pub type U1024Mod = MontyForm<{ nlimbs!(1024) }>;
 pub type U2048Mod = MontyForm<{ nlimbs!(2048) }>;

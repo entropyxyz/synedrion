@@ -4,23 +4,23 @@ use core::{fmt::Debug, ops::Add};
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{BitOps, NonZero, Uint, U1024, U2048, U4096, U512, U8192};
-use digest::generic_array::{ArrayLength, GenericArray};
+use crypto_bigint::{NonZero, Uint, U1024, U128, U2048, U256, U4096, U512, U8192};
+use digest::generic_array::ArrayLength;
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use primeorder::elliptic_curve::{
     bigint::{self as bigintv05, Concat, Uint as CurveUint},
     point::DecompressPoint,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    Curve, CurveArithmetic, PrimeCurve,
+    Curve, CurveArithmetic, PrimeCurve, PrimeField,
 };
 use serde::{Deserialize, Serialize};
 
-use tiny_curve::TinyCurve64;
+use tiny_curve::TinyCurve32;
 
 use crate::{
     paillier::PaillierParams,
     tools::hashing::HashableType,
-    uint::{U1024Mod, U2048Mod, U4096Mod, U512Mod},
+    uint::{U1024Mod, U128Mod, U2048Mod, U256Mod, U4096Mod, U512Mod},
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,14 +85,17 @@ impl PaillierParams for PaillierTest {
     are much smaller than 2*PRIME_BITS.
     */
 
-    const PRIME_BITS: u32 = 397;
-    type HalfUint = U512;
-    type HalfUintMod = U512Mod;
-    type Uint = U1024;
-    type UintMod = U1024Mod;
-    type WideUint = U2048;
-    type WideUintMod = U2048Mod;
-    type ExtraWideUint = U4096;
+    // TODO: `PRIME_BITS` should be 128 bits, but that doesn't work yet.
+    // See https://github.com/entropyxyz/synedrion/pull/193#issuecomment-2703197306
+    // and related issue #187.
+    const PRIME_BITS: u32 = 127;
+    type HalfUint = U128;
+    type HalfUintMod = U128Mod;
+    type Uint = U256;
+    type UintMod = U256Mod;
+    type WideUint = U512;
+    type WideUintMod = U512Mod;
+    type ExtraWideUint = U1024;
 }
 
 /// Paillier parameters corresponding to 112 bits of security.
@@ -128,18 +131,6 @@ where
     type Curve: CurveArithmetic + PrimeCurve + HashableType + DigestPrimitive;
     /// Double the curve Scalar-width integer type.
     type WideCurveUint: bigintv05::Integer + bigintv05::Split<Output = <Self::Curve as Curve>::Uint>;
-    // TODO: We should get rid of this entirely, along with the FofHasher. Instead generate a Box<[u8]> of length 2 * P::SECURITY_BITS and use that.
-    /// Bla
-    type HashOutput: Clone
-        + Default
-        + Debug
-        + Send
-        + Sync
-        + PartialEq
-        + From<GenericArray<u8, <Self::Curve as Curve>::FieldBytesSize>>
-        + AsRef<[u8]>
-        + Serialize
-        + for<'x> Deserialize<'x>;
 
     /// The number of bits of security provided by the scheme.
     const SECURITY_BITS: usize; // $m$ in the paper
@@ -166,7 +157,7 @@ where
     /// required for them to be used for the CGGMP scheme.
     fn are_self_consistent() -> bool {
         // See Appendix C.1
-        Self::CURVE_ORDER.as_ref().bits_vartime() == Self::SECURITY_PARAMETER as u32
+        <<Self::Curve as CurveArithmetic>::Scalar as PrimeField>::NUM_BITS == Self::SECURITY_PARAMETER as u32
         && Self::L_BOUND >= Self::SECURITY_PARAMETER as u32
         && Self::EPS_BOUND >= Self::L_BOUND + Self::SECURITY_PARAMETER as u32
         && Self::LP_BOUND >= Self::L_BOUND * 3 + Self::EPS_BOUND
@@ -192,15 +183,15 @@ pub struct TestParams;
 // - Range checks will fail with the probability $q / 2^\eps$, so $\eps$ should be large enough.
 // - P^{fac} assumes $N ~ 2^{4 \ell + 2 \eps}$
 impl SchemeParams for TestParams {
-    type Curve = TinyCurve64;
+    type Curve = TinyCurve32;
+    // TODO: ReprUint is typenum::U192 because of RustCrypto stack internals, hence the U384 here,
+    // but once that is solved, this can be a U128 (or even smaller).
     type WideCurveUint = bigintv05::U384;
-    // TODO: 8*24 = 192, this is to work around an issue with the ModulusSize-trait. This should be ideally be 8 bytes long.
-    type HashOutput = [u8; 24];
     const SECURITY_BITS: usize = 16;
-    const SECURITY_PARAMETER: usize = 10;
-    const L_BOUND: u32 = 256;
-    const LP_BOUND: u32 = 256;
-    const EPS_BOUND: u32 = 320;
+    const SECURITY_PARAMETER: usize = 32;
+    const L_BOUND: u32 = 32;
+    const EPS_BOUND: u32 = 64;
+    const LP_BOUND: u32 = 160;
     type Paillier = PaillierTest;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
         convert_uint(upcast_uint(Self::Curve::ORDER))
@@ -219,12 +210,11 @@ pub struct ProductionParams112;
 impl SchemeParams for ProductionParams112 {
     type Curve = k256::Secp256k1;
     type WideCurveUint = bigintv05::U512;
-    type HashOutput = [u8; 32];
     const SECURITY_BITS: usize = 112;
     const SECURITY_PARAMETER: usize = 256;
     const L_BOUND: u32 = 256;
-    const LP_BOUND: u32 = Self::L_BOUND * 5;
     const EPS_BOUND: u32 = Self::L_BOUND * 2;
+    const LP_BOUND: u32 = Self::L_BOUND * 5;
     type Paillier = PaillierProduction112;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
         convert_uint(upcast_uint(Self::Curve::ORDER))
@@ -269,7 +259,9 @@ mod tests {
     #[test]
     fn parameter_consistency() {
         assert!(ProductionParams112::are_self_consistent());
-        // TODO: These are not consistent right now.
+        // TODO: `PRIME_BITS` should be 128 bits, but that doesn't work yet.
+        // See https://github.com/entropyxyz/synedrion/pull/193#issuecomment-2703197306
+        // and related issue #187.
         // assert!(TestParams::are_self_consistent());
     }
 }
