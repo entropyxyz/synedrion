@@ -504,11 +504,12 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{dev::TestParams, SchemeParams};
-
-    use super::Scalar;
+    use elliptic_curve::{CurveArithmetic, PrimeField};
     use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
+
+    use super::Scalar;
+    use crate::{dev::TestParams, SchemeParams};
 
     #[test_log::test]
     fn to_and_from_bytes() {
@@ -516,22 +517,21 @@ mod test {
         let s = Scalar::<TestParams>::random(&mut rng);
 
         // Round trip works
-        let be_bytes = s.to_be_bytes();
+        let mut be_bytes = s.to_be_bytes();
+        let bytes_len = be_bytes.len();
         let s_from_be_bytes = Scalar::try_from_be_bytes(be_bytes.as_ref()).expect("bytes are valid");
         assert_eq!(s, s_from_be_bytes);
 
-        let chunk_size = TestParams::SECURITY_PARAMETER / 8;
-        // …but building a `Scalar` from LE bytes does not.
-        let mut bytes = be_bytes;
-        let le_bytes = bytes
-            .chunks_exact_mut(chunk_size)
-            .flat_map(|word_bytes| {
-                word_bytes.reverse();
-                word_bytes.to_vec()
-            })
-            .collect::<Vec<u8>>();
+        // Invert the LSB. This should not overflow.
+        be_bytes[bytes_len - 1] ^= 1;
+        let s_from_le_bytes = Scalar::try_from_be_bytes(&be_bytes).expect("bytes are valid-ish");
+        assert_ne!(s, s_from_le_bytes);
 
-        let s_from_le_bytes = Scalar::try_from_be_bytes(&le_bytes).expect("bytes are valid-ish");
-        assert_ne!(s, s_from_le_bytes, "Using LE bytes should not work")
+        // Try to deserialize 2^ceil(log2(curve_order)) - 1 as a Scalar.
+        // This should overflow the `curve_order` and result in a failure.
+        let num_bits = <<<TestParams as SchemeParams>::Curve as CurveArithmetic>::Scalar as PrimeField>::NUM_BITS;
+        let num_bytes = num_bits.div_ceil(8) as usize;
+        be_bytes[bytes_len - num_bytes..bytes_len].fill(0xff);
+        assert!(Scalar::<TestParams>::try_from_be_bytes(&be_bytes).is_err());
     }
 }
