@@ -22,17 +22,31 @@ mod tools;
 mod uint;
 mod www02;
 
+#[cfg(feature = "k256")]
+pub mod k256;
+
+#[cfg(any(test, feature = "dev"))]
+pub mod dev;
+
+#[cfg(test)]
+mod tests;
+
 // Some re-exports to avoid the need for version-matching
+#[cfg(feature = "bip32")]
 pub use bip32;
+
 pub use signature;
 
 pub use cggmp21::{
     AuxGen, AuxGenAssociatedData, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningAssociatedData,
     InteractiveSigningProtocol, KeyInit, KeyInitAssociatedData, KeyInitProtocol, KeyRefresh, KeyRefreshAssociatedData,
-    KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, ProductionParams112, SchemeParams, TestParams,
+    KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, SchemeParams,
 };
-pub use curve::{DeriveChildKey, RecoverableSignature};
+pub use curve::RecoverableSignature;
 pub use www02::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
+
+#[cfg(feature = "bip32")]
+pub use curve::{DeriveChildKey, PublicTweakable, SecretTweakable};
 
 #[cfg(feature = "private_benches")]
 #[allow(missing_docs)]

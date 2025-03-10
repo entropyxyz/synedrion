@@ -17,10 +17,11 @@ use super::{
         AuxGen, AuxGenAssociatedData, Round1, Round1EchoBroadcast, Round2EchoBroadcast, Round2NormalBroadcast,
         Round3DirectMessage, Round3NormalBroadcast,
     },
-    params::{SchemeParams, TestParams},
+    params::SchemeParams,
     sigma::{FacProof, ModProof, PrmProof},
 };
 use crate::{
+    dev::TestParams,
     paillier::{PaillierParams, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillierWire},
     tools::{
         hashing::XofHasher,

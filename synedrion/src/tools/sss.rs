@@ -174,7 +174,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{evaluate_polynomial, shamir_evaluation_points, shamir_join_scalars, shamir_split};
-    use crate::{curve::Scalar, tools::Secret, TestParams};
+    use crate::{curve::Scalar, dev::TestParams, tools::Secret};
 
     #[test]
     fn evaluate() {

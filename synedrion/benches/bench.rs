@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use elliptic_curve::FieldBytes;
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
-use primeorder::FieldBytes;
 use rand_core::{OsRng, RngCore};
-use synedrion::{AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, SchemeParams, TestParams};
+use synedrion::{dev::TestParams, AuxGen, AuxInfo, InteractiveSigning, KeyInit, KeyShare, SchemeParams};
 
 fn bench_happy_paths(c: &mut Criterion) {
     let mut group = c.benchmark_group("happy path");

@@ -2,8 +2,8 @@ use alloc::{format, string::String, vec, vec::Vec};
 use core::ops::{Add, Mul, Neg, Rem, Sub};
 
 use digest::XofReader;
-use ecdsa::{SigningKey, VerifyingKey};
-use primeorder::elliptic_curve::{
+use ecdsa::VerifyingKey;
+use elliptic_curve::{
     bigint::{ArrayEncoding, Concat, NonZero, Split, Zero},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
     group::Curve as _,
@@ -13,13 +13,15 @@ use primeorder::elliptic_curve::{
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
     Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, Group, NonZeroScalar, PrimeField, ScalarPrimitive,
-    SecretKey,
 };
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_encoded_bytes::{Hex, SliceLike};
 use zeroize::Zeroize;
+
+#[cfg(feature = "bip32")]
+use ::{ecdsa::SigningKey, elliptic_curve::SecretKey};
 
 use crate::{
     tools::{
@@ -48,8 +50,6 @@ where
             digest = digest.chain(&limb.0.to_le_bytes());
         }
 
-        // TODO: in `k256` the `generator()` method is deprecated in favor of `GENERATOR` but that is not exported for other curves.
-        #[allow(deprecated)]
         let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator()
             .to_affine()
             .to_encoded_point(true);
@@ -66,6 +66,7 @@ impl<P: SchemeParams> Scalar<P> {
     pub const ZERO: Self = Self(BackendScalar::<P>::ZERO);
     pub const ONE: Self = Self(BackendScalar::<P>::ONE);
 
+    #[cfg(feature = "bip32")]
     pub fn new(backend_scalar: BackendScalar<P>) -> Self {
         Self(backend_scalar)
     }
@@ -90,13 +91,13 @@ impl<P: SchemeParams> Scalar<P> {
     /// Read twice the number of bytes in a curve [`Scalar`] from the [`XofReader`], then reduce
     /// modulo the curve order to ensure a valid, unbiased scalar.
     pub fn from_xof_reader(reader: &mut impl XofReader) -> Self {
-        let bytes_lo = reader.read_boxed(Self::repr_len());
-        let bytes_lo = GenericArray::<_, <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize>::from_slice(&bytes_lo);
-        let uint_lo = <P::Curve as Curve>::Uint::from_be_byte_array(bytes_lo.clone());
+        let mut buf = GenericArray::<u8, <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize>::default();
 
-        let bytes_hi = reader.read_boxed(Self::repr_len());
-        let bytes_hi = GenericArray::<_, <<P::Curve as Curve>::Uint as ArrayEncoding>::ByteSize>::from_slice(&bytes_hi);
-        let uint_hi = <P::Curve as Curve>::Uint::from_be_byte_array(bytes_hi.clone());
+        reader.read(&mut buf);
+        let uint_lo = <P::Curve as Curve>::Uint::from_be_byte_array(buf.clone());
+
+        reader.read(&mut buf);
+        let uint_hi = <P::Curve as Curve>::Uint::from_be_byte_array(buf.clone());
 
         // TODO: Invert the order when the elliptic curve stack upgrades (bigint v0.5 used hi/lo, but v0.6 switches to lo/hi)
         let wide_uint = uint_hi.concat(&uint_lo);
@@ -146,10 +147,11 @@ impl<P: SchemeParams> Scalar<P> {
     }
 }
 
+#[cfg(feature = "bip32")]
 impl<P: SchemeParams> Secret<Scalar<P>> {
     pub fn to_signing_key(&self) -> Option<SigningKey<P::Curve>> {
         let nonzero_scalar: Secret<NonZeroScalar<_>> =
-            Secret::maybe_init_with(|| Option::from(NonZeroScalar::new(self.expose_secret().0)))?;
+            Secret::try_init_with(|| Option::from(NonZeroScalar::new(self.expose_secret().0)).ok_or(())).ok()?;
         // SigningKey can be instantiated from NonZeroScalar directly, but that method takes it by value,
         // so it is more likely to leave traces of secret data on the stack. `SecretKey::from()` takes a reference.
         let secret_key = SecretKey::from(nonzero_scalar.expose_secret());
@@ -502,11 +504,12 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{SchemeParams, TestParams};
-
-    use super::Scalar;
+    use elliptic_curve::{CurveArithmetic, PrimeField};
     use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
+
+    use super::Scalar;
+    use crate::{dev::TestParams, SchemeParams};
 
     #[test_log::test]
     fn to_and_from_bytes() {
@@ -514,22 +517,21 @@ mod test {
         let s = Scalar::<TestParams>::random(&mut rng);
 
         // Round trip works
-        let be_bytes = s.to_be_bytes();
+        let mut be_bytes = s.to_be_bytes();
+        let bytes_len = be_bytes.len();
         let s_from_be_bytes = Scalar::try_from_be_bytes(be_bytes.as_ref()).expect("bytes are valid");
         assert_eq!(s, s_from_be_bytes);
 
-        let chunk_size = TestParams::SECURITY_PARAMETER / 8;
-        // …but building a `Scalar` from LE bytes does not.
-        let mut bytes = be_bytes;
-        let le_bytes = bytes
-            .chunks_exact_mut(chunk_size)
-            .flat_map(|word_bytes| {
-                word_bytes.reverse();
-                word_bytes.to_vec()
-            })
-            .collect::<Vec<u8>>();
+        // Invert the LSB. This should not overflow.
+        be_bytes[bytes_len - 1] ^= 1;
+        let s_from_le_bytes = Scalar::try_from_be_bytes(&be_bytes).expect("bytes are valid-ish");
+        assert_ne!(s, s_from_le_bytes);
 
-        let s_from_le_bytes = Scalar::try_from_be_bytes(&le_bytes).expect("bytes are valid-ish");
-        assert_ne!(s, s_from_le_bytes, "Using LE bytes should not work")
+        // Try to deserialize 2^ceil(log2(curve_order)) - 1 as a Scalar.
+        // This should overflow the `curve_order` and result in a failure.
+        let num_bits = <<<TestParams as SchemeParams>::Curve as CurveArithmetic>::Scalar as PrimeField>::NUM_BITS;
+        let num_bytes = num_bits.div_ceil(8) as usize;
+        be_bytes[bytes_len - num_bytes..bytes_len].fill(0xff);
+        assert!(Scalar::<TestParams>::try_from_be_bytes(&be_bytes).is_err());
     }
 }

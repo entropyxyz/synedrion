@@ -3,11 +3,14 @@ use alloc::{
     format,
 };
 use core::fmt::Debug;
-use manul::{protocol::PartyId, session::LocalError};
 
 use ecdsa::{SigningKey, VerifyingKey};
+use manul::{protocol::PartyId, session::LocalError};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "bip32")]
+use bip32::{DerivationPath, PrivateKey as _};
 
 use crate::{
     cggmp21::{KeyShare, SchemeParams},
@@ -17,6 +20,9 @@ use crate::{
         Secret,
     },
 };
+
+#[cfg(feature = "bip32")]
+use crate::curve::{apply_tweaks_public, derive_tweaks, DeriveChildKey, PublicTweakable, SecretTweakable};
 
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
@@ -219,6 +225,68 @@ where
     }
 }
 
+#[cfg(feature = "bip32")]
+impl<P, I> ThresholdKeyShare<P, I>
+where
+    P: SchemeParams,
+    VerifyingKey<P::Curve>: PublicTweakable,
+    SigningKey<P::Curve>: SecretTweakable,
+    I: PartyId,
+{
+    /// Deterministically derives a child share using BIP-32 standard.
+    pub fn derive_bip32(&self, derivation_path: &DerivationPath) -> Result<Self, bip32::Error> {
+        let pk = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
+        let tweakable_pk = pk.tweakable_pk();
+        let tweaks = derive_tweaks::<P::Curve>(&tweakable_pk, derivation_path)?;
+
+        // Will fail here if secret share is zero
+        let secret_share = self.secret_share.clone().to_signing_key().ok_or(bip32::Error::Crypto)?;
+        let mut tweakable_sk = secret_share.tweakable_sk();
+        for tweak in &tweaks {
+            tweakable_sk = tweakable_sk.derive_child(*tweak)?;
+        }
+        let sk: SigningKey<P::Curve> = SecretTweakable::key_from_tweakable_sk(&tweakable_sk);
+        let secret_share = Secret::init_with(|| Scalar::new(*sk.as_nonzero_scalar().as_ref()));
+
+        let public_shares = self
+            .public_shares
+            .clone()
+            .into_iter()
+            .map(|(id, point)|
+            // Will fail here if the final or one of the intermediate points is an identity
+            point.to_verifying_key().ok_or(bip32::Error::Crypto)
+                .and_then(|vkey| apply_tweaks_public(&vkey, &tweaks))
+                .map(|vkey| (id, Point::from_verifying_key(&vkey))))
+            .collect::<Result<_, _>>()?;
+
+        Ok(Self {
+            owner: self.owner.clone(),
+            threshold: self.threshold,
+            share_ids: self.share_ids.clone(),
+            secret_share,
+            public_shares,
+        })
+    }
+}
+
+#[cfg(feature = "bip32")]
+impl<P, I> DeriveChildKey<P::Curve> for ThresholdKeyShare<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+    VerifyingKey<P::Curve>: PublicTweakable,
+{
+    fn derive_verifying_key_bip32(
+        &self,
+        derivation_path: &DerivationPath,
+    ) -> Result<VerifyingKey<P::Curve>, bip32::Error> {
+        let public_key = self.verifying_key().map_err(|_| bip32::Error::Crypto)?;
+        let tweakable_pk = public_key.tweakable_pk();
+        let tweaks = derive_tweaks::<<P as SchemeParams>::Curve>(&tweakable_pk, derivation_path)?;
+        apply_tweaks_public(&public_key, &tweaks)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::collections::BTreeSet;
@@ -231,7 +299,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::ThresholdKeyShare;
-    use crate::{cggmp21::TestParams, curve::Scalar};
+    use crate::{curve::Scalar, dev::TestParams};
 
     #[test]
     fn threshold_key_share_centralized() {

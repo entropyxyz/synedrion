@@ -89,7 +89,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{SchCommitment, SchProof, SchSecret};
-    use crate::{curve::Scalar, tools::Secret, TestParams};
+    use crate::{curve::Scalar, dev::TestParams, tools::Secret};
 
     #[test]
     fn prove_and_verify() {
