@@ -129,8 +129,26 @@ impl<P: PaillierParams> RPParams<P> {
         self.modulus.monty_params_mod_n()
     }
 
+    /// Creates a commitment for a public `value` with a `randomizer`.
+    pub(crate) fn commit_pub<E>(&self, value: &PublicSigned<E>, randomizer: &PublicSigned<E>) -> RPCommitment<P>
+    where
+        E: Integer + Bounded,
+        P::UintMod: MultiExponentiateBoundedExp<E, [(P::UintMod, E); 2]>,
+    {
+        let signs = (value.is_negative(), randomizer.is_negative());
+
+        let r = randomizer.abs();
+        let v = value.abs();
+
+        self.commit(signs, v, r, randomizer.bound())
+    }
+
     /// Creates a commitment for a public `value` with a `randomizer` where the `randomizer` is twice the size of the `value`.
-    pub fn commit_pub_mixed<E>(&self, value: &PublicSigned<E>, randomizer: &PublicSigned<E::Wide>) -> RPCommitment<P>
+    pub(crate) fn commit_pub_mixed<E>(
+        &self,
+        value: &PublicSigned<E>,
+        randomizer: &PublicSigned<E::Wide>,
+    ) -> RPCommitment<P>
     where
         E: HasWide + Bounded,
         <E as HasWide>::Wide: Integer + Bounded + Zeroize + ConditionallySelectable,
@@ -144,24 +162,8 @@ impl<P: PaillierParams> RPParams<P> {
         self.commit(signs, v, r, randomizer.bound())
     }
 
-    /// Creates a commitment for a secret `value` with a `randomizer` where the `randomizer` is twice the size of the `value`.
-    pub fn commit_secret_mixed<E>(&self, value: &SecretSigned<E>, randomizer: &SecretSigned<E::Wide>) -> RPCommitment<P>
-    where
-        E: Integer + Bounded + Zeroize + ConditionallySelectable,
-        E: HasWide,
-        <E as HasWide>::Wide: Integer + Bounded + Zeroize + ConditionallySelectable,
-        P::UintMod: MultiExponentiateBoundedExp<E::Wide, [(P::UintMod, E::Wide); 2]>,
-    {
-        let signs = (bool::from(value.is_negative()), bool::from(randomizer.is_negative()));
-
-        let r = *randomizer.abs_value().expose_secret();
-        let v = value.abs_value().expose_secret().to_wide();
-
-        self.commit(signs, v, r, randomizer.bound())
-    }
-
     /// Creates a commitment for a secret `value` with a `randomizer`.
-    pub fn commit_secret<E>(&self, value: &SecretSigned<E>, randomizer: &SecretSigned<E>) -> RPCommitment<P>
+    pub(crate) fn commit_secret<E>(&self, value: &SecretSigned<E>, randomizer: &SecretSigned<E>) -> RPCommitment<P>
     where
         E: Integer + Bounded + Zeroize + ConditionallySelectable,
         P::UintMod: MultiExponentiateBoundedExp<E, [(P::UintMod, E); 2]>,
@@ -174,16 +176,22 @@ impl<P: PaillierParams> RPParams<P> {
         self.commit(signs, v, r, randomizer.bound())
     }
 
-    /// Creates a commitment for a secret `value` with a `randomizer`.
-    pub fn commit_pub<E>(&self, value: &PublicSigned<E>, randomizer: &PublicSigned<E>) -> RPCommitment<P>
+    /// Creates a commitment for a secret `value` with a `randomizer` where the `randomizer` is twice the size of the `value`.
+    pub(crate) fn commit_secret_mixed<E>(
+        &self,
+        value: &SecretSigned<E>,
+        randomizer: &SecretSigned<E::Wide>,
+    ) -> RPCommitment<P>
     where
-        E: Integer + Bounded,
-        P::UintMod: MultiExponentiateBoundedExp<E, [(P::UintMod, E); 2]>,
+        E: Integer + Bounded + Zeroize + ConditionallySelectable,
+        E: HasWide,
+        <E as HasWide>::Wide: Integer + Bounded + Zeroize + ConditionallySelectable,
+        P::UintMod: MultiExponentiateBoundedExp<E::Wide, [(P::UintMod, E::Wide); 2]>,
     {
-        let signs = (value.is_negative(), randomizer.is_negative());
+        let signs = (bool::from(value.is_negative()), bool::from(randomizer.is_negative()));
 
-        let r = randomizer.abs();
-        let v = value.abs();
+        let r = *randomizer.abs_value().expose_secret();
+        let v = value.abs_value().expose_secret().to_wide();
 
         self.commit(signs, v, r, randomizer.bound())
     }
