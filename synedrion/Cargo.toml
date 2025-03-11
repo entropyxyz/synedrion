@@ -53,7 +53,7 @@ hex = { version = "0.4", default-features = false, features = ["alloc"] }
 test-log = { version = "0.2.16", default-features = false, features = ["trace", "color"] }
 
 [features]
-private_benches = ["k256"]
+private-benches = ["k256"]
 k256 = ["dep:k256", "bip32?/secp256k1"]
 bip32 = ["dep:bip32", "tiny-curve?/bip32"]
 dev = ["tiny-curve"]
@@ -68,4 +68,4 @@ required-features = ["dev"]
 bench = true
 name = "zk_proofs"
 harness = false
-required-features = ["private_benches"]
+required-features = ["private-benches"]

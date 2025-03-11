@@ -1,4 +1,4 @@
-#![cfg_attr(not(any(test, feature = "private_benches")), no_std)]
+#![cfg_attr(not(any(test, feature = "private-benches")), no_std)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc = include_str!("../README.md")]
 #![deny(unsafe_code)]
@@ -58,7 +58,7 @@ pub use www02::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, Thresh
 #[cfg(feature = "bip32")]
 pub use curve::{DeriveChildKey, PublicTweakable, SecretTweakable};
 
-#[cfg(feature = "private_benches")]
+#[cfg(feature = "private-benches")]
 #[allow(missing_docs)]
 #[doc(hidden)]
 // Hack to expose internals for benchmarking purposes
