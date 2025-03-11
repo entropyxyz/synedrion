@@ -28,7 +28,9 @@ jobs:
           toolchain: ${{ matrix.rust }}
           targets: ${{ matrix.target }}
       - uses: taiki-e/install-action@cargo-hack
-      - run: cargo hack build --target ${{ matrix.target }} --feature-powerset
+      # Skipping the private-benches since it will only ever be enabled with --all-feautures during tests,
+      # and we already test that in the clippy action.
+      - run: cargo hack build --target ${{ matrix.target }} --feature-powerset --skip private-benches
 
   build-feature-powerset:
     runs-on: ubuntu-latest
@@ -45,7 +47,9 @@ jobs:
           toolchain: ${{ matrix.rust }}
           targets: ${{ matrix.target }}
       - uses: taiki-e/install-action@cargo-hack
-      - run: cargo hack build --target ${{ matrix.target }} --tests --benches --feature-powerset
+      # Skipping the private-benches since it will only ever be enabled with --all-feautures during tests,
+      # and we already test that in the clippy action.
+      - run: cargo hack build --target ${{ matrix.target }} --tests --benches --feature-powerset --skip private-benches
 
   test-and-coverage:
     runs-on: ubuntu-latest
