@@ -205,10 +205,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::ModProof;
-    use crate::{
-        cggmp21::{SchemeParams, TestParams},
-        paillier::SecretKeyPaillierWire,
-    };
+    use crate::{cggmp21::SchemeParams, dev::TestParams, paillier::SecretKeyPaillierWire};
 
     #[test]
     fn prove_and_verify() {

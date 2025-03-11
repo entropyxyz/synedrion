@@ -139,7 +139,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::{ElogProof, ElogPublicInputs, ElogSecretInputs};
-    use crate::{cggmp21::TestParams, curve::Scalar, tools::Secret};
+    use crate::{curve::Scalar, dev::TestParams, tools::Secret};
 
     #[test]
     fn prove_and_verify() {

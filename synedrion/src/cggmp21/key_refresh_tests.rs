@@ -17,11 +17,12 @@ use super::{
         KeyRefresh, KeyRefreshAssociatedData, Round1, Round1EchoBroadcast, Round2EchoBroadcast, Round2NormalBroadcast,
         Round3DirectMessage, Round3EchoBroadcast, Round3NormalBroadcast,
     },
-    params::{SchemeParams, TestParams},
+    params::SchemeParams,
     sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 use crate::{
     curve::Scalar,
+    dev::TestParams,
     paillier::{PaillierParams, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillierWire},
     tools::{
         hashing::XofHasher,

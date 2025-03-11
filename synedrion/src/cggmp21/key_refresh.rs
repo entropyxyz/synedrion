@@ -1173,7 +1173,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::KeyRefresh;
-    use crate::{cggmp21::TestParams, curve::Scalar, tools::protocol_shortcuts::MapValues};
+    use crate::{curve::Scalar, dev::TestParams, tools::protocol_shortcuts::MapValues};
 
     #[test]
     fn execute_key_refresh() {

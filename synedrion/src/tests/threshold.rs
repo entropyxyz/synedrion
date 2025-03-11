@@ -1,18 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::{AuxGen, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams, ThresholdKeyShare};
 use digest::typenum::Unsigned;
 use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
+use elliptic_curve::{Curve, FieldBytes};
 use manul::{
     dev::{run_sync, BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     signature::Keypair,
 };
-use primeorder::{elliptic_curve::Curve, FieldBytes};
 use rand_core::OsRng;
-use synedrion::{
-    AuxGen, DeriveChildKey, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams,
-    ThresholdKeyShare,
-};
 use tracing::info;
+
+#[cfg(feature = "bip32")]
+use crate::DeriveChildKey;
 
 fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
     let signers = (0..num_parties)
@@ -24,7 +24,7 @@ fn make_signers(num_parties: usize) -> (Vec<TestSigner>, Vec<TestVerifier>) {
 
 #[test_log::test]
 fn full_sequence() {
-    type Params = synedrion::TestParams;
+    type Params = crate::dev::TestParams;
     type C = <Params as SchemeParams>::Curve;
     let now = std::time::Instant::now();
     let t = 3;
@@ -56,16 +56,24 @@ fn full_sequence() {
         .map(|(verifier, key_share)| (verifier, ThresholdKeyShare::from_key_share(&key_share)))
         .collect::<BTreeMap<_, _>>();
 
-    // Derive child shares
+    #[cfg(feature = "bip32")]
     let path = "m/0/2/1/4/2".parse().unwrap();
-    let child_key_shares = t_key_shares
-        .iter()
-        .map(|(verifier, key_share)| (verifier, key_share.derive_bip32(&path).unwrap()))
-        .collect::<BTreeMap<_, _>>();
 
-    // The full verifying key can be obtained both from the original key shares and child key shares
-    let child_vkey = t_key_shares[&verifiers[0]].derive_verifying_key_bip32(&path).unwrap();
-    assert_eq!(child_vkey, child_key_shares[&verifiers[0]].verifying_key().unwrap());
+    // Derive child shares
+    #[cfg(feature = "bip32")]
+    let child_vkey = {
+        let child_key_shares = t_key_shares
+            .iter()
+            .map(|(verifier, key_share)| (verifier, key_share.derive_bip32(&path).unwrap()))
+            .collect::<BTreeMap<_, _>>();
+
+        // The full verifying key can be obtained both from the original key shares and child key shares
+        let child_vkey = t_key_shares[&verifiers[0]].derive_verifying_key_bip32(&path).unwrap();
+        assert_eq!(child_vkey, child_key_shares[&verifiers[0]].verifying_key().unwrap());
+        child_vkey
+    };
+    #[cfg(not(feature = "bip32"))]
+    let child_vkey = t_key_shares[&verifiers[0]].verifying_key().unwrap();
 
     // Reshare to `n` nodes
 
@@ -121,10 +129,13 @@ fn full_sequence() {
     );
 
     // Check that resharing did not change the derived child key
-    let child_vkey_after_resharing = new_t_key_shares[&verifiers[0]]
-        .derive_verifying_key_bip32(&path)
-        .unwrap();
-    assert_eq!(child_vkey, child_vkey_after_resharing);
+    #[cfg(feature = "bip32")]
+    {
+        let child_vkey_after_resharing = new_t_key_shares[&verifiers[0]]
+            .derive_verifying_key_bip32(&path)
+            .unwrap();
+        assert_eq!(child_vkey, child_vkey_after_resharing);
+    }
 
     // Generate auxiliary data
 
@@ -151,22 +162,23 @@ fn full_sequence() {
     let selected_signers = [signers[0], signers[2], signers[4]];
     let selected_parties = BTreeSet::from([verifiers[0], verifiers[2], verifiers[4]]);
     let selected_key_shares = [
-        new_t_key_shares[&verifiers[0]]
-            .derive_bip32(&path)
-            .unwrap()
-            .to_key_share(&selected_parties)
-            .unwrap(),
-        new_t_key_shares[&verifiers[2]]
-            .derive_bip32(&path)
-            .unwrap()
-            .to_key_share(&selected_parties)
-            .unwrap(),
-        new_t_key_shares[&verifiers[4]]
-            .derive_bip32(&path)
-            .unwrap()
-            .to_key_share(&selected_parties)
-            .unwrap(),
+        new_t_key_shares[&verifiers[0]].clone(),
+        new_t_key_shares[&verifiers[2]].clone(),
+        new_t_key_shares[&verifiers[4]].clone(),
     ];
+
+    #[cfg(feature = "bip32")]
+    let selected_key_shares = [
+        selected_key_shares[0].derive_bip32(&path).unwrap(),
+        selected_key_shares[1].derive_bip32(&path).unwrap(),
+        selected_key_shares[2].derive_bip32(&path).unwrap(),
+    ];
+
+    let selected_key_shares = selected_key_shares
+        .into_iter()
+        .map(|tkey_share| tkey_share.to_key_share(&selected_parties).unwrap())
+        .collect::<Vec<_>>();
+
     let selected_aux_infos = [
         aux_infos[&verifiers[0]].clone().subset(&selected_parties).unwrap(),
         aux_infos[&verifiers[2]].clone().subset(&selected_parties).unwrap(),

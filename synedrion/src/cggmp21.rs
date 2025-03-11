@@ -36,4 +36,7 @@ pub use interactive_signing::{
 };
 pub use key_init::{KeyInit, KeyInitAssociatedData, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshAssociatedData, KeyRefreshProtocol};
-pub use params::{ProductionParams112, SchemeParams, TestParams};
+pub use params::SchemeParams;
+
+#[cfg(any(test, feature = "k256", feature = "dev"))]
+pub(crate) use params::{convert_uint, upcast_uint};

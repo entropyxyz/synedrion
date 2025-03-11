@@ -8,16 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Generic over the elliptic curve ([#186])
-- Switch the protocol framework to `manul`. ([#156])
-- Bumped MSRV to 1.83 ([#176])
+- Switched the protocol framework to `manul`. ([#156])
 - Updated the scheme to CGGMP'24. ([#170])
+- Bumped MSRV to 1.83 ([#176])
+- The API is now generic over the elliptic curve ([#186])
+- Added `k256` (Secp256k1 parameters), `bip32` (BIP32 support), and `dev` (`tiny-curve` parameters) features. ([#199])
 
 
 [#156]: https://github.com/entropyxyz/synedrion/pull/156
-[#176]: https://github.com/entropyxyz/synedrion/pull/176
 [#170]: https://github.com/entropyxyz/synedrion/pull/170
+[#176]: https://github.com/entropyxyz/synedrion/pull/176
 [#186]: https://github.com/entropyxyz/synedrion/pull/186
+[#199]: https://github.com/entropyxyz/synedrion/pull/199
 
 
 ## [0.2.0] - 2024-11-17

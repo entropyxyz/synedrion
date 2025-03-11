@@ -825,7 +825,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::AuxGen;
-    use crate::cggmp21::TestParams;
+    use crate::dev::TestParams;
 
     #[test]
     fn execute_aux_gen() {

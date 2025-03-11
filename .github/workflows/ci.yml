@@ -12,13 +12,13 @@ env:
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  wasm-build:
+  # Separate action since for the WASM platform we want to build without tests/benches
+  build-feature-powerset-wasm:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         rust:
-          - 1.83.0 # MSRV
-          - stable
+          - 1.83.0
         target:
           - wasm32-unknown-unknown
     steps:
@@ -27,8 +27,29 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           targets: ${{ matrix.target }}
-      - run: cargo build --target ${{ matrix.target }} --no-default-features
-      - run: cargo build --target ${{ matrix.target }}
+      - uses: taiki-e/install-action@cargo-hack
+      # Skipping the private-benches since it will only ever be enabled with --all-feautures during tests,
+      # and we already test that in the clippy action.
+      - run: cargo hack build --target ${{ matrix.target }} --feature-powerset --skip private-benches
+
+  build-feature-powerset:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - 1.83.0
+        target:
+          - x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/install-action@cargo-hack
+      # Skipping the private-benches since it will only ever be enabled with --all-feautures during tests,
+      # and we already test that in the clippy action.
+      - run: cargo hack build --target ${{ matrix.target }} --tests --benches --feature-powerset --skip private-benches
 
   test-and-coverage:
     runs-on: ubuntu-latest
