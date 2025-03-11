@@ -4,6 +4,9 @@
 //! <https://www.cs.cmu.edu/~wing/publications/Wong-Winga02.pdf>
 //! <https://doi.org/10.1109/SISW.2002.1183515>
 //! (Specifically, REDIST protocol).
+//!
+//! This is not a part of the CGGMP proper, but is requried to extend it to operating with threshold key shares,
+//! since the CGGMP paper itself does not contain any threshold functionality.
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},
