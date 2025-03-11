@@ -81,12 +81,11 @@ impl<P: SchemeParams> EncElgProof<P> {
         let r = Randomizer::random(rng, public.pk0);
         let beta = Secret::init_with(|| Scalar::random(rng));
         let gamma = SecretSigned::random_in_exponent_range_scaled(rng, P::L_BOUND + P::EPS_BOUND, hat_cap_n);
-
-        let cap_s = setup.commit(secret.x, &mu).to_wire();
+        let cap_s = setup.commit_secret_mixed(secret.x, &mu).to_wire();
         let cap_d = Ciphertext::new_with_randomizer(public.pk0, &alpha, &r).to_wire();
         let cap_y = public.cap_a * &beta + secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
         let cap_z = beta.mul_by_generator();
-        let cap_t = setup.commit(&alpha, &gamma).to_wire();
+        let cap_t = setup.commit_secret_mixed(&alpha, &gamma).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -188,7 +187,7 @@ impl<P: SchemeParams> EncElgProof<P> {
         // s^{z_1} t^{z_3} == T S^e \mod \hat{N}
         let cap_t = self.cap_t.to_precomputed(setup);
         let cap_s = self.cap_s.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.z3) != &cap_t * &cap_s.pow(&e_signed) {
+        if setup.commit_pub_mixed(&self.z1, &self.z3) != &cap_t * &cap_s.pow(&e_signed) {
             return false;
         }
 

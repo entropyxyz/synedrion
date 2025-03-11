@@ -102,14 +102,14 @@ impl<P: SchemeParams> AffGProof<P> {
         let cap_a = (public.cap_c * &alpha + Ciphertext::new_with_randomizer(public.pk0, &beta, &r)).to_wire();
         let cap_b_x = secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
         let cap_b_y = Ciphertext::new_with_randomizer(public.pk1, &beta, &r_y).to_wire();
-        let cap_e = setup.commit(&alpha, &gamma).to_wire();
-        let cap_s = setup.commit(secret.x, &m).to_wire();
-        let cap_f = setup.commit(&beta, &delta).to_wire();
+        let cap_e = setup.commit_secret_mixed(&alpha, &gamma).to_wire();
+        let cap_s = setup.commit_secret_mixed(secret.x, &m).to_wire();
+        let cap_f = setup.commit_secret_mixed(&beta, &delta).to_wire();
 
         // DEVIATION FROM THE PAPER.
         // See the comment in `AffGPublicInputs`.
         // Original: $s^y$. Modified: $s^{-y}$
-        let cap_t = setup.commit(&(-secret.y), &mu).to_wire();
+        let cap_t = setup.commit_secret_mixed(&(-secret.y), &mu).to_wire();
 
         let mut reader = XofHasher::new_with_dst(HASH_TAG)
             // commitments
@@ -172,7 +172,6 @@ impl<P: SchemeParams> AffGProof<P> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn verify(&self, public: AffGPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
         assert!(public.cap_c.public_key() == public.pk0);
         assert!(public.cap_d.public_key() == public.pk0);
@@ -243,14 +242,14 @@ impl<P: SchemeParams> AffGProof<P> {
         // s^{z_1} t^{z_3} == E S^e \mod \hat{N}
         let cap_e = self.cap_e.to_precomputed(setup);
         let cap_s = self.cap_s.to_precomputed(setup);
-        if setup.commit(&self.z1, &self.z3) != &cap_e * &cap_s.pow(&e) {
+        if setup.commit_pub_mixed(&self.z1, &self.z3) != &cap_e * &cap_s.pow(&e) {
             return false;
         }
 
         // s^{z_2} t^{z_4} == F T^e \mod \hat{N}
         let cap_f = self.cap_f.to_precomputed(setup);
         let cap_t = self.cap_t.to_precomputed(setup);
-        if setup.commit(&self.z2, &self.z4) != &cap_f * &cap_t.pow(&e) {
+        if setup.commit_pub_mixed(&self.z2, &self.z4) != &cap_f * &cap_t.pow(&e) {
             return false;
         }
 
@@ -270,7 +269,7 @@ mod tests {
         uint::SecretSigned,
     };
 
-    #[test]
+    #[test_log::test]
     fn prove_and_verify() {
         type Params = TestParams;
         type Paillier = <Params as SchemeParams>::Paillier;
@@ -295,7 +294,7 @@ mod tests {
 
         let cap_d = &cap_c * &x + Ciphertext::new_with_randomizer(pk0, &-&y, &rho);
         let cap_y = Ciphertext::new_with_randomizer(pk1, &y, &rho_y);
-        let cap_x = secret_scalar_from_signed::<TestParams>(&x).mul_by_generator();
+        let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
 
         let proof = AffGProof::<Params>::new(
             &mut OsRng,
