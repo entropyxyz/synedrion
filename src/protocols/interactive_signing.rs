@@ -23,11 +23,11 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     conversion::{secret_scalar_from_signed, secret_signed_from_scalar},
-    entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PublicAuxInfoPrecomputed, PublicAuxInfos, PublicKeyShares},
     params::SchemeParams,
 };
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},
+    entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PublicAuxInfoPrecomputed, PublicAuxInfos, PublicKeyShares},
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
     tools::{
         hashing::{Chain, XofHasher},
@@ -2622,7 +2622,7 @@ mod tests {
     use super::InteractiveSigning;
     use crate::{
         dev::TestParams,
-        protocols::{AuxInfo, KeyShare},
+        entities::{AuxInfo, KeyShare},
         SchemeParams,
     };
     type Curve = <TestParams as SchemeParams>::Curve;

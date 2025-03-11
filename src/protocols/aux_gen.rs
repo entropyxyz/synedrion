@@ -20,11 +20,9 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use super::{
-    entities::{AuxInfo, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
-    params::SchemeParams,
-};
+use super::params::SchemeParams;
 use crate::{
+    entities::{AuxInfo, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
     paillier::{
         PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillier,
         SecretKeyPaillierWire,

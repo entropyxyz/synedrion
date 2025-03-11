@@ -9,10 +9,10 @@
 
 mod aux_gen;
 pub(crate) mod conversion;
-mod entities;
 mod interactive_signing;
 mod key_init;
 mod key_refresh;
+mod key_resharing;
 mod params;
 
 #[cfg(test)]
@@ -28,13 +28,12 @@ mod key_init_tests;
 mod key_refresh_tests;
 
 pub use aux_gen::{AuxGen, AuxGenAssociatedData, AuxGenProtocol};
-pub use entities::{AuxInfo, KeyShare, KeyShareChange};
-
 pub use interactive_signing::{
     InteractiveSigning, InteractiveSigningAssociatedData, InteractiveSigningProtocol, PrehashedMessage,
 };
 pub use key_init::{KeyInit, KeyInitAssociatedData, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshAssociatedData, KeyRefreshProtocol};
+pub use key_resharing::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder};
 pub use params::SchemeParams;
 
 #[cfg(any(test, feature = "k256", feature = "dev"))]

@@ -21,9 +21,9 @@ use manul::protocol::{
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::ThresholdKeyShare;
 use crate::{
     curve::{Point, Scalar},
+    entities::ThresholdKeyShare,
     tools::{
         protocol_shortcuts::{DowncastMap, Without},
         sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},

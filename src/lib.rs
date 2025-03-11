@@ -26,11 +26,11 @@
 extern crate alloc;
 
 mod curve;
+mod entities;
 mod paillier;
 mod protocols;
 mod tools;
 mod uint;
-mod www02;
 mod zk;
 
 #[cfg(feature = "k256")]
@@ -49,12 +49,12 @@ pub use bip32;
 pub use signature;
 
 pub use curve::RecoverableSignature;
+pub use entities::{AuxInfo, KeyShare, KeyShareChange, ThresholdKeyShare};
 pub use protocols::{
-    AuxGen, AuxGenAssociatedData, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningAssociatedData,
+    AuxGen, AuxGenAssociatedData, AuxGenProtocol, InteractiveSigning, InteractiveSigningAssociatedData,
     InteractiveSigningProtocol, KeyInit, KeyInitAssociatedData, KeyInitProtocol, KeyRefresh, KeyRefreshAssociatedData,
-    KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, SchemeParams,
+    KeyRefreshProtocol, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, PrehashedMessage, SchemeParams,
 };
-pub use www02::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
 
 #[cfg(feature = "bip32")]
 pub use curve::{DeriveChildKey, PublicTweakable, SecretTweakable};

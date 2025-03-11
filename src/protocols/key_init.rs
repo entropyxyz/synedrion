@@ -19,9 +19,10 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use super::{entities::KeyShare, params::SchemeParams};
+use super::params::SchemeParams;
 use crate::{
     curve::{Point, Scalar},
+    entities::KeyShare,
     tools::{
         bitvec::BitVec,
         hashing::{Chain, XofHasher},
