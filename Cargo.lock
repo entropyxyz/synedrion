@@ -1145,7 +1145,6 @@ dependencies = [
  "serde",
  "serde-encoded-bytes",
  "serde_assert",
- "sha2",
  "sha3",
  "signature",
  "test-log",

@@ -14,7 +14,6 @@ categories = ["cryptography", "no-std"]
 manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233" }
 signature = { version = "2", default-features = false }
 rand_core = { version = "0.6.4", default-features = false }
-sha2 = { version = "0.10", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 digest = { version = "0.10", default-features = false, features = ["alloc"] }
 hashing-serializer = { version = "0.1", default-features = false }
