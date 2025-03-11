@@ -2621,8 +2621,8 @@ mod tests {
 
     use super::InteractiveSigning;
     use crate::{
-        cggmp21::{AuxInfo, KeyShare},
         dev::TestParams,
+        protocols::{AuxInfo, KeyShare},
         SchemeParams,
     };
     type Curve = <TestParams as SchemeParams>::Curve;

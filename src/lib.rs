@@ -25,9 +25,9 @@
 
 extern crate alloc;
 
-mod cggmp21;
 mod curve;
 mod paillier;
+mod protocols;
 mod tools;
 mod uint;
 mod www02;
@@ -48,12 +48,12 @@ pub use bip32;
 
 pub use signature;
 
-pub use cggmp21::{
+pub use curve::RecoverableSignature;
+pub use protocols::{
     AuxGen, AuxGenAssociatedData, AuxGenProtocol, AuxInfo, InteractiveSigning, InteractiveSigningAssociatedData,
     InteractiveSigningProtocol, KeyInit, KeyInitAssociatedData, KeyInitProtocol, KeyRefresh, KeyRefreshAssociatedData,
     KeyRefreshProtocol, KeyShare, KeyShareChange, PrehashedMessage, SchemeParams,
 };
-pub use curve::RecoverableSignature;
 pub use www02::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, ThresholdKeyShare};
 
 #[cfg(feature = "bip32")]

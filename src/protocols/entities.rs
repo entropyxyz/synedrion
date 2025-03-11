@@ -11,11 +11,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cggmp21::SchemeParams,
     curve::{secret_split, Point, Scalar},
     paillier::{
         PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, SecretKeyPaillier, SecretKeyPaillierWire,
     },
+    protocols::SchemeParams,
     tools::Secret,
 };
 

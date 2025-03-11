@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use ecdsa::{SigningKey, VerifyingKey};
 
 use crate::{
-    cggmp21::{convert_uint, upcast_uint, SchemeParams},
     paillier::PaillierParams,
+    protocols::{convert_uint, upcast_uint, SchemeParams},
 };
 
 #[cfg(feature = "bip32")]

@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use bip32::{DerivationPath, PrivateKey as _};
 
 use crate::{
-    cggmp21::{KeyShare, SchemeParams},
     curve::{Point, Scalar},
+    protocols::{KeyShare, SchemeParams},
     tools::{
         sss::{interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareId},
         Secret,

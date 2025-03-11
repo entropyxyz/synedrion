@@ -4,14 +4,14 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cggmp21::{
-        conversion::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed},
-        SchemeParams,
-    },
     curve::{Point, Scalar},
     paillier::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
         Randomizer,
+    },
+    protocols::{
+        conversion::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed},
+        SchemeParams,
     },
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{PublicSigned, SecretSigned},
@@ -266,9 +266,9 @@ mod tests {
 
     use super::{AffGProof, AffGPublicInputs, AffGSecretInputs};
     use crate::{
-        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams},
         dev::TestParams,
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
+        protocols::{conversion::secret_scalar_from_signed, SchemeParams},
         uint::SecretSigned,
     };
 

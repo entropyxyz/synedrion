@@ -205,9 +205,9 @@ mod tests {
 
     use super::FacProof;
     use crate::{
-        cggmp21::SchemeParams,
         dev::TestParams,
         paillier::{RPParams, SecretKeyPaillierWire},
+        SchemeParams,
     };
 
     #[test]

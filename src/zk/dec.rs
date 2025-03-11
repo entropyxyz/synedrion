@@ -6,11 +6,11 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cggmp21::conversion::{
-        scalar_from_signed, scalar_from_wide_signed, secret_scalar_from_signed, secret_scalar_from_wide_signed,
-    },
     curve::Point,
     paillier::{Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPParams, Randomizer},
+    protocols::conversion::{
+        scalar_from_signed, scalar_from_wide_signed, secret_scalar_from_signed, secret_scalar_from_wide_signed,
+    },
     tools::{
         bitvec::BitVec,
         hashing::{Chain, Hashable, XofHasher},
@@ -281,10 +281,10 @@ mod tests {
 
     use super::{DecProof, DecPublicInputs, DecSecretInputs};
     use crate::{
-        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams},
         curve::Scalar,
         dev::TestParams,
         paillier::{Ciphertext, PaillierParams, RPParams, Randomizer, SecretKeyPaillierWire},
+        protocols::{conversion::secret_scalar_from_signed, SchemeParams},
         uint::SecretSigned,
     };
 

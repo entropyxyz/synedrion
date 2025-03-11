@@ -3,10 +3,10 @@ use std::time::{Duration, Instant};
 use rand_core::CryptoRngCore;
 
 use crate::{
-    cggmp21::conversion::secret_scalar_from_signed,
     curve::Scalar,
     k256::ProductionParams112,
     paillier::{Ciphertext, PaillierParams, RPParams, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierWire},
+    protocols::conversion::secret_scalar_from_signed,
     tools::Secret,
     uint::SecretSigned,
     zk::{

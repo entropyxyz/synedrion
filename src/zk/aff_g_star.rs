@@ -6,12 +6,12 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cggmp21::{
+    curve::Point,
+    paillier::{Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, Randomizer},
+    protocols::{
         conversion::{scalar_from_signed, secret_scalar_from_signed},
         SchemeParams,
     },
-    curve::Point,
-    paillier::{Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, Randomizer},
     tools::{
         bitvec::BitVec,
         hashing::{Chain, Hashable, XofHasher},
@@ -273,10 +273,11 @@ mod tests {
 
     use super::{AffGStarProof, AffGStarPublicInputs, AffGStarSecretInputs};
     use crate::{
-        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams},
         dev::TestParams,
         paillier::{Ciphertext, Randomizer, SecretKeyPaillierWire},
+        protocols::conversion::secret_scalar_from_signed,
         uint::SecretSigned,
+        SchemeParams,
     };
 
     #[test]
