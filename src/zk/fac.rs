@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
+    params::SchemeParams,
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{HasWide, PublicSigned, SecretSigned},
-    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_fac";
@@ -207,7 +207,7 @@ mod tests {
     use crate::{
         dev::TestParams,
         paillier::{RPParams, SecretKeyPaillierWire},
-        SchemeParams,
+        params::SchemeParams,
     };
 
     #[test]

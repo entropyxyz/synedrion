@@ -1,7 +1,7 @@
 use crypto_bigint::{BitOps, Encoding, Zero};
 use elliptic_curve::{CurveArithmetic, PrimeField};
 
-use super::params::SchemeParams;
+use super::traits::SchemeParams;
 use crate::{
     curve::Scalar,
     paillier::PaillierParams,

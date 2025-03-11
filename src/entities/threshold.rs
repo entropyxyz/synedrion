@@ -15,7 +15,7 @@ use bip32::{DerivationPath, PrivateKey as _};
 use super::full::KeyShare;
 use crate::{
     curve::{Point, Scalar},
-    protocols::SchemeParams,
+    params::SchemeParams,
     tools::{
         sss::{interpolation_coeff, shamir_evaluation_points, shamir_join_points, shamir_split, ShareId},
         Secret,

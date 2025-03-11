@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{AuxGen, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams, ThresholdKeyShare};
 use digest::typenum::Unsigned;
 use ecdsa::{signature::hazmat::PrehashVerifier, VerifyingKey};
 use elliptic_curve::{Curve, FieldBytes};
@@ -10,6 +9,8 @@ use manul::{
 };
 use rand_core::OsRng;
 use tracing::info;
+
+use crate::{AuxGen, InteractiveSigning, KeyInit, KeyResharing, NewHolder, OldHolder, SchemeParams, ThresholdKeyShare};
 
 #[cfg(feature = "bip32")]
 use crate::DeriveChildKey;

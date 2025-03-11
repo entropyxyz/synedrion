@@ -14,8 +14,8 @@ use zeroize::Zeroize;
 
 use crate::{
     curve::{Point, Scalar},
+    params::SchemeParams,
     uint::{Exponentiable, HasWide},
-    SchemeParams,
 };
 
 /// A helper wrapper for managing secret values.

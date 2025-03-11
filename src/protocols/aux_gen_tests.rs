@@ -12,16 +12,14 @@ use manul::{
 use rand_chacha::ChaCha8Rng;
 use rand_core::{CryptoRngCore, OsRng, SeedableRng};
 
-use super::{
-    aux_gen::{
-        AuxGen, AuxGenAssociatedData, Round1, Round1EchoBroadcast, Round2EchoBroadcast, Round2NormalBroadcast,
-        Round3DirectMessage, Round3NormalBroadcast,
-    },
-    params::SchemeParams,
+use super::aux_gen::{
+    AuxGen, AuxGenAssociatedData, Round1, Round1EchoBroadcast, Round2EchoBroadcast, Round2NormalBroadcast,
+    Round3DirectMessage, Round3NormalBroadcast,
 };
 use crate::{
     dev::TestParams,
     paillier::{PaillierParams, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillierWire},
+    params::SchemeParams,
     tools::{
         hashing::XofHasher,
         protocol_shortcuts_dev::{check_evidence_with_behavior, check_invalid_message_evidence, CheckPart},

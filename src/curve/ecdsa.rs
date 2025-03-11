@@ -1,4 +1,3 @@
-use crate::SchemeParams;
 use ecdsa::{RecoveryId, Signature as BackendSignature, VerifyingKey};
 use elliptic_curve::group::Curve as _;
 
@@ -6,6 +5,7 @@ use elliptic_curve::group::Curve as _;
 use rand_core::CryptoRngCore;
 
 use super::arithmetic::{Point, Scalar};
+use crate::SchemeParams;
 
 /// A wrapper for a signature and public key recovery info.
 #[derive(Debug, Clone)]

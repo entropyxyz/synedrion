@@ -6,7 +6,7 @@ use crate::{
     curve::Scalar,
     k256::ProductionParams112,
     paillier::{Ciphertext, PaillierParams, RPParams, RPSecret, Randomizer, SecretKeyPaillier, SecretKeyPaillierWire},
-    protocols::conversion::secret_scalar_from_signed,
+    params::{secret_scalar_from_signed, SchemeParams},
     tools::Secret,
     uint::SecretSigned,
     zk::{
@@ -14,7 +14,6 @@ use crate::{
         DecProof, DecPublicInputs, DecSecretInputs, ElogProof, ElogPublicInputs, ElogSecretInputs, EncElgProof,
         EncElgPublicInputs, EncElgSecretInputs, FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret,
     },
-    SchemeParams,
 };
 
 type Params = ProductionParams112;

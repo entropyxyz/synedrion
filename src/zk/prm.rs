@@ -11,12 +11,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     paillier::{PaillierParams, RPParams, RPSecret},
+    params::SchemeParams,
     tools::{
         bitvec::BitVec,
         hashing::{Chain, Hashable, XofHasher},
     },
     uint::{Exponentiable, SecretUnsigned, ToMontgomery},
-    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_prm";

@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
+    params::SchemeParams,
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{Exponentiable, IsInvertible, ToMontgomery},
-    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_mod";
@@ -205,7 +205,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::ModProof;
-    use crate::{dev::TestParams, paillier::SecretKeyPaillierWire, SchemeParams};
+    use crate::{dev::TestParams, paillier::SecretKeyPaillierWire, params::SchemeParams};
 
     #[test]
     fn prove_and_verify() {

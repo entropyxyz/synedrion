@@ -12,18 +12,16 @@ use manul::{
 };
 use rand_core::{CryptoRngCore, OsRng, RngCore};
 
-use super::{
-    interactive_signing::{
-        InteractiveSigning, InteractiveSigningAssociatedData, InteractiveSigningProtocol, Round1EchoBroadcast, Round2,
-        Round2EchoBroadcast, Round2NormalBroadcast, Round3, Round3EchoBroadcast, Round3NormalBroadcast, Round3Payload,
-        Round4NormalBroadcast, Round5, Round6,
-    },
-    SchemeParams,
+use super::interactive_signing::{
+    InteractiveSigning, InteractiveSigningAssociatedData, InteractiveSigningProtocol, Round1EchoBroadcast, Round2,
+    Round2EchoBroadcast, Round2NormalBroadcast, Round3, Round3EchoBroadcast, Round3NormalBroadcast, Round3Payload,
+    Round4NormalBroadcast, Round5, Round6,
 };
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},
     dev::TestParams,
     entities::{AuxInfo, KeyShare},
+    params::SchemeParams,
     tools::{
         protocol_shortcuts::{DowncastMap, MapValues},
         protocol_shortcuts_dev::{check_evidence_with_behavior, check_invalid_message_evidence, CheckPart},

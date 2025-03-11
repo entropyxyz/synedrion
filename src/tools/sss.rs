@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{Point, Scalar},
+    params::SchemeParams,
     tools::Secret,
-    SchemeParams,
 };
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]

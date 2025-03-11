@@ -28,16 +28,17 @@ extern crate alloc;
 mod curve;
 mod entities;
 mod paillier;
+mod params;
 mod protocols;
 mod tools;
 mod uint;
 mod zk;
 
 #[cfg(feature = "k256")]
-pub mod k256;
+pub use params::k256;
 
 #[cfg(any(test, feature = "dev"))]
-pub mod dev;
+pub use params::dev;
 
 #[cfg(test)]
 mod tests;
@@ -50,10 +51,11 @@ pub use signature;
 
 pub use curve::RecoverableSignature;
 pub use entities::{AuxInfo, KeyShare, KeyShareChange, ThresholdKeyShare};
+pub use params::SchemeParams;
 pub use protocols::{
     AuxGen, AuxGenAssociatedData, AuxGenProtocol, InteractiveSigning, InteractiveSigningAssociatedData,
     InteractiveSigningProtocol, KeyInit, KeyInitAssociatedData, KeyInitProtocol, KeyRefresh, KeyRefreshAssociatedData,
-    KeyRefreshProtocol, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, PrehashedMessage, SchemeParams,
+    KeyRefreshProtocol, KeyResharing, KeyResharingProtocol, NewHolder, OldHolder, PrehashedMessage,
 };
 
 #[cfg(feature = "bip32")]

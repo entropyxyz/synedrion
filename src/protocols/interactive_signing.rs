@@ -21,14 +21,11 @@ use manul::protocol::{
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::{
-    conversion::{secret_scalar_from_signed, secret_signed_from_scalar},
-    params::SchemeParams,
-};
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PublicAuxInfoPrecomputed, PublicAuxInfos, PublicKeyShares},
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
+    params::{secret_scalar_from_signed, secret_signed_from_scalar, SchemeParams},
     tools::{
         hashing::{Chain, XofHasher},
         protocol_shortcuts::{

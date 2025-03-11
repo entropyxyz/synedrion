@@ -12,17 +12,15 @@ use manul::{
 use rand_chacha::ChaCha8Rng;
 use rand_core::{CryptoRngCore, OsRng, SeedableRng};
 
-use super::{
-    key_refresh::{
-        KeyRefresh, KeyRefreshAssociatedData, Round1, Round1EchoBroadcast, Round2EchoBroadcast, Round2NormalBroadcast,
-        Round3DirectMessage, Round3EchoBroadcast, Round3NormalBroadcast,
-    },
-    params::SchemeParams,
+use super::key_refresh::{
+    KeyRefresh, KeyRefreshAssociatedData, Round1, Round1EchoBroadcast, Round2EchoBroadcast, Round2NormalBroadcast,
+    Round3DirectMessage, Round3EchoBroadcast, Round3NormalBroadcast,
 };
 use crate::{
     curve::Scalar,
     dev::TestParams,
     paillier::{PaillierParams, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillierWire},
+    params::SchemeParams,
     tools::{
         hashing::XofHasher,
         protocol_shortcuts_dev::{check_evidence_with_behavior, check_invalid_message_evidence, CheckPart},

@@ -24,12 +24,12 @@ use serde::{Deserialize, Serialize};
 use crate::{
     curve::{Point, Scalar},
     entities::ThresholdKeyShare,
+    params::SchemeParams,
     tools::{
         protocol_shortcuts::{DowncastMap, Without},
         sss::{interpolation_coeff, shamir_join_points, shamir_join_scalars, Polynomial, PublicPolynomial, ShareId},
         Secret,
     },
-    SchemeParams,
 };
 
 /// A protocol for modifying the set of owners of a shared secret key.

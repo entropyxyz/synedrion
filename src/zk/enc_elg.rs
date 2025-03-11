@@ -9,13 +9,12 @@ use crate::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
         Randomizer,
     },
-    protocols::conversion::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed},
+    params::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed, SchemeParams},
     tools::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
     uint::{PublicSigned, SecretSigned},
-    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_enc_elg";
@@ -205,7 +204,7 @@ mod tests {
         curve::Scalar,
         dev::TestParams,
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
-        protocols::{conversion::secret_scalar_from_signed, SchemeParams},
+        params::{secret_scalar_from_signed, SchemeParams},
         tools::Secret,
         uint::SecretSigned,
     };

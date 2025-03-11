@@ -24,11 +24,11 @@ use zeroize::Zeroize;
 use ::{ecdsa::SigningKey, elliptic_curve::SecretKey};
 
 use crate::{
+    params::SchemeParams,
     tools::{
         hashing::{Chain, HashableType},
         Secret,
     },
-    SchemeParams,
 };
 
 impl<C> HashableType for C

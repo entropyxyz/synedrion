@@ -8,12 +8,10 @@
 //! refers to the version of the paper published at <https://eprint.iacr.org/2021/060.pdf>
 
 mod aux_gen;
-pub(crate) mod conversion;
 mod interactive_signing;
 mod key_init;
 mod key_refresh;
 mod key_resharing;
-mod params;
 
 #[cfg(test)]
 mod aux_gen_tests;
@@ -34,7 +32,3 @@ pub use interactive_signing::{
 pub use key_init::{KeyInit, KeyInitAssociatedData, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshAssociatedData, KeyRefreshProtocol};
 pub use key_resharing::{KeyResharing, KeyResharingProtocol, NewHolder, OldHolder};
-pub use params::SchemeParams;
-
-#[cfg(any(test, feature = "k256", feature = "dev"))]
-pub(crate) use params::{convert_uint, upcast_uint};

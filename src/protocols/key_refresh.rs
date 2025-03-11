@@ -20,7 +20,6 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use super::params::SchemeParams;
 use crate::{
     curve::{secret_split, Point, Scalar},
     entities::{AuxInfo, KeyShareChange, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
@@ -28,6 +27,7 @@ use crate::{
         PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillier,
         SecretKeyPaillierWire,
     },
+    params::SchemeParams,
     tools::{
         bitvec::BitVec,
         hashing::{Chain, XofHasher},

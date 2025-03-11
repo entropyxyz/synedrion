@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{Point, Scalar},
+    params::SchemeParams,
     tools::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
-    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_sch";

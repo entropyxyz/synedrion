@@ -15,7 +15,7 @@ use crate::{
     paillier::{
         PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, SecretKeyPaillier, SecretKeyPaillierWire,
     },
-    protocols::SchemeParams,
+    params::SchemeParams,
     tools::Secret,
 };
 

@@ -9,10 +9,7 @@ use crate::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,
         Randomizer,
     },
-    protocols::{
-        conversion::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed},
-        SchemeParams,
-    },
+    params::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed, SchemeParams},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{PublicSigned, SecretSigned},
 };
@@ -268,7 +265,7 @@ mod tests {
     use crate::{
         dev::TestParams,
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
-        protocols::{conversion::secret_scalar_from_signed, SchemeParams},
+        params::{secret_scalar_from_signed, SchemeParams},
         uint::SecretSigned,
     };
 

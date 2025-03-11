@@ -16,10 +16,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "bip32")]
 use ecdsa::{SigningKey, VerifyingKey};
 
-use crate::{
-    paillier::PaillierParams,
-    protocols::{convert_uint, upcast_uint, SchemeParams},
-};
+use super::traits::{convert_uint, upcast_uint, SchemeParams};
+use crate::paillier::PaillierParams;
 
 #[cfg(feature = "bip32")]
 use crate::curve::{PublicTweakable, SecretTweakable};
