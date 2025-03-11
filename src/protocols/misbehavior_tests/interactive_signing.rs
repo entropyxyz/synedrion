@@ -12,7 +12,7 @@ use manul::{
 };
 use rand_core::{CryptoRngCore, OsRng, RngCore};
 
-use super::interactive_signing::{
+use super::super::interactive_signing::{
     InteractiveSigning, InteractiveSigningAssociatedData, InteractiveSigningProtocol, Round1EchoBroadcast, Round2,
     Round2EchoBroadcast, Round2NormalBroadcast, Round3, Round3EchoBroadcast, Round3NormalBroadcast, Round3Payload,
     Round4NormalBroadcast, Round5, Round6,

@@ -14,16 +14,7 @@ mod key_refresh;
 mod key_resharing;
 
 #[cfg(test)]
-mod aux_gen_tests;
-
-#[cfg(test)]
-mod interactive_signing_tests;
-
-#[cfg(test)]
-mod key_init_tests;
-
-#[cfg(test)]
-mod key_refresh_tests;
+mod misbehavior_tests;
 
 pub use aux_gen::{AuxGen, AuxGenAssociatedData, AuxGenProtocol};
 pub use interactive_signing::{
