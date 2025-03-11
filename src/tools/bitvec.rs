@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, string::String, vec, vec::Vec};
 use core::ops::BitXorAssign;
-use digest::XofReader;
 
+use digest::XofReader;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Base64, SliceLike};

@@ -14,7 +14,6 @@ use elliptic_curve::{
     subtle::{Choice, ConditionallySelectable, CtOption},
     Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, Group, NonZeroScalar, PrimeField, ScalarPrimitive,
 };
-
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_encoded_bytes::{Hex, SliceLike};

@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+
 use digest::{ExtendableOutput, Update, XofReader};
 use hashing_serializer::HashingSerializer;
 use serde::Serialize;

@@ -4,9 +4,9 @@ use alloc::{
     vec::Vec,
 };
 use core::fmt::Debug;
-use manul::session::LocalError;
 
 use ecdsa::VerifyingKey;
+use manul::session::LocalError;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 

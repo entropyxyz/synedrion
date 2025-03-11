@@ -3,8 +3,8 @@ use alloc::{
     vec::Vec,
 };
 use core::ops::{Add, Mul};
-use manul::session::LocalError;
 
+use manul::session::LocalError;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
