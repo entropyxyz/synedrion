@@ -677,6 +677,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                         cap_d: &cap_d,
                         cap_s: &r3_nb.cap_delta,
                         cap_g: &Point::generator(),
+                        num_parties: associated_data.aux.num_parties(),
                     },
                     &rp,
                     &aux,
@@ -828,6 +829,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
                         cap_d: &hat_cap_d,
                         cap_s: &r3_nb.cap_s,
                         cap_g: &total_cap_gamma,
+                        num_parties: associated_data.aux.num_parties(),
                     },
                     &rp,
                     &aux,
@@ -2211,6 +2213,12 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
         // Since it's only needed here it's easier to re-create it inplace.
         let delta_signed = full_ciphertext.decrypt(&self.context.aux_info.secret_aux.paillier_sk);
 
+        let num_parties = self.context.all_ids.len();
+        let ceil_log2_num_parties = (num_parties - 1).ilog2() + 1;
+        let delta_signed = delta_signed
+            .ensure_exponent_range(P::LP_BOUND + P::EPS_BOUND + 1 + ceil_log2_num_parties)
+            .ok_or_else(|| LocalError::new("`delta` is not in the expected range"))?;
+
         // This is equal to what we would get from reducing `delta_signed` to Scalar.
         let delta = self.deltas.safe_get("`delta` map", &self.context.my_id)?;
 
@@ -2229,6 +2237,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
                 cap_d: &cap_d,
                 cap_s: &delta.mul_by_generator(),
                 cap_g: &Point::generator(),
+                num_parties,
             },
             rp,
             &aux,
@@ -2299,6 +2308,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
                 cap_d: &cap_d,
                 cap_s: &self.deltas.safe_get("`delta` map", from)?.mul_by_generator(),
                 cap_g: &Point::generator(),
+                num_parties: self.context.all_ids.len(),
             },
             sender_rp,
             &aux,
@@ -2432,6 +2442,12 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
         // Since it's only needed here it's easier to re-create it inplace.
         let chi_signed = full_ciphertext.decrypt(&self.context.aux_info.secret_aux.paillier_sk);
 
+        let num_parties = self.context.all_ids.len();
+        let ceil_log2_num_parties = (num_parties - 1).ilog2() + 1;
+        let chi_signed = chi_signed
+            .ensure_exponent_range(P::LP_BOUND + P::EPS_BOUND + 1 + ceil_log2_num_parties)
+            .ok_or_else(|| LocalError::new("`delta` is not in the expected range"))?;
+
         let hat_psi_star = DecProof::new(
             rng,
             DecSecretInputs {
@@ -2447,6 +2463,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
                 cap_d: &hat_cap_d,
                 cap_s: self.cap_ss.safe_get("`S` map", &self.context.my_id)?,
                 cap_g: &self.cap_gamma_combined,
+                num_parties,
             },
             rp,
             &aux,
@@ -2539,6 +2556,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
                 cap_d: &hat_cap_d,
                 cap_s: self.cap_ss.safe_get("`S` map", from)?,
                 cap_g: &self.cap_gamma_combined,
+                num_parties: self.context.all_ids.len(),
             },
             sender_rp,
             &aux,

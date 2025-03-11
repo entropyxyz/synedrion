@@ -96,21 +96,10 @@ impl<P: PaillierParams> Ciphertext<P> {
     /// Encrypts the plaintext with the provided randomizer.
     fn new_with_randomizer_inner(
         pk: &PublicKeyPaillier<P>,
-        abs_plaintext: &SecretUnsigned<P::Uint>,
+        abs_plaintext: &SecretUnsigned<P::WideUint>,
         randomizer: &Randomizer<P>,
         plaintext_is_negative: Choice,
     ) -> Self {
-        // Technically if `abs_plaintext` is greater than the modulus of `pk`,
-        // it will be effectively reduced modulo `pk`.
-        // But some ZK proofs with `TestParams` may still supply a value larger than `pk`
-        // because they are not planning on decrypting the resulting ciphertext;
-        // they just construct an encryption of the same value in two different ways
-        // and then compare the results.
-        // (And the value can be larger than `pk` because of some restrictions on
-        // `SchemeParameters`/`PaillierParameters` values in tests, which can only
-        // be overcome by fixing #27 and using a small 32- or 64-bit curve for tests).
-        // TODO(#192): fix the issue with `TestParams` and remove the comment above.
-
         // Calculate the ciphertext `C = (N + 1)^m * rho^N mod N^2`
         // where `N` is the Paillier composite modulus, `m` is the plaintext,
         // and `rho` is the randomizer.
@@ -119,8 +108,11 @@ impl<P: PaillierParams> Ciphertext<P> {
         // Since `m` can be negative, we calculate `m * N ± 1` (never overflows since `m < N`),
         // then conditionally negate modulo N^2
 
-        let prod = abs_plaintext.mul_wide(pk.modulus());
-        let mut prod_mod = prod.to_montgomery(pk.monty_params_mod_n_squared());
+        // Since most of the time the plaintext is just `Uint`, another way to calculate it
+        // is the wide multiplication by the modulus and then conversion to Montgomery.
+        let abs_plaintext = abs_plaintext.to_montgomery(pk.monty_params_mod_n_squared());
+        let mut prod_mod = abs_plaintext * pk.modulus_mod_modulus_squared();
+
         prod_mod.conditional_negate(plaintext_is_negative);
 
         let factor1 = prod_mod + &P::WideUintMod::one(pk.monty_params_mod_n_squared().clone());
@@ -141,14 +133,14 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     fn new_public_with_randomizer_inner(
         pk: &PublicKeyPaillier<P>,
-        abs_plaintext: &P::Uint,
+        abs_plaintext: &P::WideUint,
         randomizer: &MaskedRandomizer<P>,
         plaintext_is_negative: bool,
     ) -> Self {
         // Same as `new_with_randomizer_inner`, but works on public data.
 
-        let prod = abs_plaintext.mul_wide(pk.modulus());
-        let mut prod_mod = prod.to_montgomery(pk.monty_params_mod_n_squared());
+        let abs_plaintext = abs_plaintext.to_montgomery(pk.monty_params_mod_n_squared());
+        let mut prod_mod = abs_plaintext * pk.modulus_mod_modulus_squared();
         if plaintext_is_negative {
             prod_mod = -prod_mod;
         }
@@ -175,12 +167,28 @@ impl<P: PaillierParams> Ciphertext<P> {
         plaintext: &SecretSigned<P::Uint>,
         randomizer: &Randomizer<P>,
     ) -> Self {
+        Self::new_with_randomizer_inner(pk, &plaintext.abs().to_wide(), randomizer, plaintext.is_negative())
+    }
+
+    pub fn new_wide_with_randomizer(
+        pk: &PublicKeyPaillier<P>,
+        plaintext: &SecretSigned<P::WideUint>,
+        randomizer: &Randomizer<P>,
+    ) -> Self {
         Self::new_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())
     }
 
     pub fn new_public_with_randomizer(
         pk: &PublicKeyPaillier<P>,
         plaintext: &PublicSigned<P::Uint>,
+        randomizer: &MaskedRandomizer<P>,
+    ) -> Self {
+        Self::new_public_with_randomizer_inner(pk, &plaintext.abs().to_wide(), randomizer, plaintext.is_negative())
+    }
+
+    pub fn new_public_wide_with_randomizer(
+        pk: &PublicKeyPaillier<P>,
+        plaintext: &PublicSigned<P::WideUint>,
         randomizer: &MaskedRandomizer<P>,
     ) -> Self {
         Self::new_public_with_randomizer_inner(pk, &plaintext.abs(), randomizer, plaintext.is_negative())

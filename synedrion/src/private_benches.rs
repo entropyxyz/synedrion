@@ -352,6 +352,7 @@ pub mod dec_proof {
         Ciphertext<Paillier>,
         Point<Params>,
         Point<Params>,
+        usize,
         RPParams<Paillier>,
         &'static [u8],
     ) {
@@ -361,8 +362,14 @@ pub mod dec_proof {
         let setup = RPParams::random(&mut rng);
         let aux: &[u8] = b"abcde";
 
+        let num_parties: usize = 10;
+        let ceil_log2_num_parties = (num_parties - 1).ilog2() + 1;
+
         let x = SecretSigned::random_in_exponent_range(&mut rng, Params::L_BOUND);
-        let y = SecretSigned::random_in_exponent_range(&mut rng, Params::LP_BOUND);
+        let y = SecretSigned::random_in_exponent_range(
+            &mut rng,
+            Params::LP_BOUND + Params::EPS_BOUND + 1 + ceil_log2_num_parties,
+        );
         let rho = Randomizer::random(&mut rng, pk);
 
         let k = SecretSigned::random_in_exponent_range(&mut rng, Paillier::PRIME_BITS * 2 - 1);
@@ -385,6 +392,7 @@ pub mod dec_proof {
             cap_d,
             cap_s,
             cap_g,
+            num_parties,
             setup,
             aux,
         )
@@ -394,7 +402,7 @@ pub mod dec_proof {
         move |b: &mut Bencher<'_>| {
             b.iter_batched(
                 || proof_input(rng.clone()),
-                |(mut rng, x, y, rho, pk, cap_k, cap_x, cap_d, cap_s, cap_g, setup, aux)| {
+                |(mut rng, x, y, rho, pk, cap_k, cap_x, cap_d, cap_s, cap_g, num_parties, setup, aux)| {
                     black_box(DecProof::<Params>::new(
                         &mut rng,
                         DecSecretInputs {
@@ -409,6 +417,7 @@ pub mod dec_proof {
                             cap_d: &cap_d,
                             cap_s: &cap_s,
                             cap_g: &cap_g,
+                            num_parties,
                         },
                         &setup,
                         &aux,
@@ -423,7 +432,7 @@ pub mod dec_proof {
         move |b: &mut Bencher<'_>| {
             b.iter_batched(
                 || {
-                    let (mut rng, x, y, rho, pk, cap_k, cap_x, cap_d, cap_s, cap_g, setup, aux) =
+                    let (mut rng, x, y, rho, pk, cap_k, cap_x, cap_d, cap_s, cap_g, num_parties, setup, aux) =
                         proof_input(rng.clone());
 
                     let proof = DecProof::<Params>::new(
@@ -440,13 +449,14 @@ pub mod dec_proof {
                             cap_d: &cap_d,
                             cap_s: &cap_s,
                             cap_g: &cap_g,
+                            num_parties,
                         },
                         &setup,
                         &aux,
                     );
-                    (proof, pk, cap_k, cap_x, cap_d, cap_s, cap_g, setup)
+                    (proof, pk, cap_k, cap_x, cap_d, cap_s, cap_g, num_parties, setup)
                 },
-                |(proof, pk, cap_k, cap_x, cap_d, cap_s, cap_g, rp_params)| {
+                |(proof, pk, cap_k, cap_x, cap_d, cap_s, cap_g, num_parties, rp_params)| {
                     let pub_inputs = DecPublicInputs {
                         pk0: &pk,
                         cap_k: &cap_k,
@@ -454,6 +464,7 @@ pub mod dec_proof {
                         cap_d: &cap_d,
                         cap_s: &cap_s,
                         cap_g: &cap_g,
+                        num_parties,
                     };
                     black_box(proof.verify(pub_inputs, &rp_params, b"abcde"));
                 },
