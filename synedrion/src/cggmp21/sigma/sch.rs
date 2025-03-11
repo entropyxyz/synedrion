@@ -93,7 +93,9 @@ mod tests {
 
     #[test]
     fn prove_and_verify() {
-        let secret = Secret::init_with(|| Scalar::<TestParams>::random(&mut OsRng));
+        type Params = TestParams;
+
+        let secret = Secret::init_with(|| Scalar::<Params>::random(&mut OsRng));
         let public = secret.mul_by_generator();
         let aux: &[u8] = b"abcde";
 
@@ -101,11 +103,9 @@ mod tests {
         let commitment = SchCommitment::new(&proof_secret);
         let proof = SchProof::new(&proof_secret, &secret, &commitment, &public, &aux);
 
-        // Roundtrip works
-        let res = BinaryFormat::serialize(proof);
-        assert!(res.is_ok());
-        let payload = res.unwrap();
-        let proof: SchProof<TestParams> = BinaryFormat::deserialize(&payload).unwrap();
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<SchProof<Params>>(&serialized).unwrap();
 
         assert!(proof.verify(&commitment, &public, &aux));
     }

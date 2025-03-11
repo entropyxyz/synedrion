@@ -35,6 +35,7 @@ pub(crate) struct DecSecretInputs<'a, P: SchemeParams> {
     pub rho: &'a Randomizer<P::Paillier>,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
     /// Paillier public key $N_0$.
     pub pk0: &'a PublicKeyPaillier<P::Paillier>,
@@ -323,45 +324,27 @@ mod tests {
         let cap_g = Scalar::random(&mut OsRng).mul_by_generator();
         let cap_s = cap_g * secret_scalar_from_signed::<Params>(&y);
 
-        let proof = DecProof::<Params>::new(
-            &mut OsRng,
-            DecSecretInputs {
-                x: &x,
-                y: &y,
-                rho: &rho,
-            },
-            DecPublicInputs {
-                pk0: pk,
-                cap_k: &cap_k,
-                cap_x: &cap_x,
-                cap_d: &cap_d,
-                cap_s: &cap_s,
-                cap_g: &cap_g,
-                num_parties,
-            },
-            &setup,
-            &aux,
-        );
+        let secret = DecSecretInputs {
+            x: &x,
+            y: &y,
+            rho: &rho,
+        };
+        let public = DecPublicInputs {
+            pk0: pk,
+            cap_k: &cap_k,
+            cap_x: &cap_x,
+            cap_d: &cap_d,
+            cap_s: &cap_s,
+            cap_g: &cap_g,
+            num_parties,
+        };
 
-        // Roundtrip works
-        let res = BinaryFormat::serialize(proof);
-        assert!(res.is_ok());
-        let payload = res.unwrap();
-        let proof: DecProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
-        let rp_params = setup.to_wire().to_precomputed();
+        let proof = DecProof::<Params>::new(&mut OsRng, secret, public, &setup, &aux);
 
-        assert!(proof.verify(
-            DecPublicInputs {
-                pk0: pk,
-                cap_k: &cap_k,
-                cap_x: &cap_x,
-                cap_d: &cap_d,
-                cap_s: &cap_s,
-                cap_g: &cap_g,
-                num_parties,
-            },
-            &rp_params,
-            &aux
-        ));
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<DecProof<Params>>(&serialized).unwrap();
+
+        assert!(proof.verify(public, &setup, &aux));
     }
 }

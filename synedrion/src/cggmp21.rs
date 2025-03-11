@@ -37,6 +37,3 @@ pub use interactive_signing::{
 pub use key_init::{KeyInit, KeyInitAssociatedData, KeyInitProtocol};
 pub use key_refresh::{KeyRefresh, KeyRefreshAssociatedData, KeyRefreshProtocol};
 pub use params::{ProductionParams112, SchemeParams, TestParams};
-
-#[cfg(feature = "private_benches")]
-pub(crate) use params::PaillierProduction112;

@@ -32,6 +32,7 @@ pub(crate) struct AffGStarSecretInputs<'a, P: SchemeParams> {
     pub mu: &'a Randomizer<P::Paillier>,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct AffGStarPublicInputs<'a, P: SchemeParams> {
     /// Paillier public keys $N_0$.
     pub pk0: &'a PublicKeyPaillier<P::Paillier>,
@@ -267,6 +268,7 @@ impl<P: SchemeParams> AffGStarProof<P> {
 
 #[cfg(test)]
 mod tests {
+    use manul::{dev::BinaryFormat, session::WireFormat};
     use rand_core::OsRng;
 
     use super::{AffGStarProof, AffGStarPublicInputs, AffGStarSecretInputs};
@@ -301,34 +303,27 @@ mod tests {
         let cap_y = Ciphertext::new_with_randomizer(pk1, &y, &mu);
         let cap_x = secret_scalar_from_signed::<Params>(&x).mul_by_generator();
 
-        let proof = AffGStarProof::<Params>::new(
-            &mut OsRng,
-            AffGStarSecretInputs {
-                x: &x,
-                y: &y,
-                rho: &rho,
-                mu: &mu,
-            },
-            AffGStarPublicInputs {
-                pk0,
-                pk1,
-                cap_c: &cap_c,
-                cap_d: &cap_d,
-                cap_y: &cap_y,
-                cap_x: &cap_x,
-            },
-            &aux,
-        );
-        assert!(proof.verify(
-            AffGStarPublicInputs {
-                pk0,
-                pk1,
-                cap_c: &cap_c,
-                cap_d: &cap_d,
-                cap_y: &cap_y,
-                cap_x: &cap_x,
-            },
-            &aux
-        ));
+        let secret = AffGStarSecretInputs {
+            x: &x,
+            y: &y,
+            rho: &rho,
+            mu: &mu,
+        };
+        let public = AffGStarPublicInputs {
+            pk0,
+            pk1,
+            cap_c: &cap_c,
+            cap_d: &cap_d,
+            cap_y: &cap_y,
+            cap_x: &cap_x,
+        };
+
+        let proof = AffGStarProof::<Params>::new(&mut OsRng, secret, public, &aux);
+
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<AffGStarProof<Params>>(&serialized).unwrap();
+
+        assert!(proof.verify(public, &aux));
     }
 }

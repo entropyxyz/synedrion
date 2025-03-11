@@ -222,11 +222,9 @@ mod tests {
 
         let proof = ModProof::<Params>::new(&mut OsRng, &sk, &aux);
 
-        // Roundtrip works
-        let res = BinaryFormat::serialize(proof);
-        assert!(res.is_ok());
-        let payload = res.unwrap();
-        let proof: ModProof<Params> = BinaryFormat::deserialize(&payload).unwrap();
+        // Serialization roundtrip
+        let serialized = BinaryFormat::serialize(proof).unwrap();
+        let proof = BinaryFormat::deserialize::<ModProof<Params>>(&serialized).unwrap();
 
         assert!(proof.verify(pk, &aux));
     }
