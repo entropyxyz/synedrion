@@ -372,10 +372,11 @@ mod tests {
     use zeroize::Zeroize;
 
     use super::{
-        super::{params::PaillierTest, PaillierParams, SecretKeyPaillierWire},
+        super::{PaillierParams, SecretKeyPaillierWire},
         Ciphertext, Randomizer,
     };
     use crate::{
+        dev::PaillierTest,
         tools::Secret,
         uint::{HasWide, SecretSigned},
     };

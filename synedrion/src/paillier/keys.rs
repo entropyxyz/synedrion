@@ -405,7 +405,8 @@ mod tests {
     use serde::Serialize;
     use serde_assert::Token;
 
-    use super::{super::params::PaillierTest, SecretKeyPaillierWire};
+    use super::SecretKeyPaillierWire;
+    use crate::dev::PaillierTest;
 
     #[test]
     fn basics() {
@@ -422,8 +423,8 @@ mod tests {
             debug_output,
             concat![
                 "Sikrit SecretKeyPaillierWire ",
-                "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<8>>(...), ",
-                "q: Secret<crypto_bigint::uint::Uint<8>>(...) } }",
+                "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<2>>(...), ",
+                "q: Secret<crypto_bigint::uint::Uint<2>>(...) } }",
             ]
         );
     }
@@ -446,21 +447,9 @@ mod tests {
                 len: 2,
             },
             Token::Field("p"),
-            Token::Str(
-                concat![
-                    "5b4fe6be31dbfa5fe153ec138abb8a8d8271386e6e359dd18f0ef4b8f7301391",
-                    "2f58867d5d8fb0f30b1d96f215100ff97097b3baac10c8cc3aac969e7df3acce"
-                ]
-                .to_string(),
-            ),
+            Token::Str("03e91c6b6f3a29a048826fa4cf85f8fa".to_string()),
             Token::Field("q"),
-            Token::Str(
-                concat![
-                    "732bbb2b9a150d2797ab52dde9dd00f467b6608d5c3161cca23711e754365752",
-                    "51f55e9c3b34412388f592f71c638c73edf68a6af97aab03faff8c42357a8cd0"
-                ]
-                .to_string(),
-            ),
+            Token::Str("afb93af2508fc289c196078937d9d8e6".to_string()),
             Token::StructEnd,
             Token::StructEnd,
         ];

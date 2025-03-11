@@ -367,7 +367,7 @@ mod tests {
     use rand_core::OsRng;
 
     use super::KeyShare;
-    use crate::{cggmp21::TestParams, SchemeParams};
+    use crate::{dev::TestParams, SchemeParams};
 
     #[test]
     fn key_share_centralized() {

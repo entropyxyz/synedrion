@@ -283,8 +283,9 @@ mod tests {
 
     use super::{DecProof, DecPublicInputs, DecSecretInputs};
     use crate::{
-        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams, TestParams},
+        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams},
         curve::Scalar,
+        dev::TestParams,
         paillier::{Ciphertext, PaillierParams, RPParams, Randomizer, SecretKeyPaillierWire},
         uint::SecretSigned,
     };

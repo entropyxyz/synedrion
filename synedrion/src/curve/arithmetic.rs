@@ -2,7 +2,7 @@ use alloc::{format, string::String, vec, vec::Vec};
 use core::ops::{Add, Mul, Neg, Rem, Sub};
 
 use digest::XofReader;
-use ecdsa::{SigningKey, VerifyingKey};
+use ecdsa::VerifyingKey;
 use elliptic_curve::{
     bigint::{ArrayEncoding, Concat, NonZero, Split, Zero},
     generic_array::{typenum::marker_traits::Unsigned, GenericArray},
@@ -13,13 +13,15 @@ use elliptic_curve::{
     sec1::{EncodedPoint, FromEncodedPoint, ModulusSize, ToEncodedPoint},
     subtle::{Choice, ConditionallySelectable, CtOption},
     Curve, CurveArithmetic, Field, FieldBytes, FieldBytesSize, Group, NonZeroScalar, PrimeField, ScalarPrimitive,
-    SecretKey,
 };
 
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_encoded_bytes::{Hex, SliceLike};
 use zeroize::Zeroize;
+
+#[cfg(feature = "bip32")]
+use ::{ecdsa::SigningKey, elliptic_curve::SecretKey};
 
 use crate::{
     tools::{
@@ -64,6 +66,7 @@ impl<P: SchemeParams> Scalar<P> {
     pub const ZERO: Self = Self(BackendScalar::<P>::ZERO);
     pub const ONE: Self = Self(BackendScalar::<P>::ONE);
 
+    #[cfg(feature = "bip32")]
     pub fn new(backend_scalar: BackendScalar<P>) -> Self {
         Self(backend_scalar)
     }
@@ -144,10 +147,11 @@ impl<P: SchemeParams> Scalar<P> {
     }
 }
 
+#[cfg(feature = "bip32")]
 impl<P: SchemeParams> Secret<Scalar<P>> {
     pub fn to_signing_key(&self) -> Option<SigningKey<P::Curve>> {
         let nonzero_scalar: Secret<NonZeroScalar<_>> =
-            Secret::maybe_init_with(|| Option::from(NonZeroScalar::new(self.expose_secret().0)))?;
+            Secret::try_init_with(|| Option::from(NonZeroScalar::new(self.expose_secret().0)).ok_or(())).ok()?;
         // SigningKey can be instantiated from NonZeroScalar directly, but that method takes it by value,
         // so it is more likely to leave traces of secret data on the stack. `SecretKey::from()` takes a reference.
         let secret_key = SecretKey::from(nonzero_scalar.expose_secret());
@@ -500,7 +504,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{SchemeParams, TestParams};
+    use crate::{dev::TestParams, SchemeParams};
 
     use super::Scalar;
     use rand::SeedableRng;

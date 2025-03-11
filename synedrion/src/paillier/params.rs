@@ -12,12 +12,6 @@ use crate::{
     uint::{HasWide, ToMontgomery},
 };
 
-#[cfg(test)]
-use crypto_bigint::{U1024, U2048, U4096, U512};
-
-#[cfg(test)]
-use crate::uint::{U1024Mod, U2048Mod, U512Mod};
-
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.
     const PRIME_BITS: u32;
@@ -108,21 +102,4 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Serialize
         + for<'de> Deserialize<'de>
         + Zeroize;
-}
-
-/// Paillier parameters for unit tests in this submodule.
-#[cfg(test)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Zeroize)]
-pub(crate) struct PaillierTest;
-
-#[cfg(test)]
-impl PaillierParams for PaillierTest {
-    const PRIME_BITS: u32 = 512;
-    type HalfUint = U512;
-    type HalfUintMod = U512Mod;
-    type Uint = U1024;
-    type UintMod = U1024Mod;
-    type WideUint = U2048;
-    type WideUintMod = U2048Mod;
-    type ExtraWideUint = U4096;
 }

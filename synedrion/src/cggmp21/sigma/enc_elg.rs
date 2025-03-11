@@ -204,8 +204,9 @@ mod tests {
 
     use super::{EncElgProof, EncElgPublicInputs, EncElgSecretInputs};
     use crate::{
-        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams, TestParams},
+        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams},
         curve::Scalar,
+        dev::TestParams,
         paillier::{Ciphertext, RPParams, Randomizer, SecretKeyPaillierWire},
         tools::Secret,
         uint::SecretSigned,

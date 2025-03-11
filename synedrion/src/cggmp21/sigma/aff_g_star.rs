@@ -273,7 +273,8 @@ mod tests {
 
     use super::{AffGStarProof, AffGStarPublicInputs, AffGStarSecretInputs};
     use crate::{
-        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams, TestParams},
+        cggmp21::{conversion::secret_scalar_from_signed, SchemeParams},
+        dev::TestParams,
         paillier::{Ciphertext, Randomizer, SecretKeyPaillierWire},
         uint::SecretSigned,
     };
