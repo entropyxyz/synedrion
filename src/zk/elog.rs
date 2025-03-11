@@ -3,13 +3,13 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
 use crate::{
     curve::{Point, Scalar},
     tools::{
         hashing::{Chain, Hashable, XofHasher},
         Secret,
     },
+    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_elog";

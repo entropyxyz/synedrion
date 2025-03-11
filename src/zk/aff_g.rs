@@ -3,11 +3,11 @@
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::{
-    conversion::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed},
-    SchemeParams,
-};
 use crate::{
+    cggmp21::{
+        conversion::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed},
+        SchemeParams,
+    },
     curve::{Point, Scalar},
     paillier::{
         Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams,

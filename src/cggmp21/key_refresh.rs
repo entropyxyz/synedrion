@@ -23,7 +23,6 @@ use serde_encoded_bytes::{Hex, SliceLike};
 use super::{
     entities::{AuxInfo, KeyShareChange, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
     params::SchemeParams,
-    sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 use crate::{
     curve::{secret_split, Point, Scalar},
@@ -37,6 +36,7 @@ use crate::{
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
         Secret,
     },
+    zk::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 
 /// A protocol for generating auxiliary information for signing,

@@ -8,10 +8,7 @@ use manul::{
 };
 use rand_core::{CryptoRngCore, OsRng};
 
-use super::{
-    key_init::{KeyInit, KeyInitAssociatedData, Round2NormalBroadcast, Round3, Round3NormalBroadcast},
-    sigma::SchProof,
-};
+use super::key_init::{KeyInit, KeyInitAssociatedData, Round2NormalBroadcast, Round3, Round3NormalBroadcast};
 use crate::{
     curve::Scalar,
     dev::TestParams,
@@ -20,6 +17,7 @@ use crate::{
         protocol_shortcuts_dev::{check_evidence_with_behavior, check_invalid_message_evidence, CheckPart},
         Secret,
     },
+    zk::SchProof,
 };
 
 type Id = TestVerifier;

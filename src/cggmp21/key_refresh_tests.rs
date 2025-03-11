@@ -18,7 +18,6 @@ use super::{
         Round3DirectMessage, Round3EchoBroadcast, Round3NormalBroadcast,
     },
     params::SchemeParams,
-    sigma::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 use crate::{
     curve::Scalar,
@@ -29,6 +28,7 @@ use crate::{
         protocol_shortcuts_dev::{check_evidence_with_behavior, check_invalid_message_evidence, CheckPart},
         Secret,
     },
+    zk::{FacProof, ModProof, PrmProof, SchCommitment, SchProof, SchSecret},
 };
 
 type Id = TestVerifier;

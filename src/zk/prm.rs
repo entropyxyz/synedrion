@@ -9,7 +9,6 @@ use crypto_bigint::{modular::Retrieve, BitOps, PowBoundedExp};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, RPParams, RPSecret},
     tools::{
@@ -17,6 +16,7 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
     },
     uint::{Exponentiable, SecretUnsigned, ToMontgomery},
+    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_prm";

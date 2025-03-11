@@ -31,6 +31,7 @@ mod paillier;
 mod tools;
 mod uint;
 mod www02;
+mod zk;
 
 #[cfg(feature = "k256")]
 pub mod k256;

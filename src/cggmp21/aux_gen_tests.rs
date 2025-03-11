@@ -18,7 +18,6 @@ use super::{
         Round3DirectMessage, Round3NormalBroadcast,
     },
     params::SchemeParams,
-    sigma::{FacProof, ModProof, PrmProof},
 };
 use crate::{
     dev::TestParams,
@@ -27,6 +26,7 @@ use crate::{
         hashing::XofHasher,
         protocol_shortcuts_dev::{check_evidence_with_behavior, check_invalid_message_evidence, CheckPart},
     },
+    zk::{FacProof, ModProof, PrmProof},
 };
 
 type Id = TestVerifier;

@@ -23,7 +23,6 @@ use serde_encoded_bytes::{Hex, SliceLike};
 use super::{
     entities::{AuxInfo, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
     params::SchemeParams,
-    sigma::{FacProof, ModProof, PrmProof},
 };
 use crate::{
     paillier::{
@@ -35,6 +34,7 @@ use crate::{
         hashing::{Chain, XofHasher},
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
     },
+    zk::{FacProof, ModProof, PrmProof},
 };
 
 /// A protocol for generating auxiliary information for signing.

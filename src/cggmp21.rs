@@ -14,7 +14,6 @@ mod interactive_signing;
 mod key_init;
 mod key_refresh;
 mod params;
-pub(crate) mod sigma;
 
 #[cfg(test)]
 mod aux_gen_tests;

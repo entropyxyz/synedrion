@@ -4,11 +4,11 @@ use crypto_bigint::Integer;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{HasWide, PublicSigned, SecretSigned},
+    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_fac";

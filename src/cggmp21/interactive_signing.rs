@@ -25,11 +25,6 @@ use super::{
     conversion::{secret_scalar_from_signed, secret_signed_from_scalar},
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PublicAuxInfoPrecomputed, PublicAuxInfos, PublicKeyShares},
     params::SchemeParams,
-    sigma::{
-        AffGProof, AffGPublicInputs, AffGSecretInputs, AffGStarProof, AffGStarPublicInputs, AffGStarSecretInputs,
-        DecProof, DecPublicInputs, DecSecretInputs, ElogProof, ElogPublicInputs, ElogSecretInputs, EncElgProof,
-        EncElgPublicInputs, EncElgSecretInputs,
-    },
 };
 use crate::{
     curve::{Point, RecoverableSignature, Scalar},
@@ -43,6 +38,11 @@ use crate::{
         Secret,
     },
     uint::SecretSigned,
+    zk::{
+        AffGProof, AffGPublicInputs, AffGSecretInputs, AffGStarProof, AffGStarPublicInputs, AffGStarSecretInputs,
+        DecProof, DecPublicInputs, DecSecretInputs, ElogProof, ElogPublicInputs, ElogSecretInputs, EncElgProof,
+        EncElgPublicInputs, EncElgSecretInputs,
+    },
 };
 
 /// Prehashed message to sign.

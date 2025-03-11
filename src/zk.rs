@@ -1,4 +1,4 @@
-//! Sigma-protocols
+//! ZK proofs used in the paper. The paper refers to them as "sigma-protocols".
 
 mod aff_g;
 mod aff_g_star;

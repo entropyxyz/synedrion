@@ -19,11 +19,7 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use super::{
-    entities::KeyShare,
-    params::SchemeParams,
-    sigma::{SchCommitment, SchProof, SchSecret},
-};
+use super::{entities::KeyShare, params::SchemeParams};
 use crate::{
     curve::{Point, Scalar},
     tools::{
@@ -32,6 +28,7 @@ use crate::{
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
         Secret,
     },
+    zk::{SchCommitment, SchProof, SchSecret},
 };
 
 /// A protocol that generates shares of a new secret key on each node.

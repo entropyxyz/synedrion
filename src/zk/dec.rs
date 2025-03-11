@@ -5,13 +5,10 @@ use alloc::{boxed::Box, vec::Vec};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::{
-    conversion::{
+use crate::{
+    cggmp21::conversion::{
         scalar_from_signed, scalar_from_wide_signed, secret_scalar_from_signed, secret_scalar_from_wide_signed,
     },
-    SchemeParams,
-};
-use crate::{
     curve::Point,
     paillier::{Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, RPParams, Randomizer},
     tools::{
@@ -19,6 +16,7 @@ use crate::{
         hashing::{Chain, Hashable, XofHasher},
     },
     uint::{PublicSigned, SecretSigned},
+    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_dec";

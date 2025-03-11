@@ -19,7 +19,6 @@ use super::{
         Round2EchoBroadcast, Round2NormalBroadcast, Round3, Round3EchoBroadcast, Round3NormalBroadcast, Round3Payload,
         Round4NormalBroadcast, Round5, Round6,
     },
-    sigma::{ElogProof, ElogPublicInputs, ElogSecretInputs},
     SchemeParams,
 };
 use crate::{
@@ -29,6 +28,7 @@ use crate::{
         protocol_shortcuts::{DowncastMap, MapValues},
         protocol_shortcuts_dev::{check_evidence_with_behavior, check_invalid_message_evidence, CheckPart},
     },
+    zk::{ElogProof, ElogPublicInputs, ElogSecretInputs},
 };
 
 type Id = TestVerifier;

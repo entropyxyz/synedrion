@@ -13,11 +13,11 @@ use rand_chacha::ChaCha12Rng;
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::SchemeParams;
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     tools::hashing::{Chain, Hashable, XofHasher},
     uint::{Exponentiable, IsInvertible, ToMontgomery},
+    SchemeParams,
 };
 
 const HASH_TAG: &[u8] = b"P_mod";

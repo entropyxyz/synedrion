@@ -5,11 +5,11 @@ use alloc::{boxed::Box, vec::Vec};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
-use super::super::{
-    conversion::{scalar_from_signed, secret_scalar_from_signed},
-    SchemeParams,
-};
 use crate::{
+    cggmp21::{
+        conversion::{scalar_from_signed, secret_scalar_from_signed},
+        SchemeParams,
+    },
     curve::Point,
     paillier::{Ciphertext, CiphertextWire, MaskedRandomizer, PaillierParams, PublicKeyPaillier, Randomizer},
     tools::{
