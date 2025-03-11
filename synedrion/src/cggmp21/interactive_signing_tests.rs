@@ -78,47 +78,67 @@ where
     check_evidence_with_behavior::<SP, M, _>(&mut OsRng, entry_points, &(), &associated_data, expected_description)
 }
 
-#[test]
-fn invalid_messages() {
-    // Note that this test checks the happy path only. The error rounds need to be triggered explicitly,
-    // so they are checked in a separate test.
+mod invalid_messages {
+    use super::*;
 
-    let (associated_data, entry_points) = make_entry_points();
+    #[test]
+    fn echo() {
+        // Note that this test checks the happy path only. The error rounds need to be triggered explicitly,
+        // so they are checked in a separate test.
 
-    for (round_id, expecting_messages) in [(1, true), (2, true), (3, true), (4, false)] {
-        check_invalid_message_evidence::<SP, _>(
-            &mut OsRng,
-            entry_points.clone(),
-            round_id,
-            CheckPart::EchoBroadcast,
-            &associated_data,
-            expecting_messages,
-        )
-        .unwrap();
+        let (associated_data, entry_points) = make_entry_points();
+
+        for (round_id, expecting_messages) in [(1, true), (2, true), (3, true), (4, false)] {
+            check_invalid_message_evidence::<SP, _>(
+                &mut OsRng,
+                entry_points.clone(),
+                round_id,
+                CheckPart::EchoBroadcast,
+                &associated_data,
+                expecting_messages,
+            )
+            .unwrap();
+        }
     }
 
-    for (round_id, expecting_messages) in [(1, false), (2, true), (3, true), (4, true)] {
-        check_invalid_message_evidence::<SP, _>(
-            &mut OsRng,
-            entry_points.clone(),
-            round_id,
-            CheckPart::NormalBroadcast,
-            &associated_data,
-            expecting_messages,
-        )
-        .unwrap();
+    #[test]
+    fn normal() {
+        // Note that this test checks the happy path only. The error rounds need to be triggered explicitly,
+        // so they are checked in a separate test.
+
+        let (associated_data, entry_points) = make_entry_points();
+
+        for (round_id, expecting_messages) in [(1, false), (2, true), (3, true), (4, true)] {
+            check_invalid_message_evidence::<SP, _>(
+                &mut OsRng,
+                entry_points.clone(),
+                round_id,
+                CheckPart::NormalBroadcast,
+                &associated_data,
+                expecting_messages,
+            )
+            .unwrap();
+        }
     }
 
-    for (round_id, expecting_messages) in [(1, true), (2, false), (3, false), (4, false)] {
-        check_invalid_message_evidence::<SP, _>(
-            &mut OsRng,
-            entry_points.clone(),
-            round_id,
-            CheckPart::DirectMessage,
-            &associated_data,
-            expecting_messages,
-        )
-        .unwrap();
+    #[test]
+    fn direct_message() {
+        // Note that this test checks the happy path only. The error rounds need to be triggered explicitly,
+        // so they are checked in a separate test.
+
+        let (associated_data, entry_points) = make_entry_points();
+
+        for (round_id, expecting_messages) in [(1, true), (2, false), (3, false), (4, false)] {
+            check_invalid_message_evidence::<SP, _>(
+                &mut OsRng,
+                entry_points.clone(),
+                round_id,
+                CheckPart::DirectMessage,
+                &associated_data,
+                expecting_messages,
+            )
+            .unwrap();
+        }
     }
 }
 
@@ -548,8 +568,8 @@ fn r5_dec_failed() {
     check_evidence::<Override>("Protocol error: Round 5: `П^{dec}` proof verification failed.").unwrap();
 }
 
-#[test]
-fn invalid_r5_messages() {
+mod invalid_r5_messages {
+    use super::*;
     struct Override;
 
     impl Misbehaving<Id, CheckPart> for Override {
@@ -626,34 +646,47 @@ fn invalid_r5_messages() {
         }
     }
 
-    let (associated_data, entry_points) = make_entry_points();
+    #[test]
+    fn echo() {
+        let (associated_data, entry_points) = make_entry_points();
 
-    check_evidence_with_behavior::<SP, Override, _>(
-        &mut OsRng,
-        entry_points.clone(),
-        &CheckPart::EchoBroadcast,
-        &associated_data,
-        "Echo broadcast error: Deserialization error",
-    )
-    .unwrap();
+        check_evidence_with_behavior::<SP, Override, _>(
+            &mut OsRng,
+            entry_points.clone(),
+            &CheckPart::EchoBroadcast,
+            &associated_data,
+            "Echo broadcast error: Deserialization error",
+        )
+        .unwrap();
+    }
 
-    check_evidence_with_behavior::<SP, Override, _>(
-        &mut OsRng,
-        entry_points.clone(),
-        &CheckPart::NormalBroadcast,
-        &associated_data,
-        "Normal broadcast error: The payload was expected to be `None`, but contains a message",
-    )
-    .unwrap();
+    #[test]
+    fn normal() {
+        let (associated_data, entry_points) = make_entry_points();
 
-    check_evidence_with_behavior::<SP, Override, _>(
-        &mut OsRng,
-        entry_points.clone(),
-        &CheckPart::DirectMessage,
-        &associated_data,
-        "Direct message error: The payload was expected to be `None`, but contains a message",
-    )
-    .unwrap();
+        check_evidence_with_behavior::<SP, Override, _>(
+            &mut OsRng,
+            entry_points.clone(),
+            &CheckPart::NormalBroadcast,
+            &associated_data,
+            "Normal broadcast error: The payload was expected to be `None`, but contains a message",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn direct_message() {
+        let (associated_data, entry_points) = make_entry_points();
+
+        check_evidence_with_behavior::<SP, Override, _>(
+            &mut OsRng,
+            entry_points.clone(),
+            &CheckPart::DirectMessage,
+            &associated_data,
+            "Direct message error: The payload was expected to be `None`, but contains a message",
+        )
+        .unwrap();
+    }
 }
 
 fn force_round6_on_malicious_node(
@@ -748,8 +781,8 @@ fn r6_dec_failed() {
     check_evidence::<Override>("Protocol error: Round 6: `П^{dec}` proof verification failed.").unwrap();
 }
 
-#[test]
-fn invalid_r6_messages() {
+mod invalid_r6_messages {
+    use super::*;
     struct Override;
 
     impl Misbehaving<Id, CheckPart> for Override {
@@ -826,32 +859,45 @@ fn invalid_r6_messages() {
         }
     }
 
-    let (associated_data, entry_points) = make_entry_points();
+    #[test]
+    fn echo() {
+        let (associated_data, entry_points) = make_entry_points();
 
-    check_evidence_with_behavior::<SP, Override, _>(
-        &mut OsRng,
-        entry_points.clone(),
-        &CheckPart::EchoBroadcast,
-        &associated_data,
-        "Echo broadcast error: Deserialization error",
-    )
-    .unwrap();
+        check_evidence_with_behavior::<SP, Override, _>(
+            &mut OsRng,
+            entry_points.clone(),
+            &CheckPart::EchoBroadcast,
+            &associated_data,
+            "Echo broadcast error: Deserialization error",
+        )
+        .unwrap();
+    }
 
-    check_evidence_with_behavior::<SP, Override, _>(
-        &mut OsRng,
-        entry_points.clone(),
-        &CheckPart::NormalBroadcast,
-        &associated_data,
-        "Normal broadcast error: The payload was expected to be `None`, but contains a message",
-    )
-    .unwrap();
+    #[test]
+    fn normal() {
+        let (associated_data, entry_points) = make_entry_points();
 
-    check_evidence_with_behavior::<SP, Override, _>(
-        &mut OsRng,
-        entry_points.clone(),
-        &CheckPart::DirectMessage,
-        &associated_data,
-        "Direct message error: The payload was expected to be `None`, but contains a message",
-    )
-    .unwrap();
+        check_evidence_with_behavior::<SP, Override, _>(
+            &mut OsRng,
+            entry_points.clone(),
+            &CheckPart::NormalBroadcast,
+            &associated_data,
+            "Normal broadcast error: The payload was expected to be `None`, but contains a message",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn direct_message() {
+        let (associated_data, entry_points) = make_entry_points();
+
+        check_evidence_with_behavior::<SP, Override, _>(
+            &mut OsRng,
+            entry_points.clone(),
+            &CheckPart::DirectMessage,
+            &associated_data,
+            "Direct message error: The payload was expected to be `None`, but contains a message",
+        )
+        .unwrap();
+    }
 }
