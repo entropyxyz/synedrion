@@ -466,7 +466,7 @@ impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize_boxed(P::SECURITY_BITS)
+            .finalize()
     }
 }
 

@@ -213,7 +213,7 @@ where
             .chain(&self.cap_a)
             .chain(&self.rho)
             .chain(&self.u)
-            .finalize_boxed(P::SECURITY_BITS)
+            .finalize()
     }
 }
 

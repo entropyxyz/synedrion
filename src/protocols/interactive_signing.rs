@@ -249,7 +249,7 @@ impl Epid {
                 .chain(&shared_randomness)
                 .chain(&associated_data.shares)
                 .chain(&associated_data.aux)
-                .finalize_boxed(P::SECURITY_BITS),
+                .finalize(),
         )
     }
 }

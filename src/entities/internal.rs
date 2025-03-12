@@ -18,7 +18,7 @@ impl Sid {
                 .chain_type::<P::Curve>()
                 .chain(&shared_randomness)
                 .chain(&ids)
-                .finalize_boxed(P::SECURITY_BITS),
+                .finalize(),
         )
     }
 }

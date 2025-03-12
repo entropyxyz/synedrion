@@ -61,11 +61,11 @@ impl<P: SchemeParams> Hasher<P> {
         self.0.finalize_xof()
     }
 
-    /// Finalizes into enough bytes to bring the collision probability under `2^(-security_bits)`.
-    pub fn finalize_boxed(self, security_bits: usize) -> HashOutput {
+    /// Finalizes into enough bytes to bring the collision probability to what's required by the scheme's security.
+    pub fn finalize(self) -> HashOutput {
         // A common heuristic for hashes is that the log2 of the collision probability is half the output size.
         // We may not have enough output bytes, but this constitutes the best effort.
-        HashOutput(self.0.finalize_xof().read_boxed((security_bits * 2).div_ceil(8)))
+        HashOutput(self.0.finalize_xof().read_boxed((P::SECURITY_BITS * 2).div_ceil(8)))
     }
 }
 
