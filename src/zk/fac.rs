@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
     params::SchemeParams,
-    tools::hashing::{Chain, Hashable, XofHasher},
+    tools::hashing::{Chain, Hashable, Hasher},
     uint::{HasWide, PublicSigned, SecretSigned},
 };
 
@@ -87,7 +87,7 @@ impl<P: SchemeParams> FacProof<P> {
         let cap_t = (&cap_q.pow(&alpha) * &setup.commit_zero_value(&r)).to_wire();
         let cap_q = cap_q.to_wire();
 
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_p)
             .chain(&cap_q)
@@ -131,7 +131,7 @@ impl<P: SchemeParams> FacProof<P> {
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
     ) -> bool {
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_p)
             .chain(&self.cap_q)

@@ -3,7 +3,8 @@ use alloc::boxed::Box;
 use digest::{ExtendableOutput, Update, XofReader};
 use hashing_serializer::HashingSerializer;
 use serde::Serialize;
-use sha3::{Shake256, Shake256Reader};
+
+use crate::params::SchemeParams;
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
@@ -32,9 +33,9 @@ pub trait Chain: Sized {
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
-pub struct XofHasher(Shake256);
+pub struct Hasher<P: SchemeParams>(P::Digest);
 
-impl Chain for XofHasher {
+impl<P: SchemeParams> Chain for Hasher<P> {
     fn as_digest_mut(&mut self) -> &mut impl Update {
         &mut self.0
     }
@@ -46,16 +47,16 @@ impl Chain for XofHasher {
     }
 }
 
-impl XofHasher {
+impl<P: SchemeParams> Hasher<P> {
     fn new() -> Self {
-        Self(Shake256::default())
+        Self(P::Digest::default())
     }
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
     }
 
-    pub fn finalize_to_reader(self) -> Shake256Reader {
+    pub fn finalize_to_reader(self) -> <P::Digest as ExtendableOutput>::Reader {
         self.0.finalize_xof()
     }
 

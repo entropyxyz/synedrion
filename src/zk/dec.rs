@@ -14,7 +14,7 @@ use crate::{
     },
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, Hashable, XofHasher},
+        hashing::{Chain, Hashable, Hasher},
     },
     uint::{PublicSigned, SecretSigned},
 };
@@ -139,7 +139,7 @@ impl<P: SchemeParams> DecProof<P> {
             })
             .unzip();
 
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&commitments)
             // public parameters
@@ -188,7 +188,7 @@ impl<P: SchemeParams> DecProof<P> {
     }
 
     pub fn verify(&self, public: DecPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.commitments)
             // public parameters

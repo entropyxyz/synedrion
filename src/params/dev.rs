@@ -6,6 +6,7 @@ use elliptic_curve::{
     Curve,
 };
 use serde::{Deserialize, Serialize};
+use sha3::Shake256;
 use tiny_curve::TinyCurve32;
 
 #[cfg(feature = "bip32")]
@@ -51,6 +52,7 @@ impl SchemeParams for TestParams {
     // TODO: ReprUint is typenum::U192 because of RustCrypto stack internals, hence the U384 here,
     // but once that is solved, this can be a U128 (or even smaller).
     type WideCurveUint = bigintv05::U384;
+    type Digest = Shake256;
     const SECURITY_BITS: usize = 16;
     const SECURITY_PARAMETER: usize = 32;
     const L_BOUND: u32 = 32;

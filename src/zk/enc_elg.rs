@@ -11,7 +11,7 @@ use crate::{
     },
     params::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed, SchemeParams},
     tools::{
-        hashing::{Chain, Hashable, XofHasher},
+        hashing::{Chain, Hashable, Hasher},
         Secret,
     },
     uint::{PublicSigned, SecretSigned},
@@ -86,7 +86,7 @@ impl<P: SchemeParams> EncElgProof<P> {
         let cap_z = beta.mul_by_generator();
         let cap_t = setup.commit(&alpha, &gamma).to_wire();
 
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_s)
             .chain(&cap_d)
@@ -134,7 +134,7 @@ impl<P: SchemeParams> EncElgProof<P> {
     ) -> bool {
         assert_eq!(public.cap_c.public_key(), public.pk0);
 
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_s)
             .chain(&self.cap_d)

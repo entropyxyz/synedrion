@@ -25,7 +25,7 @@ use crate::{
     params::SchemeParams,
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, Hasher},
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
         Secret,
     },
@@ -121,7 +121,7 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &KeyInitAssociatedData<Id>,
 ) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"KeyInit SID")
+    Hasher::<P>::new_with_dst(b"KeyInit SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
@@ -219,7 +219,7 @@ where
     P: SchemeParams,
 {
     pub(super) fn hash<Id: Serialize>(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        XofHasher::new_with_dst(b"KeyInit")
+        Hasher::<P>::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
             .chain(&self.cap_x)
