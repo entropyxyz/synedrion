@@ -1,3 +1,71 @@
-[workspace]
-members = ['synedrion']
-resolver = "2"
+[package]
+name = "synedrion"
+authors = ['Entropy Cryptography <engineering@entropy.xyz>']
+version = "0.3.0-dev"
+edition = "2021"
+rust-version = "1.83"
+license = "AGPL-3.0-or-later"
+description = "Threshold signing library based on Canetti-Gennaro-Goldfeder-Makriyannis-Peled '24 scheme"
+repository = "https://github.com/entropyxyz/synedrion"
+readme = "README.md"
+categories = ["cryptography", "no-std"]
+
+[dependencies]
+manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233" }
+signature = { version = "2", default-features = false }
+rand_core = { version = "0.6.4", default-features = false }
+sha3 = { version = "0.10", default-features = false }
+digest = { version = "0.10", default-features = false, features = ["alloc"] }
+hashing-serializer = { version = "0.1", default-features = false }
+secrecy = { version = "0.10", default-features = false }
+zeroize = { version = "1.8", default-features = false, features = ["zeroize_derive"] }
+tracing = { version = "0.1.41", default-features = false }
+rand_chacha = { version = "0.3", default-features = false }
+rand = { version = "0.8", default-features = false }
+elliptic-curve = { version = "0.13", default-features = false }
+ecdsa = { version = "0.16", default-features = false, features = ["signing", "verifying"] }
+
+# Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
+# to serialize Uints in human-readable formats.
+crypto-bigint = { version = "0.6", default-features = false, features = ["serde", "alloc", "rand_core", "zeroize"] }
+crypto-primes = { version = "0.6", default-features = false }
+
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde-encoded-bytes = { version = "0.1", default-features = false, features = ["hex", "base64"] }
+displaydoc = { version = "0.2", default-features = false }
+
+tiny-curve = { version = "0.2", optional = true, features = ["ecdsa"] }
+k256 = { version = "0.13", optional = true, default-features = false, features = ["ecdsa"] }
+bip32 = { version = "0.5", optional = true, default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233", features = [
+	"dev",
+] }
+serde_assert = "0.8"
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+rand = { version = "0.8", features = ["getrandom"] }
+criterion = "0.5"
+k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+tiny-curve = { version = "0.2", features = ["ecdsa"] }
+impls = "1"
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+test-log = { version = "0.2.16", default-features = false, features = ["trace", "color"] }
+
+[features]
+private-benches = ["k256"]
+k256 = ["dep:k256", "bip32?/secp256k1"]
+bip32 = ["dep:bip32", "tiny-curve?/bip32"]
+dev = ["tiny-curve"]
+
+[[bench]]
+bench = true
+name = "bench"
+harness = false
+required-features = ["dev"]
+
+[[bench]]
+bench = true
+name = "zk_proofs"
+harness = false
+required-features = ["private-benches"]
