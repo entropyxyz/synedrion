@@ -160,7 +160,7 @@ fn r2_hash_mismatch() {
             if round.id() == 1 {
                 // Send a wrong hash in the Round 1 message
                 let message = Round1EchoBroadcast {
-                    cap_v: Hasher::<P>::new_with_dst(b"bad hash").finalize_boxed(P::SECURITY_BITS),
+                    cap_v: Hasher::<P>::new_with_dst(b"bad hash").finalize(),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);

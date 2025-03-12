@@ -309,7 +309,7 @@ impl<P: SchemeParams> PublicData<P> {
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize_boxed(P::SECURITY_BITS)
+            .finalize()
     }
 }
 
