@@ -2,8 +2,10 @@ use alloc::boxed::Box;
 
 use digest::{ExtendableOutput, Update, XofReader};
 use hashing_serializer::HashingSerializer;
-use serde::Serialize;
-use sha3::{Shake256, Shake256Reader};
+use serde::{Deserialize, Serialize};
+use serde_encoded_bytes::{Hex, SliceLike};
+
+use crate::params::SchemeParams;
 
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
@@ -32,9 +34,9 @@ pub trait Chain: Sized {
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
-pub struct XofHasher(Shake256);
+pub struct Hasher<P: SchemeParams>(P::Digest);
 
-impl Chain for XofHasher {
+impl<P: SchemeParams> Chain for Hasher<P> {
     fn as_digest_mut(&mut self) -> &mut impl Update {
         &mut self.0
     }
@@ -46,26 +48,29 @@ impl Chain for XofHasher {
     }
 }
 
-impl XofHasher {
+impl<P: SchemeParams> Hasher<P> {
     fn new() -> Self {
-        Self(Shake256::default())
+        Self(P::Digest::default())
     }
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
     }
 
-    pub fn finalize_to_reader(self) -> Shake256Reader {
+    pub fn finalize_to_reader(self) -> <P::Digest as ExtendableOutput>::Reader {
         self.0.finalize_xof()
     }
 
-    /// Finalizes into enough bytes to bring the collision probability under `2^(-security_bits)`.
-    pub fn finalize_boxed(self, security_bits: usize) -> Box<[u8]> {
+    /// Finalizes into enough bytes to bring the collision probability to what's required by the scheme's security.
+    pub fn finalize(self) -> HashOutput {
         // A common heuristic for hashes is that the log2 of the collision probability is half the output size.
         // We may not have enough output bytes, but this constitutes the best effort.
-        self.0.finalize_xof().read_boxed((security_bits * 2).div_ceil(8))
+        HashOutput(self.0.finalize_xof().read_boxed((P::SECURITY_BITS * 2).div_ceil(8)))
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HashOutput(#[serde(with = "SliceLike::<Hex>")] Box<[u8]>);
 
 /// A trait allowing hashing of types without having access to their instances.
 pub trait HashableType {
