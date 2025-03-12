@@ -2,7 +2,8 @@ use alloc::boxed::Box;
 
 use digest::{ExtendableOutput, Update, XofReader};
 use hashing_serializer::HashingSerializer;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_encoded_bytes::{Hex, SliceLike};
 
 use crate::params::SchemeParams;
 
@@ -61,12 +62,15 @@ impl<P: SchemeParams> Hasher<P> {
     }
 
     /// Finalizes into enough bytes to bring the collision probability under `2^(-security_bits)`.
-    pub fn finalize_boxed(self, security_bits: usize) -> Box<[u8]> {
+    pub fn finalize_boxed(self, security_bits: usize) -> HashOutput {
         // A common heuristic for hashes is that the log2 of the collision probability is half the output size.
         // We may not have enough output bytes, but this constitutes the best effort.
-        self.0.finalize_xof().read_boxed((security_bits * 2).div_ceil(8))
+        HashOutput(self.0.finalize_xof().read_boxed((security_bits * 2).div_ceil(8)))
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HashOutput(#[serde(with = "SliceLike::<Hex>")] Box<[u8]>);
 
 /// A trait allowing hashing of types without having access to their instances.
 pub trait HashableType {
