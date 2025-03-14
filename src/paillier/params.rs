@@ -77,14 +77,13 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Retrieve<Output = Self::WideUint>
         + Zeroize;
 
-    fn are_self_consistent() -> bool {
-        Self::MODULUS_BITS == 2 * Self::PRIME_BITS
-            && Self::HalfUint::BITS >= Self::PRIME_BITS
-            && Self::Uint::BITS >= Self::MODULUS_BITS
-            && Self::Uint::BITS >= Self::HalfUint::BITS
-            && Self::WideUint::BITS >= Self::MODULUS_BITS * 2
-            && Self::WideUint::BITS >= Self::Uint::BITS
-    }
+    /// Evaluates to `true` if the associated constants and the sizes of associated types are self-consistent.
+    const SELF_CONSISTENT: bool = Self::MODULUS_BITS == 2 * Self::PRIME_BITS
+        && Self::HalfUint::BITS >= Self::PRIME_BITS
+        && Self::Uint::BITS >= Self::MODULUS_BITS
+        && Self::Uint::BITS >= Self::HalfUint::BITS
+        && Self::WideUint::BITS >= Self::MODULUS_BITS * 2
+        && Self::WideUint::BITS >= Self::Uint::BITS;
 }
 
 pub(crate) fn chain_paillier_params<P, C>(digest: C) -> C
