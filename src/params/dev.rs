@@ -99,10 +99,11 @@ impl SecretTweakable for SigningKey<<TestParams as SchemeParams>::Curve> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SchemeParams, TestParams};
+    use super::{PaillierParams, PaillierTest, SchemeParams, TestParams};
 
     #[test]
     fn parameter_consistency() {
+        assert!(PaillierTest::are_self_consistent());
         assert!(TestParams::are_self_consistent());
     }
 }
