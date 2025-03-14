@@ -33,8 +33,8 @@ pub fn decrypt<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mu
                 let sk = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
                 let pk = sk.public_key();
                 let m = SecretSigned::random_in_exponent_range(&mut rng, Params::LP_BOUND);
-                let r = Randomizer::random(&mut rng, &pk);
-                let ct = Ciphertext::new_with_randomizer(&pk, &m, &r);
+                let r = Randomizer::random(&mut rng, pk);
+                let ct = Ciphertext::new_with_randomizer(pk, &m, &r);
                 (ct, sk)
             },
             |(ct, sk)| black_box(Ciphertext::decrypt(&ct, &sk)),
