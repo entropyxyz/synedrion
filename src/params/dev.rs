@@ -1,6 +1,6 @@
 //! Parameters intended for testing, scaled down to small curve orders and integer sizes.
 
-use crypto_bigint::{modular::MontyForm, nlimbs, NonZero, U1024, U128, U256, U512};
+use crypto_bigint::{modular::MontyForm, nlimbs, NonZero, U128, U256, U512, U640};
 use elliptic_curve::{
     bigint::{self as bigintv05},
     Curve,
@@ -39,7 +39,7 @@ impl PaillierParams for PaillierTest {
     type UintMod = U256Mod;
     type WideUint = U512;
     type WideUintMod = U512Mod;
-    type ExtraWideUint = U1024;
+    type ExtraWideUint = U640;
 }
 
 /// Scheme parameters **for testing purposes only**.
