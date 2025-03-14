@@ -96,9 +96,9 @@ where
     /// Used in some ZK proofs.
     type ExtraWideUint: Bounded + ConditionallySelectable + Integer + RandomMod + BoxedEncoding + Zeroize;
 
-    /// Returns ``true`` if the parameters satisfy a set of inequalities
+    /// Evaluates to ``true`` if the parameters satisfy a set of inequalities
     /// required for them to be used for the CGGMP scheme.
-    fn are_self_consistent() -> bool {
+    const SELF_CONSISTENT: bool =
         // See Appendix C.1
         <Self::Curve as CurveArithmetic>::Scalar::NUM_BITS == Self::SECURITY_PARAMETER as u32
         && Self::L_BOUND >= Self::SECURITY_PARAMETER as u32
@@ -115,8 +115,7 @@ where
         // `< 2^(L + EPS + MODULUS_BITS * 2)`.
         // Therefore `ExtraWideUint::BITS` must fit `L + EPS + MODULUS_BITS * 2` bits,
         // and we make it strictly greater to accommodate 1 bit for the sign.
-        && Self::ExtraWideUint::BITS > Self::Paillier::MODULUS_BITS * 2 + Self::L_BOUND + Self::EPS_BOUND
-    }
+        && Self::ExtraWideUint::BITS > Self::Paillier::MODULUS_BITS * 2 + Self::L_BOUND + Self::EPS_BOUND;
 }
 
 pub(crate) fn chain_scheme_params<P, C>(digest: C) -> C
