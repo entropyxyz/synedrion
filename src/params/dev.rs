@@ -41,6 +41,8 @@ impl PaillierParams for PaillierTest {
     type WideUintMod = U512Mod;
 }
 
+static_assertions::const_assert!(PaillierTest::SELF_CONSISTENT);
+
 /// Scheme parameters **for testing purposes only**.
 /// Security is weakened to allow for faster execution.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
@@ -69,6 +71,8 @@ impl SchemeParams for TestParams {
             .expect("Correct by construction");
 }
 
+static_assertions::const_assert!(TestParams::SELF_CONSISTENT);
+
 #[cfg(feature = "bip32")]
 impl PublicTweakable for VerifyingKey<<TestParams as SchemeParams>::Curve> {
     type Bip32Pk = PublicKeyBip32<<TestParams as SchemeParams>::Curve>;
@@ -94,16 +98,5 @@ impl SecretTweakable for SigningKey<<TestParams as SchemeParams>::Curve> {
 
     fn key_from_tweakable_sk(sk: &Self::Bip32Sk) -> Self {
         SigningKey::from(sk.as_ref())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{PaillierParams, PaillierTest, SchemeParams, TestParams};
-
-    #[test]
-    fn parameter_consistency() {
-        assert!(PaillierTest::are_self_consistent());
-        assert!(TestParams::are_self_consistent());
     }
 }

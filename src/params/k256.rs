@@ -42,6 +42,8 @@ impl PaillierParams for PaillierProduction112 {
     type WideUintMod = U4096Mod;
 }
 
+static_assertions::const_assert!(PaillierProduction112::SELF_CONSISTENT);
+
 /// Production strength parameters.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct ProductionParams112;
@@ -67,6 +69,8 @@ impl SchemeParams for ProductionParams112 {
             .expect("Correct by construction");
 }
 
+static_assertions::const_assert!(ProductionParams112::SELF_CONSISTENT);
+
 #[cfg(feature = "bip32")]
 impl SecretTweakable for SigningKey<<ProductionParams112 as SchemeParams>::Curve> {
     type Bip32Sk = SigningKey<<ProductionParams112 as SchemeParams>::Curve>;
@@ -88,16 +92,5 @@ impl PublicTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Cur
     }
     fn key_from_tweakable_pk(pk: &Self::Bip32Pk) -> Self {
         *pk
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{PaillierParams, PaillierProduction112, ProductionParams112, SchemeParams};
-
-    #[test]
-    fn parameter_consistency() {
-        assert!(PaillierProduction112::are_self_consistent());
-        assert!(ProductionParams112::are_self_consistent());
     }
 }
