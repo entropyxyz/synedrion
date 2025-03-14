@@ -6,10 +6,7 @@ use crypto_bigint::{
 use crypto_primes::RandomPrimeWithRng;
 use zeroize::Zeroize;
 
-use crate::{
-    tools::hashing::Hashable,
-    uint::{BoxedEncoding, Extendable, MulWide},
-};
+use crate::uint::{BoxedEncoding, Extendable, MulWide};
 
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.
@@ -41,7 +38,6 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Gcd<Output = Self::Uint>
         + ConditionallySelectable
         + ConstantTimeGreater
-        + Hashable
         + MulWide<Self::Uint, Self::WideUint>
         + Extendable<Self::WideUint>
         + InvMod<Output = Self::Uint>
@@ -65,7 +61,6 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     type WideUint: Integer<Monty = Self::WideUintMod>
         + Bounded
         + ConditionallySelectable
-        + Hashable
         + MulWide<Self::WideUint, Self::ExtraWideUint>
         + Extendable<Self::ExtraWideUint>
         + RandomMod
@@ -87,5 +82,5 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     // Technically, it doesn't have to be that large, but the time spent multiplying these
     // is negligible, and when it is used as an exponent, it is bounded anyway.
     // So it is easier to keep it as a double of `WideUint`.
-    type ExtraWideUint: Bounded + ConditionallySelectable + Hashable + Integer + RandomMod + BoxedEncoding + Zeroize;
+    type ExtraWideUint: Bounded + ConditionallySelectable + Integer + RandomMod + BoxedEncoding + Zeroize;
 }
