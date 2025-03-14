@@ -220,26 +220,6 @@ where
         )
         .expect("the new bound is valid since the sum of the constituent bounds fits in a `T::Wide`")
     }
-
-    /// Multiplies two numbers and returns a new [`SecretSigned`] of twice the bit-width.
-    pub fn mul_wide<R, W>(&self, rhs: &SecretSigned<R>) -> SecretSigned<W>
-    where
-        T: MulWide<R, W>,
-        R: Zeroize + Integer + Bounded + ConditionallySelectable,
-        W: Zeroize + Integer + Bounded + ConditionallySelectable,
-    {
-        let abs_value = Secret::init_with(|| {
-            self.abs_value()
-                .expose_secret()
-                .mul_wide(rhs.abs_value().expose_secret())
-        });
-        SecretSigned::new_from_abs(
-            abs_value,
-            self.bound() + rhs.bound(),
-            self.is_negative() ^ rhs.is_negative(),
-        )
-        .expect("the new bound is valid since the sum of the constituent bounds fits in a `T::Wide`")
-    }
 }
 
 impl<T> CheckedAdd<SecretSigned<T>> for SecretSigned<T>

@@ -6,7 +6,7 @@ use core::fmt::Debug;
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{modular::MontyForm, nlimbs, NonZero, U1024, U2048, U4096, U8192};
+use crypto_bigint::{modular::MontyForm, nlimbs, NonZero, Uint, U1024, U2048, U4096};
 use elliptic_curve::{
     bigint::{self as bigintv05},
     Curve,
@@ -40,7 +40,7 @@ impl PaillierParams for PaillierProduction112 {
     type UintMod = U2048Mod;
     type WideUint = U4096;
     type WideUintMod = U4096Mod;
-    type ExtraWideUint = U8192;
+    type ExtraWideUint = Uint<{ nlimbs!(5120) }>;
 }
 
 /// Production strength parameters.
