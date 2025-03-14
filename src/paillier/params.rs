@@ -76,6 +76,15 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Invert<Output = CtOption<Self::WideUintMod>>
         + Retrieve<Output = Self::WideUint>
         + Zeroize;
+
+    fn are_self_consistent() -> bool {
+        Self::MODULUS_BITS == 2 * Self::PRIME_BITS
+            && Self::HalfUint::BITS >= Self::PRIME_BITS
+            && Self::Uint::BITS >= Self::MODULUS_BITS
+            && Self::Uint::BITS >= Self::HalfUint::BITS
+            && Self::WideUint::BITS >= Self::MODULUS_BITS * 2
+            && Self::WideUint::BITS >= Self::Uint::BITS
+    }
 }
 
 pub(crate) fn chain_paillier_params<P, C>(digest: C) -> C

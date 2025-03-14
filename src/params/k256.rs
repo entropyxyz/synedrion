@@ -93,10 +93,11 @@ impl PublicTweakable for VerifyingKey<<ProductionParams112 as SchemeParams>::Cur
 
 #[cfg(test)]
 mod tests {
-    use super::{ProductionParams112, SchemeParams};
+    use super::{PaillierParams, PaillierProduction112, ProductionParams112, SchemeParams};
 
     #[test]
     fn parameter_consistency() {
+        assert!(PaillierProduction112::are_self_consistent());
         assert!(ProductionParams112::are_self_consistent());
     }
 }
