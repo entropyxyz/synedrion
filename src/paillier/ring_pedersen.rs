@@ -1,7 +1,7 @@
 /// Implements the Definition 3.3 from the CGGMP'21 paper and related operations.
 use core::ops::Mul;
 
-use crypto_bigint::{modular::Retrieve, Monty, NonZero, RandomMod, ShrVartime};
+use crypto_bigint::{modular::Retrieve, Integer, Monty, NonZero, RandomMod, ShrVartime};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -77,10 +77,10 @@ pub(crate) struct RPParams<P: PaillierParams> {
     /// The public modulus $\hat{N}$
     modulus: PublicModulus<P>,
     /// The ring-Pedersen base for randomizer exponentiation.
-    base_randomizer: P::UintMod, // $t$
+    base_randomizer: <P::Uint as Integer>::Monty, // $t$
     /// The ring-Pedersen base for secret exponentiation
     /// (a number belonging to the group produced by the randomizer base).
-    base_value: P::UintMod, // $s = t^\lambda$, where $\lambda$ is the secret
+    base_value: <P::Uint as Integer>::Monty, // $s = t^\lambda$, where $\lambda$ is the secret
 }
 
 impl<P: PaillierParams> RPParams<P> {
@@ -108,11 +108,11 @@ impl<P: PaillierParams> RPParams<P> {
         }
     }
 
-    pub fn base_randomizer(&self) -> &P::UintMod {
+    pub fn base_randomizer(&self) -> &<P::Uint as Integer>::Monty {
         &self.base_randomizer
     }
 
-    pub fn base_value(&self) -> &P::UintMod {
+    pub fn base_value(&self) -> &<P::Uint as Integer>::Monty {
         &self.base_value
     }
 
@@ -120,14 +120,14 @@ impl<P: PaillierParams> RPParams<P> {
         self.modulus.modulus()
     }
 
-    pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
+    pub fn monty_params_mod_n(&self) -> &<<P::Uint as Integer>::Monty as Monty>::Params {
         self.modulus.monty_params_mod_n()
     }
 
     /// Creates a commitment for a secret `value` with a secret `randomizer`.
     pub fn commit<V, R>(&self, value: &V, randomizer: &R) -> RPCommitment<P>
     where
-        P::UintMod: Exponentiable<V> + Exponentiable<R>,
+        <P::Uint as Integer>::Monty: Exponentiable<V> + Exponentiable<R>,
     {
         RPCommitment(self.base_value.pow(value) * self.base_randomizer.pow(randomizer))
     }
@@ -135,7 +135,7 @@ impl<P: PaillierParams> RPParams<P> {
     /// Creates a commitment for a secret `randomizer` and the value 0.
     pub fn commit_zero_value<R>(&self, randomizer: &R) -> RPCommitment<P>
     where
-        P::UintMod: Exponentiable<R>,
+        <P::Uint as Integer>::Monty: Exponentiable<R>,
     {
         RPCommitment(self.base_randomizer.pow(randomizer))
     }
@@ -143,7 +143,7 @@ impl<P: PaillierParams> RPParams<P> {
     /// Creates a commitment for a secret `randomizer` and the value 0.
     pub fn commit_zero_randomizer<R>(&self, value: &R) -> RPCommitment<P>
     where
-        P::UintMod: Exponentiable<R>,
+        <P::Uint as Integer>::Monty: Exponentiable<R>,
     {
         RPCommitment(self.base_value.pow(value))
     }
@@ -189,7 +189,7 @@ impl<P: PaillierParams> RPParamsWire<P> {
 }
 
 #[derive(PartialEq, Eq)]
-pub(crate) struct RPCommitment<P: PaillierParams>(P::UintMod);
+pub(crate) struct RPCommitment<P: PaillierParams>(<P::Uint as Integer>::Monty);
 
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_wire(&self) -> RPCommitmentWire<P> {
@@ -199,7 +199,7 @@ impl<P: PaillierParams> RPCommitment<P> {
     /// Raise to the power of `exponent`.
     pub fn pow<V>(&self, exponent: &V) -> Self
     where
-        P::UintMod: Exponentiable<V>,
+        <P::Uint as Integer>::Monty: Exponentiable<V>,
     {
         Self(self.0.pow(exponent))
     }
