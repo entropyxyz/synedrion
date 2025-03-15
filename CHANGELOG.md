@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a `Digest` type to `SchemeParams`. ([#204])
 - Removed `HasWide` requirement from `PaillierParams` types, in favor of `Extendable` and `MulWide` with blanket impl for all `Uint`s. ([#205])
 - Removed `Encoding`, `Serialize`, and `Deserialize` requirement from `PaillierParams` types, in favor of `BoxedEncoding` with blanket impl for all `Uint`s. ([#205])
+- `ExtraWideUint` type moved from `PaillerParams` to `SchemeParams`. ([#205])
 
 
 [#156]: https://github.com/entropyxyz/synedrion/pull/156

@@ -4,7 +4,7 @@ use core::{fmt::Debug, ops::Add};
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::NonZero;
+use crypto_bigint::{subtle::ConditionallySelectable, Bounded, Integer, NonZero, PowBoundedExp, RandomMod};
 use digest::{ExtendableOutput, Update};
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use elliptic_curve::{
@@ -15,11 +15,13 @@ use elliptic_curve::{
     Curve, CurveArithmetic, PrimeCurve, PrimeField,
 };
 use serde::Serialize;
+use zeroize::Zeroize;
 
 use crate::{
     curve::chain_curve,
     paillier::{chain_paillier_params, PaillierParams},
     tools::hashing::Chain,
+    uint::{BoxedEncoding, Extendable},
 };
 
 #[cfg(any(test, feature = "k256", feature = "dev"))]
@@ -85,13 +87,20 @@ where
     /// Note: `PaillierParams::Uint` must be able to contain the full range of `Scalar` values
     /// plus one bit (so that any curve scalar still represents a positive value
     /// when treated as a 2-complement signed integer).
-    type Paillier: PaillierParams;
+    type Paillier: PaillierParams<
+        WideUint: Extendable<Self::ExtraWideUint>,
+        UintMod: PowBoundedExp<Self::ExtraWideUint>,
+    >;
+
+    /// An integer that fits the squared RSA modulus times a small factor.
+    /// Used in some ZK proofs.
+    type ExtraWideUint: Bounded + ConditionallySelectable + Integer + RandomMod + BoxedEncoding + Zeroize;
 
     /// Returns ``true`` if the parameters satisfy a set of inequalities
     /// required for them to be used for the CGGMP scheme.
     fn are_self_consistent() -> bool {
         // See Appendix C.1
-        <<Self::Curve as CurveArithmetic>::Scalar as PrimeField>::NUM_BITS == Self::SECURITY_PARAMETER as u32
+        <Self::Curve as CurveArithmetic>::Scalar::NUM_BITS == Self::SECURITY_PARAMETER as u32
         && Self::L_BOUND >= Self::SECURITY_PARAMETER as u32
         && Self::EPS_BOUND >= Self::L_BOUND + Self::SECURITY_PARAMETER as u32
         && Self::LP_BOUND >= Self::L_BOUND * 3 + Self::EPS_BOUND
@@ -100,6 +109,13 @@ where
         // (it says $\approx$, not $=$, but it is not clear how approximately this should hold,
         // so to be on the safe side we require equality).
         && Self::L_BOUND * 2 + Self::EPS_BOUND == Self::Paillier::PRIME_BITS
+        // Make sure the calculations in `П^{fac}` fit into `ExtraWideUint`
+        // In that proof, we are sampling a random in range `∈ ±2^(L + EPS) * N^2`
+        // and adding a much smaller number to it, so the absolute value of the result is
+        // `< 2^(L + EPS + MODULUS_BITS * 2)`.
+        // Therefore `ExtraWideUint::BITS` must fit `L + EPS + MODULUS_BITS * 2` bits,
+        // and we make it strictly greater to accommodate 1 bit for the sign.
+        && Self::ExtraWideUint::BITS > Self::Paillier::MODULUS_BITS * 2 + Self::L_BOUND + Self::EPS_BOUND
     }
 }
 

@@ -40,7 +40,6 @@ impl PaillierParams for PaillierProduction112 {
     type UintMod = U2048Mod;
     type WideUint = U4096;
     type WideUintMod = U4096Mod;
-    type ExtraWideUint = Uint<{ nlimbs!(5120) }>;
 }
 
 /// Production strength parameters.
@@ -57,6 +56,7 @@ impl SchemeParams for ProductionParams112 {
     const EPS_BOUND: u32 = Self::L_BOUND * 2;
     const LP_BOUND: u32 = Self::L_BOUND * 5;
     type Paillier = PaillierProduction112;
+    type ExtraWideUint = Uint<{ nlimbs!(5120) }>;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
         convert_uint(upcast_uint(Self::Curve::ORDER))
             .to_nz()
