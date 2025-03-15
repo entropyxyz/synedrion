@@ -11,7 +11,8 @@ use super::params::PaillierParams;
 use crate::{
     tools::Secret,
     uint::{
-        Extendable, FromXofReader, IsInvertible, MulWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery,
+        Extendable, FromXofReader, IsInvertible, MulWide, PublicSigned, PublicUint, SecretSigned, SecretUnsigned,
+        ToMontgomery,
     },
 };
 
@@ -225,12 +226,12 @@ impl<P: PaillierParams> SecretPrimes<P> {
 /// The minimized structure containing the public RSA modulus.
 ///
 /// Suitable for serialization or transmission.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct PublicModulusWire<P: PaillierParams>(P::Uint);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PublicModulusWire<P: PaillierParams>(PublicUint<P::Uint>);
 
 impl<P: PaillierParams> PublicModulusWire<P> {
     fn new(primes: &SecretPrimesWire<P>) -> Self {
-        Self(primes.p.expose_secret().mul_wide(primes.q.expose_secret()))
+        Self(primes.p.expose_secret().mul_wide(primes.q.expose_secret()).into())
     }
 
     pub fn modulus(&self) -> &P::Uint {
@@ -261,7 +262,7 @@ impl<P: PaillierParams> Eq for PublicModulus<P> {}
 
 impl<P: PaillierParams> PublicModulus<P> {
     pub fn new(modulus: PublicModulusWire<P>) -> Self {
-        let odd_modulus = Odd::new(modulus.0).expect("the RSA modulus is odd");
+        let odd_modulus = Odd::new(modulus.0.clone().inner()).expect("the RSA modulus is odd");
         let monty_params_mod_n = P::UintMod::new_params_vartime(odd_modulus);
         Self {
             modulus,
@@ -278,7 +279,7 @@ impl<P: PaillierParams> PublicModulus<P> {
     }
 
     pub fn modulus_nonzero(&self) -> NonZero<P::Uint> {
-        NonZero::new(self.modulus.0).expect("the modulus is non-zero")
+        NonZero::new(self.modulus.0.clone().inner()).expect("the modulus is non-zero")
     }
 
     pub fn modulus_signed(&self) -> PublicSigned<P::WideUint> {

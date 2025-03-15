@@ -286,7 +286,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicModulusWire<P>: Serialize"))]
 #[serde(bound(deserialize = "for<'x> PublicModulusWire<P>: Deserialize<'x>"))]
 pub(crate) struct PublicKeyPaillierWire<P: PaillierParams> {
@@ -447,9 +447,9 @@ mod tests {
                 len: 2,
             },
             Token::Field("p"),
-            Token::Str("03e91c6b6f3a29a048826fa4cf85f8fa".to_string()),
+            Token::Str("0xfaf885cfa46f8248a0293a6f6b1ce903".to_string()),
             Token::Field("q"),
-            Token::Str("afb93af2508fc289c196078937d9d8e6".to_string()),
+            Token::Str("0xe6d8d937890796c189c28f50f23ab9af".to_string()),
             Token::StructEnd,
             Token::StructEnd,
         ];

@@ -1,4 +1,4 @@
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use core::ops::{Add, Mul, Neg, Rem, Sub};
 
 use digest::XofReader;
@@ -28,6 +28,7 @@ use crate::{
         hashing::{Chain, HashableType},
         Secret,
     },
+    uint::BoxedEncoding,
 };
 
 impl<C> HashableType for C
@@ -202,6 +203,19 @@ where
         Self(<P::Curve as CurveArithmetic>::Scalar::conditional_select(
             &a.0, &b.0, choice,
         ))
+    }
+}
+
+impl<P> BoxedEncoding for Scalar<P>
+where
+    P: SchemeParams,
+{
+    fn to_be_bytes(&self) -> Box<[u8]> {
+        (*self).to_be_bytes().as_ref().into()
+    }
+
+    fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
+        Self::try_from_be_bytes(bytes)
     }
 }
 
