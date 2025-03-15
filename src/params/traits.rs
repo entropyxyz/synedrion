@@ -83,10 +83,6 @@ where
     /// The error bound for range checks (referred to in the paper as the slackness parameter).
     const EPS_BOUND: u32; // $\eps$, in paper $= 2 \ell$ (see Table 2)
     /// The parameters of the Paillier encryption.
-    ///
-    /// Note: `PaillierParams::Uint` must be able to contain the full range of `Scalar` values
-    /// plus one bit (so that any curve scalar still represents a positive value
-    /// when treated as a 2-complement signed integer).
     type Paillier: PaillierParams<
         WideUint: Extendable<Self::ExtraWideUint>,
         Uint: Integer<Monty: PowBoundedExp<Self::ExtraWideUint>>,
