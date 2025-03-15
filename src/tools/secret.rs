@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use core::{
     fmt::Debug,
     ops::{Add, AddAssign, Div, DivAssign, Mul, Neg, Rem, RemAssign, Sub},
@@ -9,13 +10,14 @@ use crypto_bigint::{
     Integer, Monty, NonZero, WrappingAdd, WrappingMul, WrappingNeg, WrappingSub,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde_encoded_bytes::{Hex, SliceLike};
 use zeroize::Zeroize;
 
 use crate::{
     curve::{Point, Scalar},
     params::SchemeParams,
-    uint::{Exponentiable, Extendable},
+    uint::{BoxedEncoding, Exponentiable, Extendable},
 };
 
 /// A helper wrapper for managing secret values.
@@ -67,19 +69,22 @@ where
 
 impl<T> Serialize for Secret<T>
 where
-    T: Zeroize + Serialize,
+    T: Zeroize + BoxedEncoding,
 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.expose_secret().serialize(serializer)
+        let bytes = SecretBox::<[u8]>::from(self.0.expose_secret().to_be_bytes());
+        SliceLike::<Hex>::serialize(&bytes.expose_secret(), serializer)
     }
 }
 
 impl<'de, T> Deserialize<'de> for Secret<T>
 where
-    T: Zeroize + Clone + Deserialize<'de>,
+    T: Zeroize + Clone + BoxedEncoding,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::try_init_with(|| T::deserialize(deserializer))
+        let bytes: Box<[u8]> = SliceLike::<Hex>::deserialize(deserializer)?;
+        let bytes = SecretBox::<[u8]>::from(bytes);
+        Self::try_init_with(|| T::try_from_be_bytes(bytes.expose_secret())).map_err(D::Error::custom)
     }
 }
 

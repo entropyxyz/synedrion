@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Exponentiable, SecretUnsigned, ToMontgomery},
+    uint::{Exponentiable, PublicUint, SecretUnsigned, ToMontgomery},
 };
 
 /// Ring-Pedersen secret.
@@ -151,8 +151,8 @@ impl<P: PaillierParams> RPParams<P> {
     pub fn to_wire(&self) -> RPParamsWire<P> {
         RPParamsWire {
             modulus: self.modulus.to_wire(),
-            base_randomizer: self.base_randomizer.retrieve(),
-            base_value: self.base_value.retrieve(),
+            base_randomizer: self.base_randomizer.retrieve().into(),
+            base_value: self.base_value.retrieve().into(),
         }
     }
 }
@@ -165,10 +165,10 @@ pub(crate) struct RPParamsWire<P: PaillierParams> {
     /// The public modulus $\hat{N}$
     modulus: PublicModulusWire<P>,
     /// The ring-Pedersen base for randomizer exponentiation.
-    base_randomizer: P::Uint, // $t$
+    base_randomizer: PublicUint<P::Uint>, // $t$
     /// The ring-Pedersen base for secret exponentiation
     /// (a number belonging to the group produced by the randomizer base).
-    base_value: P::Uint, // $s = t^\lambda$, where $\lambda$ is the secret
+    base_value: PublicUint<P::Uint>, // $s = t^\lambda$, where $\lambda$ is the secret
 }
 
 impl<P: PaillierParams> RPParamsWire<P> {
@@ -193,7 +193,7 @@ pub(crate) struct RPCommitment<P: PaillierParams>(P::UintMod);
 
 impl<P: PaillierParams> RPCommitment<P> {
     pub fn to_wire(&self) -> RPCommitmentWire<P> {
-        RPCommitmentWire(self.0.retrieve())
+        RPCommitmentWire(self.0.retrieve().into())
     }
 
     /// Raise to the power of `exponent`.
@@ -213,7 +213,7 @@ impl<'a, P: PaillierParams> Mul<&'a RPCommitment<P>> for &'a RPCommitment<P> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct RPCommitmentWire<P: PaillierParams>(P::Uint);
+pub(crate) struct RPCommitmentWire<P: PaillierParams>(PublicUint<P::Uint>);
 
 impl<P: PaillierParams> RPCommitmentWire<P> {
     pub fn to_precomputed(&self, params: &RPParams<P>) -> RPCommitment<P> {

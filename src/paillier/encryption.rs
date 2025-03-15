@@ -17,12 +17,12 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Exponentiable, Extendable, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    uint::{Exponentiable, Extendable, PublicSigned, PublicUint, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 /// A public randomizer-like quantity used in ZK proofs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct MaskedRandomizer<P: PaillierParams>(P::Uint);
+pub(crate) struct MaskedRandomizer<P: PaillierParams>(PublicUint<P::Uint>);
 
 /// A ciphertext randomizer (an invertible element of $\mathbb{Z}_N$).
 #[derive(Debug, Clone)]
@@ -60,7 +60,8 @@ impl<P: PaillierParams> Randomizer<P> {
         MaskedRandomizer(
             (self.randomizer_mod.pow(exponent) * &coeff.randomizer_mod)
                 .expose_secret()
-                .retrieve(),
+                .retrieve()
+                .into(),
         )
     }
 }
@@ -68,7 +69,7 @@ impl<P: PaillierParams> Randomizer<P> {
 /// Paillier ciphertext.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct CiphertextWire<P: PaillierParams> {
-    ciphertext: P::WideUint,
+    ciphertext: PublicUint<P::WideUint>,
     phantom: PhantomData<P>,
 }
 
@@ -311,7 +312,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     pub fn to_wire(&self) -> CiphertextWire<P> {
         CiphertextWire {
-            ciphertext: self.ciphertext.retrieve(),
+            ciphertext: self.ciphertext.retrieve().into(),
             phantom: PhantomData,
         }
     }

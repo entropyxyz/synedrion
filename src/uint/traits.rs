@@ -1,6 +1,8 @@
+use alloc::{boxed::Box, format, string::String, vec};
+
 use crypto_bigint::{
     subtle::{ConditionallySelectable, CtOption},
-    Bounded, Encoding, Gcd, Integer, Invert, Monty, PowBoundedExp, Uint,
+    Bounded, Encoding, Gcd, Integer, Invert, Limb, Monty, PowBoundedExp, Uint,
 };
 use digest::XofReader;
 use zeroize::Zeroize;
@@ -17,7 +19,7 @@ pub(crate) trait FromXofReader {
 
 impl<T> FromXofReader for T
 where
-    T: Integer + Bounded + Encoding,
+    T: Integer + Bounded + BoxedEncoding,
 {
     fn from_xof_reader(reader: &mut impl XofReader, n_bits: u32) -> Self {
         assert!(n_bits <= Self::BITS);
@@ -31,17 +33,16 @@ where
             u8::MAX
         };
 
-        let mut bytes = Self::zero().to_le_bytes();
-        let buf = bytes
-            .as_mut()
-            .get_mut(0..n_bytes)
-            .expect("`n_bytes` does not exceed `Self::BYTES` (following from the assertion for `n_bits`)");
+        let mut bytes = vec![0u8; T::BYTES];
+        let buf = AsMut::<[u8]>::as_mut(&mut bytes)
+            .get_mut(T::BYTES - n_bytes..)
+            .expect("`n_bytes` does not exceed `T::BYTES` (following from the assertion for `n_bits`)");
         reader.read(buf);
-        bytes.as_mut().last_mut().map(|byte| {
+        buf.first_mut().map(|byte| {
             *byte &= mask;
             Some(byte)
         });
-        Self::from_le_bytes(bytes)
+        Self::try_from_be_bytes(&bytes).expect("`bytes` lenth is equal to `T::BYTES`")
     }
 }
 
@@ -180,5 +181,34 @@ impl<const L: usize, const R: usize, const W: usize> MulWide<Uint<R>, Uint<W>> f
         result.as_limbs_mut()[0..L].copy_from_slice(lo.as_limbs());
         result.as_limbs_mut()[L..W].copy_from_slice(hi.as_limbs());
         result
+    }
+}
+
+pub trait BoxedEncoding: Sized {
+    fn to_be_bytes(&self) -> Box<[u8]>;
+    fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String>;
+}
+
+impl<const L: usize> BoxedEncoding for Uint<L> {
+    fn to_be_bytes(&self) -> Box<[u8]> {
+        let mut result = vec![0u8; Self::BYTES];
+        // SAFETY:
+        // - `rchunks_mut` will not panic as long as `Self::BYTES` is a multiple of `Limb::BYTES`
+        // - `copy_from_slice` will not panic as long as `Limb::to_be_bytes()` returns an array of size `Limb::BYTES`
+        for (limb, chunk) in self.as_limbs().iter().zip(result.rchunks_mut(Limb::BYTES)) {
+            chunk.copy_from_slice(&limb.to_be_bytes());
+        }
+        result.into()
+    }
+
+    fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() != Self::BYTES {
+            return Err(format!(
+                "Invalid slice length: {}, expected {}",
+                bytes.len(),
+                Self::BYTES
+            ));
+        }
+        Ok(Self::from_be_slice(bytes))
     }
 }

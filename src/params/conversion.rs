@@ -1,12 +1,13 @@
-use crypto_bigint::{BitOps, Encoding, Zero};
+use crypto_bigint::{BitOps, Zero};
 use elliptic_curve::{CurveArithmetic, PrimeField};
+use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 
 use super::traits::SchemeParams;
 use crate::{
     curve::Scalar,
     paillier::PaillierParams,
     tools::Secret,
-    uint::{Extendable, PublicSigned, SecretSigned},
+    uint::{BoxedEncoding, Extendable, PublicSigned, SecretSigned},
 };
 
 fn uint_from_scalar<P: SchemeParams>(value: &Scalar<P>) -> <P::Paillier as PaillierParams>::Uint {
@@ -20,7 +21,7 @@ fn uint_from_scalar<P: SchemeParams>(value: &Scalar<P>) -> <P::Paillier as Paill
         .get_mut(uint_len - scalar_len..)
         .expect("PaillierParams::Uint is expected to be bigger than a Scalar")
         .copy_from_slice(&scalar_bytes);
-    <P::Paillier as PaillierParams>::Uint::from_be_bytes(repr)
+    <P::Paillier as PaillierParams>::Uint::try_from_be_bytes(&repr).expect("`repr` has the correct length")
 }
 
 /// Converts a [`Scalar`] to a [`PublicSigned`].
@@ -82,7 +83,7 @@ fn secret_scalar_from_wide_uint<P: SchemeParams>(
 ) -> Secret<Scalar<P>> {
     let r = value % &P::CURVE_ORDER_WIDE;
 
-    let repr = Secret::init_with(|| r.expose_secret().to_be_bytes());
+    let repr = SecretBox::<[u8]>::from(r.expose_secret().to_be_bytes());
     let uint_len = repr.expose_secret().as_ref().len();
     let scalar_len = Scalar::<P>::repr_len();
 
@@ -101,8 +102,8 @@ fn secret_scalar_from_wide_uint<P: SchemeParams>(
 fn secret_uint_from_scalar<P: SchemeParams>(
     value: &Secret<Scalar<P>>,
 ) -> Secret<<P::Paillier as PaillierParams>::Uint> {
-    let scalar_bytes = Secret::init_with(|| value.expose_secret().to_be_bytes());
-    let mut repr = Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::zero().to_be_bytes());
+    let scalar_bytes = SecretBox::<[u8]>::from(value.expose_secret().to_be_bytes());
+    let mut repr = SecretBox::<[u8]>::from(<P::Paillier as PaillierParams>::Uint::zero().to_be_bytes());
 
     let uint_len = repr.expose_secret().as_ref().len();
     let scalar_len = scalar_bytes.expose_secret().len();
@@ -113,7 +114,8 @@ fn secret_uint_from_scalar<P: SchemeParams>(
         .get_mut(uint_len - scalar_len..)
         .expect("<P::Paillier as PaillierParams>::Uint is assumed to be configured to be bigger than Scalar")
         .copy_from_slice(scalar_bytes.expose_secret());
-    Secret::init_with(|| <P::Paillier as PaillierParams>::Uint::from_be_bytes(*repr.expose_secret()))
+    Secret::try_init_with(|| <P::Paillier as PaillierParams>::Uint::try_from_be_bytes(repr.expose_secret()))
+        .expect("`repr` has the correct length")
 }
 
 /// Converts a secret-wrapped [`Scalar`] to a [`SecretSigned`].
