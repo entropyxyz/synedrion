@@ -54,8 +54,8 @@ test-log = { version = "0.2.16", default-features = false, features = ["trace", 
 sha3 = { version = "0.10", default-features = false }
 
 [features]
-private-benches = ["k256", "dep:criterion"]
-k256 = ["dep:k256", "bip32?/secp256k1", "sha3"]
+private-benches = ["k256", "criterion"]
+k256 = ["dep:k256", "bip32?/secp256k1", "sha3", "crypto-bigint/extra-sizes"]
 bip32 = ["dep:bip32", "tiny-curve?/bip32"]
 dev = ["tiny-curve", "sha3"]
 

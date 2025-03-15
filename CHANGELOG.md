@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a `Digest` type to `SchemeParams`. ([#204])
 
 
+### Added
+
+- 128-bit production parameters for Secp256k1 (`k256::ProductionParams128`). ([#205])
+
+
 [#156]: https://github.com/entropyxyz/synedrion/pull/156
 [#170]: https://github.com/entropyxyz/synedrion/pull/170
 [#176]: https://github.com/entropyxyz/synedrion/pull/176
