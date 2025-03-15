@@ -50,7 +50,6 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     type UintMod: ConditionallySelectable
         + PowBoundedExp<Self::Uint>
         + PowBoundedExp<Self::WideUint>
-        + PowBoundedExp<Self::ExtraWideUint>
         + Monty<Integer = Self::Uint>
         + Retrieve<Output = Self::Uint>
         + Invert<Output = CtOption<Self::UintMod>>
@@ -61,8 +60,6 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     type WideUint: Integer<Monty = Self::WideUintMod>
         + Bounded
         + ConditionallySelectable
-        + MulWide<Self::WideUint, Self::ExtraWideUint>
-        + Extendable<Self::ExtraWideUint>
         + RandomMod
         + BoxedEncoding
         + Zeroize;
@@ -76,11 +73,4 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Invert<Output = CtOption<Self::WideUintMod>>
         + Retrieve<Output = Self::WideUint>
         + Zeroize;
-
-    /// An integer that fits the squared RSA modulus times a small factor.
-    /// Used in some ZK proofs.
-    // Technically, it doesn't have to be that large, but the time spent multiplying these
-    // is negligible, and when it is used as an exponent, it is bounded anyway.
-    // So it is easier to keep it as a double of `WideUint`.
-    type ExtraWideUint: Bounded + ConditionallySelectable + Integer + RandomMod + BoxedEncoding + Zeroize;
 }
