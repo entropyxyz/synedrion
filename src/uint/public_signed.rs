@@ -1,12 +1,12 @@
 use alloc::{boxed::Box, format, string::String};
 use core::ops::Neg;
 
-use crypto_bigint::{Bounded, Encoding, Integer};
+use crypto_bigint::{Bounded, Integer};
 use digest::XofReader;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use super::{FromXofReader, HasWide};
+use super::{BoxedEncoding, Extendable, FromXofReader};
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound set much lower than the full size of the integer,
@@ -22,7 +22,7 @@ struct PackedSigned {
 
 impl<T> From<PublicSigned<T>> for PackedSigned
 where
-    T: Integer + Encoding + Bounded,
+    T: Integer + BoxedEncoding + Bounded,
 {
     fn from(val: PublicSigned<T>) -> Self {
         let repr = val.abs().to_be_bytes();
@@ -41,7 +41,7 @@ where
 
 impl<T> TryFrom<PackedSigned> for PublicSigned<T>
 where
-    T: Integer + Encoding + Bounded,
+    T: Integer + BoxedEncoding + Bounded,
 {
     type Error = String;
     fn try_from(val: PackedSigned) -> Result<Self, Self::Error> {
@@ -60,7 +60,7 @@ where
             .get_mut((repr_len - bytes_len)..)
             .expect("Just checked that val's data all fit in a T")
             .copy_from_slice(&val.abs_bytes);
-        let abs_value = T::from_be_bytes(repr);
+        let abs_value = T::try_from_be_bytes(&repr).expect("`repr` has the correct length");
 
         Self::new_from_abs(abs_value, val.bound, val.is_negative)
             .ok_or_else(|| "Invalid values for the signed integer".into())
@@ -72,7 +72,7 @@ where
 #[serde(
     try_from = "PackedSigned",
     into = "PackedSigned",
-    bound = "T: Integer + Encoding + Bounded"
+    bound = "T: Integer + BoxedEncoding + Bounded"
 )]
 pub(crate) struct PublicSigned<T> {
     /// bound on the bit size of the absolute value
@@ -173,7 +173,7 @@ where
 
 impl<T> PublicSigned<T>
 where
-    T: Integer + Bounded + Encoding,
+    T: Integer + Bounded + BoxedEncoding,
 {
     /// Returns a value in range `±2^{exp}` derived from an extendable-output hash.
     ///
@@ -200,11 +200,14 @@ where
 
 impl<T> PublicSigned<T>
 where
-    T: Bounded + HasWide + Encoding + Integer,
-    T::Wide: Bounded,
+    T: Bounded + BoxedEncoding + Integer,
 {
     /// Returns a [`PublicSigned`] with the same value, but twice the bit-width.
-    pub fn to_wide(&self) -> PublicSigned<T::Wide> {
+    pub fn to_wide<W>(&self) -> PublicSigned<W>
+    where
+        T: Extendable<W>,
+        W: Integer + Bounded,
+    {
         let abs_result = self.abs().to_wide();
         PublicSigned::new_from_abs(abs_result, self.bound, self.is_negative())
             .expect("the value fit the bound before, and the bound won't overflow for `WideUint`")
