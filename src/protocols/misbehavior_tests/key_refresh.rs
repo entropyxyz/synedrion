@@ -22,7 +22,7 @@ use crate::{
     paillier::{PaillierParams, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillierWire},
     params::SchemeParams,
     tools::{
-        hashing::XofHasher,
+        hashing::Hasher,
         protocol_shortcuts_dev::{check_evidence_with_behavior, check_invalid_message_evidence, CheckPart},
         Secret,
     },
@@ -160,7 +160,7 @@ fn r2_hash_mismatch() {
             if round.id() == 1 {
                 // Send a wrong hash in the Round 1 message
                 let message = Round1EchoBroadcast {
-                    cap_v: XofHasher::new_with_dst(b"bad hash").finalize_boxed(P::SECURITY_BITS),
+                    cap_v: Hasher::<P>::new_with_dst(b"bad hash").finalize_boxed(P::SECURITY_BITS),
                 };
                 let echo_broadcast = EchoBroadcast::new(serializer, message)?;
                 return Ok(echo_broadcast);

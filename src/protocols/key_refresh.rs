@@ -33,7 +33,7 @@ use crate::{
     params::SchemeParams,
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, Hasher},
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
         Secret,
     },
@@ -211,7 +211,7 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &KeyRefreshAssociatedData<Id>,
 ) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"KeyRefresh SID")
+    Hasher::<P>::new_with_dst(b"KeyRefresh SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
@@ -375,7 +375,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                     .echo_broadcast
                     .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let cap_y_ji = r2_eb.cap_ys.try_get("public Elgamal values", reported_by)?;
-                let mut reader = XofHasher::new_with_dst(b"KeyRefresh Round3")
+                let mut reader = Hasher::<P>::new_with_dst(b"KeyRefresh Round3")
                     .chain(&sid)
                     .chain(&rid)
                     .chain(guilty_party)
@@ -468,7 +468,7 @@ pub(super) struct PublicData<P: SchemeParams, Id> {
 
 impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
     pub(super) fn hash(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        XofHasher::new_with_dst(b"KeyInit")
+        Hasher::<P>::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
             .chain(&self.cap_xs)
@@ -1016,7 +1016,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 
         let cap_y = r2_payload.cap_ys.safe_get("Elgamal public keys", my_id)?;
         let y = self.context.ys.safe_get("Elgamal secrets", destination)?;
-        let mut reader = XofHasher::new_with_dst(b"KeyRefresh Round3")
+        let mut reader = Hasher::<P>::new_with_dst(b"KeyRefresh Round3")
             .chain(&self.context.sid)
             .chain(&self.rid_combined)
             .chain(my_id)
@@ -1052,7 +1052,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         let r2_payload = self.r2_payloads.safe_get("Round 2 payloads", from)?;
         let cap_y = r2_payload.cap_ys.safe_get("Elgamal public keys", my_id)?;
         let y = self.context.ys.safe_get("Elgamal secrets", from)?;
-        let mut reader = XofHasher::new_with_dst(b"KeyRefresh Round3")
+        let mut reader = Hasher::<P>::new_with_dst(b"KeyRefresh Round3")
             .chain(&self.context.sid)
             .chain(&self.rid_combined)
             .chain(from)

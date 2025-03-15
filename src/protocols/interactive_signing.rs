@@ -30,7 +30,7 @@ use crate::{
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
     params::{secret_scalar_from_signed, secret_signed_from_scalar, SchemeParams},
     tools::{
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, Hasher},
         protocol_shortcuts::{
             sum_non_empty, sum_non_empty_ref, verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet,
             Without,
@@ -240,7 +240,7 @@ fn make_epid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &InteractiveSigningAssociatedData<P, Id>,
 ) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"InteractiveSigning EPID")
+    Hasher::<P>::new_with_dst(b"InteractiveSigning EPID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.shares)

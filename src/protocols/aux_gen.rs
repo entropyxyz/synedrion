@@ -29,7 +29,7 @@ use crate::{
     params::SchemeParams,
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, Hasher},
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
     },
     zk::{FacProof, ModProof, PrmProof},
@@ -167,7 +167,7 @@ fn make_sid<P: SchemeParams, Id: PartyId>(
     shared_randomness: &[u8],
     associated_data: &AuxGenAssociatedData<Id>,
 ) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"AuxGen SID")
+    Hasher::<P>::new_with_dst(b"AuxGen SID")
         .chain_type::<P::Curve>()
         .chain(&shared_randomness)
         .chain(&associated_data.ids)
@@ -314,7 +314,7 @@ pub(super) struct PublicData<P: SchemeParams> {
 
 impl<P: SchemeParams> PublicData<P> {
     pub(super) fn hash<Id: PartyId>(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        XofHasher::new_with_dst(b"KeyInit")
+        Hasher::<P>::new_with_dst(b"KeyInit")
             .chain(&sid)
             .chain(id)
             .chain(&self.paillier_pk.clone().into_wire())
