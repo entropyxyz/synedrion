@@ -39,7 +39,6 @@ impl PaillierParams for PaillierTest {
     type UintMod = U256Mod;
     type WideUint = U512;
     type WideUintMod = U512Mod;
-    type ExtraWideUint = U640;
 }
 
 /// Scheme parameters **for testing purposes only**.
@@ -59,6 +58,7 @@ impl SchemeParams for TestParams {
     const EPS_BOUND: u32 = 64;
     const LP_BOUND: u32 = 160;
     type Paillier = PaillierTest;
+    type ExtraWideUint = U640;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
         convert_uint(upcast_uint(Self::Curve::ORDER))
             .to_nz()
