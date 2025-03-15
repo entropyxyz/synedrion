@@ -10,11 +10,14 @@ use core::{
 };
 
 use crypto_bigint::BitOps;
-use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-    MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
-    ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
-    Serializer,
+use manul::{
+    protocol::{
+        Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
+        MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
+        ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round,
+        RoundId, Serializer,
+    },
+    utils::SerializableMap,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -288,9 +291,9 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                     .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
 
                 let data = PublicData {
-                    cap_xs: r2_nb.cap_xs,
-                    cap_ys: r2_eb.cap_ys,
-                    cap_as: r2_nb.cap_as,
+                    cap_xs: r2_nb.cap_xs.into(),
+                    cap_ys: r2_eb.cap_ys.into(),
+                    cap_as: r2_nb.cap_as.into(),
                     paillier_pk: r2_nb.paillier_pk.into_precomputed(),
                     rp_params: r2_eb.rp_params.to_precomputed(),
                     psi: r2_nb.psi,
@@ -706,8 +709,8 @@ struct Round2<P: SchemeParams, Id: PartyId> {
     SchCommitment<P>: for<'x> Deserialize<'x>,
 "))]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
-    pub(super) cap_xs: BTreeMap<Id, Point<P>>, // $X_{i,j}$ where $i$ is this party's index
-    pub(super) cap_as: BTreeMap<Id, SchCommitment<P>>, // $A_{i,j}$ where $i$ is this party's index
+    pub(super) cap_xs: SerializableMap<Id, Point<P>>, // $X_{i,j}$ where $i$ is this party's index
+    pub(super) cap_as: SerializableMap<Id, SchCommitment<P>>, // $A_{i,j}$ where $i$ is this party's index
     pub(super) paillier_pk: PublicKeyPaillierWire<P::Paillier>, // $N_i$
     pub(super) psi: PrmProof<P>,
     u: BitVec,
@@ -722,7 +725,7 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
 "))]
 pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) rp_params: RPParamsWire<P::Paillier>, // $\hat{N}_i$, $s_i$, and $t_i$
-    pub(super) cap_ys: BTreeMap<Id, Point<P>>,       // $Y_{i,j}$ where $i$ is this party's index
+    pub(super) cap_ys: SerializableMap<Id, Point<P>>, // $Y_{i,j}$ where $i$ is this party's index
     rid: BitVec,
 }
 
@@ -761,8 +764,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
         serializer: &Serializer,
     ) -> Result<NormalBroadcast, LocalError> {
         let message = Round2NormalBroadcast {
-            cap_xs: self.public_data.cap_xs.clone(),
-            cap_as: self.public_data.cap_as.clone(),
+            cap_xs: self.public_data.cap_xs.clone().into(),
+            cap_as: self.public_data.cap_as.clone().into(),
             paillier_pk: self.public_data.paillier_pk.clone().into_wire(),
             psi: self.public_data.psi.clone(),
             u: self.public_data.u.clone(),
@@ -776,7 +779,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
         serializer: &Serializer,
     ) -> Result<EchoBroadcast, LocalError> {
         let message = Round2EchoBroadcast::<P, Id> {
-            cap_ys: self.public_data.cap_ys.clone(),
+            cap_ys: self.public_data.cap_ys.clone().into(),
             rid: self.public_data.rid.clone(),
             rp_params: self.public_data.rp_params.to_wire(),
         };
@@ -798,9 +801,9 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
 
         let data = PublicData {
-            cap_xs: normal_broadcast.cap_xs,
-            cap_ys: echo_broadcast.cap_ys,
-            cap_as: normal_broadcast.cap_as,
+            cap_xs: normal_broadcast.cap_xs.into(),
+            cap_ys: echo_broadcast.cap_ys.into(),
+            cap_as: normal_broadcast.cap_as.into(),
             paillier_pk: normal_broadcast.paillier_pk.into_precomputed(),
             rp_params: echo_broadcast.rp_params.to_precomputed(),
             psi: normal_broadcast.psi,
@@ -923,7 +926,7 @@ struct Round3<P: SchemeParams, Id> {
     Id: for<'x> Deserialize<'x>,
 "))]
 pub(super) struct Round3EchoBroadcast<P: SchemeParams, Id: PartyId> {
-    pub(super) hat_psis: BTreeMap<Id, SchProof<P>>,
+    pub(super) hat_psis: SerializableMap<Id, SchProof<P>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -982,7 +985,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         serializer: &Serializer,
     ) -> Result<EchoBroadcast, LocalError> {
         let message = Round3EchoBroadcast {
-            hat_psis: self.hat_psis.clone(),
+            hat_psis: self.hat_psis.clone().into(),
         };
         EchoBroadcast::new(serializer, message)
     }
@@ -1146,13 +1149,13 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         let key_share_change = KeyShareChange {
             owner: my_id.clone(),
             secret_share_change: x_star,
-            public_share_changes: cap_x_star,
+            public_share_changes: cap_x_star.into(),
         };
 
         let aux_info = AuxInfo {
             owner: my_id.clone(),
             secret: secret_aux,
-            public: PublicAuxInfos(public_aux),
+            public: PublicAuxInfos(public_aux.into()),
         };
 
         Ok(FinalizeOutcome::Result((key_share_change, aux_info)))

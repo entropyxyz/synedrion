@@ -6,7 +6,7 @@ use alloc::{
 use core::fmt::Debug;
 
 use ecdsa::VerifyingKey;
-use manul::{protocol::PartyId, session::LocalError};
+use manul::{protocol::PartyId, session::LocalError, utils::SerializableMap};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +35,7 @@ where
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
-pub struct PublicKeyShares<P: SchemeParams, I: PartyId>(BTreeMap<I, Point<P>>);
+pub struct PublicKeyShares<P: SchemeParams, I: PartyId>(SerializableMap<I, Point<P>>);
 
 /// The result of the AuxGen protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +68,7 @@ where
     I: for<'x> Deserialize<'x>,
     PublicAuxInfo<P>: for<'x> Deserialize<'x>,
 "))]
-pub struct PublicAuxInfos<P: SchemeParams, I: PartyId>(pub(crate) BTreeMap<I, PublicAuxInfo<P>>);
+pub struct PublicAuxInfos<P: SchemeParams, I: PartyId>(pub(crate) SerializableMap<I, PublicAuxInfo<P>>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillierWire<P::Paillier>: Serialize"))]
@@ -131,7 +131,7 @@ where
     /// The value to be added to the secret share.
     pub(crate) secret_share_change: Secret<Scalar<P>>, // `x_i^* - x_i == \sum_{j} x_j^i`
     /// The values to be added to the public shares of remote nodes.
-    pub(crate) public_share_changes: BTreeMap<I, Point<P>>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
+    pub(crate) public_share_changes: SerializableMap<I, Point<P>>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
 }
 
 impl<P, I> PublicAuxInfos<P, I>
@@ -149,8 +149,7 @@ where
 
     /// Returns a `PublicAuxInfos` object for the given subset of all parties.
     pub fn subset(self, parties: &BTreeSet<I>) -> Result<Self, LocalError> {
-        let aux_infos = self
-            .0
+        let aux_infos = BTreeMap::from(self.0)
             .into_iter()
             .filter(|(id, _aux)| parties.contains(id))
             .collect::<BTreeMap<_, _>>();
@@ -160,7 +159,7 @@ where
             ));
         }
 
-        Ok(Self(aux_infos))
+        Ok(Self(aux_infos.into()))
     }
 }
 
@@ -190,7 +189,7 @@ where
         Ok(KeyShare {
             owner,
             secret,
-            public: PublicKeyShares(public_shares),
+            public: PublicKeyShares(public_shares.into()),
         })
     }
 
@@ -225,12 +224,12 @@ where
                             .ok_or_else(|| LocalError::new("id={id:?} is missing in public_share_changes"))?,
                 ))
             })
-            .collect::<Result<_, LocalError>>()?;
+            .collect::<Result<BTreeMap<_, _>, LocalError>>()?;
 
         Ok(Self {
             owner: self.owner,
             secret,
-            public: PublicKeyShares(public_shares),
+            public: PublicKeyShares(public_shares.into()),
         })
     }
 
@@ -261,7 +260,7 @@ where
                     KeyShare {
                         owner: id.clone(),
                         secret: secret_share,
-                        public: PublicKeyShares(public_shares.clone()),
+                        public: PublicKeyShares(public_shares.clone().into()),
                     },
                 )
             })
@@ -363,7 +362,7 @@ where
                     Self {
                         owner: id.clone(),
                         secret: secret_aux,
-                        public: PublicAuxInfos(public_aux.clone()),
+                        public: PublicAuxInfos(public_aux.clone().into()),
                     },
                 )
             })

@@ -805,7 +805,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         let aux_info = AuxInfo {
             owner: my_id.clone(),
             secret: secret_aux,
-            public: PublicAuxInfos(public_aux),
+            public: PublicAuxInfos(public_aux.into()),
         };
 
         Ok(FinalizeOutcome::Result(aux_info))

@@ -464,14 +464,14 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
                 let public_share = shamir_join_points(&public_subshares);
                 (id.clone(), public_share)
             })
-            .collect();
+            .collect::<BTreeMap<_, _>>();
 
         Ok(FinalizeOutcome::Result(Some(ThresholdKeyShare {
             owner: self.my_id.clone(),
             threshold: self.new_threshold as u32,
             secret_share,
-            share_ids: self.new_share_ids,
-            public_shares,
+            share_ids: self.new_share_ids.into(),
+            public_shares: public_shares.into(),
         })))
     }
 }

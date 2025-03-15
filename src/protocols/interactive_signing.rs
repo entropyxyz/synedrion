@@ -12,11 +12,14 @@ use core::{
 };
 
 use elliptic_curve::{Curve, FieldBytes};
-use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-    MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
-    ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
-    Serializer,
+use manul::{
+    protocol::{
+        Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
+        MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
+        ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round,
+        RoundId, Serializer,
+    },
+    utils::SerializableMap,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -1484,11 +1487,11 @@ pub(super) struct Round2<P: SchemeParams, Id: PartyId> {
     AffGProof<P>: for<'x> Deserialize<'x>,
 "))]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
-    pub(super) cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
-    pub(super) hat_cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) cap_ds: SerializableMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_ds: SerializableMap<Id, CiphertextWire<P::Paillier>>,
     pub(super) psi_elog: ElogProof<P>,
-    pub(super) psis: BTreeMap<Id, AffGProof<P>>,
-    pub(super) hat_psis: BTreeMap<Id, AffGProof<P>>,
+    pub(super) psis: SerializableMap<Id, AffGProof<P>>,
+    pub(super) hat_psis: SerializableMap<Id, AffGProof<P>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1500,8 +1503,8 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
 "))]
 pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) cap_gamma: Point<P>,
-    pub(super) cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
-    pub(super) hat_cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) cap_fs: SerializableMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_fs: SerializableMap<Id, CiphertextWire<P::Paillier>>,
 }
 
 struct Round2Payload<P: SchemeParams, Id: PartyId> {
@@ -1541,11 +1544,11 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
         NormalBroadcast::new(
             serializer,
             Round2NormalBroadcast::<P, Id> {
-                cap_ds: self.cap_ds.map_values_ref(|cap_d| cap_d.to_wire()),
-                hat_cap_ds: self.hat_cap_ds.map_values_ref(|hat_cap_d| hat_cap_d.to_wire()),
+                cap_ds: self.cap_ds.map_values_ref(|cap_d| cap_d.to_wire()).into(),
+                hat_cap_ds: self.hat_cap_ds.map_values_ref(|hat_cap_d| hat_cap_d.to_wire()).into(),
                 psi_elog: self.psi_elog.clone(),
-                psis: self.psis.clone(),
-                hat_psis: self.hat_psis.clone(),
+                psis: self.psis.clone().into(),
+                hat_psis: self.hat_psis.clone().into(),
             },
         )
     }
@@ -1559,8 +1562,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             serializer,
             Round2EchoBroadcast::<P, Id> {
                 cap_gamma: self.cap_gamma,
-                cap_fs: self.cap_fs.map_values_ref(|cap_f| cap_f.to_wire()),
-                hat_cap_fs: self.hat_cap_fs.map_values_ref(|hat_cap_f| hat_cap_f.to_wire()),
+                cap_fs: self.cap_fs.map_values_ref(|cap_f| cap_f.to_wire()).into(),
+                hat_cap_fs: self.hat_cap_fs.map_values_ref(|hat_cap_f| hat_cap_f.to_wire()).into(),
             },
         )
     }
@@ -2154,7 +2157,7 @@ pub(super) struct Round5<P: SchemeParams, Id: PartyId> {
 "))]
 pub(super) struct Round5EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) psi_star: DecProof<P>,
-    pub(super) psis: BTreeMap<Id, AffGStarProof<P>>,
+    pub(super) psis: SerializableMap<Id, AffGStarProof<P>>,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
@@ -2240,7 +2243,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
             &aux,
         );
 
-        let mut psis = BTreeMap::new();
+        let mut psis = SerializableMap::from(BTreeMap::new());
         for id in self.context.other_ids.iter() {
             let psi = AffGStarProof::new(
                 rng,
@@ -2381,7 +2384,7 @@ pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
 "))]
 pub(super) struct Round6EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psi_star: DecProof<P>,
-    pub(super) hat_psis: BTreeMap<Id, AffGStarProof<P>>,
+    pub(super) hat_psis: SerializableMap<Id, AffGStarProof<P>>,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
@@ -2510,7 +2513,13 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
             hat_psis.insert(id.clone(), hat_psi);
         }
 
-        EchoBroadcast::new(serializer, Round6EchoBroadcast::<P, Id> { hat_psi_star, hat_psis })
+        EchoBroadcast::new(
+            serializer,
+            Round6EchoBroadcast::<P, Id> {
+                hat_psi_star,
+                hat_psis: hat_psis.into(),
+            },
+        )
     }
 
     fn receive_message(
