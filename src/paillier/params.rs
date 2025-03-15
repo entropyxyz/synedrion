@@ -1,16 +1,15 @@
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, ConstantTimeGreater, CtOption},
-    Bounded, Encoding, Gcd, Integer, InvMod, Invert, Monty, PowBoundedExp, RandomBits, RandomMod,
+    Bounded, Gcd, Integer, InvMod, Invert, Monty, PowBoundedExp, RandomBits, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::{
     tools::hashing::Chain,
     tools::hashing::Hashable,
-    uint::{Extendable, MulWide},
+    uint::{BoxedEncoding, Extendable, MulWide},
 };
 
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
@@ -26,8 +25,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + RandomMod
         + RandomBits
         + RandomPrimeWithRng
-        + Serialize
-        + for<'de> Deserialize<'de>
+        + BoxedEncoding
         + MulWide<Self::HalfUint, Self::Uint>
         + Extendable<Self::Uint>
         + Zeroize;
@@ -44,15 +42,13 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Gcd<Output = Self::Uint>
         + ConditionallySelectable
         + ConstantTimeGreater
-        + Encoding<Repr: Zeroize>
         + Hashable
         + MulWide<Self::Uint, Self::WideUint>
         + Extendable<Self::WideUint>
         + InvMod<Output = Self::Uint>
         + RandomMod
         + RandomPrimeWithRng
-        + Serialize
-        + for<'de> Deserialize<'de>
+        + BoxedEncoding
         + Zeroize;
 
     /// A modulo-residue counterpart of `Uint`.
@@ -70,13 +66,11 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     type WideUint: Integer<Monty = Self::WideUintMod>
         + Bounded
         + ConditionallySelectable
-        + Encoding<Repr: Zeroize>
         + Hashable
         + MulWide<Self::WideUint, Self::ExtraWideUint>
         + Extendable<Self::ExtraWideUint>
         + RandomMod
-        + Serialize
-        + for<'de> Deserialize<'de>
+        + BoxedEncoding
         + Zeroize;
 
     /// A modulo-residue counterpart of `WideUint`.
@@ -94,15 +88,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     // Technically, it doesn't have to be that large, but the time spent multiplying these
     // is negligible, and when it is used as an exponent, it is bounded anyway.
     // So it is easier to keep it as a double of `WideUint`.
-    type ExtraWideUint: Bounded
-        + ConditionallySelectable
-        + Encoding
-        + Hashable
-        + Integer
-        + RandomMod
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Zeroize;
+    type ExtraWideUint: Bounded + ConditionallySelectable + Hashable + Integer + RandomMod + BoxedEncoding + Zeroize;
 }
 
 pub(crate) fn chain_paillier_params<P, C>(digest: C) -> C
