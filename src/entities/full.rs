@@ -49,7 +49,11 @@ pub struct PublicKeyShares<P: SchemeParams, I: PartyId>(BTreeMap<I, Point<P>>);
     SecretAuxInfo<P>: for<'x> Deserialize<'x>,
     PublicAuxInfos<P, I>: for<'x> Deserialize<'x>,
 "))]
-pub struct AuxInfo<P: SchemeParams, I: PartyId> {
+pub struct AuxInfo<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     pub(crate) owner: I,
     pub(crate) secret: SecretAuxInfo<P>,
     pub(crate) public: PublicAuxInfos<P, I>,
@@ -69,14 +73,20 @@ pub struct PublicAuxInfos<P: SchemeParams, I: PartyId>(pub(crate) BTreeMap<I, Pu
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillierWire<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "SecretKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
-pub(crate) struct SecretAuxInfo<P: SchemeParams> {
+pub(crate) struct SecretAuxInfo<P>
+where
+    P: SchemeParams,
+{
     pub(crate) paillier_sk: SecretKeyPaillierWire<P::Paillier>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicKeyPaillierWire<P::Paillier>: Serialize"))]
 #[serde(bound(deserialize = "PublicKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
-pub(crate) struct PublicAuxInfo<P: SchemeParams> {
+pub(crate) struct PublicAuxInfo<P>
+where
+    P: SchemeParams,
+{
     /// The Paillier public key.
     pub(crate) paillier_pk: PublicKeyPaillierWire<P::Paillier>,
     /// The ring-Pedersen parameters.
@@ -84,18 +94,27 @@ pub(crate) struct PublicAuxInfo<P: SchemeParams> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AuxInfoPrecomputed<P: SchemeParams, I> {
+pub(crate) struct AuxInfoPrecomputed<P, I>
+where
+    P: SchemeParams,
+{
     pub(crate) secret_aux: SecretAuxInfoPrecomputed<P>,
     pub(crate) public_aux: BTreeMap<I, PublicAuxInfoPrecomputed<P>>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SecretAuxInfoPrecomputed<P: SchemeParams> {
+pub(crate) struct SecretAuxInfoPrecomputed<P>
+where
+    P: SchemeParams,
+{
     pub(crate) paillier_sk: SecretKeyPaillier<P::Paillier>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
+pub(crate) struct PublicAuxInfoPrecomputed<P>
+where
+    P: SchemeParams,
+{
     pub(crate) paillier_pk: PublicKeyPaillier<P::Paillier>,
     pub(crate) rp_params: RPParams<P::Paillier>,
 }
@@ -103,7 +122,11 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
-pub struct KeyShareChange<P: SchemeParams, I: PartyId> {
+pub struct KeyShareChange<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     pub(crate) owner: I,
     /// The value to be added to the secret share.
     pub(crate) secret_share_change: Secret<Scalar<P>>, // `x_i^* - x_i == \sum_{j} x_j^i`
@@ -111,7 +134,11 @@ pub struct KeyShareChange<P: SchemeParams, I: PartyId> {
     pub(crate) public_share_changes: BTreeMap<I, Point<P>>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
 }
 
-impl<P: SchemeParams, I: PartyId> PublicAuxInfos<P, I> {
+impl<P, I> PublicAuxInfos<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     pub(crate) fn num_parties(&self) -> usize {
         self.0.len()
     }
@@ -137,7 +164,11 @@ impl<P: SchemeParams, I: PartyId> PublicAuxInfos<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: PartyId> PublicKeyShares<P, I> {
+impl<P, I> PublicKeyShares<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     pub(crate) fn as_map(&self) -> &BTreeMap<I, Point<P>> {
         &self.0
     }
@@ -272,7 +303,11 @@ where
     }
 }
 
-impl<P: SchemeParams, I: PartyId> AuxInfo<P, I> {
+impl<P, I> AuxInfo<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     /// Returns the owner of this aux data.
     pub fn owner(&self) -> &I {
         &self.owner
