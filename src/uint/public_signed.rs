@@ -6,7 +6,7 @@ use digest::XofReader;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use super::{FromXofReader, HasWide};
+use super::{Extendable, FromXofReader};
 
 /// A packed representation for serializing Signed objects.
 /// Usually they have the bound set much lower than the full size of the integer,
@@ -200,11 +200,14 @@ where
 
 impl<T> PublicSigned<T>
 where
-    T: Bounded + HasWide + Encoding + Integer,
-    T::Wide: Bounded,
+    T: Bounded + Encoding + Integer,
 {
     /// Returns a [`PublicSigned`] with the same value, but twice the bit-width.
-    pub fn to_wide(&self) -> PublicSigned<T::Wide> {
+    pub fn to_wide<W>(&self) -> PublicSigned<W>
+    where
+        T: Extendable<W>,
+        W: Integer + Bounded,
+    {
         let abs_result = self.abs().to_wide();
         PublicSigned::new_from_abs(abs_result, self.bound, self.is_negative())
             .expect("the value fit the bound before, and the bound won't overflow for `WideUint`")

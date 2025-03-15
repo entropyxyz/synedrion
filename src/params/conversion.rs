@@ -6,7 +6,7 @@ use crate::{
     curve::Scalar,
     paillier::PaillierParams,
     tools::Secret,
-    uint::{HasWide, PublicSigned, SecretSigned},
+    uint::{Extendable, PublicSigned, SecretSigned},
 };
 
 fn uint_from_scalar<P: SchemeParams>(value: &Scalar<P>) -> <P::Paillier as PaillierParams>::Uint {
