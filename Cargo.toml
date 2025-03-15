@@ -55,7 +55,7 @@ test-log = { version = "0.2.16", default-features = false, features = ["trace", 
 
 [features]
 private-benches = ["k256"]
-k256 = ["dep:k256", "bip32?/secp256k1"]
+k256 = ["dep:k256", "bip32?/secp256k1", "crypto-bigint/extra-sizes"]
 bip32 = ["dep:bip32", "tiny-curve?/bip32"]
 dev = ["tiny-curve"]
 
