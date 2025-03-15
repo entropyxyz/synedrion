@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use core::{
     fmt::Debug,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, Neg, Rem, RemAssign, Sub},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
 };
 
 use crypto_bigint::{
@@ -61,10 +61,6 @@ where
     fn clone(&self) -> Self {
         Self::init_with(|| self.0.expose_secret().clone())
     }
-
-    fn clone_from(&mut self, source: &Self) {
-        *self = source.clone()
-    }
 }
 
 impl<T> Serialize for Secret<T>
@@ -118,7 +114,7 @@ where
 
 impl<T> WrappingAdd for Secret<T>
 where
-    T: Zeroize + Clone + WrappingAdd + for<'a> Add<&'a T, Output = T>,
+    T: Zeroize + Clone + WrappingAdd + for<'a> AddAssign<&'a T>,
 {
     fn wrapping_add(&self, rhs: &Self) -> Self {
         Secret::init_with(|| self.expose_secret().wrapping_add(rhs.expose_secret()))
@@ -127,7 +123,7 @@ where
 
 impl<T> WrappingSub for Secret<T>
 where
-    T: Zeroize + Clone + WrappingSub + for<'a> Sub<&'a T, Output = T>,
+    T: Zeroize + Clone + WrappingSub + for<'a> SubAssign<&'a T>,
 {
     fn wrapping_sub(&self, rhs: &Self) -> Self {
         Secret::init_with(|| self.expose_secret().wrapping_sub(rhs.expose_secret()))
@@ -136,7 +132,7 @@ where
 
 impl<T> WrappingMul for Secret<T>
 where
-    T: Zeroize + Clone + WrappingMul + for<'a> Mul<&'a T, Output = T>,
+    T: Zeroize + Clone + WrappingMul + for<'a> MulAssign<&'a T>,
 {
     fn wrapping_mul(&self, rhs: &Self) -> Self {
         Secret::init_with(|| self.expose_secret().wrapping_mul(rhs.expose_secret()))
@@ -158,60 +154,69 @@ where
 
 // Addition
 
-impl<T> AddAssign<Secret<T>> for Secret<T>
+impl<'a, T> AddAssign<&'a T> for Secret<T>
 where
-    T: Zeroize + Clone + for<'a> Add<&'a T, Output = T>,
+    T: Zeroize + Clone + AddAssign<&'a T>,
 {
-    fn add_assign(&mut self, rhs: Secret<T>) {
-        // Can be done without reallocation when Integer is bound on AddAssign.
-        // See https://github.com/RustCrypto/crypto-bigint/pull/716
-        *self = &*self + &rhs
+    fn add_assign(&mut self, rhs: &'a T) {
+        *self.expose_secret_mut() += rhs
     }
 }
 
-impl<'a, T> Add<&'a T> for &Secret<T>
+impl<T> AddAssign<Secret<T>> for Secret<T>
 where
-    T: Zeroize + Clone + Add<&'a T, Output = T>,
+    T: Zeroize + Clone + for<'a> AddAssign<&'a T>,
 {
-    type Output = Secret<T>;
-    fn add(self, rhs: &'a T) -> Self::Output {
-        Secret::init_with(|| self.expose_secret().clone() + rhs)
+    fn add_assign(&mut self, rhs: Secret<T>) {
+        *self += rhs.expose_secret()
     }
 }
 
 impl<'a, T> Add<&'a T> for Secret<T>
 where
-    T: Zeroize + Clone + Add<&'a T, Output = T>,
+    T: Zeroize + Clone + AddAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn add(self, rhs: &'a T) -> Self::Output {
-        &self + rhs
+        let mut result = self;
+        result += rhs;
+        result
+    }
+}
+
+impl<'a, T> Add<&'a T> for &Secret<T>
+where
+    T: Zeroize + Clone + AddAssign<&'a T>,
+{
+    type Output = Secret<T>;
+    fn add(self, rhs: &'a T) -> Self::Output {
+        self.clone() + rhs
     }
 }
 
 impl<T> Add<Secret<T>> for Secret<T>
 where
-    T: Zeroize + Clone + for<'a> Add<&'a T, Output = T>,
+    T: Zeroize + Clone + for<'a> AddAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn add(self, rhs: Secret<T>) -> Self::Output {
-        &self + rhs.expose_secret()
+        self + rhs.expose_secret()
     }
 }
 
 impl<'a, T> Add<&'a Secret<T>> for Secret<T>
 where
-    T: Zeroize + Clone + Add<&'a T, Output = T>,
+    T: Zeroize + Clone + AddAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn add(self, rhs: &'a Secret<T>) -> Self::Output {
-        &self + rhs.expose_secret()
+        self + rhs.expose_secret()
     }
 }
 
 impl<T> Add<Secret<T>> for &Secret<T>
 where
-    T: Zeroize + Clone + for<'a> Add<&'a T, Output = T>,
+    T: Zeroize + Clone + for<'a> AddAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn add(self, rhs: Secret<T>) -> Self::Output {
@@ -221,7 +226,7 @@ where
 
 impl<'a, T> Add<&'a Secret<T>> for &Secret<T>
 where
-    T: Zeroize + Clone + Add<&'a T, Output = T>,
+    T: Zeroize + Clone + AddAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn add(self, rhs: &'a Secret<T>) -> Self::Output {
@@ -231,99 +236,105 @@ where
 
 // Subtraction
 
-impl<'a, T> Sub<&'a T> for &Secret<T>
-where
-    T: Zeroize + Clone + Sub<&'a T, Output = T>,
-{
-    type Output = Secret<T>;
-    fn sub(self, rhs: &'a T) -> Self::Output {
-        Secret::init_with(|| self.expose_secret().clone() - rhs)
-    }
-}
-
 impl<'a, T> Sub<&'a T> for Secret<T>
 where
-    T: Zeroize + Clone + Sub<&'a T, Output = T>,
+    T: Zeroize + Clone + SubAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn sub(self, rhs: &'a T) -> Self::Output {
-        &self - rhs
+        let mut result = self;
+        *result.expose_secret_mut() -= rhs;
+        result
     }
 }
 
 impl<T> Sub<Secret<T>> for Secret<T>
 where
-    T: Zeroize + Clone + for<'a> Sub<&'a T, Output = T>,
+    T: Zeroize + Clone + for<'a> SubAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn sub(self, rhs: Secret<T>) -> Self::Output {
-        &self - rhs.expose_secret()
+        self - rhs.expose_secret()
     }
 }
 
 // Multiplication
 
-impl<'a, T> Mul<&'a T> for &Secret<T>
+impl<'a, T> MulAssign<&'a T> for Secret<T>
 where
-    T: Zeroize + Clone + Mul<&'a T, Output = T>,
+    T: Zeroize + Clone + MulAssign<&'a T>,
 {
-    type Output = Secret<T>;
-    fn mul(self, rhs: &'a T) -> Self::Output {
-        Secret::init_with(|| self.expose_secret().clone() * rhs)
-    }
-}
-
-impl<T> Mul<T> for &Secret<T>
-where
-    T: Zeroize + Clone + for<'a> Mul<&'a T, Output = T>,
-{
-    type Output = Secret<T>;
-    fn mul(self, rhs: T) -> Self::Output {
-        Secret::init_with(|| self.expose_secret().clone() * &rhs)
+    fn mul_assign(&mut self, rhs: &'a T) {
+        *self.expose_secret_mut() *= rhs
     }
 }
 
 impl<'a, T> Mul<&'a T> for Secret<T>
 where
-    T: Zeroize + Clone + Mul<&'a T, Output = T>,
+    T: Zeroize + Clone + MulAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn mul(self, rhs: &'a T) -> Self::Output {
-        &self * rhs
+        let mut result = self;
+        result *= rhs;
+        result
+    }
+}
+
+impl<'a, T> Mul<&'a T> for &Secret<T>
+where
+    T: Zeroize + Clone + MulAssign<&'a T>,
+{
+    type Output = Secret<T>;
+    fn mul(self, rhs: &'a T) -> Self::Output {
+        self.clone() * rhs
+    }
+}
+
+impl<T> Mul<T> for &Secret<T>
+where
+    T: Zeroize + Clone + for<'a> MulAssign<&'a T>,
+{
+    type Output = Secret<T>;
+    fn mul(self, rhs: T) -> Self::Output {
+        self.clone() * &rhs
     }
 }
 
 impl<T> Mul<T> for Secret<T>
 where
-    T: Zeroize + Clone + for<'a> Mul<&'a T, Output = T>,
+    T: Zeroize + Clone + for<'a> MulAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn mul(self, rhs: T) -> Self::Output {
-        &self * &rhs
+        self * &rhs
     }
 }
 
 impl<T> Mul<Secret<T>> for Secret<T>
 where
-    T: Zeroize + Clone + for<'a> Mul<&'a T, Output = T>,
+    T: Zeroize + Clone + for<'a> MulAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn mul(self, rhs: Secret<T>) -> Self::Output {
-        &self * rhs.expose_secret()
+        self * rhs.expose_secret()
     }
 }
 
 impl<'a, T> Mul<&'a Secret<T>> for Secret<T>
 where
-    T: Zeroize + Clone + Mul<&'a T, Output = T>,
+    T: Zeroize + Clone + MulAssign<&'a T>,
 {
     type Output = Secret<T>;
     fn mul(self, rhs: &'a Secret<T>) -> Self::Output {
-        &self * rhs.expose_secret()
+        self * rhs.expose_secret()
     }
 }
 
-impl<'a, T: Zeroize + Clone + Mul<&'a T, Output = T>> Mul<&'a Secret<T>> for &Secret<T> {
+impl<'a, T> Mul<&'a Secret<T>> for &Secret<T>
+where
+    T: Zeroize + Clone + MulAssign<&'a T>,
+{
     type Output = Secret<T>;
     fn mul(self, rhs: &'a Secret<T>) -> Self::Output {
         self * rhs.expose_secret()
