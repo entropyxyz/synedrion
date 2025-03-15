@@ -248,7 +248,7 @@ pub(crate) struct PublicModulus<P: PaillierParams> {
     /// The base RSA modulus $N$.
     modulus: PublicModulusWire<P>,
     /// Montgomery representation parameters for modulo $N$.
-    monty_params_mod_n: <P::UintMod as Monty>::Params,
+    monty_params_mod_n: <<P::Uint as Integer>::Monty as Monty>::Params,
 }
 
 impl<P: PaillierParams> PartialEq for PublicModulus<P> {
@@ -263,7 +263,7 @@ impl<P: PaillierParams> Eq for PublicModulus<P> {}
 impl<P: PaillierParams> PublicModulus<P> {
     pub fn new(modulus: PublicModulusWire<P>) -> Self {
         let odd_modulus = Odd::new(modulus.0.clone().inner()).expect("the RSA modulus is odd");
-        let monty_params_mod_n = P::UintMod::new_params_vartime(odd_modulus);
+        let monty_params_mod_n = <P::Uint as Integer>::Monty::new_params_vartime(odd_modulus);
         Self {
             modulus,
             monty_params_mod_n,
@@ -288,7 +288,7 @@ impl<P: PaillierParams> PublicModulus<P> {
             .expect("the modulus can be bounded by 2^MODULUS_BITS")
     }
 
-    pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
+    pub fn monty_params_mod_n(&self) -> &<<P::Uint as Integer>::Monty as Monty>::Params {
         &self.monty_params_mod_n
     }
 
@@ -316,7 +316,7 @@ impl<P: PaillierParams> PublicModulus<P> {
     }
 
     /// Returns a uniformly chosen invertible quadratic residue modulo $N$, in Montgomery form.
-    pub fn random_quadratic_residue(&self, rng: &mut dyn CryptoRngCore) -> P::UintMod {
+    pub fn random_quadratic_residue(&self, rng: &mut dyn CryptoRngCore) -> <P::Uint as Integer>::Monty {
         self.random_invertible_residue(rng)
             .to_montgomery(&self.monty_params_mod_n)
             .square()

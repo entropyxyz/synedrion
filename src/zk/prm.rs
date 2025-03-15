@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use crypto_bigint::{modular::Retrieve, BitOps, PowBoundedExp};
+use crypto_bigint::{modular::Retrieve, BitOps, Integer, PowBoundedExp};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,7 @@ impl<P: SchemeParams> PrmSecret<P> {
 struct PrmCommitment<P: SchemeParams>(Vec<PublicUint<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmCommitment<P> {
-    fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
+    fn new(secret: &PrmSecret<P>, base: &<<P::Paillier as PaillierParams>::Uint as Integer>::Monty) -> Self {
         let commitment = secret.0.iter().map(|a| base.pow(a).retrieve().into()).collect();
         Self(commitment)
     }

@@ -1,7 +1,7 @@
 use crypto_bigint::{
     modular::Retrieve,
     subtle::{ConditionallyNegatable, ConditionallySelectable, ConstantTimeGreater, CtOption},
-    Bounded, Gcd, Integer, InvMod, Invert, Monty, PowBoundedExp, RandomBits, RandomMod,
+    Bounded, Gcd, Integer, InvMod, Invert, PowBoundedExp, RandomBits, RandomMod,
 };
 use crypto_primes::RandomPrimeWithRng;
 use zeroize::Zeroize;
@@ -19,8 +19,11 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
     const MODULUS_BITS: u32 = Self::PRIME_BITS * 2;
 
     /// An integer that fits a single RSA prime.
-    type HalfUint: Integer<Monty = Self::HalfUintMod>
-        + Bounded
+    type HalfUint: Integer<
+            Monty: Retrieve<Output = Self::HalfUint>
+                       + Invert<Output = CtOption<<Self::HalfUint as Integer>::Monty>>
+                       + Zeroize,
+        > + Bounded
         + RandomMod
         + RandomBits
         + RandomPrimeWithRng
@@ -29,15 +32,15 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Extendable<Self::Uint>
         + Zeroize;
 
-    /// A modulo-residue counterpart of `HalfUint`.
-    type HalfUintMod: Monty<Integer = Self::HalfUint>
-        + Retrieve<Output = Self::HalfUint>
-        + Invert<Output = CtOption<Self::HalfUintMod>>
-        + Zeroize;
-
     /// An integer that fits the RSA modulus.
-    type Uint: Integer<Monty = Self::UintMod>
-        + Bounded
+    type Uint: Integer<
+            Monty: Retrieve<Output = Self::Uint>
+                       + Invert<Output = CtOption<<Self::Uint as Integer>::Monty>>
+                       + Zeroize
+                       + ConditionallySelectable
+                       + PowBoundedExp<Self::Uint>
+                       + PowBoundedExp<Self::WideUint>,
+        > + Bounded
         + Gcd<Output = Self::Uint>
         + ConditionallySelectable
         + ConstantTimeGreater
@@ -49,32 +52,20 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + BoxedEncoding
         + Zeroize;
 
-    /// A modulo-residue counterpart of `Uint`.
-    type UintMod: ConditionallySelectable
-        + PowBoundedExp<Self::Uint>
-        + PowBoundedExp<Self::WideUint>
-        + Monty<Integer = Self::Uint>
-        + Retrieve<Output = Self::Uint>
-        + Invert<Output = CtOption<Self::UintMod>>
-        + Zeroize;
-
     /// An integer that fits the squared RSA modulus.
     /// Used for Paillier ciphertexts.
-    type WideUint: Integer<Monty = Self::WideUintMod>
-        + Bounded
+    type WideUint: Integer<
+            Monty: PowBoundedExp<Self::Uint>
+                       + PowBoundedExp<Self::WideUint>
+                       + ConditionallyNegatable
+                       + ConditionallySelectable
+                       + Invert<Output = CtOption<<Self::WideUint as Integer>::Monty>>
+                       + Retrieve<Output = Self::WideUint>
+                       + Zeroize,
+        > + Bounded
         + ConditionallySelectable
         + RandomMod
         + BoxedEncoding
-        + Zeroize;
-
-    /// A modulo-residue counterpart of `WideUint`.
-    type WideUintMod: Monty<Integer = Self::WideUint>
-        + PowBoundedExp<Self::Uint>
-        + PowBoundedExp<Self::WideUint>
-        + ConditionallyNegatable
-        + ConditionallySelectable
-        + Invert<Output = CtOption<Self::WideUintMod>>
-        + Retrieve<Output = Self::WideUint>
         + Zeroize;
 
     /// Evaluates to `true` if the associated constants and the sizes of associated types are self-consistent.
