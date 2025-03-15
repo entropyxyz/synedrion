@@ -1,6 +1,6 @@
 //! Parameters intended for testing, scaled down to small curve orders and integer sizes.
 
-use crypto_bigint::{modular::MontyForm, nlimbs, NonZero, U128, U256, U512, U640};
+use crypto_bigint::{nlimbs, NonZero, Uint};
 use elliptic_curve::{
     bigint::{self as bigintv05},
     Curve,
@@ -22,10 +22,6 @@ use crate::paillier::PaillierParams;
 #[cfg(feature = "bip32")]
 use crate::curve::{PublicTweakable, SecretTweakable};
 
-type U128Mod = MontyForm<{ nlimbs!(128) }>;
-type U256Mod = MontyForm<{ nlimbs!(256) }>;
-type U512Mod = MontyForm<{ nlimbs!(512) }>;
-
 /// Paillier parameters **for testing purposes only**.
 /// Security is weakened to allow for faster execution.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,12 +29,9 @@ pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
     const PRIME_BITS: u32 = 128;
-    type HalfUint = U128;
-    type HalfUintMod = U128Mod;
-    type Uint = U256;
-    type UintMod = U256Mod;
-    type WideUint = U512;
-    type WideUintMod = U512Mod;
+    type HalfUint = Uint<{ nlimbs!(128) }>;
+    type Uint = Uint<{ nlimbs!(256) }>;
+    type WideUint = Uint<{ nlimbs!(512) }>;
 }
 
 static_assertions::const_assert!(PaillierTest::SELF_CONSISTENT);
@@ -60,7 +53,7 @@ impl SchemeParams for TestParams {
     const EPS_BOUND: u32 = 64;
     const LP_BOUND: u32 = 160;
     type Paillier = PaillierTest;
-    type ExtraWideUint = U640;
+    type ExtraWideUint = Uint<{ nlimbs!(640) }>;
     const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
         convert_uint(upcast_uint(Self::Curve::ORDER))
             .to_nz()

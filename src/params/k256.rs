@@ -6,7 +6,7 @@ use core::fmt::Debug;
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{modular::MontyForm, nlimbs, NonZero, Uint};
+use crypto_bigint::{nlimbs, NonZero, Uint};
 use elliptic_curve::{
     bigint::{self as bigintv05},
     Curve,
@@ -31,11 +31,8 @@ pub struct PaillierProduction112;
 impl PaillierParams for PaillierProduction112 {
     const PRIME_BITS: u32 = 1024;
     type HalfUint = Uint<{ nlimbs!(1024) }>;
-    type HalfUintMod = MontyForm<{ nlimbs!(1024) }>;
     type Uint = Uint<{ nlimbs!(2048) }>;
-    type UintMod = MontyForm<{ nlimbs!(2048) }>;
     type WideUint = Uint<{ nlimbs!(4096) }>;
-    type WideUintMod = MontyForm<{ nlimbs!(4096) }>;
 }
 
 static_assertions::const_assert!(PaillierProduction112::SELF_CONSISTENT);
@@ -48,11 +45,8 @@ pub struct PaillierProduction128;
 impl PaillierParams for PaillierProduction128 {
     const PRIME_BITS: u32 = 1536;
     type HalfUint = Uint<{ nlimbs!(1536) }>;
-    type HalfUintMod = MontyForm<{ nlimbs!(1536) }>;
     type Uint = Uint<{ nlimbs!(3072) }>;
-    type UintMod = MontyForm<{ nlimbs!(3072) }>;
     type WideUint = Uint<{ nlimbs!(6144) }>;
-    type WideUintMod = MontyForm<{ nlimbs!(6144) }>;
 }
 
 static_assertions::const_assert!(PaillierProduction128::SELF_CONSISTENT);

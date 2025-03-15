@@ -89,7 +89,7 @@ where
     /// when treated as a 2-complement signed integer).
     type Paillier: PaillierParams<
         WideUint: Extendable<Self::ExtraWideUint>,
-        UintMod: PowBoundedExp<Self::ExtraWideUint>,
+        Uint: Integer<Monty: PowBoundedExp<Self::ExtraWideUint>>,
     >;
 
     /// An integer that fits the squared RSA modulus times a small factor.
