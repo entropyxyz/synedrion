@@ -6,7 +6,7 @@ use alloc::{
 use core::fmt::Debug;
 
 use ecdsa::VerifyingKey;
-use manul::session::LocalError;
+use manul::{protocol::PartyId, session::LocalError};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +25,7 @@ use crate::{
 pub struct KeyShare<P, I>
 where
     P: SchemeParams,
-    I: Ord,
+    I: PartyId,
 {
     owner: I,
     /// Secret key share of this node.
@@ -35,7 +35,7 @@ where
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
-pub struct PublicKeyShares<P: SchemeParams, I: Ord>(BTreeMap<I, Point<P>>);
+pub struct PublicKeyShares<P: SchemeParams, I: PartyId>(BTreeMap<I, Point<P>>);
 
 /// The result of the AuxGen protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +49,7 @@ pub struct PublicKeyShares<P: SchemeParams, I: Ord>(BTreeMap<I, Point<P>>);
     SecretAuxInfo<P>: for<'x> Deserialize<'x>,
     PublicAuxInfos<P, I>: for<'x> Deserialize<'x>,
 "))]
-pub struct AuxInfo<P: SchemeParams, I: Ord> {
+pub struct AuxInfo<P: SchemeParams, I: PartyId> {
     pub(crate) owner: I,
     pub(crate) secret: SecretAuxInfo<P>,
     pub(crate) public: PublicAuxInfos<P, I>,
@@ -64,7 +64,7 @@ pub struct AuxInfo<P: SchemeParams, I: Ord> {
     I: for<'x> Deserialize<'x>,
     PublicAuxInfo<P>: for<'x> Deserialize<'x>,
 "))]
-pub struct PublicAuxInfos<P: SchemeParams, I: Ord>(pub(crate) BTreeMap<I, PublicAuxInfo<P>>);
+pub struct PublicAuxInfos<P: SchemeParams, I: PartyId>(pub(crate) BTreeMap<I, PublicAuxInfo<P>>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "SecretKeyPaillierWire<P::Paillier>: Serialize"))]
@@ -103,7 +103,7 @@ pub(crate) struct PublicAuxInfoPrecomputed<P: SchemeParams> {
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
-pub struct KeyShareChange<P: SchemeParams, I: Ord> {
+pub struct KeyShareChange<P: SchemeParams, I: PartyId> {
     pub(crate) owner: I,
     /// The value to be added to the secret share.
     pub(crate) secret_share_change: Secret<Scalar<P>>, // `x_i^* - x_i == \sum_{j} x_j^i`
@@ -111,7 +111,7 @@ pub struct KeyShareChange<P: SchemeParams, I: Ord> {
     pub(crate) public_share_changes: BTreeMap<I, Point<P>>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
 }
 
-impl<P: SchemeParams, I: Ord> PublicAuxInfos<P, I> {
+impl<P: SchemeParams, I: PartyId> PublicAuxInfos<P, I> {
     pub(crate) fn num_parties(&self) -> usize {
         self.0.len()
     }
@@ -137,7 +137,7 @@ impl<P: SchemeParams, I: Ord> PublicAuxInfos<P, I> {
     }
 }
 
-impl<P: SchemeParams, I: Clone + Ord + Debug> PublicKeyShares<P, I> {
+impl<P: SchemeParams, I: PartyId> PublicKeyShares<P, I> {
     pub(crate) fn as_map(&self) -> &BTreeMap<I, Point<P>> {
         &self.0
     }
@@ -146,7 +146,7 @@ impl<P: SchemeParams, I: Clone + Ord + Debug> PublicKeyShares<P, I> {
 impl<P, I> KeyShare<P, I>
 where
     P: SchemeParams,
-    I: Ord + Debug + Clone,
+    I: PartyId,
 {
     pub(crate) fn new(
         owner: I,
@@ -272,7 +272,7 @@ where
     }
 }
 
-impl<P: SchemeParams, I: Ord + Clone> AuxInfo<P, I> {
+impl<P: SchemeParams, I: PartyId> AuxInfo<P, I> {
     /// Returns the owner of this aux data.
     pub fn owner(&self) -> &I {
         &self.owner

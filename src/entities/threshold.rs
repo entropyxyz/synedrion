@@ -29,7 +29,7 @@ use crate::curve::{apply_tweaks_public, derive_tweaks, DeriveChildKey, PublicTwe
 /// is enough to perform signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "ShareId<P>: for<'x> Deserialize<'x>"))]
-pub struct ThresholdKeyShare<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
+pub struct ThresholdKeyShare<P: SchemeParams, I: PartyId> {
     // TODO (#5): make this private to ensure invariants are held
     // (mainly, that the verifying key is not an identity)
     pub(crate) owner: I,

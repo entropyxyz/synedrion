@@ -100,14 +100,14 @@ impl<I> ProtocolError<I> for KeyResharingError {
 
 /// Old share data.
 #[derive(Debug, Clone)]
-pub struct OldHolder<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
+pub struct OldHolder<P: SchemeParams, I: PartyId> {
     /// The threshold key share.
     pub key_share: ThresholdKeyShare<P, I>,
 }
 
 /// New share data.
 #[derive(Debug, Clone)]
-pub struct NewHolder<P: SchemeParams, I: Ord> {
+pub struct NewHolder<P: SchemeParams, I: PartyId> {
     /// The verifying key the old shares add up to.
     pub verifying_key: VerifyingKey<P::Curve>,
     /// The old threshold.
@@ -118,7 +118,7 @@ pub struct NewHolder<P: SchemeParams, I: Ord> {
 
 /// An entry point for the [`KeyResharingProtocol`].
 #[derive(Debug, Clone)]
-pub struct KeyResharing<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
+pub struct KeyResharing<P: SchemeParams, I: PartyId> {
     /// Old share data if the node holds it, or `None`.
     old_holder: Option<OldHolder<P, I>>,
     /// New share data if the node is one of the new holders, or `None`.
@@ -132,7 +132,7 @@ pub struct KeyResharing<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
 impl<P, I> KeyResharing<P, I>
 where
     P: SchemeParams,
-    I: Ord + for<'x> Deserialize<'x>,
+    I: PartyId,
 {
     /// Creates a new entry point for the node with the given ID.
     pub fn new(
@@ -245,12 +245,12 @@ struct OldHolderData<P: SchemeParams> {
 }
 
 #[derive(Debug)]
-struct NewHolderData<P: SchemeParams, I: Ord> {
+struct NewHolderData<P: SchemeParams, I: PartyId> {
     inputs: NewHolder<P, I>,
 }
 
 #[derive(Debug)]
-struct Round1<P: SchemeParams, I: Ord> {
+struct Round1<P: SchemeParams, I: PartyId> {
     old_holder: Option<OldHolderData<P>>,
     new_holder: Option<NewHolderData<P, I>>,
     new_share_ids: BTreeMap<I, ShareId<P>>,

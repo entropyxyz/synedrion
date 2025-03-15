@@ -912,7 +912,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
 pub struct InteractiveSigning<P, Id>
 where
     P: SchemeParams,
-    Id: Ord + Debug + Clone,
+    Id: PartyId,
 {
     key_share: KeyShare<P, Id>,
     aux_info: AuxInfo<P, Id>,
@@ -1045,7 +1045,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
 pub(super) struct Context<P, Id>
 where
     P: SchemeParams,
-    Id: Ord,
+    Id: PartyId,
 {
     scalar_message: Scalar<P>,
     pub(super) epid: Box<[u8]>,
@@ -1065,7 +1065,7 @@ where
 impl<P, Id> Context<P, Id>
 where
     P: SchemeParams,
-    Id: Ord + Debug + Clone + Serialize + for<'x> Deserialize<'x>,
+    Id: PartyId,
 {
     pub fn public_share(&self, i: &Id) -> Result<&Point<P>, LocalError> {
         self.key_share.public_shares().safe_get("public share", i)
@@ -1080,7 +1080,7 @@ where
 struct Round1<P, Id>
 where
     P: SchemeParams,
-    Id: Ord + Serialize + Clone + Debug + for<'x> Deserialize<'x>,
+    Id: PartyId,
 {
     context: Context<P, Id>,
     r1_echo_broadcast: Round1EchoBroadcast<P>,
@@ -1454,7 +1454,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round2<P: SchemeParams, Id: Ord + Clone + Debug> {
+pub(super) struct Round2<P: SchemeParams, Id: PartyId> {
     pub(super) context: Context<P, Id>,
     betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
     rs: BTreeMap<Id, Randomizer<P::Paillier>>,
@@ -1827,7 +1827,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round3<P: SchemeParams, Id: Ord> {
+pub(super) struct Round3<P: SchemeParams, Id: PartyId> {
     pub(super) context: Context<P, Id>,
     pub(super) cap_k: Ciphertext<P::Paillier>,
     pub(super) cap_gamma_combined: Point<P>,
@@ -2029,7 +2029,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 }
 
 #[derive(Debug)]
-struct Round4<P: SchemeParams, Id: Ord> {
+struct Round4<P: SchemeParams, Id: PartyId> {
     context: Context<P, Id>,
     presigning_data: PresigningData<P, Id>,
     sigma: Scalar<P>,
