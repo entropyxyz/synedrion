@@ -6,4 +6,4 @@ mod traits;
 pub(crate) use public_signed::PublicSigned;
 pub(crate) use secret_signed::SecretSigned;
 pub(crate) use secret_unsigned::SecretUnsigned;
-pub(crate) use traits::{Exponentiable, FromXofReader, HasWide, IsInvertible, ToMontgomery};
+pub(crate) use traits::{Exponentiable, Extendable, FromXofReader, IsInvertible, MulWide, ToMontgomery};

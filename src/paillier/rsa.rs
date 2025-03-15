@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use super::params::PaillierParams;
 use crate::{
     tools::Secret,
-    uint::{FromXofReader, HasWide, IsInvertible, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    uint::{
+        Extendable, FromXofReader, IsInvertible, MulWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery,
+    },
 };
 
 #[cfg(test)]
