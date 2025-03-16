@@ -24,7 +24,10 @@ use ::{ecdsa::SigningKey, elliptic_curve::SecretKey};
 
 use crate::{
     params::SchemeParams,
-    tools::{hashing::Chain, BoxedRng, Secret},
+    tools::{
+        hashing::{Chain, Hashable},
+        Secret, BoxedRng
+    },
     uint::BoxedEncoding,
 };
 
@@ -44,13 +47,13 @@ where
     let order = Crv::ORDER;
     let limbs = order.as_ref();
     for limb in limbs {
-        digest = digest.chain(&limb.0.to_le_bytes());
+        digest = digest.chain_bytes(&limb.0.to_le_bytes());
     }
 
     let generator_bytes = <Crv as CurveArithmetic>::ProjectivePoint::generator()
         .to_affine()
         .to_encoded_point(true);
-    digest.chain::<&[u8]>(&generator_bytes.as_bytes())
+    digest.chain_bytes(&generator_bytes.as_bytes())
 }
 
 type BackendScalar<P> = <<P as SchemeParams>::Curve as CurveArithmetic>::Scalar;
@@ -284,6 +287,15 @@ where
 
     pub(crate) fn to_backend(self) -> <P::Curve as CurveArithmetic>::ProjectivePoint {
         self.0
+    }
+}
+
+impl<P: SchemeParams> Hashable for Point<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"Point").chain_serializable(self)
     }
 }
 

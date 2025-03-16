@@ -10,7 +10,10 @@ use super::{
     PaillierParams,
 };
 use crate::{
-    tools::Secret,
+    tools::{
+        hashing::{Chain, Hashable},
+        Secret,
+    },
     uint::{Exponentiable, PublicUint, SecretUnsigned, ToMontgomery},
 };
 
@@ -157,6 +160,15 @@ impl<P: PaillierParams> RPParams<P> {
     }
 }
 
+impl<P: PaillierParams> Hashable for RPParams<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain(&self.to_wire())
+    }
+}
+
 /// Minimal public ring-Pedersen parameters suitable for serialization and transmission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicModulusWire<P>: Serialize"))]
@@ -185,6 +197,15 @@ impl<P: PaillierParams> RPParamsWire<P> {
             base_randomizer,
             base_value,
         }
+    }
+}
+
+impl<P: PaillierParams> Hashable for RPParamsWire<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"RPParamsWire").chain_serializable(self)
     }
 }
 
@@ -218,5 +239,14 @@ pub(crate) struct RPCommitmentWire<P: PaillierParams>(PublicUint<P::Uint>);
 impl<P: PaillierParams> RPCommitmentWire<P> {
     pub fn to_precomputed(&self, params: &RPParams<P>) -> RPCommitment<P> {
         RPCommitment(self.0.to_montgomery(params.monty_params_mod_n()))
+    }
+}
+
+impl<P: PaillierParams> Hashable for RPCommitmentWire<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"RPCommitmentWire").chain_serializable(self)
     }
 }

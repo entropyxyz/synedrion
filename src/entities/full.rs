@@ -16,7 +16,10 @@ use crate::{
         PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, SecretKeyPaillier, SecretKeyPaillierWire,
     },
     params::SchemeParams,
-    tools::Secret,
+    tools::{
+        hashing::{Chain, Hashable},
+        Secret,
+    },
 };
 
 /// The result of the KeyInit protocol.
@@ -134,6 +137,19 @@ where
     pub(crate) public_share_changes: SerializableMap<I, Point<P>>, // `X_k^* - X_k == \sum_j X_j^k`, for all nodes
 }
 
+impl<P, I> Hashable for PublicAuxInfos<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"PublicAuxInfos").chain_serializable(self)
+    }
+}
+
 impl<P, I> PublicAuxInfos<P, I>
 where
     P: SchemeParams,
@@ -170,6 +186,15 @@ where
 {
     pub(crate) fn as_map(&self) -> &BTreeMap<I, Point<P>> {
         &self.0
+    }
+}
+
+impl<P: SchemeParams, I: PartyId> Hashable for PublicKeyShares<P, I> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"PublicKeyShares").chain_serializable(self)
     }
 }
 

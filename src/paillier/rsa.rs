@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use super::params::PaillierParams;
 use crate::{
-    tools::Secret,
+    tools::{
+        hashing::{Chain, Hashable},
+        Secret,
+    },
     uint::{
         Extendable, FromXofReader, IsInvertible, MulWide, PublicSigned, PublicUint, SecretSigned, SecretUnsigned,
         ToMontgomery,
@@ -243,6 +246,15 @@ impl<P: PaillierParams> PublicModulusWire<P> {
     }
 }
 
+impl<P: PaillierParams> Hashable for PublicModulusWire<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"PublicModulusWire").chain_serializable(self)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct PublicModulus<P: PaillierParams> {
     /// The base RSA modulus $N$.
@@ -320,5 +332,14 @@ impl<P: PaillierParams> PublicModulus<P> {
         self.random_invertible_residue(rng)
             .to_montgomery(&self.monty_params_mod_n)
             .square()
+    }
+}
+
+impl<P: PaillierParams> Hashable for PublicModulus<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain(&self.modulus)
     }
 }

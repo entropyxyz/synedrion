@@ -44,15 +44,28 @@ impl<P: SchemeParams> PrmCommitment<P> {
     }
 }
 
+impl<P: SchemeParams> Hashable for PrmCommitment<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_serializable(&self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PrmChallenge(BitVec);
 
 impl PrmChallenge {
-    fn new<P: SchemeParams>(commitment: &PrmCommitment<P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> Self {
+    fn new<P: SchemeParams>(
+        commitment: &PrmCommitment<P>,
+        setup: &RPParams<P::Paillier>,
+        aux: &impl Serialize,
+    ) -> Self {
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             .chain(commitment)
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
         Self(BitVec::from_xof_reader(&mut reader, P::SECURITY_BITS))
     }
@@ -68,6 +81,15 @@ pub(crate) struct PrmProof<P: SchemeParams> {
     proof: Vec<PublicUint<<P::Paillier as PaillierParams>::Uint>>,
 }
 
+impl<P: SchemeParams> Hashable for PrmProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes("PrmProof").chain_serializable(&self)
+    }
+}
+
 impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
     /// (i.e. lambda, the power that was used to create RP parameters).
@@ -75,7 +97,7 @@ impl<P: SchemeParams> PrmProof<P> {
         rng: &mut dyn CryptoRngCore,
         secret: &RPSecret<P::Paillier>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         debug_assert!(&secret.modulus() == setup.modulus());
         let proof_secret = PrmSecret::<P>::random(rng, secret);
@@ -103,7 +125,7 @@ impl<P: SchemeParams> PrmProof<P> {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
-    pub fn verify(&self, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, setup: &RPParams<P::Paillier>, aux: &impl Serialize) -> bool {
         let monty_params = setup.monty_params_mod_n();
 
         let challenge = PrmChallenge::new(&self.commitment, setup, aux);

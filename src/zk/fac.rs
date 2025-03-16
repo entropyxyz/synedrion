@@ -38,12 +38,21 @@ pub(crate) struct FacProof<P: SchemeParams> {
     v: PublicSigned<P::ExtraWideUint>,
 }
 
+impl<P: SchemeParams> Hashable for FacProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"FacProof").chain_serializable(self)
+    }
+}
+
 impl<P: SchemeParams> FacProof<P> {
     pub fn new(
         rng: &mut dyn CryptoRngCore,
         sk0: &SecretKeyPaillier<P::Paillier>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         let pk0 = sk0.public_key();
 
@@ -95,9 +104,9 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&cap_b)
             .chain(&cap_t)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(pk0)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
@@ -138,7 +147,7 @@ impl<P: SchemeParams> FacProof<P> {
         &self,
         pk0: &PublicKeyPaillier<P::Paillier>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> bool {
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
@@ -148,9 +157,9 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&self.cap_b)
             .chain(&self.cap_t)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(pk0)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge

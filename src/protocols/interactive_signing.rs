@@ -252,7 +252,7 @@ impl Epid {
         let digest = Hasher::<P::Digest>::new_with_dst(b"EPID");
         let digest = chain_scheme_params::<P, _>(digest);
         let digest = digest
-            .chain(&shared_randomness)
+            .chain_bytes(&shared_randomness)
             .chain(&associated_data.shares)
             .chain(&associated_data.aux);
 

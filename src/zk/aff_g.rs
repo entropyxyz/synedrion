@@ -70,13 +70,22 @@ pub(crate) struct AffGProof<P: SchemeParams> {
     w_y: MaskedRandomizer<P::Paillier>,
 }
 
+impl<P: SchemeParams> Hashable for AffGProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"AffGProof").chain_serializable(self)
+    }
+}
+
 impl<P: SchemeParams> AffGProof<P> {
     pub fn new(
         rng: &mut dyn CryptoRngCore,
         secret: AffGSecretInputs<'_, P>,
         public: AffGPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         secret.x.assert_exponent_range(P::L_BOUND);
         secret.y.assert_exponent_range(P::LP_BOUND);
@@ -119,14 +128,14 @@ impl<P: SchemeParams> AffGProof<P> {
             .chain(&cap_s)
             .chain(&cap_t)
             // public parameters
-            .chain(public.pk0.as_wire())
-            .chain(public.pk1.as_wire())
-            .chain(&public.cap_c.to_wire())
-            .chain(&public.cap_d.to_wire())
-            .chain(&public.cap_y.to_wire())
+            .chain(public.pk0)
+            .chain(public.pk1)
+            .chain(public.cap_c)
+            .chain(public.cap_d)
+            .chain(public.cap_y)
             .chain(public.cap_x)
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
@@ -171,7 +180,7 @@ impl<P: SchemeParams> AffGProof<P> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn verify(&self, public: AffGPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, public: AffGPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Serialize) -> bool {
         assert!(public.cap_c.public_key() == public.pk0);
         assert!(public.cap_d.public_key() == public.pk0);
         assert!(public.cap_y.public_key() == public.pk1);
@@ -186,14 +195,14 @@ impl<P: SchemeParams> AffGProof<P> {
             .chain(&self.cap_s)
             .chain(&self.cap_t)
             // public parameters
-            .chain(public.pk0.as_wire())
-            .chain(public.pk1.as_wire())
-            .chain(&public.cap_c.to_wire())
-            .chain(&public.cap_d.to_wire())
-            .chain(&public.cap_y.to_wire())
+            .chain(public.pk0)
+            .chain(public.pk1)
+            .chain(public.cap_c)
+            .chain(public.cap_d)
+            .chain(public.cap_y)
             .chain(public.cap_x)
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge

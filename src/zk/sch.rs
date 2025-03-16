@@ -41,14 +41,23 @@ impl<P: SchemeParams> SchCommitment<P> {
     }
 }
 
+impl<P: SchemeParams> Hashable for SchCommitment<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"SchCommitment").chain_serializable(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>"))]
 struct SchChallenge<P: SchemeParams>(Scalar<P>);
 
 impl<P: SchemeParams> SchChallenge<P> {
-    fn new(public: &Point<P>, commitment: &SchCommitment<P>, aux: &impl Hashable) -> Self {
+    fn new(public: &Point<P>, commitment: &SchCommitment<P>, aux: &impl Serialize) -> Self {
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
-            .chain(aux)
+            .chain_serializable(aux)
             .chain(public)
             .chain(commitment)
             .finalize_to_reader();
@@ -70,14 +79,14 @@ impl<P: SchemeParams> SchProof<P> {
         x: &Secret<Scalar<P>>,
         commitment: &SchCommitment<P>,
         cap_x: &Point<P>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
         let proof: Scalar<P> = *(&proof_secret.0 + x * challenge.0).expose_secret();
         Self { challenge, proof }
     }
 
-    pub fn verify(&self, commitment: &SchCommitment<P>, cap_x: &Point<P>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, commitment: &SchCommitment<P>, cap_x: &Point<P>, aux: &impl Serialize) -> bool {
         let challenge = SchChallenge::new(cap_x, commitment, aux);
         challenge == self.challenge && (commitment.0 + cap_x * challenge.0) == self.proof.mul_by_generator()
     }

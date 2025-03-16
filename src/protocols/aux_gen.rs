@@ -298,9 +298,10 @@ impl<P: SchemeParams> PublicData<P> {
     pub(super) fn hash<Id: PartyId>(&self, sid: &Sid, id: &Id) -> HashOutput {
         Hasher::<P::Digest>::new_with_dst(b"KeyInit")
             .chain(sid)
-            .chain(id)
-            .chain(&self.paillier_pk.clone().into_wire())
-            .chain(&self.rp_params.to_wire())
+            .chain_bytes("Id")
+            .chain_serializable(id)
+            .chain(&self.paillier_pk)
+            .chain(&self.rp_params)
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
