@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 
 use digest::{ExtendableOutput, Update, XofReader};
 use hashing_serializer::HashingSerializer;
+use manul::protocol::PartyId;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
@@ -24,6 +25,21 @@ pub trait Chain: Sized {
 
     fn chain<T: Hashable>(self, hashable: &T) -> Self {
         hashable.chain(self)
+    }
+
+    fn chain_serializable<T: Serialize>(self, obj: &T) -> Self {
+        let mut digest = self;
+
+        let serializer = HashingSerializer {
+            digest: digest.as_digest_mut(),
+        };
+
+        // The only way it can return an error is if there is
+        // some non-serializable element encountered, which is 100% reproducible
+        // and will be caught in tests.
+        obj.serialize(serializer).expect("The type is serializable");
+
+        digest
     }
 }
 
@@ -78,6 +94,7 @@ pub trait Hashable {
     fn chain<C: Chain>(&self, digest: C) -> C;
 }
 
+/*
 // We have a lot of things that already implement `Serialize`,
 // so there's no point in implementing `Hashable` for them separately.
 // The reproducibility of this hash depends on `serde` not breaking things,
@@ -99,3 +116,4 @@ impl<T: Serialize> Hashable for T {
         digest
     }
 }
+*/

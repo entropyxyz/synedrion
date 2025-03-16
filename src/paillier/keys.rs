@@ -15,7 +15,10 @@ use super::{
     rsa::{PublicModulus, PublicModulusWire, SecretPrimes, SecretPrimesWire},
 };
 use crate::{
-    tools::Secret,
+    tools::{
+        hashing::{Chain, Hashable},
+        Secret,
+    },
     uint::{Extendable, MulWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
@@ -320,6 +323,15 @@ impl<P: PaillierParams> PublicKeyPaillierWire<P> {
     }
 }
 
+impl<P: PaillierParams> Hashable for PublicKeyPaillierWire<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"PublicKeyPaillierWire").chain_serializable(self)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
     modulus: PublicModulus<P>,
@@ -408,6 +420,15 @@ impl<P: PaillierParams> PartialEq for PublicKeyPaillier<P> {
 }
 
 impl<P: PaillierParams> Eq for PublicKeyPaillier<P> {}
+
+impl<P: PaillierParams> Hashable for PublicKeyPaillier<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain(self.as_wire())
+    }
+}
 
 #[cfg(test)]
 mod tests {
