@@ -25,9 +25,9 @@ pub struct PaillierTest;
 
 impl PaillierParams for PaillierTest {
     const PRIME_BITS: u32 = 128;
-    type HalfUint = Uint<{ nlimbs!(128) }>;
-    type Uint = Uint<{ nlimbs!(256) }>;
-    type WideUint = Uint<{ nlimbs!(512) }>;
+    type HalfUint = Uint<{ nlimbs!(Self::PRIME_BITS) }>;
+    type Uint = Uint<{ nlimbs!(Self::PRIME_BITS * 2) }>;
+    type WideUint = Uint<{ nlimbs!(Self::PRIME_BITS * 4) }>;
 }
 
 static_assertions::const_assert!(PaillierTest::SELF_CONSISTENT);
@@ -42,7 +42,7 @@ impl SchemeParams for TestParams {
     type Digest = Shake256;
     const SECURITY_BITS: usize = 16;
     type Paillier = PaillierTest;
-    type ExtraWideUint = Uint<{ nlimbs!(640) }>;
+    type ExtraWideUint = Uint<{ nlimbs!(Self::Paillier::PRIME_BITS * 5) }>;
 }
 
 static_assertions::const_assert!(TestParams::SELF_CONSISTENT);

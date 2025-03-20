@@ -26,9 +26,9 @@ pub struct PaillierProduction112;
 // Source of the values: Appendix C.1.
 impl PaillierParams for PaillierProduction112 {
     const PRIME_BITS: u32 = 1024;
-    type HalfUint = Uint<{ nlimbs!(1024) }>;
-    type Uint = Uint<{ nlimbs!(2048) }>;
-    type WideUint = Uint<{ nlimbs!(4096) }>;
+    type HalfUint = Uint<{ nlimbs!(Self::PRIME_BITS) }>;
+    type Uint = Uint<{ nlimbs!(Self::PRIME_BITS * 2) }>;
+    type WideUint = Uint<{ nlimbs!(Self::PRIME_BITS * 4) }>;
 }
 
 static_assertions::const_assert!(PaillierProduction112::SELF_CONSISTENT);
@@ -40,9 +40,9 @@ pub struct PaillierProduction128;
 // Source of the values: Appendix C.1.
 impl PaillierParams for PaillierProduction128 {
     const PRIME_BITS: u32 = 1536;
-    type HalfUint = Uint<{ nlimbs!(1536) }>;
-    type Uint = Uint<{ nlimbs!(3072) }>;
-    type WideUint = Uint<{ nlimbs!(6144) }>;
+    type HalfUint = Uint<{ nlimbs!(Self::PRIME_BITS) }>;
+    type Uint = Uint<{ nlimbs!(Self::PRIME_BITS * 2) }>;
+    type WideUint = Uint<{ nlimbs!(Self::PRIME_BITS * 4) }>;
 }
 
 static_assertions::const_assert!(PaillierProduction128::SELF_CONSISTENT);
@@ -56,7 +56,7 @@ impl SchemeParams for ProductionParams112 {
     type Digest = Shake256;
     const SECURITY_BITS: usize = 112;
     type Paillier = PaillierProduction112;
-    type ExtraWideUint = Uint<{ nlimbs!(5120) }>;
+    type ExtraWideUint = Uint<{ nlimbs!(Self::Paillier::PRIME_BITS * 5) }>;
 }
 
 static_assertions::const_assert!(ProductionParams112::SELF_CONSISTENT);
@@ -70,7 +70,7 @@ impl SchemeParams for ProductionParams128 {
     type Digest = Shake256;
     const SECURITY_BITS: usize = 128;
     type Paillier = PaillierProduction128;
-    type ExtraWideUint = Uint<{ nlimbs!(7680) }>;
+    type ExtraWideUint = Uint<{ nlimbs!(Self::Paillier::PRIME_BITS * 5) }>;
 }
 
 static_assertions::const_assert!(ProductionParams128::SELF_CONSISTENT);
