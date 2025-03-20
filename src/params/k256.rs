@@ -7,7 +7,6 @@ use core::fmt::Debug;
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::{nlimbs, Uint};
-use elliptic_curve::bigint::{self as bigintv05};
 use serde::{Deserialize, Serialize};
 use sha3::Shake256;
 
@@ -54,7 +53,6 @@ pub struct ProductionParams112;
 
 impl SchemeParams for ProductionParams112 {
     type Curve = k256::Secp256k1;
-    type WideCurveUint = bigintv05::U512;
     type Digest = Shake256;
     const SECURITY_BITS: usize = 112;
     type Paillier = PaillierProduction112;
@@ -69,7 +67,6 @@ pub struct ProductionParams128;
 
 impl SchemeParams for ProductionParams128 {
     type Curve = k256::Secp256k1;
-    type WideCurveUint = bigintv05::U512;
     type Digest = Shake256;
     const SECURITY_BITS: usize = 128;
     type Paillier = PaillierProduction128;
