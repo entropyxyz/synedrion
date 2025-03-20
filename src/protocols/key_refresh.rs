@@ -2,7 +2,6 @@
 //! This protocol generates an update to the secret key shares and new auxiliary parameters
 //! for ZK proofs (e.g. Paillier keys).
 
-use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::{
     fmt::{self, Debug, Display},
@@ -21,11 +20,10 @@ use manul::{
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use serde_encoded_bytes::{Hex, SliceLike};
 
 use crate::{
     curve::{secret_split, Point, Scalar},
-    entities::{AuxInfo, KeyShareChange, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
+    entities::{AuxInfo, KeyShareChange, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo, Sid},
     paillier::{
         PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillier,
         SecretKeyPaillierWire,
@@ -33,7 +31,7 @@ use crate::{
     params::SchemeParams,
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, HashOutput, Hasher},
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
         Secret,
     },
@@ -207,17 +205,6 @@ pub struct KeyRefreshAssociatedData<Id> {
     pub ids: BTreeSet<Id>,
 }
 
-fn make_sid<P: SchemeParams, Id: PartyId>(
-    shared_randomness: &[u8],
-    associated_data: &KeyRefreshAssociatedData<Id>,
-) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"KeyRefresh SID")
-        .chain_type::<P::Curve>()
-        .chain(&shared_randomness)
-        .chain(&associated_data.ids)
-        .finalize_boxed(P::SECURITY_BITS)
-}
-
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> {
     type AssociatedData = KeyRefreshAssociatedData<Id>;
 
@@ -275,7 +262,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
         previous_messages: BTreeMap<RoundId, ProtocolMessage>,
         combined_echos: BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
-        let sid = make_sid::<P, Id>(shared_randomness, associated_data);
+        let sid = Sid::new::<P, Id>(shared_randomness, &associated_data.ids);
 
         match &self.error {
             Error::R2HashMismatch => {
@@ -375,7 +362,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                     .echo_broadcast
                     .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
                 let cap_y_ji = r2_eb.cap_ys.try_get("public Elgamal values", reported_by)?;
-                let mut reader = XofHasher::new_with_dst(b"KeyRefresh Round3")
+                let mut reader = Hasher::<P::Digest>::new_with_dst(b"KeyRefresh Round3")
                     .chain(&sid)
                     .chain(&rid)
                     .chain(guilty_party)
@@ -467,9 +454,9 @@ pub(super) struct PublicData<P: SchemeParams, Id> {
 }
 
 impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
-    pub(super) fn hash(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        XofHasher::new_with_dst(b"KeyInit")
-            .chain(&sid)
+    pub(super) fn hash(&self, sid: &Sid, id: &Id) -> HashOutput {
+        Hasher::<P::Digest>::new_with_dst(b"KeyInit")
+            .chain(sid)
             .chain(id)
             .chain(&self.cap_xs)
             .chain(&self.cap_ys)
@@ -479,7 +466,7 @@ impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize_boxed(P::SECURITY_BITS)
+            .finalize(P::SECURITY_BITS)
     }
 }
 
@@ -520,12 +507,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for KeyRefresh<P, Id> {
 
         let other_ids = self.all_ids.clone().without(id);
 
-        let sid = make_sid::<P, Id>(
-            shared_randomness,
-            &KeyRefreshAssociatedData {
-                ids: self.all_ids.clone(),
-            },
-        );
+        let sid = Sid::new::<P, Id>(shared_randomness, &self.all_ids);
 
         // Paillier secret key $p_i$, $q_i$
         let paillier_sk = SecretKeyPaillierWire::<P::Paillier>::random(rng);
@@ -610,7 +592,7 @@ pub(super) struct Context<P: SchemeParams, Id> {
     pub(super) my_id: Id,
     other_ids: BTreeSet<Id>,
     all_ids: BTreeSet<Id>,
-    pub(super) sid: Box<[u8]>,
+    pub(super) sid: Sid,
 }
 
 #[derive(Debug)]
@@ -621,12 +603,11 @@ pub(super) struct Round1<P: SchemeParams, Id: PartyId> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Round1EchoBroadcast {
-    #[serde(with = "SliceLike::<Hex>")]
-    pub(super) cap_v: Box<[u8]>,
+    pub(super) cap_v: HashOutput,
 }
 
 struct Round1Payload {
-    cap_v: Box<[u8]>,
+    cap_v: HashOutput,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
@@ -697,7 +678,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
 struct Round2<P: SchemeParams, Id: PartyId> {
     context: Context<P, Id>,
     public_data: PublicData<P, Id>,
-    cap_vs: BTreeMap<Id, Box<[u8]>>,
+    cap_vs: BTreeMap<Id, HashOutput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1016,7 +997,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 
         let cap_y = r2_payload.cap_ys.safe_get("Elgamal public keys", my_id)?;
         let y = self.context.ys.safe_get("Elgamal secrets", destination)?;
-        let mut reader = XofHasher::new_with_dst(b"KeyRefresh Round3")
+        let mut reader = Hasher::<P::Digest>::new_with_dst(b"KeyRefresh Round3")
             .chain(&self.context.sid)
             .chain(&self.rid_combined)
             .chain(my_id)
@@ -1052,7 +1033,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         let r2_payload = self.r2_payloads.safe_get("Round 2 payloads", from)?;
         let cap_y = r2_payload.cap_ys.safe_get("Elgamal public keys", my_id)?;
         let y = self.context.ys.safe_get("Elgamal secrets", from)?;
-        let mut reader = XofHasher::new_with_dst(b"KeyRefresh Round3")
+        let mut reader = Hasher::<P::Digest>::new_with_dst(b"KeyRefresh Round3")
             .chain(&self.context.sid)
             .chain(&self.rid_combined)
             .chain(from)

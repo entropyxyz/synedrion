@@ -10,7 +10,7 @@ mod bip32;
 
 pub use ecdsa::RecoverableSignature;
 
-pub(crate) use arithmetic::{secret_split, Point, Scalar};
+pub(crate) use arithmetic::{chain_curve, secret_split, Point, Scalar};
 
 #[cfg(feature = "bip32")]
 pub use bip32::{DeriveChildKey, PublicTweakable, SecretTweakable};

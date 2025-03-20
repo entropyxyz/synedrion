@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     params::SchemeParams,
-    tools::hashing::{Chain, Hashable, XofHasher},
+    tools::hashing::{Chain, Hashable, Hasher},
     uint::{Exponentiable, IsInvertible, ToMontgomery},
 };
 
@@ -36,7 +36,7 @@ struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>)
 
 impl<P: SchemeParams> ModChallenge<P> {
     fn new(pk: &PublicKeyPaillier<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Hashable) -> Self {
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             .chain(pk.as_wire())
             .chain(commitment)
             .chain(aux)
@@ -145,7 +145,7 @@ impl<P: SchemeParams> ModProof<P> {
             return false;
         }
 
-        let mut reader = XofHasher::new_with_dst(b"P_mod RNG")
+        let mut reader = Hasher::<P::Digest>::new_with_dst(b"P_mod RNG")
             // commitments
             .chain(&self.commitment)
             // public parameters

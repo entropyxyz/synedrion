@@ -10,7 +10,7 @@ use crate::{
         Randomizer,
     },
     params::{public_signed_from_scalar, scalar_from_signed, secret_scalar_from_signed, SchemeParams},
-    tools::hashing::{Chain, Hashable, XofHasher},
+    tools::hashing::{Chain, Hashable, Hasher},
     uint::{PublicSigned, SecretSigned},
 };
 
@@ -109,7 +109,7 @@ impl<P: SchemeParams> AffGProof<P> {
         // Original: $s^y$. Modified: $s^{-y}$
         let cap_t = setup.commit(&(-secret.y), &mu).to_wire();
 
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_a)
             .chain(&cap_b_x)
@@ -176,7 +176,7 @@ impl<P: SchemeParams> AffGProof<P> {
         assert!(public.cap_d.public_key() == public.pk0);
         assert!(public.cap_y.public_key() == public.pk1);
 
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_a)
             .chain(&self.cap_b_x)

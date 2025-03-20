@@ -12,6 +12,7 @@ use elliptic_curve::{
     Curve,
 };
 use serde::{Deserialize, Serialize};
+use sha3::Shake256;
 
 #[cfg(feature = "bip32")]
 use ecdsa::{SigningKey, VerifyingKey};
@@ -49,6 +50,7 @@ pub struct ProductionParams112;
 impl SchemeParams for ProductionParams112 {
     type Curve = k256::Secp256k1;
     type WideCurveUint = bigintv05::U512;
+    type Digest = Shake256;
     const SECURITY_BITS: usize = 112;
     const SECURITY_PARAMETER: usize = 256;
     const L_BOUND: u32 = 256;

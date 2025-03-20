@@ -4,7 +4,6 @@
 //! - Failed Nonce error round (Fig. 9) - Round 5.
 //! - Failed Chi error round (Section 4.3.1) - Round 6.
 
-use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::{
     fmt::{self, Debug, Display},
@@ -28,9 +27,9 @@ use crate::{
     curve::{Point, RecoverableSignature, Scalar},
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PublicAuxInfoPrecomputed, PublicAuxInfos, PublicKeyShares},
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
-    params::{secret_scalar_from_signed, secret_signed_from_scalar, SchemeParams},
+    params::{chain_scheme_params, secret_scalar_from_signed, secret_signed_from_scalar, SchemeParams},
     tools::{
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, HashOutput, Hasher},
         protocol_shortcuts::{
             sum_non_empty, sum_non_empty_ref, verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet,
             Without,
@@ -236,16 +235,26 @@ impl<P: SchemeParams, Id: PartyId> InteractiveSigningAssociatedData<P, Id> {
     }
 }
 
-fn make_epid<P: SchemeParams, Id: PartyId>(
-    shared_randomness: &[u8],
-    associated_data: &InteractiveSigningAssociatedData<P, Id>,
-) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"InteractiveSigning EPID")
-        .chain_type::<P::Curve>()
-        .chain(&shared_randomness)
-        .chain(&associated_data.shares)
-        .chain(&associated_data.aux)
-        .finalize_boxed(P::SECURITY_BITS)
+/// The epoch identifier (see Remark 4.1 in the paper).
+///
+/// The epoch identifier is tied to the key-refresh epoch and the auxiliary key material of the parties for that epoch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Epid(HashOutput);
+
+impl Epid {
+    fn new<P: SchemeParams, Id: PartyId>(
+        shared_randomness: &[u8],
+        associated_data: &InteractiveSigningAssociatedData<P, Id>,
+    ) -> Self {
+        let digest = Hasher::<P::Digest>::new_with_dst(b"EPID");
+        let digest = chain_scheme_params::<P, _>(digest);
+        let digest = digest
+            .chain(&shared_randomness)
+            .chain(&associated_data.shares)
+            .chain(&associated_data.aux);
+
+        Self(digest.finalize(P::SECURITY_BITS))
+    }
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError<P, Id> {
@@ -348,7 +357,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
         previous_messages: BTreeMap<RoundId, ProtocolMessage>,
         combined_echos: BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
-        let epid = make_epid::<P, Id>(shared_randomness, associated_data);
+        let epid = Epid::new::<P, Id>(shared_randomness, associated_data);
 
         match &self.error {
             Error::R1EncElg0Failed => {
@@ -979,7 +988,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
         let all_ids = key_share.public_shares().keys().cloned().collect::<BTreeSet<_>>();
         let other_ids = all_ids.clone().without(id);
 
-        let epid = make_epid::<P, Id>(
+        let epid = Epid::new::<P, Id>(
             shared_randomness,
             &InteractiveSigningAssociatedData {
                 shares: key_share.public().clone(),
@@ -1051,7 +1060,7 @@ where
     Id: PartyId,
 {
     scalar_message: Scalar<P>,
-    pub(super) epid: Box<[u8]>,
+    pub(super) epid: Epid,
     pub(super) my_id: Id,
     other_ids: BTreeSet<Id>,
     all_ids: BTreeSet<Id>,
