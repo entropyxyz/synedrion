@@ -25,10 +25,6 @@ pub trait Chain: Sized {
     fn chain<T: Hashable>(self, hashable: &T) -> Self {
         hashable.chain(self)
     }
-
-    fn chain_type<T: HashableType>(self) -> Self {
-        T::chain_type(self)
-    }
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
@@ -75,11 +71,6 @@ where
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HashOutput(#[serde(with = "SliceLike::<Hex>")] Box<[u8]>);
-
-/// A trait allowing hashing of types without having access to their instances.
-pub trait HashableType {
-    fn chain_type<C: Chain>(digest: C) -> C;
-}
 
 /// A trait allowing complex objects to give access to their contents for hashing purposes
 /// without the need of a conversion to a new form (e.g. serialization).

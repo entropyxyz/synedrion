@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::{
+    tools::hashing::Chain,
     tools::hashing::Hashable,
     uint::{HasWide, ToMontgomery},
 };
@@ -102,4 +103,12 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Serialize
         + for<'de> Deserialize<'de>
         + Zeroize;
+}
+
+pub(crate) fn chain_paillier_params<P, C>(digest: C) -> C
+where
+    P: PaillierParams,
+    C: Chain,
+{
+    digest.chain_bytes(&P::PRIME_BITS.to_be_bytes())
 }

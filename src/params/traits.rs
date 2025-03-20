@@ -16,7 +16,11 @@ use elliptic_curve::{
 };
 use serde::Serialize;
 
-use crate::{paillier::PaillierParams, tools::hashing::HashableType};
+use crate::{
+    curve::chain_curve,
+    paillier::{chain_paillier_params, PaillierParams},
+    tools::hashing::Chain,
+};
 
 #[cfg(any(test, feature = "k256", feature = "dev"))]
 #[allow(clippy::indexing_slicing)]
@@ -53,7 +57,7 @@ where
     <Self::Curve as Curve>::Uint: Concat<Output = Self::WideCurveUint>,
 {
     /// The elliptic curve (of prime order) used.
-    type Curve: CurveArithmetic + PrimeCurve + HashableType + DigestPrimitive;
+    type Curve: CurveArithmetic + PrimeCurve + DigestPrimitive;
     /// Double the curve Scalar-width integer type.
     type WideCurveUint: bigintv05::Integer + Split<Output = <Self::Curve as Curve>::Uint>;
 
@@ -97,6 +101,21 @@ where
         // so to be on the safe side we require equality).
         && Self::L_BOUND * 2 + Self::EPS_BOUND == Self::Paillier::PRIME_BITS
     }
+}
+
+pub(crate) fn chain_scheme_params<P, C>(digest: C) -> C
+where
+    P: SchemeParams,
+    C: Chain,
+{
+    let digest = chain_curve::<P::Curve, _>(digest);
+    let digest = chain_paillier_params::<P::Paillier, _>(digest);
+    digest
+        .chain_bytes(&(P::SECURITY_BITS as u32).to_be_bytes())
+        .chain_bytes(&(P::SECURITY_PARAMETER as u32).to_be_bytes())
+        .chain_bytes(&P::L_BOUND.to_be_bytes())
+        .chain_bytes(&P::LP_BOUND.to_be_bytes())
+        .chain_bytes(&P::EPS_BOUND.to_be_bytes())
 }
 
 #[cfg(test)]

@@ -27,7 +27,7 @@ use crate::{
     curve::{Point, RecoverableSignature, Scalar},
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PublicAuxInfoPrecomputed, PublicAuxInfos, PublicKeyShares},
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
-    params::{secret_scalar_from_signed, secret_signed_from_scalar, SchemeParams},
+    params::{chain_scheme_params, secret_scalar_from_signed, secret_signed_from_scalar, SchemeParams},
     tools::{
         hashing::{Chain, HashOutput, Hasher},
         protocol_shortcuts::{
@@ -246,14 +246,14 @@ impl Epid {
         shared_randomness: &[u8],
         associated_data: &InteractiveSigningAssociatedData<P, Id>,
     ) -> Self {
-        Self(
-            Hasher::<P::Digest>::new_with_dst(b"EPID")
-                .chain_type::<P::Curve>()
-                .chain(&shared_randomness)
-                .chain(&associated_data.shares)
-                .chain(&associated_data.aux)
-                .finalize(P::SECURITY_BITS),
-        )
+        let digest = Hasher::<P::Digest>::new_with_dst(b"EPID");
+        let digest = chain_scheme_params::<P, _>(digest);
+        let digest = digest
+            .chain(&shared_randomness)
+            .chain(&associated_data.shares)
+            .chain(&associated_data.aux);
+
+        Self(digest.finalize(P::SECURITY_BITS))
     }
 }
 

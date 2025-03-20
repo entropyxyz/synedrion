@@ -4,7 +4,7 @@ use manul::protocol::PartyId;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    params::SchemeParams,
+    params::{chain_scheme_params, SchemeParams},
     tools::hashing::{Chain, HashOutput, Hasher},
 };
 
@@ -16,12 +16,10 @@ pub(crate) struct Sid(HashOutput);
 
 impl Sid {
     pub fn new<P: SchemeParams, Id: PartyId>(shared_randomness: &[u8], ids: &BTreeSet<Id>) -> Self {
-        Self(
-            Hasher::<P::Digest>::new_with_dst(b"SID")
-                .chain_type::<P::Curve>()
-                .chain(&shared_randomness)
-                .chain(&ids)
-                .finalize(P::SECURITY_BITS),
-        )
+        let digest = Hasher::<P::Digest>::new_with_dst(b"SID");
+        let digest = chain_scheme_params::<P, _>(digest);
+        let digest = digest.chain(&shared_randomness).chain(&ids);
+
+        Self(digest.finalize(P::SECURITY_BITS))
     }
 }

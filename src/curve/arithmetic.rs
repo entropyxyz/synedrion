@@ -24,36 +24,32 @@ use ::{ecdsa::SigningKey, elliptic_curve::SecretKey};
 
 use crate::{
     params::SchemeParams,
-    tools::{
-        hashing::{Chain, HashableType},
-        Secret,
-    },
+    tools::{hashing::Chain, Secret},
 };
 
-impl<C> HashableType for C
+pub(crate) fn chain_curve<Crv, Chn>(digest: Chn) -> Chn
 where
-    C: Curve + CurveArithmetic,
-    <C as CurveArithmetic>::AffinePoint: ToEncodedPoint<C>,
-    <C as Curve>::FieldBytesSize: ModulusSize,
+    Chn: Chain,
+    Crv: Curve + CurveArithmetic,
+    <Crv as CurveArithmetic>::AffinePoint: ToEncodedPoint<Crv>,
+    <Crv as Curve>::FieldBytesSize: ModulusSize,
 {
-    fn chain_type<D: Chain>(digest: D) -> D {
-        let mut digest = digest;
+    let mut digest = digest;
 
-        // TODO: `k256 0.14` depends on `crypto-bigint` that supports `Serialize` for `Uint`'s,
-        // so we can just chain `ORDER`. For now we have to do it manually.
-        // Note that since only `as_ref` (yielding `&[Limb]`) is available, we need to chain it
-        // so that the result is the same on 32- and 64-bit targets - that is, in low-endian order.
-        let order = Self::ORDER;
-        let limbs = order.as_ref();
-        for limb in limbs {
-            digest = digest.chain(&limb.0.to_le_bytes());
-        }
-
-        let generator_bytes = <Self as CurveArithmetic>::ProjectivePoint::generator()
-            .to_affine()
-            .to_encoded_point(true);
-        digest.chain::<&[u8]>(&generator_bytes.as_bytes())
+    // TODO: `elliptic-curve 0.14` depends on `crypto-bigint` that supports `Serialize` for `Uint`'s,
+    // so we can just chain `ORDER`. For now we have to do it manually.
+    // Note that since only `as_ref` (yielding `&[Limb]`) is available, we need to chain it
+    // so that the result is the same on 32- and 64-bit targets - that is, in low-endian order.
+    let order = Crv::ORDER;
+    let limbs = order.as_ref();
+    for limb in limbs {
+        digest = digest.chain(&limb.0.to_le_bytes());
     }
+
+    let generator_bytes = <Crv as CurveArithmetic>::ProjectivePoint::generator()
+        .to_affine()
+        .to_encoded_point(true);
+    digest.chain::<&[u8]>(&generator_bytes.as_bytes())
 }
 
 type BackendScalar<P> = <<P as SchemeParams>::Curve as CurveArithmetic>::Scalar;
