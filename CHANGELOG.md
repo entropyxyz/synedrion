@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `*Mod` types from `PaillierParams`. ([#205])
 - Removed `CURVE_ORDER` and `CURVE_ORDER_WIDE` from `SchemeParams`. ([#205])
 - All constants but `SECURITY_BITS` in `SchemeParams` are now derived automatically. ([#205])
+- Remove `WideCurveUint` from `SchemeParams`. ([#205])
 
 
 ### Added

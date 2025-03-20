@@ -1,7 +1,6 @@
 //! Parameters intended for testing, scaled down to small curve orders and integer sizes.
 
 use crypto_bigint::{nlimbs, Uint};
-use elliptic_curve::bigint::{self as bigintv05};
 use serde::{Deserialize, Serialize};
 use sha3::Shake256;
 use tiny_curve::TinyCurve32;
@@ -40,9 +39,6 @@ pub struct TestParams;
 
 impl SchemeParams for TestParams {
     type Curve = TinyCurve32;
-    // TODO: ReprUint is typenum::U192 because of RustCrypto stack internals, hence the U384 here,
-    // but once that is solved, this can be a U128 (or even smaller).
-    type WideCurveUint = bigintv05::U384;
     type Digest = Shake256;
     const SECURITY_BITS: usize = 16;
     type Paillier = PaillierTest;
