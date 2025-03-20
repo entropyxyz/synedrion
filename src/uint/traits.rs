@@ -124,9 +124,13 @@ where
     }
 }
 
-/// Exposes a way to widen `Self` to `Wide`.
+/// Exposes a way to widen an integer `Self` to `Wide`.
 pub trait Extendable<Wide: Sized>: Sized {
+    /// Converts to `Wide`.
     fn to_wide(&self) -> Wide;
+    /// Attempts to shorten `Wide` to `Self`.
+    ///
+    /// If the number does not fit `Self`, `None` is returned.
     fn try_from_wide(value: &Wide) -> Option<Self>;
 }
 
@@ -164,6 +168,7 @@ impl<const L: usize, const W: usize> Extendable<Uint<W>> for Uint<L> {
 
 /// Exposes a way to multiply `Self` by `Hi` obtaining a `Wide` result.
 pub trait MulWide<Hi, Wide: Sized>: Sized {
+    /// Multiplies `self` by `rhs`.
     fn mul_wide(&self, rhs: &Hi) -> Wide;
 }
 
@@ -184,8 +189,11 @@ impl<const L: usize, const R: usize, const W: usize> MulWide<Uint<R>, Uint<W>> f
     }
 }
 
+/// Allows (de)serializing an object from/to a byte slice.
 pub trait BoxedEncoding: Sized {
+    /// Serializes into a byte slice.
     fn to_be_bytes(&self) -> Box<[u8]>;
+    /// Attempts to deserialize from a byte slice.
     fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String>;
 }
 

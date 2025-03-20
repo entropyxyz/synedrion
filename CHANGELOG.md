@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - 128-bit production parameters for Secp256k1 (`k256::ProductionParams128`). ([#205])
+- Exposed `PaillierParams` to allow users to define their own parameter sets. ([#205])
 
 
 [#156]: https://github.com/entropyxyz/synedrion/pull/156
