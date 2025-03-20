@@ -11,6 +11,7 @@ use crate::{
     uint::{BoxedEncoding, Extendable, MulWide},
 };
 
+/// Parameters of Paillier encryption.
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
     /// The size of one of the pair of RSA primes.
     const PRIME_BITS: u32;
@@ -53,6 +54,7 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + Zeroize;
 
     /// An integer that fits the squared RSA modulus.
+    ///
     /// Used for Paillier ciphertexts.
     type WideUint: Integer<
             Monty: PowBoundedExp<Self::Uint>
