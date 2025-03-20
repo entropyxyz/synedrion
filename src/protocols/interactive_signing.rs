@@ -235,6 +235,9 @@ impl<P: SchemeParams, Id: PartyId> InteractiveSigningAssociatedData<P, Id> {
     }
 }
 
+/// The epoch identifier (see Remark 4.1 in the paper).
+///
+/// The epoch identifier is tied to the key-refresh epoch and the auxiliary key material of the parties for that epoch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Epid(HashOutput);
 

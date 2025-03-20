@@ -8,6 +8,9 @@ use crate::{
     tools::hashing::{Chain, HashOutput, Hasher},
 };
 
+/// The session identifier (see Remark 4.1 in the paper).
+///
+/// The session identifier is tied to the identity of the parties, the mathematical parameters, and the public key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Sid(HashOutput);
 
