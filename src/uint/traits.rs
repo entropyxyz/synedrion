@@ -159,7 +159,7 @@ impl<const L: usize, const W: usize> Extendable<Uint<W>> for Uint<L> {
             return None;
         }
 
-        // TODO: can potentially expose a secret `self` if the compiler decides to copy it.
+        // TODO: can potentially expose a secret `value` if the compiler decides to copy it.
         let mut lo = Uint::<L>::ZERO;
         lo.as_limbs_mut().copy_from_slice(&value.as_limbs()[0..L]);
         Some(lo)
