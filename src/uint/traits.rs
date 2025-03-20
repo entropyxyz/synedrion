@@ -195,7 +195,7 @@ impl<const L: usize> BoxedEncoding for Uint<L> {
         // SAFETY:
         // - `rchunks_mut` will not panic as long as `Self::BYTES` is a multiple of `Limb::BYTES`
         // - `copy_from_slice` will not panic as long as `Limb::to_be_bytes()` returns an array of size `Limb::BYTES`
-        for (limb, chunk) in self.as_limbs().iter().zip(result.rchunks_mut(Limb::BYTES)) {
+        for (limb, chunk) in self.as_limbs().iter().zip(result.rchunks_exact_mut(Limb::BYTES)) {
             chunk.copy_from_slice(&limb.to_be_bytes());
         }
         result.into()
