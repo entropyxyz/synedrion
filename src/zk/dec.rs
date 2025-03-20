@@ -139,7 +139,7 @@ impl<P: SchemeParams> DecProof<P> {
             })
             .unzip();
 
-        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&commitments)
             // public parameters
@@ -188,7 +188,7 @@ impl<P: SchemeParams> DecProof<P> {
     }
 
     pub fn verify(&self, public: DecPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
-        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.commitments)
             // public parameters

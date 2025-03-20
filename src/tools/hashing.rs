@@ -5,8 +5,6 @@ use hashing_serializer::HashingSerializer;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Hex, SliceLike};
 
-use crate::params::SchemeParams;
-
 /// A digest object that takes byte slices or decomposable ([`Hashable`]) objects.
 pub trait Chain: Sized {
     fn as_digest_mut(&mut self) -> &mut impl Update;
@@ -34,9 +32,12 @@ pub trait Chain: Sized {
 }
 
 /// Wraps an extendable output hash for easier replacement, and standardizes the use of DST.
-pub struct Hasher<P: SchemeParams>(P::Digest);
+pub struct Hasher<D>(D);
 
-impl<P: SchemeParams> Chain for Hasher<P> {
+impl<D> Chain for Hasher<D>
+where
+    D: Update,
+{
     fn as_digest_mut(&mut self) -> &mut impl Update {
         &mut self.0
     }
@@ -48,24 +49,27 @@ impl<P: SchemeParams> Chain for Hasher<P> {
     }
 }
 
-impl<P: SchemeParams> Hasher<P> {
+impl<D> Hasher<D>
+where
+    D: Default + Update + ExtendableOutput,
+{
     fn new() -> Self {
-        Self(P::Digest::default())
+        Self(D::default())
     }
 
     pub fn new_with_dst(dst: &[u8]) -> Self {
         Self::new().chain_bytes(dst)
     }
 
-    pub fn finalize_to_reader(self) -> <P::Digest as ExtendableOutput>::Reader {
+    pub fn finalize_to_reader(self) -> <D as ExtendableOutput>::Reader {
         self.0.finalize_xof()
     }
 
-    /// Finalizes into enough bytes to bring the collision probability to what's required by the scheme's security.
-    pub fn finalize(self) -> HashOutput {
+    /// Finalizes into enough bytes to bring the collision probability `2^(-security_bits)`.
+    pub fn finalize(self, security_bits: usize) -> HashOutput {
         // A common heuristic for hashes is that the log2 of the collision probability is half the output size.
         // We may not have enough output bytes, but this constitutes the best effort.
-        HashOutput(self.0.finalize_xof().read_boxed((P::SECURITY_BITS * 2).div_ceil(8)))
+        HashOutput(self.0.finalize_xof().read_boxed((security_bits * 2).div_ceil(8)))
     }
 }
 

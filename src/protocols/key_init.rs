@@ -206,14 +206,14 @@ where
     P: SchemeParams,
 {
     pub(super) fn hash<Id: Serialize>(&self, sid: &Sid, id: &Id) -> HashOutput {
-        Hasher::<P>::new_with_dst(b"KeyInit")
+        Hasher::<P::Digest>::new_with_dst(b"KeyInit")
             .chain(sid)
             .chain(id)
             .chain(&self.cap_x)
             .chain(&self.cap_a)
             .chain(&self.rho)
             .chain(&self.u)
-            .finalize()
+            .finalize(P::SECURITY_BITS)
     }
 }
 

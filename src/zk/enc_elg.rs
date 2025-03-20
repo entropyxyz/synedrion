@@ -86,7 +86,7 @@ impl<P: SchemeParams> EncElgProof<P> {
         let cap_z = beta.mul_by_generator();
         let cap_t = setup.commit(&alpha, &gamma).to_wire();
 
-        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_s)
             .chain(&cap_d)
@@ -134,7 +134,7 @@ impl<P: SchemeParams> EncElgProof<P> {
     ) -> bool {
         assert_eq!(public.cap_c.public_key(), public.pk0);
 
-        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_s)
             .chain(&self.cap_d)

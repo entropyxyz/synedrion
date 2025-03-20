@@ -47,7 +47,7 @@ struct SchChallenge<P: SchemeParams>(Scalar<P>);
 
 impl<P: SchemeParams> SchChallenge<P> {
     fn new(public: &Point<P>, commitment: &SchCommitment<P>, aux: &impl Hashable) -> Self {
-        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             .chain(aux)
             .chain(public)
             .chain(commitment)

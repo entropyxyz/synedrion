@@ -49,7 +49,7 @@ struct PrmChallenge(BitVec);
 
 impl PrmChallenge {
     fn new<P: SchemeParams>(commitment: &PrmCommitment<P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> Self {
-        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             .chain(commitment)
             .chain(&setup.to_wire())
             .chain(aux)

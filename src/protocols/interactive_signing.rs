@@ -247,12 +247,12 @@ impl Epid {
         associated_data: &InteractiveSigningAssociatedData<P, Id>,
     ) -> Self {
         Self(
-            Hasher::<P>::new_with_dst(b"EPID")
+            Hasher::<P::Digest>::new_with_dst(b"EPID")
                 .chain_type::<P::Curve>()
                 .chain(&shared_randomness)
                 .chain(&associated_data.shares)
                 .chain(&associated_data.aux)
-                .finalize(),
+                .finalize(P::SECURITY_BITS),
         )
     }
 }

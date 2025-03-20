@@ -301,7 +301,7 @@ pub(super) struct PublicData<P: SchemeParams> {
 
 impl<P: SchemeParams> PublicData<P> {
     pub(super) fn hash<Id: PartyId>(&self, sid: &Sid, id: &Id) -> HashOutput {
-        Hasher::<P>::new_with_dst(b"KeyInit")
+        Hasher::<P::Digest>::new_with_dst(b"KeyInit")
             .chain(sid)
             .chain(id)
             .chain(&self.paillier_pk.clone().into_wire())
@@ -309,7 +309,7 @@ impl<P: SchemeParams> PublicData<P> {
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize()
+            .finalize(P::SECURITY_BITS)
     }
 }
 

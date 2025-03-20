@@ -62,7 +62,7 @@ impl<P: SchemeParams> ElogProof<P> {
         let cap_n = m.mul_by_generator() + public.cap_x * &alpha;
         let cap_b = public.h * &m;
 
-        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&cap_a)
             .chain(&cap_n)
@@ -93,7 +93,7 @@ impl<P: SchemeParams> ElogProof<P> {
     }
 
     pub fn verify(&self, public: ElogPublicInputs<'_, P>, aux: &impl Hashable) -> bool {
-        let mut reader = Hasher::<P>::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_a)
             .chain(&self.cap_n)
