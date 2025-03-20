@@ -78,12 +78,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          rust:
-            - 1.83.0 # MSRV
-          target:
-            - i686-unknown-linux-gnu
-            - x86_64-unknown-linux-gnu
+        rust:
+          - 1.83.0 # MSRV
+        target:
+          - i686-unknown-linux-gnu
+          - x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@v1
