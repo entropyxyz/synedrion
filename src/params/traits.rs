@@ -35,12 +35,10 @@ where
         + VerifyPrimitive<Self::Curve>,
     <Self::Curve as CurveArithmetic>::Scalar: SignPrimitive<Self::Curve> + Ord,
     <<Self::Curve as Curve>::FieldBytesSize as Add>::Output: ArrayLength<u8>,
-    <Self::Curve as Curve>::Uint: Concat<Output = Self::WideCurveUint>,
+    <Self::Curve as Curve>::Uint: Concat<Output: bigintv05::Integer + Split<Output = <Self::Curve as Curve>::Uint>>,
 {
     /// The elliptic curve (of prime order) used.
     type Curve: CurveArithmetic + PrimeCurve + DigestPrimitive;
-    /// Double the curve Scalar-width integer type.
-    type WideCurveUint: bigintv05::Integer + Split<Output = <Self::Curve as Curve>::Uint>;
 
     /// The hash that will be used for protocol's internal purposes.
     ///
