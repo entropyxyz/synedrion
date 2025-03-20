@@ -45,10 +45,6 @@ impl SchemeParams for TestParams {
     type WideCurveUint = bigintv05::U384;
     type Digest = Shake256;
     const SECURITY_BITS: usize = 16;
-    const SECURITY_PARAMETER: usize = 32;
-    const L_BOUND: u32 = 32;
-    const EPS_BOUND: u32 = 64;
-    const LP_BOUND: u32 = 160;
     type Paillier = PaillierTest;
     type ExtraWideUint = Uint<{ nlimbs!(640) }>;
 }

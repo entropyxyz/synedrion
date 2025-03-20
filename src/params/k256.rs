@@ -57,10 +57,6 @@ impl SchemeParams for ProductionParams112 {
     type WideCurveUint = bigintv05::U512;
     type Digest = Shake256;
     const SECURITY_BITS: usize = 112;
-    const SECURITY_PARAMETER: usize = 256;
-    const L_BOUND: u32 = 256;
-    const EPS_BOUND: u32 = Self::L_BOUND * 2;
-    const LP_BOUND: u32 = Self::L_BOUND * 5;
     type Paillier = PaillierProduction112;
     type ExtraWideUint = Uint<{ nlimbs!(5120) }>;
 }
@@ -76,10 +72,6 @@ impl SchemeParams for ProductionParams128 {
     type WideCurveUint = bigintv05::U512;
     type Digest = Shake256;
     const SECURITY_BITS: usize = 128;
-    const SECURITY_PARAMETER: usize = 256;
-    const L_BOUND: u32 = 256;
-    const EPS_BOUND: u32 = 1024;
-    const LP_BOUND: u32 = 1792;
     type Paillier = PaillierProduction128;
     type ExtraWideUint = Uint<{ nlimbs!(7680) }>;
 }
