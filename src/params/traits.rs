@@ -50,13 +50,13 @@ where
     /// The number of bits of security provided by the scheme.
     const SECURITY_BITS: usize; // $m$ in the paper
     /// The scheme's statistical security parameter.
-    const SECURITY_PARAMETER: usize; // $\kappa$ in the paper
+    const SECURITY_PARAMETER: usize = <Self::Curve as CurveArithmetic>::Scalar::NUM_BITS as usize; // $\kappa$ in the paper
     /// The bound for secret values.
-    const L_BOUND: u32; // $\ell$, paper sets it to $\log2(q)$ (see Table 2)
+    const L_BOUND: u32 = Self::SECURITY_PARAMETER as u32; // $\ell$
     /// The error bound for secret masks.
-    const LP_BOUND: u32; // $\ell^\prime$, in paper $= 5 \ell$ (see Table 2)
+    const LP_BOUND: u32 = Self::Paillier::PRIME_BITS + Self::L_BOUND; // $\ell^\prime$
     /// The error bound for range checks (referred to in the paper as the slackness parameter).
-    const EPS_BOUND: u32; // $\eps$, in paper $= 2 \ell$ (see Table 2)
+    const EPS_BOUND: u32 = Self::Paillier::PRIME_BITS - 2 * Self::L_BOUND; // $\eps$
     /// The parameters of the Paillier encryption.
     type Paillier: PaillierParams<
         WideUint: Extendable<Self::ExtraWideUint>,
@@ -75,7 +75,12 @@ where
         && Self::L_BOUND >= Self::SECURITY_PARAMETER as u32
         && Self::EPS_BOUND >= Self::L_BOUND + Self::SECURITY_PARAMETER as u32
         && Self::LP_BOUND >= Self::L_BOUND * 3 + Self::EPS_BOUND
-        && Self::Paillier::MODULUS_BITS >= Self::LP_BOUND + Self::EPS_BOUND
+        // In the paper, the condition is `log2(N) >= LP + EPS`
+        // But due to the modified range for `y` in `П^{dec}` (see the notes there),
+        // this bound has to be adjusted.
+        // The new bound also depends on the number of parties, so we assume here
+        // that nobody is going to have more than 2^20.
+        && Self::Paillier::MODULUS_BITS >= Self::LP_BOUND + Self::EPS_BOUND + 1 + 20
         // This one is not mentioned in C.1, but is required by $П^{fac}$ (Fig. 26)
         // (it says $\approx$, not $=$, but it is not clear how approximately this should hold,
         // so to be on the safe side we require equality).

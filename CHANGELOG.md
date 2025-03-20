@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ExtraWideUint` type moved from `PaillerParams` to `SchemeParams`. ([#205])
 - Removed `*Mod` types from `PaillierParams`. ([#205])
 - Removed `CURVE_ORDER` and `CURVE_ORDER_WIDE` from `SchemeParams`. ([#205])
+- All constants but `SECURITY_BITS` in `SchemeParams` are now derived automatically. ([#205])
 
 
 ### Added
