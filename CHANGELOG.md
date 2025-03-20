@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `Encoding`, `Serialize`, and `Deserialize` requirement from `PaillierParams` types, in favor of `BoxedEncoding` with blanket impl for all `Uint`s. ([#205])
 - `ExtraWideUint` type moved from `PaillerParams` to `SchemeParams`. ([#205])
 - Removed `*Mod` types from `PaillierParams`. ([#205])
+- Removed `CURVE_ORDER` and `CURVE_ORDER_WIDE` from `SchemeParams`. ([#205])
 
 
 ### Added

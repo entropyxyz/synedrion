@@ -6,18 +6,15 @@ use core::fmt::Debug;
 // and `k256` depends on the released one.
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
-use crypto_bigint::{nlimbs, NonZero, Uint};
-use elliptic_curve::{
-    bigint::{self as bigintv05},
-    Curve,
-};
+use crypto_bigint::{nlimbs, Uint};
+use elliptic_curve::bigint::{self as bigintv05};
 use serde::{Deserialize, Serialize};
 use sha3::Shake256;
 
 #[cfg(feature = "bip32")]
 use ecdsa::{SigningKey, VerifyingKey};
 
-use super::traits::{convert_uint, upcast_uint, SchemeParams};
+use super::traits::SchemeParams;
 use crate::paillier::PaillierParams;
 
 #[cfg(feature = "bip32")]
@@ -66,14 +63,6 @@ impl SchemeParams for ProductionParams112 {
     const LP_BOUND: u32 = Self::L_BOUND * 5;
     type Paillier = PaillierProduction112;
     type ExtraWideUint = Uint<{ nlimbs!(5120) }>;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        convert_uint(upcast_uint(Self::Curve::ORDER))
-            .to_nz()
-            .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        convert_uint(upcast_uint(Self::Curve::ORDER))
-            .to_nz()
-            .expect("Correct by construction");
 }
 
 static_assertions::const_assert!(ProductionParams112::SELF_CONSISTENT);
@@ -93,14 +82,6 @@ impl SchemeParams for ProductionParams128 {
     const LP_BOUND: u32 = 1792;
     type Paillier = PaillierProduction128;
     type ExtraWideUint = Uint<{ nlimbs!(7680) }>;
-    const CURVE_ORDER: NonZero<<Self::Paillier as PaillierParams>::Uint> =
-        convert_uint(upcast_uint(Self::Curve::ORDER))
-            .to_nz()
-            .expect("Correct by construction");
-    const CURVE_ORDER_WIDE: NonZero<<Self::Paillier as PaillierParams>::WideUint> =
-        convert_uint(upcast_uint(Self::Curve::ORDER))
-            .to_nz()
-            .expect("Correct by construction");
 }
 
 static_assertions::const_assert!(ProductionParams128::SELF_CONSISTENT);
