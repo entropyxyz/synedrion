@@ -436,8 +436,8 @@ mod tests {
             debug_output,
             concat![
                 "Sikrit SecretKeyPaillierWire ",
-                "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<2>>(...), ",
-                "q: Secret<crypto_bigint::uint::Uint<2>>(...) } }",
+                "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<4>>(...), ",
+                "q: Secret<crypto_bigint::uint::Uint<4>>(...) } }",
             ]
         );
 
@@ -446,8 +446,8 @@ mod tests {
             debug_output,
             concat![
                 "Sikrit SecretKeyPaillierWire ",
-                "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<4>>(...), ",
-                "q: Secret<crypto_bigint::uint::Uint<4>>(...) } }",
+                "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<2>>(...), ",
+                "q: Secret<crypto_bigint::uint::Uint<2>>(...) } }",
             ]
         );
     }
