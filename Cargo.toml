@@ -32,6 +32,7 @@ crypto-primes = { version = "0.6", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive"] }
 serde-encoded-bytes = { version = "0.1", default-features = false, features = ["hex", "base64"] }
 displaydoc = { version = "0.2", default-features = false }
+static_assertions = "1"
 
 tiny-curve = { version = "0.2.2", optional = true, features = ["ecdsa", "serde"] }
 k256 = { version = "0.13", optional = true, default-features = false, features = ["ecdsa"] }
@@ -55,7 +56,7 @@ sha3 = { version = "0.10", default-features = false }
 
 [features]
 private-benches = ["k256"]
-k256 = ["dep:k256", "bip32?/secp256k1", "sha3"]
+k256 = ["dep:k256", "bip32?/secp256k1", "sha3", "crypto-bigint/extra-sizes"]
 bip32 = ["dep:bip32", "tiny-curve?/bip32"]
 dev = ["tiny-curve", "sha3"]
 

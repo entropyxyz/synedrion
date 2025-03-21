@@ -8,7 +8,7 @@ use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
     params::SchemeParams,
     tools::hashing::{Chain, Hashable, Hasher},
-    uint::{HasWide, PublicSigned, SecretSigned},
+    uint::{MulWide, PublicSigned, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_fac";
@@ -35,7 +35,7 @@ pub(crate) struct FacProof<P: SchemeParams> {
     z2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     w1: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     w2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-    v: PublicSigned<<P::Paillier as PaillierParams>::ExtraWideUint>,
+    v: PublicSigned<P::ExtraWideUint>,
 }
 
 impl<P: SchemeParams> FacProof<P> {
@@ -108,7 +108,16 @@ impl<P: SchemeParams> FacProof<P> {
         let z2 = (beta + (q * e).to_wide()).to_public();
         let w1 = (x + mu * e_wide).to_public();
         let w2 = (y + &nu * e_wide).to_public();
-        let v = (r - p.mul_wide_public(&e).mul_wide(&nu)).to_public();
+
+        // p ∈ ±2^(MODULUS_BITS / 2)
+        // e ∈ ±2^L_BOUND
+        // nu ∈ ±2^(L_BOUND + MODULUS_BITS)
+        // Now if scheme parameters are self-consistent,
+        //    MODULUS_BITS >= LP_BOUND + EPS_BOUND
+        //                 >= 3 * L_BOUND + 2 * EPS_BOUND
+        //                 >= 5 * L_BOUND + 2 * SECURITY_PARAMETER
+        // Therefore, `p * e * nu` will not overflow 2^(2*MODULUS_BITS) and will fit in `WideUint`.
+        let v = (r - (p.mul_wide_public(&e) * nu).to_wide()).to_public();
 
         Self {
             e,
