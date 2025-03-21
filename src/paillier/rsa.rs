@@ -322,3 +322,21 @@ impl<P: PaillierParams> PublicModulus<P> {
             .square()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crypto_bigint::U128;
+    use rand::SeedableRng;
+    use rand_chacha::ChaChaRng;
+
+    use super::random_paillier_blum_prime;
+    use crate::dev::PaillierTest;
+
+    #[test]
+    fn platform_independence() {
+        let mut rng = ChaChaRng::from_seed([7u8; 32]);
+
+        let x = random_paillier_blum_prime::<PaillierTest>(&mut rng);
+        assert_eq!(x, U128::from_be_hex("EB855D60925A997645C143DBB9609D33"));
+    }
+}

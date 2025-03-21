@@ -430,12 +430,24 @@ mod tests {
         let sk = SecretKeyPaillierWire::<PaillierTest>::random(&mut OsRng);
 
         let debug_output = format!("Sikrit {:?}", sk);
+
+        #[cfg(target_pointer_width = "32")]
         assert_eq!(
             debug_output,
             concat![
                 "Sikrit SecretKeyPaillierWire ",
                 "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<2>>(...), ",
                 "q: Secret<crypto_bigint::uint::Uint<2>>(...) } }",
+            ]
+        );
+
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(
+            debug_output,
+            concat![
+                "Sikrit SecretKeyPaillierWire ",
+                "{ primes: SecretPrimesWire { p: Secret<crypto_bigint::uint::Uint<4>>(...), ",
+                "q: Secret<crypto_bigint::uint::Uint<4>>(...) } }",
             ]
         );
     }

@@ -230,7 +230,7 @@ mod tests {
     use crate::tools::hashing::{Chain, Hasher};
 
     #[test]
-    fn from_xof_reader_platform_independence() {
+    fn platform_independence() {
         let mut reader = Hasher::<Shake256>::new_with_dst(b"")
             .chain_bytes(b"abcde")
             .finalize_to_reader();
