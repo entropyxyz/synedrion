@@ -78,11 +78,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust:
-          - 1.83.0 # MSRV
-        target:
-          - i686-unknown-linux-gnu
-          - x86_64-unknown-linux-gnu
+        include:
+          - target: i686-unknown-linux-gnu
+            rust: 1.83.0 # MSRV
+            deps: sudo apt update && sudo apt install gcc-multilib
+          - target: x86_64-unknown-linux-gnu
+            rust: 1.83.0 # MSRV
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@v1
