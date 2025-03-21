@@ -5,17 +5,22 @@ use core::{fmt::Debug, ops::Add};
 // So as long as that is the case, `k256` `Uint` is separate
 // from the one used throughout the crate.
 use crypto_bigint::NonZero;
-use digest::generic_array::ArrayLength;
+use digest::{ExtendableOutput, Update};
 use ecdsa::hazmat::{DigestPrimitive, SignPrimitive, VerifyPrimitive};
 use elliptic_curve::{
     bigint::{self as bigintv05, Concat, Split},
+    generic_array::ArrayLength,
     point::DecompressPoint,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve, PrimeField,
 };
 use serde::Serialize;
 
-use crate::{paillier::PaillierParams, tools::hashing::HashableType};
+use crate::{
+    curve::chain_curve,
+    paillier::{chain_paillier_params, PaillierParams},
+    tools::hashing::Chain,
+};
 
 #[cfg(any(test, feature = "k256", feature = "dev"))]
 #[allow(clippy::indexing_slicing)]
@@ -52,9 +57,14 @@ where
     <Self::Curve as Curve>::Uint: Concat<Output = Self::WideCurveUint>,
 {
     /// The elliptic curve (of prime order) used.
-    type Curve: CurveArithmetic + PrimeCurve + HashableType + DigestPrimitive;
+    type Curve: CurveArithmetic + PrimeCurve + DigestPrimitive;
     /// Double the curve Scalar-width integer type.
     type WideCurveUint: bigintv05::Integer + Split<Output = <Self::Curve as Curve>::Uint>;
+
+    /// The hash that will be used for protocol's internal purposes.
+    ///
+    /// Note: the collision probability must be consistent with [`Self::SECURITY_BITS`].
+    type Digest: Default + Update + ExtendableOutput;
 
     /// The number of bits of security provided by the scheme.
     const SECURITY_BITS: usize; // $m$ in the paper
@@ -91,6 +101,21 @@ where
         // so to be on the safe side we require equality).
         && Self::L_BOUND * 2 + Self::EPS_BOUND == Self::Paillier::PRIME_BITS
     }
+}
+
+pub(crate) fn chain_scheme_params<P, C>(digest: C) -> C
+where
+    P: SchemeParams,
+    C: Chain,
+{
+    let digest = chain_curve::<P::Curve, _>(digest);
+    let digest = chain_paillier_params::<P::Paillier, _>(digest);
+    digest
+        .chain_bytes(&(P::SECURITY_BITS as u32).to_be_bytes())
+        .chain_bytes(&(P::SECURITY_PARAMETER as u32).to_be_bytes())
+        .chain_bytes(&P::L_BOUND.to_be_bytes())
+        .chain_bytes(&P::LP_BOUND.to_be_bytes())
+        .chain_bytes(&P::EPS_BOUND.to_be_bytes())
 }
 
 #[cfg(test)]

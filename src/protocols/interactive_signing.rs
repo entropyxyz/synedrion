@@ -4,7 +4,6 @@
 //! - Failed Nonce error round (Fig. 9) - Round 5.
 //! - Failed Chi error round (Section 4.3.1) - Round 6.
 
-use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::{
     fmt::{self, Debug, Display},
@@ -12,11 +11,14 @@ use core::{
 };
 
 use elliptic_curve::{Curve, FieldBytes};
-use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-    MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
-    ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
-    Serializer,
+use manul::{
+    protocol::{
+        Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
+        MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
+        ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round,
+        RoundId, Serializer,
+    },
+    utils::SerializableMap,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -25,9 +27,9 @@ use crate::{
     curve::{Point, RecoverableSignature, Scalar},
     entities::{AuxInfo, AuxInfoPrecomputed, KeyShare, PublicAuxInfoPrecomputed, PublicAuxInfos, PublicKeyShares},
     paillier::{Ciphertext, CiphertextWire, PaillierParams, Randomizer},
-    params::{secret_scalar_from_signed, secret_signed_from_scalar, SchemeParams},
+    params::{chain_scheme_params, secret_scalar_from_signed, secret_signed_from_scalar, SchemeParams},
     tools::{
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, HashOutput, Hasher},
         protocol_shortcuts::{
             sum_non_empty, sum_non_empty_ref, verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet,
             Without,
@@ -233,16 +235,26 @@ impl<P: SchemeParams, Id: PartyId> InteractiveSigningAssociatedData<P, Id> {
     }
 }
 
-fn make_epid<P: SchemeParams, Id: PartyId>(
-    shared_randomness: &[u8],
-    associated_data: &InteractiveSigningAssociatedData<P, Id>,
-) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"InteractiveSigning EPID")
-        .chain_type::<P::Curve>()
-        .chain(&shared_randomness)
-        .chain(&associated_data.shares)
-        .chain(&associated_data.aux)
-        .finalize_boxed(P::SECURITY_BITS)
+/// The epoch identifier (see Remark 4.1 in the paper).
+///
+/// The epoch identifier is tied to the key-refresh epoch and the auxiliary key material of the parties for that epoch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Epid(HashOutput);
+
+impl Epid {
+    fn new<P: SchemeParams, Id: PartyId>(
+        shared_randomness: &[u8],
+        associated_data: &InteractiveSigningAssociatedData<P, Id>,
+    ) -> Self {
+        let digest = Hasher::<P::Digest>::new_with_dst(b"EPID");
+        let digest = chain_scheme_params::<P, _>(digest);
+        let digest = digest
+            .chain(&shared_randomness)
+            .chain(&associated_data.shares)
+            .chain(&associated_data.aux);
+
+        Self(digest.finalize(P::SECURITY_BITS))
+    }
 }
 
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError<P, Id> {
@@ -345,7 +357,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
         previous_messages: BTreeMap<RoundId, ProtocolMessage>,
         combined_echos: BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
-        let epid = make_epid::<P, Id>(shared_randomness, associated_data);
+        let epid = Epid::new::<P, Id>(shared_randomness, associated_data);
 
         match &self.error {
             Error::R1EncElg0Failed => {
@@ -912,7 +924,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for InteractiveSigningError
 pub struct InteractiveSigning<P, Id>
 where
     P: SchemeParams,
-    Id: Ord + Debug + Clone,
+    Id: PartyId,
 {
     key_share: KeyShare<P, Id>,
     aux_info: AuxInfo<P, Id>,
@@ -976,7 +988,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
         let all_ids = key_share.public_shares().keys().cloned().collect::<BTreeSet<_>>();
         let other_ids = all_ids.clone().without(id);
 
-        let epid = make_epid::<P, Id>(
+        let epid = Epid::new::<P, Id>(
             shared_randomness,
             &InteractiveSigningAssociatedData {
                 shares: key_share.public().clone(),
@@ -1045,10 +1057,10 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for InteractiveSigning<P, Id> 
 pub(super) struct Context<P, Id>
 where
     P: SchemeParams,
-    Id: Ord,
+    Id: PartyId,
 {
     scalar_message: Scalar<P>,
-    pub(super) epid: Box<[u8]>,
+    pub(super) epid: Epid,
     pub(super) my_id: Id,
     other_ids: BTreeSet<Id>,
     all_ids: BTreeSet<Id>,
@@ -1065,7 +1077,7 @@ where
 impl<P, Id> Context<P, Id>
 where
     P: SchemeParams,
-    Id: Ord + Debug + Clone + Serialize + for<'x> Deserialize<'x>,
+    Id: PartyId,
 {
     pub fn public_share(&self, i: &Id) -> Result<&Point<P>, LocalError> {
         self.key_share.public_shares().safe_get("public share", i)
@@ -1080,7 +1092,7 @@ where
 struct Round1<P, Id>
 where
     P: SchemeParams,
-    Id: Ord + Serialize + Clone + Debug + for<'x> Deserialize<'x>,
+    Id: PartyId,
 {
     context: Context<P, Id>,
     r1_echo_broadcast: Round1EchoBroadcast<P>,
@@ -1454,7 +1466,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round2<P: SchemeParams, Id: Ord + Clone + Debug> {
+pub(super) struct Round2<P: SchemeParams, Id: PartyId> {
     pub(super) context: Context<P, Id>,
     betas: BTreeMap<Id, SecretSigned<<P::Paillier as PaillierParams>::Uint>>,
     rs: BTreeMap<Id, Randomizer<P::Paillier>>,
@@ -1484,11 +1496,11 @@ pub(super) struct Round2<P: SchemeParams, Id: Ord + Clone + Debug> {
     AffGProof<P>: for<'x> Deserialize<'x>,
 "))]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
-    pub(super) cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
-    pub(super) hat_cap_ds: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) cap_ds: SerializableMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_ds: SerializableMap<Id, CiphertextWire<P::Paillier>>,
     pub(super) psi_elog: ElogProof<P>,
-    pub(super) psis: BTreeMap<Id, AffGProof<P>>,
-    pub(super) hat_psis: BTreeMap<Id, AffGProof<P>>,
+    pub(super) psis: SerializableMap<Id, AffGProof<P>>,
+    pub(super) hat_psis: SerializableMap<Id, AffGProof<P>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1500,8 +1512,8 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
 "))]
 pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) cap_gamma: Point<P>,
-    pub(super) cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
-    pub(super) hat_cap_fs: BTreeMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) cap_fs: SerializableMap<Id, CiphertextWire<P::Paillier>>,
+    pub(super) hat_cap_fs: SerializableMap<Id, CiphertextWire<P::Paillier>>,
 }
 
 struct Round2Payload<P: SchemeParams, Id: PartyId> {
@@ -1541,11 +1553,11 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
         NormalBroadcast::new(
             serializer,
             Round2NormalBroadcast::<P, Id> {
-                cap_ds: self.cap_ds.map_values_ref(|cap_d| cap_d.to_wire()),
-                hat_cap_ds: self.hat_cap_ds.map_values_ref(|hat_cap_d| hat_cap_d.to_wire()),
+                cap_ds: self.cap_ds.map_values_ref(|cap_d| cap_d.to_wire()).into(),
+                hat_cap_ds: self.hat_cap_ds.map_values_ref(|hat_cap_d| hat_cap_d.to_wire()).into(),
                 psi_elog: self.psi_elog.clone(),
-                psis: self.psis.clone(),
-                hat_psis: self.hat_psis.clone(),
+                psis: self.psis.clone().into(),
+                hat_psis: self.hat_psis.clone().into(),
             },
         )
     }
@@ -1559,8 +1571,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             serializer,
             Round2EchoBroadcast::<P, Id> {
                 cap_gamma: self.cap_gamma,
-                cap_fs: self.cap_fs.map_values_ref(|cap_f| cap_f.to_wire()),
-                hat_cap_fs: self.hat_cap_fs.map_values_ref(|hat_cap_f| hat_cap_f.to_wire()),
+                cap_fs: self.cap_fs.map_values_ref(|cap_f| cap_f.to_wire()).into(),
+                hat_cap_fs: self.hat_cap_fs.map_values_ref(|hat_cap_f| hat_cap_f.to_wire()).into(),
             },
         )
     }
@@ -1827,7 +1839,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 }
 
 #[derive(Debug)]
-pub(super) struct Round3<P: SchemeParams, Id: Ord> {
+pub(super) struct Round3<P: SchemeParams, Id: PartyId> {
     pub(super) context: Context<P, Id>,
     pub(super) cap_k: Ciphertext<P::Paillier>,
     pub(super) cap_gamma_combined: Point<P>,
@@ -2029,7 +2041,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
 }
 
 #[derive(Debug)]
-struct Round4<P: SchemeParams, Id: Ord> {
+struct Round4<P: SchemeParams, Id: PartyId> {
     context: Context<P, Id>,
     presigning_data: PresigningData<P, Id>,
     sigma: Scalar<P>,
@@ -2154,7 +2166,7 @@ pub(super) struct Round5<P: SchemeParams, Id: PartyId> {
 "))]
 pub(super) struct Round5EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) psi_star: DecProof<P>,
-    pub(super) psis: BTreeMap<Id, AffGStarProof<P>>,
+    pub(super) psis: SerializableMap<Id, AffGStarProof<P>>,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
@@ -2240,7 +2252,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
             &aux,
         );
 
-        let mut psis = BTreeMap::new();
+        let mut psis = SerializableMap::from(BTreeMap::new());
         for id in self.context.other_ids.iter() {
             let psi = AffGStarProof::new(
                 rng,
@@ -2381,7 +2393,7 @@ pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
 "))]
 pub(super) struct Round6EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psi_star: DecProof<P>,
-    pub(super) hat_psis: BTreeMap<Id, AffGStarProof<P>>,
+    pub(super) hat_psis: SerializableMap<Id, AffGStarProof<P>>,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
@@ -2510,7 +2522,13 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
             hat_psis.insert(id.clone(), hat_psi);
         }
 
-        EchoBroadcast::new(serializer, Round6EchoBroadcast::<P, Id> { hat_psi_star, hat_psis })
+        EchoBroadcast::new(
+            serializer,
+            Round6EchoBroadcast::<P, Id> {
+                hat_psi_star,
+                hat_psis: hat_psis.into(),
+            },
+        )
     }
 
     fn receive_message(

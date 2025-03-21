@@ -2,7 +2,6 @@
 //! Note that this protocol only generates the key itself which is not enough to perform signing;
 //! auxiliary parameters need to be generated as well (during the KeyRefresh protocol).
 
-use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::{
     fmt::{self, Debug, Display},
@@ -17,15 +16,14 @@ use manul::protocol::{
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use serde_encoded_bytes::{Hex, SliceLike};
 
 use crate::{
     curve::{Point, Scalar},
-    entities::KeyShare,
+    entities::{KeyShare, Sid},
     params::SchemeParams,
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, HashOutput, Hasher},
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
         Secret,
     },
@@ -117,17 +115,6 @@ pub struct KeyInitAssociatedData<Id> {
     pub ids: BTreeSet<Id>,
 }
 
-fn make_sid<P: SchemeParams, Id: PartyId>(
-    shared_randomness: &[u8],
-    associated_data: &KeyInitAssociatedData<Id>,
-) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"KeyInit SID")
-        .chain_type::<P::Curve>()
-        .chain(&shared_randomness)
-        .chain(&associated_data.ids)
-        .finalize_boxed(P::SECURITY_BITS)
-}
-
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
     type AssociatedData = KeyInitAssociatedData<Id>;
 
@@ -156,7 +143,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
         previous_messages: BTreeMap<RoundId, ProtocolMessage>,
         combined_echos: BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
-        let sid = make_sid::<P, Id>(shared_randomness, associated_data);
+        let sid = Sid::new::<P, Id>(shared_randomness, &associated_data.ids);
 
         match self.error {
             Error::R2HashMismatch => {
@@ -218,15 +205,15 @@ impl<P> PublicData<P>
 where
     P: SchemeParams,
 {
-    pub(super) fn hash<Id: Serialize>(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        XofHasher::new_with_dst(b"KeyInit")
-            .chain(&sid)
+    pub(super) fn hash<Id: Serialize>(&self, sid: &Sid, id: &Id) -> HashOutput {
+        Hasher::<P::Digest>::new_with_dst(b"KeyInit")
+            .chain(sid)
             .chain(id)
             .chain(&self.cap_x)
             .chain(&self.cap_a)
             .chain(&self.rho)
             .chain(&self.u)
-            .finalize_boxed(P::SECURITY_BITS)
+            .finalize(P::SECURITY_BITS)
     }
 }
 
@@ -267,12 +254,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for KeyInit<P, Id> {
 
         let other_ids = self.all_ids.clone().without(id);
 
-        let sid = make_sid::<P, Id>(
-            shared_randomness,
-            &KeyInitAssociatedData {
-                ids: self.all_ids.clone(),
-            },
-        );
+        let sid = Sid::new::<P, Id>(shared_randomness, &self.all_ids);
 
         // The secret share
         let x = Secret::init_with(|| Scalar::random(rng));
@@ -306,7 +288,7 @@ pub(super) struct Context<P: SchemeParams, Id> {
     pub(super) x: Secret<Scalar<P>>,
     pub(super) tau: SchSecret<P>,
     pub(super) public_data: PublicData<P>,
-    pub(super) sid: Box<[u8]>,
+    pub(super) sid: Sid,
 }
 
 #[derive(Debug)]
@@ -316,12 +298,11 @@ struct Round1<P: SchemeParams, Id> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Round1EchoBroadcast {
-    #[serde(with = "SliceLike::<Hex>")]
-    cap_v: Box<[u8]>,
+    cap_v: HashOutput,
 }
 
 struct Round1Payload {
-    cap_v: Box<[u8]>,
+    cap_v: HashOutput,
 }
 
 impl<P, Id> Round<Id> for Round1<P, Id>
@@ -391,7 +372,7 @@ where
 #[derive(Debug)]
 struct Round2<P: SchemeParams, Id> {
     context: Context<P, Id>,
-    cap_vs: BTreeMap<Id, Box<[u8]>>,
+    cap_vs: BTreeMap<Id, HashOutput>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

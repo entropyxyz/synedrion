@@ -5,7 +5,7 @@ use alloc::{
 use core::fmt::Debug;
 
 use ecdsa::{SigningKey, VerifyingKey};
-use manul::{protocol::PartyId, session::LocalError};
+use manul::{protocol::PartyId, session::LocalError, utils::SerializableMap};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -29,14 +29,18 @@ use crate::curve::{apply_tweaks_public, derive_tweaks, DeriveChildKey, PublicTwe
 /// is enough to perform signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "ShareId<P>: for<'x> Deserialize<'x>"))]
-pub struct ThresholdKeyShare<P: SchemeParams, I: Ord + for<'x> Deserialize<'x>> {
+pub struct ThresholdKeyShare<P, I>
+where
+    P: SchemeParams,
+    I: PartyId,
+{
     // TODO (#5): make this private to ensure invariants are held
     // (mainly, that the verifying key is not an identity)
     pub(crate) owner: I,
     pub(crate) threshold: u32,
     pub(crate) secret_share: Secret<Scalar<P>>,
-    pub(crate) share_ids: BTreeMap<I, ShareId<P>>,
-    pub(crate) public_shares: BTreeMap<I, Point<P>>,
+    pub(crate) share_ids: SerializableMap<I, ShareId<P>>,
+    pub(crate) public_shares: SerializableMap<I, Point<P>>,
 }
 
 impl<P, I> ThresholdKeyShare<P, I>
@@ -105,8 +109,8 @@ where
                         owner: id.clone(),
                         threshold: threshold as u32,
                         secret_share,
-                        share_ids: share_ids.clone(),
-                        public_shares: public_shares.clone(),
+                        share_ids: share_ids.clone().into(),
+                        public_shares: public_shares.clone().into(),
                     },
                 ))
             })
@@ -214,14 +218,14 @@ where
                         .expect("the interpolation coefficient is a non-zero scalar");
                 (id.clone(), public_share)
             })
-            .collect();
+            .collect::<BTreeMap<_, _>>();
 
         Self {
             owner: key_share.owner().clone(),
             threshold: ids.len() as u32,
-            share_ids,
+            share_ids: share_ids.into(),
             secret_share,
-            public_shares,
+            public_shares: public_shares.into(),
         }
     }
 }
@@ -249,23 +253,21 @@ where
         let sk: SigningKey<P::Curve> = SecretTweakable::key_from_tweakable_sk(&tweakable_sk);
         let secret_share = Secret::init_with(|| Scalar::new(*sk.as_nonzero_scalar().as_ref()));
 
-        let public_shares = self
-            .public_shares
-            .clone()
+        let public_shares = BTreeMap::from(self.public_shares.clone())
             .into_iter()
             .map(|(id, point)|
             // Will fail here if the final or one of the intermediate points is an identity
             point.to_verifying_key().ok_or(bip32::Error::Crypto)
                 .and_then(|vkey| apply_tweaks_public(&vkey, &tweaks))
                 .map(|vkey| (id, Point::from_verifying_key(&vkey))))
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
 
         Ok(Self {
             owner: self.owner.clone(),
             threshold: self.threshold,
             share_ids: self.share_ids.clone(),
             secret_share,
-            public_shares,
+            public_shares: public_shares.into(),
         })
     }
 }

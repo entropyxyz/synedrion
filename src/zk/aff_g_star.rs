@@ -11,7 +11,7 @@ use crate::{
     params::{scalar_from_signed, secret_scalar_from_signed, SchemeParams},
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, Hashable, XofHasher},
+        hashing::{Chain, Hashable, Hasher},
     },
     uint::{PublicSigned, SecretSigned},
 };
@@ -115,7 +115,7 @@ impl<P: SchemeParams> AffGStarProof<P> {
             })
             .unzip();
 
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&commitments)
             // public parameters
@@ -182,7 +182,7 @@ impl<P: SchemeParams> AffGStarProof<P> {
         assert!(public.cap_d.public_key() == public.pk0);
         assert!(public.cap_y.public_key() == public.pk1);
 
-        let mut reader = XofHasher::new_with_dst(HASH_TAG)
+        let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.commitments)
             // public parameters

@@ -2,7 +2,6 @@
 //!
 //! This is a subset of the protocol that generates the auxiliary data, with share update bits removed.
 
-use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::{
     fmt::{self, Debug, Display},
@@ -18,10 +17,9 @@ use manul::protocol::{
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
-use serde_encoded_bytes::{Hex, SliceLike};
 
 use crate::{
-    entities::{AuxInfo, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo},
+    entities::{AuxInfo, PublicAuxInfo, PublicAuxInfos, SecretAuxInfo, Sid},
     paillier::{
         PaillierParams, PublicKeyPaillier, PublicKeyPaillierWire, RPParams, RPParamsWire, RPSecret, SecretKeyPaillier,
         SecretKeyPaillierWire,
@@ -29,7 +27,7 @@ use crate::{
     params::SchemeParams,
     tools::{
         bitvec::BitVec,
-        hashing::{Chain, XofHasher},
+        hashing::{Chain, HashOutput, Hasher},
         protocol_shortcuts::{verify_that, DeserializeAll, DowncastMap, GetRound, MapValues, SafeGet, Without},
     },
     zk::{FacProof, ModProof, PrmProof},
@@ -163,17 +161,6 @@ pub struct AuxGenAssociatedData<Id> {
     pub ids: BTreeSet<Id>,
 }
 
-fn make_sid<P: SchemeParams, Id: PartyId>(
-    shared_randomness: &[u8],
-    associated_data: &AuxGenAssociatedData<Id>,
-) -> Box<[u8]> {
-    XofHasher::new_with_dst(b"AuxGen SID")
-        .chain_type::<P::Curve>()
-        .chain(&shared_randomness)
-        .chain(&associated_data.ids)
-        .finalize_boxed(P::SECURITY_BITS)
-}
-
 impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for AuxGenError<P, Id> {
     type AssociatedData = AuxGenAssociatedData<Id>;
 
@@ -216,7 +203,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for AuxGenError<P, Id> {
         previous_messages: BTreeMap<RoundId, ProtocolMessage>,
         combined_echos: BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
     ) -> Result<(), ProtocolValidationError> {
-        let sid = make_sid::<P, Id>(shared_randomness, associated_data);
+        let sid = Sid::new::<P, Id>(shared_randomness, &associated_data.ids);
 
         match &self.error {
             Error::R2HashMismatch => {
@@ -313,16 +300,16 @@ pub(super) struct PublicData<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> PublicData<P> {
-    pub(super) fn hash<Id: PartyId>(&self, sid: &[u8], id: &Id) -> Box<[u8]> {
-        XofHasher::new_with_dst(b"KeyInit")
-            .chain(&sid)
+    pub(super) fn hash<Id: PartyId>(&self, sid: &Sid, id: &Id) -> HashOutput {
+        Hasher::<P::Digest>::new_with_dst(b"KeyInit")
+            .chain(sid)
             .chain(id)
             .chain(&self.paillier_pk.clone().into_wire())
             .chain(&self.rp_params.to_wire())
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)
-            .finalize_boxed(P::SECURITY_BITS)
+            .finalize(P::SECURITY_BITS)
     }
 }
 
@@ -367,12 +354,7 @@ where
 
         let other_ids = self.all_ids.clone().without(id);
 
-        let sid = make_sid::<P, Id>(
-            shared_randomness,
-            &AuxGenAssociatedData {
-                ids: self.all_ids.clone(),
-            },
-        );
+        let sid = Sid::new::<P, Id>(shared_randomness, &self.all_ids);
 
         // Paillier secret key $p_i$, $q_i$
         let paillier_sk = SecretKeyPaillierWire::<P::Paillier>::random(rng);
@@ -419,7 +401,7 @@ pub(super) struct Context<P: SchemeParams, Id> {
     rp_params: RPParams<P::Paillier>,
     pub(super) my_id: Id,
     other_ids: BTreeSet<Id>,
-    pub(super) sid: Box<[u8]>,
+    pub(super) sid: Sid,
 }
 
 #[derive(Debug)]
@@ -430,12 +412,11 @@ pub(super) struct Round1<P: SchemeParams, Id: PartyId> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Round1EchoBroadcast {
-    #[serde(with = "SliceLike::<Hex>")]
-    pub(super) cap_v: Box<[u8]>,
+    pub(super) cap_v: HashOutput,
 }
 
 struct Round1Payload {
-    cap_v: Box<[u8]>,
+    cap_v: HashOutput,
 }
 
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
@@ -506,7 +487,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
 struct Round2<P: SchemeParams, Id: PartyId> {
     context: Context<P, Id>,
     public_data: PublicData<P>,
-    cap_vs: BTreeMap<Id, Box<[u8]>>,
+    cap_vs: BTreeMap<Id, HashOutput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -805,7 +786,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         let aux_info = AuxInfo {
             owner: my_id.clone(),
             secret: secret_aux,
-            public: PublicAuxInfos(public_aux),
+            public: PublicAuxInfos(public_aux.into()),
         };
 
         Ok(FinalizeOutcome::Result(aux_info))
