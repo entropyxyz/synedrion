@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand_core::OsRng;
-use synedrion::{k256::ProductionParams112, private_benches::*};
+use synedrion::{k256::ProductionParams112, private_benches::zk_proofs::*};
 
 static KEY0: LazyLock<PreparedKey<ProductionParams112>> = LazyLock::new(|| PreparedKey::new(&mut OsRng));
 
