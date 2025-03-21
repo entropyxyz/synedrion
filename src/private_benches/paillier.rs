@@ -1,17 +1,21 @@
-use criterion::{black_box, BatchSize, Bencher};
-use rand_core::CryptoRngCore;
-
 use crate::{
     paillier::{Ciphertext, Randomizer, SecretKeyPaillierWire},
     params::SchemeParams,
     uint::SecretSigned,
 };
+use criterion::{black_box, BatchSize, Bencher, Criterion};
+use rand::SeedableRng;
 
 type Params = crate::k256::ProductionParams112;
 type Paillier = <Params as SchemeParams>::Paillier;
 
-pub fn encrypt<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
-    move |b: &mut Bencher<'_>| {
+pub fn bench_paillier(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Paillier");
+
+    group.sample_size(10);
+
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+    group.bench_function("encrypt", |b: &mut Bencher<'_>| {
         b.iter_batched(
             || {
                 let sk = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
@@ -23,11 +27,10 @@ pub fn encrypt<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mu
             |(pk, m, r)| black_box(Ciphertext::new_with_randomizer(&pk, &m, &r)),
             BatchSize::SmallInput,
         );
-    }
-}
+    });
 
-pub fn decrypt<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mut Bencher<'_>) {
-    move |b: &mut Bencher<'_>| {
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234567890);
+    group.bench_function("decrypt", |b: &mut Bencher<'_>| {
         b.iter_batched(
             || {
                 let sk = SecretKeyPaillierWire::<Paillier>::random(&mut rng).into_precomputed();
@@ -40,5 +43,5 @@ pub fn decrypt<R: CryptoRngCore + Clone + 'static>(mut rng: R) -> impl FnMut(&mu
             |(ct, sk)| black_box(Ciphertext::decrypt(&ct, &sk)),
             BatchSize::SmallInput,
         );
-    }
+    });
 }
