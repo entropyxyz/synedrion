@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use crypto_bigint::{modular::Retrieve, BitOps, PowBoundedExp};
+use crypto_bigint::{modular::Retrieve, BitOps, Integer, PowBoundedExp};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ use crate::{
         bitvec::BitVec,
         hashing::{Chain, Hashable, Hasher},
     },
-    uint::{Exponentiable, SecretUnsigned, ToMontgomery},
+    uint::{Exponentiable, PublicUint, SecretUnsigned, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_prm";
@@ -35,12 +35,21 @@ impl<P: SchemeParams> PrmSecret<P> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
+struct PrmCommitment<P: SchemeParams>(Vec<PublicUint<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmCommitment<P> {
-    fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
-        let commitment = secret.0.iter().map(|a| base.pow(a).retrieve()).collect();
+    fn new(secret: &PrmSecret<P>, base: &<<P::Paillier as PaillierParams>::Uint as Integer>::Monty) -> Self {
+        let commitment = secret.0.iter().map(|a| base.pow(a).retrieve().into()).collect();
         Self(commitment)
+    }
+}
+
+impl<P: SchemeParams> Hashable for PrmCommitment<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_serializable(&self)
     }
 }
 
@@ -48,11 +57,15 @@ impl<P: SchemeParams> PrmCommitment<P> {
 struct PrmChallenge(BitVec);
 
 impl PrmChallenge {
-    fn new<P: SchemeParams>(commitment: &PrmCommitment<P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> Self {
+    fn new<P: SchemeParams>(
+        commitment: &PrmCommitment<P>,
+        setup: &RPParams<P::Paillier>,
+        aux: &impl Serialize,
+    ) -> Self {
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             .chain(commitment)
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
         Self(BitVec::from_xof_reader(&mut reader, P::SECURITY_BITS))
     }
@@ -65,7 +78,16 @@ impl PrmChallenge {
 pub(crate) struct PrmProof<P: SchemeParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
-    proof: Vec<<P::Paillier as PaillierParams>::Uint>,
+    proof: Vec<PublicUint<<P::Paillier as PaillierParams>::Uint>>,
+}
+
+impl<P: SchemeParams> Hashable for PrmProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes("PrmProof").chain_serializable(&self)
+    }
 }
 
 impl<P: SchemeParams> PrmProof<P> {
@@ -75,7 +97,7 @@ impl<P: SchemeParams> PrmProof<P> {
         rng: &mut impl CryptoRngCore,
         secret: &RPSecret<P::Paillier>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         debug_assert!(&secret.modulus() == setup.modulus());
         let proof_secret = PrmSecret::<P>::random(rng, secret);
@@ -92,7 +114,7 @@ impl<P: SchemeParams> PrmProof<P> {
 
                 let p = if *e { x.expose_secret() } else { a.expose_secret() };
                 // a/x are positive and smaller than the totient by construction
-                *p
+                (*p).into()
             })
             .collect();
         Self {
@@ -103,7 +125,7 @@ impl<P: SchemeParams> PrmProof<P> {
     }
 
     /// Verify that the proof is correct for a secret corresponding to the given RP parameters.
-    pub fn verify(&self, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, setup: &RPParams<P::Paillier>, aux: &impl Serialize) -> bool {
         let monty_params = setup.monty_params_mod_n();
 
         let challenge = PrmChallenge::new(&self.commitment, setup, aux);
@@ -119,7 +141,7 @@ impl<P: SchemeParams> PrmProof<P> {
             .zip(self.commitment.0.iter())
         {
             let a = a.to_montgomery(monty_params);
-            let pwr = setup.base_randomizer().pow_bounded_exp(z, z.bits_vartime());
+            let pwr = setup.base_randomizer().pow_bounded_exp(z.as_ref(), z.bits_vartime());
             let test = if *e { pwr == a * setup.base_value() } else { pwr == a };
             if !test {
                 return false;

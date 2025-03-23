@@ -8,7 +8,7 @@ use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
     params::SchemeParams,
     tools::hashing::{Chain, Hashable, Hasher},
-    uint::{HasWide, PublicSigned, SecretSigned},
+    uint::{MulWide, PublicSigned, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_fac";
@@ -35,7 +35,16 @@ pub(crate) struct FacProof<P: SchemeParams> {
     z2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     w1: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     w2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-    v: PublicSigned<<P::Paillier as PaillierParams>::ExtraWideUint>,
+    v: PublicSigned<P::ExtraWideUint>,
+}
+
+impl<P: SchemeParams> Hashable for FacProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"FacProof").chain_serializable(self)
+    }
 }
 
 impl<P: SchemeParams> FacProof<P> {
@@ -43,7 +52,7 @@ impl<P: SchemeParams> FacProof<P> {
         rng: &mut impl CryptoRngCore,
         sk0: &SecretKeyPaillier<P::Paillier>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         let pk0 = sk0.public_key();
 
@@ -95,9 +104,9 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&cap_b)
             .chain(&cap_t)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(pk0)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
@@ -108,7 +117,16 @@ impl<P: SchemeParams> FacProof<P> {
         let z2 = (beta + (q * e).to_wide()).to_public();
         let w1 = (x + mu * e_wide).to_public();
         let w2 = (y + &nu * e_wide).to_public();
-        let v = (r - p.mul_wide_public(&e).mul_wide(&nu)).to_public();
+
+        // p ∈ ±2^(MODULUS_BITS / 2)
+        // e ∈ ±2^L_BOUND
+        // nu ∈ ±2^(L_BOUND + MODULUS_BITS)
+        // Now if scheme parameters are self-consistent,
+        //    MODULUS_BITS >= LP_BOUND + EPS_BOUND
+        //                 >= 3 * L_BOUND + 2 * EPS_BOUND
+        //                 >= 5 * L_BOUND + 2 * SECURITY_PARAMETER
+        // Therefore, `p * e * nu` will not overflow 2^(2*MODULUS_BITS) and will fit in `WideUint`.
+        let v = (r - (p.mul_wide_public(&e) * nu).to_wide()).to_public();
 
         Self {
             e,
@@ -129,7 +147,7 @@ impl<P: SchemeParams> FacProof<P> {
         &self,
         pk0: &PublicKeyPaillier<P::Paillier>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> bool {
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
@@ -139,9 +157,9 @@ impl<P: SchemeParams> FacProof<P> {
             .chain(&self.cap_b)
             .chain(&self.cap_t)
             // public parameters
-            .chain(pk0.as_wire())
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(pk0)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge

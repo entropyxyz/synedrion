@@ -61,20 +61,20 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
 /// ZK proof: Paillier decryption modulo $q$.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
-    DecProofCommitment<P>: Serialize,
-    DecProofElement<P>: Serialize,
+    CommitmentElement<P>: Serialize,
+    ProofElement<P>: Serialize,
 "))]
 #[serde(bound(deserialize = "
-    DecProofCommitment<P>: for<'x> Deserialize<'x>,
-    DecProofElement<P>: for<'x> Deserialize<'x>
+    CommitmentElement<P>: for<'x> Deserialize<'x>,
+    ProofElement<P>: for<'x> Deserialize<'x>
 "))]
 pub(crate) struct DecProof<P: SchemeParams> {
     e: BitVec,
-    commitments: Box<[DecProofCommitment<P>]>,
-    elements: Box<[DecProofElement<P>]>,
+    commitments: Box<[CommitmentElement<P>]>,
+    proofs: Box<[ProofElement<P>]>,
 }
 
-struct DecProofEphemeral<P: SchemeParams> {
+struct EphemeralElement<P: SchemeParams> {
     alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     beta: SecretSigned<<P::Paillier as PaillierParams>::WideUint>,
     r: Randomizer<P::Paillier>,
@@ -82,17 +82,26 @@ struct DecProofEphemeral<P: SchemeParams> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>,"))]
-pub(crate) struct DecProofCommitment<P: SchemeParams> {
+struct CommitmentElement<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
     cap_b: Point<P>,
     cap_c: Point<P>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct DecProofElement<P: SchemeParams> {
+struct ProofElement<P: SchemeParams> {
     z: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     w: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     nu: MaskedRandomizer<P::Paillier>,
+}
+
+impl<P: SchemeParams> Hashable for DecProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"DecProof").chain_serializable(self)
+    }
 }
 
 impl<P: SchemeParams> DecProof<P> {
@@ -101,7 +110,7 @@ impl<P: SchemeParams> DecProof<P> {
         secret: DecSecretInputs<'_, P>,
         public: DecPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         secret.x.assert_exponent_range(P::L_BOUND);
 
@@ -132,8 +141,8 @@ impl<P: SchemeParams> DecProof<P> {
                 let cap_b = public.cap_g * secret_scalar_from_wide_signed::<P>(&beta);
                 let cap_c = secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
 
-                let ephemeral = DecProofEphemeral::<P> { alpha, beta, r };
-                let commitment = DecProofCommitment { cap_a, cap_b, cap_c };
+                let ephemeral = EphemeralElement::<P> { alpha, beta, r };
+                let commitment = CommitmentElement { cap_a, cap_b, cap_c };
 
                 (ephemeral, commitment)
             })
@@ -141,26 +150,27 @@ impl<P: SchemeParams> DecProof<P> {
 
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
-            .chain(&commitments)
+            .chain_bytes(b"DecProofCommitment")
+            .chain_serializable(&commitments)
             // public parameters
-            .chain(public.pk0.as_wire())
-            .chain(&public.cap_k.to_wire())
-            .chain(&public.cap_x)
-            .chain(&public.cap_d.to_wire())
-            .chain(&public.cap_s)
-            .chain(&public.cap_g)
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(public.pk0)
+            .chain(public.cap_k)
+            .chain(public.cap_x)
+            .chain(public.cap_d)
+            .chain(public.cap_s)
+            .chain(public.cap_g)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
         let e = BitVec::from_xof_reader(&mut reader, P::SECURITY_PARAMETER);
 
-        let elements = ephemerals
+        let proofs = ephemerals
             .into_iter()
             .zip(e.bits())
             .map(|(ephemeral, e_bit)| {
-                let DecProofEphemeral { alpha, beta, r } = ephemeral;
+                let EphemeralElement { alpha, beta, r } = ephemeral;
 
                 let z = if *e_bit { alpha + secret.x } else { alpha };
                 let w = if *e_bit { beta + secret.y.to_wide() } else { beta };
@@ -172,7 +182,7 @@ impl<P: SchemeParams> DecProof<P> {
                 };
                 let nu = secret.rho.to_masked(&r, &exponent);
 
-                DecProofElement {
+                ProofElement {
                     z: z.to_public(),
                     w: w.to_public(),
                     nu,
@@ -182,24 +192,25 @@ impl<P: SchemeParams> DecProof<P> {
 
         Self {
             e,
-            elements: elements.into(),
+            proofs: proofs.into(),
             commitments: commitments.into(),
         }
     }
 
-    pub fn verify(&self, public: DecPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, public: DecPublicInputs<'_, P>, setup: &RPParams<P::Paillier>, aux: &impl Serialize) -> bool {
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
-            .chain(&self.commitments)
+            .chain_bytes(b"DecProofCommitment")
+            .chain_serializable(&self.commitments)
             // public parameters
-            .chain(public.pk0.as_wire())
-            .chain(&public.cap_k.to_wire())
-            .chain(&public.cap_x)
-            .chain(&public.cap_d.to_wire())
-            .chain(&public.cap_s)
-            .chain(&public.cap_g)
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(public.pk0)
+            .chain(public.cap_k)
+            .chain(public.cap_x)
+            .chain(public.cap_d)
+            .chain(public.cap_s)
+            .chain(public.cap_g)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
@@ -209,28 +220,28 @@ impl<P: SchemeParams> DecProof<P> {
             return false;
         }
 
-        if e.bits().len() != self.commitments.len() || e.bits().len() != self.elements.len() {
+        if e.bits().len() != self.commitments.len() || e.bits().len() != self.proofs.len() {
             return false;
         }
 
-        for ((e_bit, commitment), element) in e
+        for ((e_bit, commitment), proofs) in e
             .bits()
             .iter()
             .copied()
             .zip(self.commitments.iter())
-            .zip(self.elements.iter())
+            .zip(self.proofs.iter())
         {
             // enc(w_j, \nu_j) (+) K (*) (-z_j) == A_j (+) D (*) e_j
             let cap_a = commitment.cap_a.to_precomputed(public.pk0);
-            let lhs = Ciphertext::new_public_wide_with_randomizer(public.pk0, &element.w, &element.nu)
-                + public.cap_k * &-element.z;
+            let lhs = Ciphertext::new_public_wide_with_randomizer(public.pk0, &proofs.w, &proofs.nu)
+                + public.cap_k * &-proofs.z;
             let rhs = if e_bit { cap_a + public.cap_d } else { cap_a };
             if lhs != rhs {
                 return false;
             }
 
             // g^z_j == C_j X^{e_j}
-            let lhs = scalar_from_signed::<P>(&element.z).mul_by_generator();
+            let lhs = scalar_from_signed::<P>(&proofs.z).mul_by_generator();
             let rhs = if e_bit {
                 commitment.cap_c + *public.cap_x
             } else {
@@ -243,7 +254,7 @@ impl<P: SchemeParams> DecProof<P> {
             // DEVIATION FROM THE PAPER.
             // See the comment in `DecPublicInputs`.
             // Using the public `G` point instead of the generator, so the condition is now `G^{w_j} == B_j S^{e_j}`.
-            let lhs = public.cap_g * scalar_from_wide_signed::<P>(&element.w);
+            let lhs = public.cap_g * scalar_from_wide_signed::<P>(&proofs.w);
             let rhs = if e_bit {
                 commitment.cap_b + *public.cap_s
             } else {
@@ -255,14 +266,14 @@ impl<P: SchemeParams> DecProof<P> {
 
             // Range checks.
 
-            if !element.z.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
+            if !proofs.z.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
                 return false;
             }
 
             // DEVIATION FROM THE PAPER.
             // The expected range of `y` is extended, see the comment for `DecSecretInputs::y`.
             let ceil_log2_num_parties = (public.num_parties - 1).ilog2() + 1;
-            if !element
+            if !proofs
                 .w
                 .is_in_exponent_range(P::LP_BOUND + P::EPS_BOUND + 1 + ceil_log2_num_parties + P::EPS_BOUND)
             {

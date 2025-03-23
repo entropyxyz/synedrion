@@ -16,33 +16,33 @@ use serde::{Deserialize, Serialize};
 use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     params::SchemeParams,
-    tools::hashing::{Chain, Hashable, Hasher},
-    uint::{Exponentiable, IsInvertible, ToMontgomery},
+    tools::hashing::{Chain, Hasher},
+    uint::{Exponentiable, IsInvertible, PublicUint, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_mod";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
+struct ModCommitment<P: SchemeParams>(PublicUint<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> ModCommitment<P> {
     fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>) -> Self {
-        Self(sk.random_nonsquare_residue(rng))
+        Self(sk.random_nonsquare_residue(rng).into())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
+struct ModChallenge<P: SchemeParams>(Vec<PublicUint<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> ModChallenge<P> {
-    fn new(pk: &PublicKeyPaillier<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Hashable) -> Self {
+    fn new(pk: &PublicKeyPaillier<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Serialize) -> Self {
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             .chain(pk.as_wire())
-            .chain(commitment)
-            .chain(aux)
+            .chain_serializable(commitment)
+            .chain_serializable(aux)
             .finalize_to_reader();
         let ys = (0..P::SECURITY_BITS)
-            .map(|_| pk.invertible_residue_from_xof_reader(&mut reader))
+            .map(|_| pk.invertible_residue_from_xof_reader(&mut reader).into())
             .collect();
         Self(ys)
     }
@@ -50,10 +50,10 @@ impl<P: SchemeParams> ModChallenge<P> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModProofElem<P: PaillierParams> {
-    x: P::Uint,
+    x: PublicUint<P::Uint>,
     a: bool,
     b: bool,
-    z: P::Uint,
+    z: PublicUint<P::Uint>,
 }
 
 /**
@@ -77,7 +77,7 @@ pub(crate) struct ModProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> ModProof<P> {
-    pub fn new(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>, aux: &impl Hashable) -> Self {
+    pub fn new(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>, aux: &impl Serialize) -> Self {
         let pk = sk.public_key();
         let commitment = ModCommitment::<P>::random(rng, sk);
         let challenge = ModChallenge::<P>::new(pk, &commitment, aux);
@@ -124,10 +124,10 @@ impl<P: SchemeParams> ModProof<P> {
                 let z = y.pow(sk_inv_modulus);
 
                 ModProofElem {
-                    x: y_4th,
+                    x: y_4th.into(),
                     a: found_a,
                     b: found_b,
-                    z: z.retrieve(),
+                    z: z.retrieve().into(),
                 }
             })
             .collect();
@@ -139,7 +139,7 @@ impl<P: SchemeParams> ModProof<P> {
         }
     }
 
-    pub fn verify(&self, pk: &PublicKeyPaillier<P::Paillier>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, pk: &PublicKeyPaillier<P::Paillier>, aux: &impl Serialize) -> bool {
         let challenge = ModChallenge::new(pk, &self.commitment, aux);
         if challenge != self.challenge {
             return false;
@@ -149,8 +149,8 @@ impl<P: SchemeParams> ModProof<P> {
             // commitments
             .chain(&self.commitment)
             // public parameters
-            .chain(pk.as_wire())
-            .chain(aux)
+            .chain(pk)
+            .chain_serializable(aux)
             .finalize_to_reader();
         let mut seed = <ChaCha12Rng as SeedableRng>::Seed::default();
         reader.read(&mut seed);

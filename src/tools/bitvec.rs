@@ -6,6 +6,8 @@ use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use serde_encoded_bytes::{Base64, SliceLike};
 
+use super::hashing::{Chain, Hashable};
+
 #[derive(Serialize, Deserialize)]
 struct PackedBitVec {
     bits: u32,
@@ -94,5 +96,14 @@ impl BitXorAssign<&BitVec> for BitVec {
         for (lhs, rhs) in self.0.iter_mut().zip(rhs.0.iter()) {
             *lhs ^= rhs
         }
+    }
+}
+
+impl Hashable for BitVec {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"BitVec").chain_serializable(self)
     }
 }
