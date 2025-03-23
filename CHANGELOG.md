@@ -14,6 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The API is now generic over the elliptic curve ([#186])
 - Added `k256` (Secp256k1 parameters), `bip32` (BIP32 support), and `dev` (`tiny-curve` parameters) features. ([#199])
 - Added a `Digest` type to `SchemeParams`. ([#204])
+- Removed `HasWide` requirement from `PaillierParams` types, in favor of `Extendable` and `MulWide` with blanket impl for all `Uint`s. ([#205])
+- Removed `Encoding`, `Serialize`, and `Deserialize` requirement from `PaillierParams` types, in favor of `BoxedEncoding` with blanket impl for all `Uint`s. ([#205])
+- `ExtraWideUint` type moved from `PaillerParams` to `SchemeParams`. ([#205])
+- Removed `*Mod` types from `PaillierParams`. ([#205])
+- Removed `CURVE_ORDER` and `CURVE_ORDER_WIDE` from `SchemeParams`. ([#205])
+- All constants but `SECURITY_BITS` in `SchemeParams` are now derived automatically. ([#205])
+- Remove `WideCurveUint` from `SchemeParams`. ([#205])
+
+
+### Added
+
+- 128-bit production parameters for Secp256k1 (`k256::ProductionParams128`). ([#205])
+- Exposed `PaillierParams` to allow users to define their own parameter sets. ([#205])
 
 
 [#156]: https://github.com/entropyxyz/synedrion/pull/156
@@ -22,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#186]: https://github.com/entropyxyz/synedrion/pull/186
 [#199]: https://github.com/entropyxyz/synedrion/pull/199
 [#204]: https://github.com/entropyxyz/synedrion/pull/204
+[#205]: https://github.com/entropyxyz/synedrion/pull/205
 
 
 ## [0.2.0] - 2024-11-17

@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    uint::{Extendable, MulWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,18 +54,18 @@ pub(crate) struct SecretKeyPaillier<P: PaillierParams> {
     /// The secret primes with some precomputed constants,
     primes: SecretPrimes<P>,
     /// The inverse of the totient modulo the modulus ($\phi(N)^{-1} \mod N$).
-    inv_totient: Secret<P::UintMod>,
+    inv_totient: Secret<<P::Uint as Integer>::Monty>,
     /// The inverse of the modulus modulo the totient ($N^{-1} \mod \phi(N)$).
     inv_modulus: SecretUnsigned<P::Uint>,
     /// $p^{-1} \mod q$, a constant used when joining an RNS-represented number using Garner's algorithm.
-    inv_p_mod_q: Secret<P::HalfUintMod>,
+    inv_p_mod_q: Secret<<P::HalfUint as Integer>::Monty>,
     // $u$ such that $u = -1 \mod p$ and $u = 1 \mod q$. Used for sampling of non-square residues.
-    nonsquare_sampling_constant: Secret<P::UintMod>,
+    nonsquare_sampling_constant: Secret<<P::Uint as Integer>::Monty>,
     // TODO (#162): these should be secret, but they are not zeroizable.
     /// Montgomery parameters for operations modulo $p$.
-    monty_params_mod_p: <P::HalfUintMod as Monty>::Params,
+    monty_params_mod_p: <<P::HalfUint as Integer>::Monty as Monty>::Params,
     /// Montgomery parameters for operations modulo $q$.
-    monty_params_mod_q: <P::HalfUintMod as Monty>::Params,
+    monty_params_mod_q: <<P::HalfUint as Integer>::Monty as Monty>::Params,
     /// The precomputed public key
     public_key: PublicKeyPaillier<P>,
 }
@@ -78,8 +78,10 @@ where
         let primes = secret_key.primes.into_precomputed();
         let modulus = primes.modulus_wire().into_precomputed();
 
-        let monty_params_mod_p = P::HalfUintMod::new_params_vartime(primes.p_half_odd().expose_secret().clone());
-        let monty_params_mod_q = P::HalfUintMod::new_params_vartime(primes.q_half_odd().expose_secret().clone());
+        let monty_params_mod_p =
+            <P::HalfUint as Integer>::Monty::new_params_vartime(primes.p_half_odd().expose_secret().clone());
+        let monty_params_mod_q =
+            <P::HalfUint as Integer>::Monty::new_params_vartime(primes.q_half_odd().expose_secret().clone());
 
         let inv_totient = Secret::init_with(|| {
             primes
@@ -120,7 +122,7 @@ where
 
         let one = Secret::init_with(|| {
             // TODO (#162): `monty_params_mod_q` is cloned here and can remain on the stack.
-            <P::HalfUintMod as Monty>::one(monty_params_mod_q.clone())
+            <<P::HalfUint as Integer>::Monty as Monty>::one(monty_params_mod_q.clone())
         });
         let t = (&inv_p_mod_q + &inv_p_mod_q - one).retrieve();
 
@@ -139,8 +141,9 @@ where
                 .checked_sub(&<P::Uint as Integer>::one())
                 .expect("does not overflow by construction")
         });
-        let nonsquare_sampling_constant =
-            Secret::init_with(|| P::UintMod::new(*u.expose_secret(), modulus.monty_params_mod_n().clone()));
+        let nonsquare_sampling_constant = Secret::init_with(|| {
+            <P::Uint as Integer>::Monty::new(*u.expose_secret(), modulus.monty_params_mod_n().clone())
+        });
 
         let public_key = PublicKeyPaillier::new(modulus);
 
@@ -176,7 +179,7 @@ where
     }
 
     /// Returns $\phi(N)^{-1} \mod N$
-    pub fn inv_totient(&self) -> &Secret<P::UintMod> {
+    pub fn inv_totient(&self) -> &Secret<<P::Uint as Integer>::Monty> {
         &self.inv_totient
     }
 
@@ -189,7 +192,7 @@ where
         &self.public_key
     }
 
-    pub fn rns_split(&self, elem: &P::Uint) -> (P::HalfUintMod, P::HalfUintMod) {
+    pub fn rns_split(&self, elem: &P::Uint) -> (<P::HalfUint as Integer>::Monty, <P::HalfUint as Integer>::Monty) {
         // May be some speed up potential here since we know p and q are small,
         // but it needs to be supported by `crypto-bigint`.
         let p_rem = *elem % self.primes.p_nonzero().expose_secret();
@@ -204,7 +207,11 @@ where
         (p_rem_mod, q_rem_mod)
     }
 
-    fn sqrt_part(&self, x: &P::HalfUintMod, modulus: &Secret<P::HalfUint>) -> Option<P::HalfUintMod> {
+    fn sqrt_part(
+        &self,
+        x: &<P::HalfUint as Integer>::Monty,
+        modulus: &Secret<P::HalfUint>,
+    ) -> Option<<P::HalfUint as Integer>::Monty> {
         // Both `p` and `q` are safe primes, so they're 3 mod 4.
         // This means that if square root exists, it must be of the form `+/- x^((modulus+1)/4)`.
         // Also it means that `(modulus+1)/4 == modulus/4+1`
@@ -223,7 +230,11 @@ where
         }
     }
 
-    pub fn rns_sqrt(&self, rns: &(P::HalfUintMod, P::HalfUintMod)) -> Option<(P::HalfUintMod, P::HalfUintMod)> {
+    #[allow(clippy::type_complexity)]
+    pub fn rns_sqrt(
+        &self,
+        rns: &(<P::HalfUint as Integer>::Monty, <P::HalfUint as Integer>::Monty),
+    ) -> Option<(<P::HalfUint as Integer>::Monty, <P::HalfUint as Integer>::Monty)> {
         // TODO (#73): when we can extract the modulus from `HalfUintMod`, this can be moved there.
         // For now we have to keep this a method of SecretKey to have access to `p` and `q`.
         let (p_part, q_part) = rns;
@@ -235,7 +246,7 @@ where
         }
     }
 
-    pub fn rns_join(&self, rns: &(P::HalfUintMod, P::HalfUintMod)) -> P::Uint {
+    pub fn rns_join(&self, rns: &(<P::HalfUint as Integer>::Monty, <P::HalfUint as Integer>::Monty)) -> P::Uint {
         // We have `a = x mod p`, `b = x mod q`; we want to find `x mod (pq)`.
         // One step of Garner's algorithm:
         // x = a + p * ((b - a) * p^{-1} mod q)
@@ -282,11 +293,11 @@ where
         // Note that since `y` and `u` are invertible
         // (`y` is selected that way, and `u` is not a multiple of either `p` or `q`),
         // the result will be invertible as well.
-        P::UintMod::conditional_select(&w, &-w, b).retrieve()
+        <P::Uint as Integer>::Monty::conditional_select(&w, &-w, b).retrieve()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(serialize = "PublicModulusWire<P>: Serialize"))]
 #[serde(bound(deserialize = "for<'x> PublicModulusWire<P>: Deserialize<'x>"))]
 pub(crate) struct PublicKeyPaillierWire<P: PaillierParams> {
@@ -312,16 +323,16 @@ impl<P: PaillierParams> PublicKeyPaillierWire<P> {
 #[derive(Debug, Clone)]
 pub(crate) struct PublicKeyPaillier<P: PaillierParams> {
     modulus: PublicModulus<P>,
-    monty_params_mod_n_squared: <P::WideUintMod as Monty>::Params,
+    monty_params_mod_n_squared: <<P::WideUint as Integer>::Monty as Monty>::Params,
     /// N converted to Motgomery form modulo N^2
-    modulus_mod_modulus_squared: P::WideUintMod,
+    modulus_mod_modulus_squared: <P::WideUint as Integer>::Monty,
     /// The minimal public key (for hashing purposes)
     public_key_wire: PublicKeyPaillierWire<P>,
 }
 
 impl<P: PaillierParams> PublicKeyPaillier<P> {
     fn new(modulus: PublicModulus<P>) -> Self {
-        let monty_params_mod_n_squared = P::WideUintMod::new_params_vartime(
+        let monty_params_mod_n_squared = <P::WideUint as Integer>::Monty::new_params_vartime(
             Odd::new(modulus.modulus().mul_wide(modulus.modulus())).expect("Square of odd number is odd"),
         );
 
@@ -364,17 +375,17 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     }
 
     /// Returns precomputed parameters for integers modulo N
-    pub fn monty_params_mod_n(&self) -> &<P::UintMod as Monty>::Params {
+    pub fn monty_params_mod_n(&self) -> &<<P::Uint as Integer>::Monty as Monty>::Params {
         self.modulus.monty_params_mod_n()
     }
 
     /// Returns precomputed parameters for integers modulo N^2
-    pub fn monty_params_mod_n_squared(&self) -> &<P::WideUintMod as Monty>::Params {
+    pub fn monty_params_mod_n_squared(&self) -> &<<P::WideUint as Integer>::Monty as Monty>::Params {
         &self.monty_params_mod_n_squared
     }
 
     /// Returns the precomputed N in the Montgomery representation modulo N^2
-    pub fn modulus_mod_modulus_squared(&self) -> &P::WideUintMod {
+    pub fn modulus_mod_modulus_squared(&self) -> &<P::WideUint as Integer>::Monty {
         &self.modulus_mod_modulus_squared
     }
 
@@ -447,9 +458,9 @@ mod tests {
                 len: 2,
             },
             Token::Field("p"),
-            Token::Str("03e91c6b6f3a29a048826fa4cf85f8fa".to_string()),
+            Token::Str("0xfaf885cfa46f8248a0293a6f6b1ce903".to_string()),
             Token::Field("q"),
-            Token::Str("afb93af2508fc289c196078937d9d8e6".to_string()),
+            Token::Str("0xe6d8d937890796c189c28f50f23ab9af".to_string()),
             Token::StructEnd,
             Token::StructEnd,
         ];
