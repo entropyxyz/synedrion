@@ -2226,6 +2226,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round5<P, Id> {
         let ceil_log2_num_parties = (num_parties - 1).ilog2() + 1;
         let delta_signed = delta_signed
             .ensure_exponent_range(P::LP_BOUND + P::EPS_BOUND + 1 + ceil_log2_num_parties)
+            .into_option()
             .ok_or_else(|| LocalError::new("`delta` is not in the expected range"))?;
 
         // This is equal to what we would get from reducing `delta_signed` to Scalar.
@@ -2455,6 +2456,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round6<P, Id> {
         let ceil_log2_num_parties = (num_parties - 1).ilog2() + 1;
         let chi_signed = chi_signed
             .ensure_exponent_range(P::LP_BOUND + P::EPS_BOUND + 1 + ceil_log2_num_parties)
+            .into_option()
             .ok_or_else(|| LocalError::new("`delta` is not in the expected range"))?;
 
         let hat_psi_star = DecProof::new(
