@@ -52,7 +52,7 @@ where
 }
 
 #[test]
-fn invalid_messages() {
+fn invalid_messages_r1_echo() {
     let (associated_data, entry_points) = make_entry_points();
 
     check_invalid_message_evidence::<SP, _>(
@@ -64,6 +64,12 @@ fn invalid_messages() {
         true,
     )
     .unwrap();
+}
+
+#[test]
+fn invalid_messages_r2_echo() {
+    let (associated_data, entry_points) = make_entry_points();
+
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
         entry_points.clone(),
@@ -73,6 +79,12 @@ fn invalid_messages() {
         true,
     )
     .unwrap();
+}
+
+#[test_log::test]
+fn invalid_messages_r3_echo() {
+    let (associated_data, entry_points) = make_entry_points();
+
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
         entry_points.clone(),
@@ -82,6 +94,11 @@ fn invalid_messages() {
         false,
     )
     .unwrap();
+}
+
+#[test]
+fn invalid_messages_r1_normal() {
+    let (associated_data, entry_points) = make_entry_points();
 
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
@@ -92,6 +109,11 @@ fn invalid_messages() {
         false,
     )
     .unwrap();
+}
+#[test]
+fn invalid_messages_r2_normal() {
+    let (associated_data, entry_points) = make_entry_points();
+
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
         entry_points.clone(),
@@ -101,6 +123,12 @@ fn invalid_messages() {
         true,
     )
     .unwrap();
+}
+
+#[test]
+fn invalid_messages_r3_normal() {
+    let (associated_data, entry_points) = make_entry_points();
+
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
         entry_points.clone(),
@@ -110,6 +138,10 @@ fn invalid_messages() {
         true,
     )
     .unwrap();
+}
+#[test]
+fn invalid_messages_r1_dm() {
+    let (associated_data, entry_points) = make_entry_points();
 
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
@@ -120,6 +152,11 @@ fn invalid_messages() {
         false,
     )
     .unwrap();
+}
+#[test]
+fn invalid_messages_r2_dm() {
+    let (associated_data, entry_points) = make_entry_points();
+
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
         entry_points.clone(),
@@ -129,6 +166,11 @@ fn invalid_messages() {
         false,
     )
     .unwrap();
+}
+#[test]
+fn invalid_messages_r3_dm() {
+    let (associated_data, entry_points) = make_entry_points();
+
     check_invalid_message_evidence::<SP, _>(
         &mut OsRng,
         entry_points.clone(),
