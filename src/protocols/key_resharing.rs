@@ -11,6 +11,7 @@
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     format,
+    vec::Vec,
 };
 use core::{fmt::Debug, marker::PhantomData};
 
@@ -418,17 +419,19 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
         // Check that the 0-th coefficients of public polynomials (that is, the old shares)
         // add up to the expected verifying key.
+
         let old_share_ids = payloads
             .values()
             .map(|payload| payload.old_share_id)
-            .collect::<BTreeSet<_>>();
+            .collect::<Vec<_>>();
+
         let vkey = payloads
             .values()
             .map(|payload| {
                 payload
                     .public_polynomial
                     .coeff0()
-                    .map(|coeff0| coeff0 * interpolation_coeff(&old_share_ids, &payload.old_share_id))
+                    .map(|coeff0| coeff0 * interpolation_coeff(old_share_ids.iter(), &payload.old_share_id))
             })
             .sum::<Result<_, _>>()?;
         if Point::from_verifying_key(&new_holder.inputs.verifying_key) != vkey {
