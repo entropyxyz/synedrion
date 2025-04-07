@@ -1,7 +1,4 @@
-use alloc::{
-    collections::{BTreeMap, BTreeSet},
-    vec::Vec,
-};
+use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::{Add, Mul};
 
 use manul::session::LocalError;
@@ -38,9 +35,9 @@ where
         .collect()
 }
 
-fn evaluate_polynomial<T, P>(coeffs: &[T], x: &Scalar<P>) -> T
+fn evaluate_polynomial<Coef, P>(coeffs: &[Coef], x: &Scalar<P>) -> Coef
 where
-    T: Copy + Add<T, Output = T> + for<'a> Mul<&'a Scalar<P>, Output = T> + Clone,
+    Coef: Copy + Add<Coef, Output = Coef> + for<'a> Mul<&'a Scalar<P>, Output = Coef> + Clone,
     P: SchemeParams,
 {
     assert!(coeffs.len() > 1, "Expected coefficients to be non-empty");
@@ -50,19 +47,6 @@ where
     let (acc, coeffs) = coeffs.split_last().expect("Coefficients is not empty");
     coeffs.iter().rev().fold(*acc, |mut acc, coeff| {
         acc = acc * x + *coeff;
-        acc
-    })
-}
-
-fn evaluate_polynomial_secret<P>(coeffs: &[Secret<Scalar<P>>], x: &Scalar<P>) -> Secret<Scalar<P>>
-where
-    P: SchemeParams,
-{
-    // Evaluate in reverse to save on multiplications.
-    // Basically: a0 + a1 x + a2 x^2 + a3 x^3 == (((a3 x) + a2) x + a1) x + a0
-    let (acc, coeffs) = coeffs.split_last().expect("Coefficients is not empty");
-    coeffs.iter().rev().fold(acc.clone(), |mut acc, coeff| {
-        acc = acc * x + coeff.expose_secret();
         acc
     })
 }
@@ -84,7 +68,13 @@ where
     }
 
     pub fn evaluate(&self, x: &ShareId<P>) -> Secret<Scalar<P>> {
-        evaluate_polynomial_secret(&self.0, &x.0)
+        // Evaluate in reverse to save on multiplications.
+        // Basically: a0 + a1 x + a2 x^2 + a3 x^3 == (((a3 x) + a2) x + a1) x + a0
+        let (acc, coeffs) = self.0.split_last().expect("Coefficients is not empty");
+        coeffs.iter().rev().fold(acc.clone(), |mut acc, coeff| {
+            acc = acc * x.0 + coeff.expose_secret();
+            acc
+        })
     }
 
     pub fn public(&self) -> PublicPolynomial<P> {
@@ -129,14 +119,16 @@ where
     indices.iter().map(|idx| (*idx, polynomial.evaluate(idx))).collect()
 }
 
-pub(crate) fn interpolation_coeff<P>(share_ids: &BTreeSet<ShareId<P>>, share_id: &ShareId<P>) -> Scalar<P>
+pub(crate) fn interpolation_coeff<'a, P>(
+    share_ids: impl Iterator<Item = &'a ShareId<P>>,
+    share_id: &ShareId<P>,
+) -> Scalar<P>
 where
     P: SchemeParams,
 {
     share_ids
-        .iter()
-        .filter(|id| id != &share_id)
-        .map(|id| {
+        .filter(|id| *id != share_id)
+        .map(|id: &'a ShareId<P>| {
             id.0 * (id.0 - share_id.0)
                 .invert()
                 .expect("all share IDs are distinct as enforced by BTreeSet")
@@ -148,11 +140,10 @@ pub(crate) fn shamir_join_scalars<P>(pairs: BTreeMap<ShareId<P>, Secret<Scalar<P
 where
     P: SchemeParams,
 {
-    let share_ids = pairs.keys().cloned().collect::<BTreeSet<_>>();
     let mut sum = Secret::init_with(|| Scalar::ZERO);
 
-    for (share_id, val) in pairs.into_iter() {
-        sum += val * interpolation_coeff(&share_ids, &share_id);
+    for (share_id, val) in pairs.iter() {
+        sum += val * interpolation_coeff(pairs.keys(), share_id);
     }
 
     sum
@@ -162,10 +153,9 @@ pub(crate) fn shamir_join_points<P>(pairs: &BTreeMap<ShareId<P>, Point<P>>) -> P
 where
     P: SchemeParams,
 {
-    let share_ids = pairs.keys().cloned().collect::<BTreeSet<_>>();
     pairs
         .iter()
-        .map(|(share_id, val)| val * interpolation_coeff(&share_ids, share_id))
+        .map(|(share_id, val)| val * interpolation_coeff(pairs.keys(), share_id))
         .sum()
 }
 

@@ -161,10 +161,9 @@ where
                     .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
                 Ok((id.clone(), *share_id))
             })
-            .collect::<Result<BTreeMap<_, _>, LocalError>>()?;
+            .collect::<Result<BTreeMap<I, ShareId<P>>, LocalError>>()?;
 
-        let share_ids_set = share_ids.values().cloned().collect();
-        let secret_share = self.secret_share.clone() * interpolation_coeff(&share_ids_set, owner_share_id);
+        let secret_share = self.secret_share.clone() * interpolation_coeff(share_ids.values(), owner_share_id);
         let public_shares = ids
             .iter()
             .map(|id| {
@@ -178,7 +177,7 @@ where
                     .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
                 Ok((
                     id.clone(),
-                    public_share * interpolation_coeff(&share_ids_set, this_share_id),
+                    public_share * interpolation_coeff(share_ids.values(), this_share_id),
                 ))
             })
             .collect::<Result<_, LocalError>>()?;
@@ -196,13 +195,12 @@ where
             .zip((1..=num_parties).map(ShareId::new))
             .collect::<BTreeMap<_, _>>();
 
-        let share_ids_set = share_ids.values().cloned().collect();
         let owner_share_id = share_ids
             .get(key_share.owner())
             .expect("Just created a ShareId for all parties");
 
         let secret_share = key_share.secret_share().clone()
-            * interpolation_coeff(&share_ids_set, owner_share_id)
+            * interpolation_coeff(share_ids.values(), owner_share_id)
                 .invert()
                 .expect("the interpolation coefficient is a non-zero scalar");
         let public_shares = ids
@@ -213,7 +211,7 @@ where
                     .public_shares()
                     .get(id)
                     .expect("There is one public share (Point) for each party")
-                    * interpolation_coeff(&share_ids_set, share_id)
+                    * interpolation_coeff(share_ids.values(), share_id)
                         .invert()
                         .expect("the interpolation coefficient is a non-zero scalar");
                 (id.clone(), public_share)
