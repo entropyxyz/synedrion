@@ -24,7 +24,7 @@ use ::{ecdsa::SigningKey, elliptic_curve::SecretKey};
 
 use crate::{
     params::SchemeParams,
-    tools::{hashing::Chain, Secret},
+    tools::{hashing::Chain, BoxedRng, Secret},
 };
 
 pub(crate) fn chain_curve<Crv, Chn>(digest: Chn) -> Chn
@@ -66,12 +66,12 @@ impl<P: SchemeParams> Scalar<P> {
         Self(backend_scalar)
     }
 
-    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        Self(ScalarPrimitive::<P::Curve>::random(rng).into())
+    pub fn random(rng: &mut dyn CryptoRngCore) -> Self {
+        Self(ScalarPrimitive::<P::Curve>::random(&mut BoxedRng(rng)).into())
     }
 
-    pub fn random_nonzero(rng: &mut impl CryptoRngCore) -> Self {
-        Self(*NonZeroScalar::<P::Curve>::random(rng).as_ref())
+    pub fn random_nonzero(rng: &mut dyn CryptoRngCore) -> Self {
+        Self(*NonZeroScalar::<P::Curve>::random(&mut BoxedRng(rng)).as_ref())
     }
 
     pub fn mul_by_generator(&self) -> Point<P> {
@@ -155,7 +155,7 @@ impl<P: SchemeParams> Secret<Scalar<P>> {
 }
 
 pub(crate) fn secret_split<P: SchemeParams>(
-    rng: &mut impl CryptoRngCore,
+    rng: &mut dyn CryptoRngCore,
     scalar: Secret<Scalar<P>>,
     num: usize,
 ) -> Vec<Secret<Scalar<P>>> {

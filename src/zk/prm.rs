@@ -26,7 +26,7 @@ const HASH_TAG: &[u8] = b"P_prm";
 struct PrmSecret<P: SchemeParams>(Vec<SecretUnsigned<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmSecret<P> {
-    fn random(rng: &mut impl CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
+    fn random(rng: &mut dyn CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
         let secret = (0..P::SECURITY_BITS)
             .map(|_| secret.random_residue_mod_totient(rng))
             .collect();
@@ -72,7 +72,7 @@ impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
     /// (i.e. lambda, the power that was used to create RP parameters).
     pub fn new(
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         secret: &RPSecret<P::Paillier>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,

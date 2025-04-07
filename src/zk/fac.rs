@@ -40,7 +40,7 @@ pub(crate) struct FacProof<P: SchemeParams> {
 
 impl<P: SchemeParams> FacProof<P> {
     pub fn new(
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         sk0: &SecretKeyPaillier<P::Paillier>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,

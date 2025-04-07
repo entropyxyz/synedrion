@@ -6,8 +6,8 @@ use manul::{
     dev::run_sync,
     dev::ExecutionResult,
     protocol::{
-        Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, NormalBroadcast, PartyId,
-        Protocol, ProtocolError, ProtocolMessagePart, Serializer,
+        Artifact, BoxedFormat, BoxedRound, DirectMessage, EchoBroadcast, EntryPoint, NormalBroadcast, PartyId,
+        Protocol, ProtocolError, ProtocolMessagePart,
     },
     session::{LocalError, SessionParameters},
     signature::Keypair,
@@ -141,11 +141,10 @@ where
     type EntryPoint = EP;
 
     fn modify_echo_broadcast(
-        _rng: &mut impl CryptoRngCore,
+        _rng: &mut dyn CryptoRngCore,
         round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
         modify: &ModifyPart,
-        serializer: &Serializer,
-        _deserializer: &Deserializer,
+        format: &BoxedFormat,
         echo_broadcast: EchoBroadcast,
     ) -> Result<EchoBroadcast, LocalError> {
         if round.id() != modify.round || modify.part != CheckPart::EchoBroadcast {
@@ -154,15 +153,14 @@ where
 
         // This triggers an error both in the case where the part is not supposed to be present,
         // and in the case where it is (because the deserialization fails).
-        EchoBroadcast::new::<[u8; 0]>(serializer, [])
+        EchoBroadcast::new::<[u8; 0]>(format, [])
     }
 
     fn modify_normal_broadcast(
-        _rng: &mut impl CryptoRngCore,
+        _rng: &mut dyn CryptoRngCore,
         round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
         modify: &ModifyPart,
-        serializer: &Serializer,
-        _deserializer: &Deserializer,
+        format: &BoxedFormat,
         normal_broadcast: NormalBroadcast,
     ) -> Result<NormalBroadcast, LocalError> {
         if round.id() != modify.round || modify.part != CheckPart::NormalBroadcast {
@@ -171,15 +169,14 @@ where
 
         // This triggers an error both in the case where the part is not supposed to be present,
         // and in the case where it is (because the deserialization fails).
-        NormalBroadcast::new::<[u8; 0]>(serializer, [])
+        NormalBroadcast::new::<[u8; 0]>(format, [])
     }
 
     fn modify_direct_message(
-        _rng: &mut impl CryptoRngCore,
+        _rng: &mut dyn CryptoRngCore,
         round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
         modify: &ModifyPart,
-        serializer: &Serializer,
-        _deserializer: &Deserializer,
+        format: &BoxedFormat,
         _destination: &Id,
         direct_message: DirectMessage,
         artifact: Option<Artifact>,
@@ -190,7 +187,7 @@ where
 
         // This triggers an error both in the case where the part is not supposed to be present,
         // and in the case where it is (because the deserialization fails).
-        let direct_message = DirectMessage::new::<[u8; 0]>(serializer, [])?;
+        let direct_message = DirectMessage::new::<[u8; 0]>(format, [])?;
         Ok((direct_message, artifact))
     }
 }

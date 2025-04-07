@@ -3,7 +3,7 @@ use alloc::collections::BTreeSet;
 use manul::{
     combinators::misbehave::Misbehaving,
     dev::{BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
-    protocol::{BoxedRound, Deserializer, EntryPoint, LocalError, NormalBroadcast, ProtocolMessagePart, Serializer},
+    protocol::{BoxedFormat, BoxedRound, EntryPoint, LocalError, NormalBroadcast, ProtocolMessagePart},
     signature::Keypair,
 };
 use rand_core::{CryptoRngCore, OsRng};
@@ -151,22 +151,21 @@ fn r2_hash_mismatch() {
         type EntryPoint = KeyInit<P, Id>;
 
         fn modify_normal_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P>>(format)
                     .unwrap();
 
                 // Replace `u` with something other than we committed to when hashing it in Round 1.
                 message.u = BitVec::random(rng, message.u.bits().len());
 
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)
@@ -185,11 +184,10 @@ fn r3_invalid_sch_proof() {
         type EntryPoint = KeyInit<P, Id>;
 
         fn modify_normal_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 3 {
@@ -208,7 +206,7 @@ fn r3_invalid_sch_proof() {
                 );
 
                 let message = Round3NormalBroadcast { psi };
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)

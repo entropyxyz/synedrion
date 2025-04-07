@@ -11,7 +11,7 @@ readme = "README.md"
 categories = ["cryptography", "no-std"]
 
 [dependencies]
-manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233" }
+manul = "0.2"
 signature = { version = "2", default-features = false }
 rand_core = { version = "0.6.4", default-features = false }
 digest = { version = "0.10", default-features = false, features = ["alloc"] }
@@ -28,7 +28,7 @@ criterion = { version = "0.5", optional = true }
 # Note: `alloc` is needed for `crytpto-bigint`'s dependency `serdect` to be able
 # to serialize Uints in human-readable formats.
 crypto-bigint = { version = "0.6", default-features = false, features = ["serde", "alloc", "rand_core", "zeroize"] }
-crypto-primes = { version = "0.6", default-features = false }
+crypto-primes = { version = "0.6.2", default-features = false }
 
 serde = { version = "1", default-features = false, features = ["derive"] }
 serde-encoded-bytes = { version = "0.1", default-features = false, features = ["hex", "base64"] }
@@ -40,9 +40,7 @@ bip32 = { version = "0.5", optional = true, default-features = false, features =
 sha3 = { version = "0.10", optional = true, default-features = false }
 
 [dev-dependencies]
-manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233", features = [
-	"dev",
-] }
+manul = { version = "0.2", features = ["dev"] }
 serde_assert = "0.8"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 rand = { version = "0.8", features = ["getrandom"] }

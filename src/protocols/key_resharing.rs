@@ -9,6 +9,7 @@
 //! since the CGGMP paper itself does not contain any threshold functionality.
 
 use alloc::{
+    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     format,
 };
@@ -16,10 +17,10 @@ use core::{fmt::Debug, marker::PhantomData};
 
 use ecdsa::VerifyingKey;
 use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EchoRoundParticipation, EntryPoint,
-    FinalizeOutcome, LocalError, MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError,
-    ProtocolMessage, ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessages, Round, RoundId,
-    Serializer,
+    Artifact, BoxedFormat, BoxedRound, CommunicationInfo, DirectMessage, EchoBroadcast, EchoRoundParticipation,
+    EntryPoint, FinalizeOutcome, LocalError, MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol,
+    ProtocolError, ProtocolMessage, ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessages,
+    Round, RoundId, TransitionInfo,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,7 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyResharingProtocol<P, I> {
     type ProtocolError = KeyResharingError;
 
     fn verify_direct_message_is_invalid(
-        _deserializer: &Deserializer,
+        _format: &BoxedFormat,
         _round_id: &RoundId,
         _message: &DirectMessage,
     ) -> Result<(), MessageValidationError> {
@@ -52,7 +53,7 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyResharingProtocol<P, I> {
     }
 
     fn verify_echo_broadcast_is_invalid(
-        _deserializer: &Deserializer,
+        _format: &BoxedFormat,
         _round_id: &RoundId,
         _message: &EchoBroadcast,
     ) -> Result<(), MessageValidationError> {
@@ -60,7 +61,7 @@ impl<P: SchemeParams, I: PartyId> Protocol<I> for KeyResharingProtocol<P, I> {
     }
 
     fn verify_normal_broadcast_is_invalid(
-        _deserializer: &Deserializer,
+        _format: &BoxedFormat,
         _round_id: &RoundId,
         _message: &NormalBroadcast,
     ) -> Result<(), MessageValidationError> {
@@ -86,7 +87,7 @@ impl<I> ProtocolError<I> for KeyResharingError {
 
     fn verify_messages_constitute_error(
         &self,
-        _deserializer: &Deserializer,
+        _format: &BoxedFormat,
         _guilty_party: &I,
         _shared_randomness: &[u8],
         _associated_data: &Self::AssociatedData,
@@ -163,7 +164,7 @@ where
 
     fn make_round(
         self,
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         _shared_randomness: &[u8],
         id: &I,
     ) -> Result<BoxedRound<I, Self::Protocol>, LocalError> {
@@ -286,34 +287,26 @@ struct Round1Payload<P: SchemeParams> {
 impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     type Protocol = KeyResharingProtocol<P, I>;
 
-    fn id(&self) -> RoundId {
-        1.into()
+    fn transition_info(&self) -> TransitionInfo {
+        TransitionInfo::new_linear_terminating(1)
     }
 
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        [].into()
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<I> {
-        &self.message_destinations
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<I> {
-        &self.expecting_messages_from
-    }
-
-    fn echo_round_participation(&self) -> EchoRoundParticipation<I> {
-        self.echo_round_participation.clone()
+    fn communication_info(&self) -> CommunicationInfo<I> {
+        CommunicationInfo {
+            message_destinations: self.message_destinations.clone(),
+            expecting_messages_from: self.expecting_messages_from.clone(),
+            echo_round_participation: self.echo_round_participation.clone(),
+        }
     }
 
     fn make_echo_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<EchoBroadcast, LocalError> {
         if let Some(old_holder) = self.old_holder.as_ref() {
             EchoBroadcast::new(
-                serializer,
+                format,
                 Round1BroadcastMessage {
                     public_polynomial: old_holder.public_polynomial.clone(),
                     old_share_id: old_holder.share_id,
@@ -326,8 +319,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
     fn make_direct_message(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
         destination: &I,
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
         if let Some(old_holder) = self.old_holder.as_ref() {
@@ -337,7 +330,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
             )))?;
 
             let subshare: Secret<Scalar<P>> = old_holder.polynomial.evaluate(their_share_id);
-            let dm = DirectMessage::new(serializer, Round1DirectMessage { subshare })?;
+            let dm = DirectMessage::new(format, Round1DirectMessage { subshare })?;
             Ok((dm, None))
         } else {
             Ok((DirectMessage::none(), None))
@@ -346,17 +339,15 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
 
     fn receive_message(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         from: &I,
         message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<I, Self::Protocol>> {
         message.normal_broadcast.assert_is_none()?;
         let echo_broadcast = message
             .echo_broadcast
-            .deserialize::<Round1BroadcastMessage<P>>(deserializer)?;
-        let direct_message = message
-            .direct_message
-            .deserialize::<Round1DirectMessage<P>>(deserializer)?;
+            .deserialize::<Round1BroadcastMessage<P>>(format)?;
+        let direct_message = message.direct_message.deserialize::<Round1DirectMessage<P>>(format)?;
 
         if let Some(new_holder) = self.new_holder.as_ref() {
             if new_holder.inputs.old_holders.contains(from) {
@@ -384,8 +375,8 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     }
 
     fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
+        self: Box<Self>,
+        _rng: &mut dyn CryptoRngCore,
         payloads: BTreeMap<I, Payload>,
         _artifacts: BTreeMap<I, Artifact>,
     ) -> Result<FinalizeOutcome<I, Self::Protocol>, LocalError> {

@@ -50,7 +50,7 @@ pub(crate) struct ElogProof<P: SchemeParams> {
 
 impl<P: SchemeParams> ElogProof<P> {
     pub fn new(
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         secret: ElogSecretInputs<'_, P>,
         public: ElogPublicInputs<'_, P>,
         aux: &impl Hashable,

@@ -4,8 +4,8 @@ use manul::{
     combinators::misbehave::Misbehaving,
     dev::{BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     protocol::{
-        Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, LocalError, NormalBroadcast,
-        ProtocolMessagePart, Serializer,
+        Artifact, BoxedFormat, BoxedRound, DirectMessage, EchoBroadcast, EntryPoint, LocalError, NormalBroadcast,
+        ProtocolMessagePart,
     },
     signature::Keypair,
 };
@@ -150,11 +150,11 @@ fn r2_hash_mismatch() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
@@ -162,7 +162,7 @@ fn r2_hash_mismatch() {
                 let message = Round1EchoBroadcast {
                     cap_v: Hasher::<<P as SchemeParams>::Digest>::new_with_dst(b"bad hash").finalize(P::SECURITY_BITS),
                 };
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -182,19 +182,19 @@ fn r2_wrong_ids_x() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
                 message.cap_xs.pop_first();
-                let normal_broadcast = NormalBroadcast::new(serializer, message)?;
+                let normal_broadcast = NormalBroadcast::new(format, message)?;
                 return Ok(normal_broadcast);
             }
 
@@ -202,11 +202,11 @@ fn r2_wrong_ids_x() {
         }
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
@@ -220,7 +220,7 @@ fn r2_wrong_ids_x() {
                 let message = Round1EchoBroadcast {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -239,11 +239,11 @@ fn r2_wrong_ids_y() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
@@ -257,16 +257,16 @@ fn r2_wrong_ids_y() {
                 let message = Round1EchoBroadcast {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
             if round.id() == 2 {
                 let mut message = echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)
                     .unwrap();
                 message.cap_ys.pop_first();
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -285,20 +285,20 @@ fn r2_wrong_ids_a() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
 
                 message.cap_as.pop_first();
-                let normal_broadcast = NormalBroadcast::new(serializer, message)?;
+                let normal_broadcast = NormalBroadcast::new(format, message)?;
                 return Ok(normal_broadcast);
             }
 
@@ -306,11 +306,11 @@ fn r2_wrong_ids_a() {
         }
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
@@ -325,7 +325,7 @@ fn r2_wrong_ids_a() {
                 let message = Round1EchoBroadcast {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -350,19 +350,19 @@ fn r2_paillier_modulus_too_small() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
                 message.paillier_pk = make_small_modulus_pk::<<P as SchemeParams>::Paillier>();
-                let normal_broadcast = NormalBroadcast::new(serializer, message)?;
+                let normal_broadcast = NormalBroadcast::new(format, message)?;
                 return Ok(normal_broadcast);
             }
 
@@ -370,11 +370,11 @@ fn r2_paillier_modulus_too_small() {
         }
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
@@ -384,7 +384,7 @@ fn r2_paillier_modulus_too_small() {
                 let message = Round1EchoBroadcast {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -408,11 +408,11 @@ fn r2_rp_modulus_too_small() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
@@ -426,16 +426,16 @@ fn r2_rp_modulus_too_small() {
                 let message = Round1EchoBroadcast {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
             if round.id() == 2 {
                 let mut message = echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)
                     .unwrap();
                 message.rp_params = make_small_modulus_rp_params::<<P as SchemeParams>::Paillier>();
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -454,11 +454,11 @@ fn r2_non_zero_sum_of_changes() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
@@ -472,7 +472,7 @@ fn r2_non_zero_sum_of_changes() {
                 let message = Round1EchoBroadcast {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -480,23 +480,23 @@ fn r2_non_zero_sum_of_changes() {
         }
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
 
                 let (id, _point) = message.cap_xs.pop_first().unwrap();
                 let mut rng = ChaCha8Rng::seed_from_u64(123);
                 message.cap_xs.insert(id, Scalar::random(&mut rng).mul_by_generator());
 
-                let normal_broadcast = NormalBroadcast::new(serializer, message)?;
+                let normal_broadcast = NormalBroadcast::new(format, message)?;
                 return Ok(normal_broadcast);
             }
 
@@ -515,11 +515,11 @@ fn r2_prm_failed() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
@@ -534,7 +534,7 @@ fn r2_prm_failed() {
                 let message = Round1EchoBroadcast {
                     cap_v: data.hash(&round1.context.sid, &round1.context.my_id),
                 };
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -542,16 +542,16 @@ fn r2_prm_failed() {
         }
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
 
                 let mut rng = ChaCha8Rng::seed_from_u64(123);
@@ -559,7 +559,7 @@ fn r2_prm_failed() {
                 let rp_params = RPParams::random_with_secret(&mut rng, &secret);
                 message.psi = PrmProof::new(&mut rng, &secret, &rp_params, &1u8);
 
-                let normal_broadcast = NormalBroadcast::new(serializer, message)?;
+                let normal_broadcast = NormalBroadcast::new(format, message)?;
                 return Ok(normal_broadcast);
             }
 
@@ -578,21 +578,19 @@ fn r3_share_change_mismatch() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_direct_message(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             _destination: &Id,
             direct_message: DirectMessage,
             artifact: Option<Artifact>,
         ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
             if round.id() == 3 {
-                let mut message = direct_message
-                    .deserialize::<Round3DirectMessage<P>>(deserializer)
-                    .unwrap();
+                let mut message = direct_message.deserialize::<Round3DirectMessage<P>>(format).unwrap();
                 message.cap_c = Scalar::random(rng);
-                let direct_message = DirectMessage::new(serializer, message)?;
+                let direct_message = DirectMessage::new(format, message)?;
                 return Ok((direct_message, artifact));
             }
 
@@ -612,22 +610,22 @@ fn r3_mod_failed() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_normal_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 3 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)
+                    .deserialize::<Round3NormalBroadcast<P>>(format)
                     .unwrap();
 
                 let sk = SecretKeyPaillierWire::random(rng).into_precomputed();
                 message.psi_prime = ModProof::new(rng, &sk, &1u8);
 
-                let normal_broadcast = NormalBroadcast::new(serializer, message)?;
+                let normal_broadcast = NormalBroadcast::new(format, message)?;
                 return Ok(normal_broadcast);
             }
 
@@ -646,23 +644,21 @@ fn r3_fac_failed() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_direct_message(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             _destination: &Id,
             direct_message: DirectMessage,
             artifact: Option<Artifact>,
         ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
             if round.id() == 3 {
-                let mut message = direct_message
-                    .deserialize::<Round3DirectMessage<P>>(deserializer)
-                    .unwrap();
+                let mut message = direct_message.deserialize::<Round3DirectMessage<P>>(format).unwrap();
                 let sk = SecretKeyPaillierWire::random(&mut OsRng).into_precomputed();
                 let rp_params = RPParams::random(rng);
                 message.psi = FacProof::new(rng, &sk, &rp_params, &1u8);
-                let direct_message = DirectMessage::new(serializer, message)?;
+                let direct_message = DirectMessage::new(format, message)?;
                 return Ok((direct_message, artifact));
             }
 
@@ -681,19 +677,19 @@ fn r3_wrong_ids_hat_psi() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 3 {
                 let mut message = echo_broadcast
-                    .deserialize::<Round3EchoBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round3EchoBroadcast<P, Id>>(format)
                     .unwrap();
                 message.hat_psis.pop_first();
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 
@@ -712,16 +708,16 @@ fn r3_sch_failed() {
         type EntryPoint = KeyRefresh<P, Id>;
 
         fn modify_echo_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 3 {
                 let mut message = echo_broadcast
-                    .deserialize::<Round3EchoBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round3EchoBroadcast<P, Id>>(format)
                     .unwrap();
                 let (id, _hat_psi) = message.hat_psis.pop_last().unwrap();
                 let x = Secret::init_with(|| Scalar::random(rng));
@@ -730,7 +726,7 @@ fn r3_sch_failed() {
                 let commitment = SchCommitment::new(&secret);
                 let hat_psi = SchProof::new(&secret, &x, &commitment, &cap_x, &1u8);
                 message.hat_psis.insert(id, hat_psi);
-                let echo_broadcast = EchoBroadcast::new(serializer, message)?;
+                let echo_broadcast = EchoBroadcast::new(format, message)?;
                 return Ok(echo_broadcast);
             }
 

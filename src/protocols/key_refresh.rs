@@ -2,7 +2,10 @@
 //! This protocol generates an update to the secret key shares and new auxiliary parameters
 //! for ZK proofs (e.g. Paillier keys).
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+};
 use core::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
@@ -11,10 +14,10 @@ use core::{
 use crypto_bigint::BitOps;
 use manul::{
     protocol::{
-        Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-        MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
-        ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round,
-        RoundId, Serializer,
+        Artifact, BoxedFormat, BoxedRound, CommunicationInfo, DirectMessage, EchoBroadcast, EntryPoint,
+        FinalizeOutcome, LocalError, MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol,
+        ProtocolError, ProtocolMessage, ProtocolMessagePart, ProtocolValidationError, ReceiveError,
+        RequiredMessageParts, RequiredMessages, Round, RoundId, TransitionInfo,
     },
     utils::SerializableMap,
 };
@@ -52,40 +55,40 @@ where
     type ProtocolError = KeyRefreshError<P, Id>;
 
     fn verify_direct_message_is_invalid(
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         round_id: &RoundId,
         message: &DirectMessage,
     ) -> Result<(), MessageValidationError> {
         match round_id {
             r if r == &1 => message.verify_is_some(),
             r if r == &2 => message.verify_is_some(),
-            r if r == &3 => message.verify_is_not::<Round3DirectMessage<P>>(deserializer),
+            r if r == &3 => message.verify_is_not::<Round3DirectMessage<P>>(format),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
 
     fn verify_echo_broadcast_is_invalid(
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         round_id: &RoundId,
         message: &EchoBroadcast,
     ) -> Result<(), MessageValidationError> {
         match round_id {
-            r if r == &1 => message.verify_is_not::<Round1EchoBroadcast>(deserializer),
-            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast<P, Id>>(deserializer),
-            r if r == &3 => message.verify_is_not::<Round3EchoBroadcast<P, Id>>(deserializer),
+            r if r == &1 => message.verify_is_not::<Round1EchoBroadcast>(format),
+            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast<P, Id>>(format),
+            r if r == &3 => message.verify_is_not::<Round3EchoBroadcast<P, Id>>(format),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
 
     fn verify_normal_broadcast_is_invalid(
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         round_id: &RoundId,
         message: &NormalBroadcast,
     ) -> Result<(), MessageValidationError> {
         match round_id {
             r if r == &1 => message.verify_is_some(),
-            r if r == &2 => message.verify_is_not::<Round2NormalBroadcast<P, Id>>(deserializer),
-            r if r == &3 => message.verify_is_not::<Round3NormalBroadcast<P>>(deserializer),
+            r if r == &2 => message.verify_is_not::<Round2NormalBroadcast<P, Id>>(format),
+            r if r == &3 => message.verify_is_not::<Round3NormalBroadcast<P>>(format),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
@@ -180,17 +183,17 @@ where
 
 /// Reconstruct `rid` from echoed messages
 fn reconstruct_rid<P: SchemeParams, Id: PartyId>(
-    deserializer: &Deserializer,
+    format: &BoxedFormat,
     previous_messages: &BTreeMap<RoundId, ProtocolMessage>,
     combined_echos: &BTreeMap<RoundId, BTreeMap<Id, EchoBroadcast>>,
 ) -> Result<BitVec, ProtocolValidationError> {
     let r2_ebs = combined_echos
         .get_round(2)?
-        .deserialize_all::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+        .deserialize_all::<Round2EchoBroadcast<P, Id>>(format)?;
     let r2_eb = previous_messages
         .get_round(2)?
         .echo_broadcast
-        .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+        .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
     let mut rid_combined = r2_eb.rid;
     for message in r2_ebs.values() {
         rid_combined ^= &message.rid;
@@ -254,7 +257,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
 
     fn verify_messages_constitute_error(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         guilty_party: &Id,
         shared_randomness: &[u8],
         associated_data: &Self::AssociatedData,
@@ -269,13 +272,13 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                 let r1_eb = previous_messages
                     .get_round(1)?
                     .echo_broadcast
-                    .deserialize::<Round1EchoBroadcast>(deserializer)?;
+                    .deserialize::<Round1EchoBroadcast>(format)?;
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
 
                 let data = PublicData {
                     cap_xs: r2_nb.cap_xs.into(),
@@ -292,25 +295,25 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
             Error::R2WrongIdsX => {
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
                 verify_that(r2_nb.cap_xs.keys().cloned().collect::<BTreeSet<_>>() != associated_data.ids)
             }
             Error::R2WrongIdsY => {
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
                 verify_that(r2_eb.cap_ys.keys().cloned().collect::<BTreeSet<_>>() != associated_data.ids)
             }
             Error::R2WrongIdsA => {
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
                 verify_that(r2_nb.cap_as.keys().cloned().collect::<BTreeSet<_>>() != associated_data.ids)
             }
             Error::R2PaillierModulusTooSmall => {
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
                 verify_that(
                     r2_nb.paillier_pk.modulus().bits_vartime() < <P::Paillier as PaillierParams>::MODULUS_BITS - 2,
                 )
@@ -318,7 +321,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
             Error::R2RPModulusTooSmall => {
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
                 verify_that(
                     r2_eb.rp_params.modulus().bits_vartime() < <P::Paillier as PaillierParams>::MODULUS_BITS - 2,
                 )
@@ -326,16 +329,16 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
             Error::R2NonZeroSumOfChanges => {
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
                 verify_that(r2_nb.cap_xs.values().sum::<Point<P>>() != Point::identity())
             }
             Error::R2PrmFailed => {
                 let r2_eb = message
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
                 let r2_bc = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
                 let aux = (&sid, guilty_party);
                 let rp_params = r2_eb.rp_params.to_precomputed();
                 verify_that(!r2_bc.psi.verify(&rp_params, &aux))
@@ -347,7 +350,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                 let r2_eb_i = combined_echos
                     .get_round(2)?
                     .try_get("combined echos for Round 2", reported_by)?
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
                 let cap_y_ij = r2_eb_i.cap_ys.try_get("public Elgamal values", guilty_party)?;
                 if &y.mul_by_generator() != cap_y_ij {
                     return Err(ProtocolValidationError::InvalidEvidence(
@@ -355,12 +358,12 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                     ));
                 }
 
-                let rid = reconstruct_rid::<P, _>(deserializer, &previous_messages, &combined_echos)?;
+                let rid = reconstruct_rid::<P, _>(format, &previous_messages, &combined_echos)?;
 
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
                 let cap_y_ji = r2_eb.cap_ys.try_get("public Elgamal values", reported_by)?;
                 let mut reader = Hasher::<P::Digest>::new_with_dst(b"KeyRefresh Round3")
                     .chain(&sid)
@@ -373,43 +376,39 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                 let r2_bc = previous_messages
                     .get_round(2)?
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
-                let r3_dm = message
-                    .direct_message
-                    .deserialize::<Round3DirectMessage<P>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
+                let r3_dm = message.direct_message.deserialize::<Round3DirectMessage<P>>(format)?;
 
                 let x = r3_dm.cap_c - rho;
                 let cap_x_ji = r2_bc.cap_xs.try_get("public key share changes", reported_by)?;
                 verify_that(&x.mul_by_generator() != cap_x_ji)
             }
             Error::R3ModFailed => {
-                let rid = reconstruct_rid::<P, _>(deserializer, &previous_messages, &combined_echos)?;
+                let rid = reconstruct_rid::<P, _>(format, &previous_messages, &combined_echos)?;
                 let aux = (&sid, guilty_party, &rid);
                 let r2_bc = previous_messages
                     .get_round(2)?
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
                 let r3_bc = message
                     .normal_broadcast
-                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
+                    .deserialize::<Round3NormalBroadcast<P>>(format)?;
                 let paillier_pk = r2_bc.paillier_pk.into_precomputed();
                 verify_that(!r3_bc.psi_prime.verify(&paillier_pk, &aux))
             }
             Error::R3FacFailed { reported_by } => {
-                let rid = reconstruct_rid::<P, _>(deserializer, &previous_messages, &combined_echos)?;
+                let rid = reconstruct_rid::<P, _>(format, &previous_messages, &combined_echos)?;
                 let aux = (&sid, guilty_party, &rid);
 
                 let r2_eb = combined_echos
                     .get_round(2)?
                     .try_get("combined echos for Round 2", reported_by)?
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
                 let r2_bc = previous_messages
                     .get_round(2)?
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
-                let r3_dm = message
-                    .direct_message
-                    .deserialize::<Round3DirectMessage<P>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
+                let r3_dm = message.direct_message.deserialize::<Round3DirectMessage<P>>(format)?;
                 let paillier_pk = r2_bc.paillier_pk.into_precomputed();
                 let rp_params = r2_eb.rp_params.to_precomputed();
                 verify_that(!r3_dm.psi.verify(&paillier_pk, &rp_params, &aux))
@@ -417,20 +416,20 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
             Error::R3WrongIdsHatPsi => {
                 let r3_eb = message
                     .echo_broadcast
-                    .deserialize::<Round3EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round3EchoBroadcast<P, Id>>(format)?;
                 verify_that(r3_eb.hat_psis.keys().cloned().collect::<BTreeSet<_>>() != associated_data.ids)
             }
             Error::R3SchFailed { failed_for } => {
-                let rid = reconstruct_rid::<P, _>(deserializer, &previous_messages, &combined_echos)?;
+                let rid = reconstruct_rid::<P, _>(format, &previous_messages, &combined_echos)?;
                 let aux = (&sid, guilty_party, &rid);
 
                 let r2_bc = previous_messages
                     .get_round(2)?
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
                 let r3_eb = message
                     .echo_broadcast
-                    .deserialize::<Round3EchoBroadcast<P, Id>>(deserializer)?;
+                    .deserialize::<Round3EchoBroadcast<P, Id>>(format)?;
 
                 let cap_a = r2_bc.cap_as.try_get("Schnorr commitments", failed_for)?;
                 let cap_x = r2_bc.cap_xs.try_get("public share changes", failed_for)?;
@@ -497,7 +496,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for KeyRefresh<P, Id> {
 
     fn make_round(
         self,
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         shared_randomness: &[u8],
         id: &Id,
     ) -> Result<BoxedRound<Id, Self::Protocol>, LocalError> {
@@ -613,44 +612,34 @@ struct Round1Payload {
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
     type Protocol = KeyRefreshProtocol<P, Id>;
 
-    fn id(&self) -> RoundId {
-        1.into()
+    fn transition_info(&self) -> TransitionInfo {
+        TransitionInfo::new_linear(1)
     }
 
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        [2.into()].into()
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
+    fn communication_info(&self) -> CommunicationInfo<Id> {
+        CommunicationInfo::regular(&self.context.other_ids)
     }
 
     fn make_echo_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<EchoBroadcast, LocalError> {
         let message = Round1EchoBroadcast {
             cap_v: self.public_data.hash(&self.context.sid, &self.context.my_id),
         };
-        EchoBroadcast::new(serializer, message)
+        EchoBroadcast::new(format, message)
     }
 
     fn receive_message(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         _from: &Id,
         message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.normal_broadcast.assert_is_none()?;
         message.direct_message.assert_is_none()?;
-        let echo_broadcast = message
-            .echo_broadcast
-            .deserialize::<Round1EchoBroadcast>(deserializer)?;
+        let echo_broadcast = message.echo_broadcast.deserialize::<Round1EchoBroadcast>(format)?;
         let payload = Round1Payload {
             cap_v: echo_broadcast.cap_v,
         };
@@ -658,8 +647,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round1<P, Id> {
     }
 
     fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
+        self: Box<Self>,
+        _rng: &mut dyn CryptoRngCore,
         payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
@@ -723,26 +712,18 @@ struct Round2Payload<P: SchemeParams, Id> {
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
     type Protocol = KeyRefreshProtocol<P, Id>;
 
-    fn id(&self) -> RoundId {
-        2.into()
+    fn transition_info(&self) -> TransitionInfo {
+        TransitionInfo::new_linear(2)
     }
 
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        [3.into()].into()
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
+    fn communication_info(&self) -> CommunicationInfo<Id> {
+        CommunicationInfo::regular(&self.context.other_ids)
     }
 
     fn make_normal_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<NormalBroadcast, LocalError> {
         let message = Round2NormalBroadcast {
             cap_xs: self.public_data.cap_xs.clone().into(),
@@ -751,35 +732,35 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
             psi: self.public_data.psi.clone(),
             u: self.public_data.u.clone(),
         };
-        NormalBroadcast::new(serializer, message)
+        NormalBroadcast::new(format, message)
     }
 
     fn make_echo_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<EchoBroadcast, LocalError> {
         let message = Round2EchoBroadcast::<P, Id> {
             cap_ys: self.public_data.cap_ys.clone().into(),
             rid: self.public_data.rid.clone(),
             rp_params: self.public_data.rp_params.to_wire(),
         };
-        EchoBroadcast::new(serializer, message)
+        EchoBroadcast::new(format, message)
     }
 
     fn receive_message(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         from: &Id,
         message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.direct_message.assert_is_none()?;
         let echo_broadcast = message
             .echo_broadcast
-            .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)?;
+            .deserialize::<Round2EchoBroadcast<P, Id>>(format)?;
         let normal_broadcast = message
             .normal_broadcast
-            .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)?;
+            .deserialize::<Round2NormalBroadcast<P, Id>>(format)?;
 
         let data = PublicData {
             cap_xs: normal_broadcast.cap_xs.into(),
@@ -840,8 +821,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
     }
 
     fn finalize(
-        self,
-        rng: &mut impl CryptoRngCore,
+        self: Box<Self>,
+        rng: &mut dyn CryptoRngCore,
         payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
@@ -940,52 +921,40 @@ struct Round3Payload<P: SchemeParams> {
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
     type Protocol = KeyRefreshProtocol<P, Id>;
 
-    fn id(&self) -> RoundId {
-        3.into()
+    fn transition_info(&self) -> TransitionInfo {
+        TransitionInfo::new_linear_terminating(3)
     }
 
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        [].into()
-    }
-
-    fn may_produce_result(&self) -> bool {
-        true
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
+    fn communication_info(&self) -> CommunicationInfo<Id> {
+        CommunicationInfo::regular(&self.context.other_ids)
     }
 
     fn make_echo_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<EchoBroadcast, LocalError> {
         let message = Round3EchoBroadcast {
             hat_psis: self.hat_psis.clone().into(),
         };
-        EchoBroadcast::new(serializer, message)
+        EchoBroadcast::new(format, message)
     }
 
     fn make_normal_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<NormalBroadcast, LocalError> {
         let message = Round3NormalBroadcast {
             psi_prime: self.psi_prime.clone(),
         };
-        NormalBroadcast::new(serializer, message)
+        NormalBroadcast::new(format, message)
     }
 
     fn make_direct_message(
         &self,
-        rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
         destination: &Id,
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
         let my_id = &self.context.my_id;
@@ -1008,25 +977,23 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         let cap_c = *(x + &rho).expose_secret();
 
         let message = Round3DirectMessage { psi, cap_c };
-        let dm = DirectMessage::new(serializer, message)?;
+        let dm = DirectMessage::new(format, message)?;
         Ok((dm, None))
     }
 
     fn receive_message(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         from: &Id,
         message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         let echo_broadcast = message
             .echo_broadcast
-            .deserialize::<Round3EchoBroadcast<P, Id>>(deserializer)?;
+            .deserialize::<Round3EchoBroadcast<P, Id>>(format)?;
         let normal_broadcast = message
             .normal_broadcast
-            .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
-        let direct_message = message
-            .direct_message
-            .deserialize::<Round3DirectMessage<P>>(deserializer)?;
+            .deserialize::<Round3NormalBroadcast<P>>(format)?;
+        let direct_message = message.direct_message.deserialize::<Round3DirectMessage<P>>(format)?;
 
         let my_id = &self.context.my_id;
 
@@ -1088,8 +1055,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
     }
 
     fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
+        self: Box<Self>,
+        _rng: &mut dyn CryptoRngCore,
         payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
