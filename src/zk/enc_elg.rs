@@ -63,7 +63,7 @@ pub(crate) struct EncElgProof<P: SchemeParams> {
 
 impl<P: SchemeParams> EncElgProof<P> {
     pub fn new(
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         secret: EncElgSecretInputs<'_, P>,
         public: EncElgPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,

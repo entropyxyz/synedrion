@@ -115,6 +115,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "base64ct"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -338,9 +344,9 @@ dependencies = [
 
 [[package]]
 name = "crypto-bigint"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4919aa33c410cb537c1b2a8458a896f9e47ed4349a2002e5b240f358f7bf6ffc"
+checksum = "96272c2ff28b807e09250b180ad1fb7889a3258f7455759b5c3c58b719467130"
 dependencies = [
  "num-traits",
  "rand_core",
@@ -361,11 +367,11 @@ dependencies = [
 
 [[package]]
 name = "crypto-primes"
-version = "0.6.0"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8cafc054d42839b05a3d87df450ca9c5437c06aa68b3ef70d4e7e98b9346961"
+checksum = "2acbaf157961745008b5a80ee1cc974150691304fe9177edf69747142bfd9878"
 dependencies = [
- "crypto-bigint 0.6.0",
+ "crypto-bigint 0.6.1",
  "rand_core",
 ]
 
@@ -677,8 +683,9 @@ checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
 name = "manul"
-version = "0.2.0-dev"
-source = "git+https://github.com/entropyxyz/manul.git?rev=9810d0188d64d4fca3c95efd75e3b565c5db4233#9810d0188d64d4fca3c95efd75e3b565c5db4233"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce6bd3e34734b404f6e95cd32c3a65a3de506e6717494e07ff5bda905490046f"
 dependencies = [
  "derive-where",
  "digest",
@@ -688,7 +695,7 @@ dependencies = [
  "rand",
  "rand_core",
  "serde",
- "serde-encoded-bytes",
+ "serde-encoded-bytes 0.2.0",
  "serde-persistent-deserializer",
  "serde_json",
  "signature",
@@ -1041,7 +1048,18 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec007ca0e3db940a5409d65780b6bd0202cbea68800861ae876b80655ee8e24b"
 dependencies = [
- "base64",
+ "base64 0.21.7",
+ "hex",
+ "serde",
+]
+
+[[package]]
+name = "serde-encoded-bytes"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41015be3fac3ea5ca130f052836e50662c574547baca4d482e69e834f266e8d5"
+dependencies = [
+ "base64 0.22.1",
  "hex",
  "serde",
 ]
@@ -1180,7 +1198,7 @@ version = "0.3.0-dev"
 dependencies = [
  "bip32",
  "criterion",
- "crypto-bigint 0.6.0",
+ "crypto-bigint 0.6.1",
  "crypto-primes",
  "digest",
  "displaydoc",
@@ -1196,7 +1214,7 @@ dependencies = [
  "rand_core",
  "secrecy",
  "serde",
- "serde-encoded-bytes",
+ "serde-encoded-bytes 0.1.0",
  "serde_assert",
  "sha3",
  "signature",

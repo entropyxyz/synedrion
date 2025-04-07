@@ -48,7 +48,7 @@ impl<P: PaillierParams> Randomizer<P> {
         }
     }
 
-    pub fn random(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillier<P>) -> Self {
+    pub fn random(rng: &mut dyn CryptoRngCore, pk: &PublicKeyPaillier<P>) -> Self {
         let randomizer = Secret::init_with(|| pk.random_invertible_residue(rng));
         Self::new(pk, randomizer)
     }
@@ -196,7 +196,7 @@ impl<P: PaillierParams> Ciphertext<P> {
 
     /// Encrypts the plaintext with a random randomizer.
     #[cfg(any(test, feature = "private-benches"))]
-    pub fn new(rng: &mut impl CryptoRngCore, pk: &PublicKeyPaillier<P>, plaintext: &SecretSigned<P::Uint>) -> Self {
+    pub fn new(rng: &mut dyn CryptoRngCore, pk: &PublicKeyPaillier<P>, plaintext: &SecretSigned<P::Uint>) -> Self {
         Self::new_with_randomizer(pk, plaintext, &Randomizer::random(rng, pk))
     }
 

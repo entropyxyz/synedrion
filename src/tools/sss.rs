@@ -74,7 +74,7 @@ impl<P> Polynomial<P>
 where
     P: SchemeParams,
 {
-    pub fn random(rng: &mut impl CryptoRngCore, coeff0: Secret<Scalar<P>>, degree: usize) -> Self {
+    pub fn random(rng: &mut dyn CryptoRngCore, coeff0: Secret<Scalar<P>>, degree: usize) -> Self {
         let mut coeffs = Vec::with_capacity(degree);
         coeffs.push(coeff0);
         for _ in 1..degree {

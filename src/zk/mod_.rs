@@ -26,7 +26,7 @@ const HASH_TAG: &[u8] = b"P_mod";
 struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
 
 impl<P: SchemeParams> ModCommitment<P> {
-    fn random(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>) -> Self {
+    fn random(rng: &mut dyn CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>) -> Self {
         Self(sk.random_nonsquare_residue(rng))
     }
 }
@@ -77,7 +77,7 @@ pub(crate) struct ModProof<P: SchemeParams> {
 }
 
 impl<P: SchemeParams> ModProof<P> {
-    pub fn new(rng: &mut impl CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>, aux: &impl Hashable) -> Self {
+    pub fn new(rng: &mut dyn CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>, aux: &impl Hashable) -> Self {
         let pk = sk.public_key();
         let commitment = ModCommitment::<P>::random(rng, sk);
         let challenge = ModChallenge::<P>::new(pk, &commitment, aux);

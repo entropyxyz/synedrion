@@ -5,7 +5,7 @@ use alloc::{
 use core::fmt::Debug;
 
 use manul::protocol::{
-    Artifact, Deserializer, EchoBroadcast, LocalError, Payload, ProtocolMessagePart, ProtocolValidationError, RoundId,
+    Artifact, BoxedFormat, EchoBroadcast, LocalError, Payload, ProtocolMessagePart, ProtocolValidationError, RoundId,
 };
 use serde::Deserialize;
 
@@ -60,7 +60,7 @@ impl<K: Ord> DowncastMap for BTreeMap<K, Payload> {
     type Key = K;
     fn downcast_all<T: 'static>(self) -> Result<BTreeMap<K, T>, LocalError> {
         self.into_iter()
-            .map(|(k, payload)| payload.try_to_typed::<T>().map(|v| (k, v)))
+            .map(|(k, payload)| payload.downcast::<T>().map(|v| (k, v)))
             .collect::<Result<_, _>>()
     }
 }
@@ -69,7 +69,7 @@ impl<K: Ord> DowncastMap for BTreeMap<K, Artifact> {
     type Key = K;
     fn downcast_all<T: 'static>(self) -> Result<BTreeMap<K, T>, LocalError> {
         self.into_iter()
-            .map(|(k, artifact)| artifact.try_to_typed::<T>().map(|v| (k, v)))
+            .map(|(k, artifact)| artifact.downcast::<T>().map(|v| (k, v)))
             .collect::<Result<_, _>>()
     }
 }
@@ -106,19 +106,19 @@ impl<V> GetRound<V> for BTreeMap<RoundId, V> {
 pub(crate) trait DeserializeAll<Id> {
     fn deserialize_all<T: for<'de> Deserialize<'de>>(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
     ) -> Result<BTreeMap<Id, T>, ProtocolValidationError>;
 }
 
 impl<Id: Clone + Ord> DeserializeAll<Id> for BTreeMap<Id, EchoBroadcast> {
     fn deserialize_all<T: for<'de> Deserialize<'de>>(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
     ) -> Result<BTreeMap<Id, T>, ProtocolValidationError> {
         let deserialized = self
             .iter()
             .map(|(id, echo)| {
-                echo.deserialize::<T>(deserializer)
+                echo.deserialize::<T>(format)
                     .map(|deserialized| (id.clone(), deserialized))
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;

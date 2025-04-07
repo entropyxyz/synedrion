@@ -86,7 +86,7 @@ pub(crate) struct AffGStarProof<P: SchemeParams> {
 
 impl<P: SchemeParams> AffGStarProof<P> {
     pub fn new(
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         secret: AffGStarSecretInputs<'_, P>,
         public: AffGStarPublicInputs<'_, P>,
         aux: &impl Hashable,

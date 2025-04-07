@@ -2,17 +2,20 @@
 //! Note that this protocol only generates the key itself which is not enough to perform signing;
 //! auxiliary parameters need to be generated as well (during the KeyRefresh protocol).
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+};
 use core::{
     fmt::{self, Debug, Display},
     marker::PhantomData,
 };
 
 use manul::protocol::{
-    Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-    MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
+    Artifact, BoxedFormat, BoxedRound, CommunicationInfo, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome,
+    LocalError, MessageValidationError, NormalBroadcast, PartyId, Payload, Protocol, ProtocolError, ProtocolMessage,
     ProtocolMessagePart, ProtocolValidationError, ReceiveError, RequiredMessageParts, RequiredMessages, Round, RoundId,
-    Serializer,
+    TransitionInfo,
 };
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
@@ -39,7 +42,7 @@ impl<P: SchemeParams, Id: PartyId> Protocol<Id> for KeyInitProtocol<P, Id> {
     type ProtocolError = KeyInitError<P>;
 
     fn verify_direct_message_is_invalid(
-        _deserializer: &Deserializer,
+        _format: &BoxedFormat,
         round_id: &RoundId,
         message: &DirectMessage,
     ) -> Result<(), MessageValidationError> {
@@ -52,27 +55,27 @@ impl<P: SchemeParams, Id: PartyId> Protocol<Id> for KeyInitProtocol<P, Id> {
     }
 
     fn verify_echo_broadcast_is_invalid(
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         round_id: &RoundId,
         message: &EchoBroadcast,
     ) -> Result<(), MessageValidationError> {
         match round_id {
-            r if r == &1 => message.verify_is_not::<Round1EchoBroadcast>(deserializer),
-            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast>(deserializer),
+            r if r == &1 => message.verify_is_not::<Round1EchoBroadcast>(format),
+            r if r == &2 => message.verify_is_not::<Round2EchoBroadcast>(format),
             r if r == &3 => message.verify_is_some(),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
 
     fn verify_normal_broadcast_is_invalid(
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         round_id: &RoundId,
         message: &NormalBroadcast,
     ) -> Result<(), MessageValidationError> {
         match round_id {
             r if r == &1 => message.verify_is_some(),
-            r if r == &2 => message.verify_is_not::<Round2NormalBroadcast<P>>(deserializer),
-            r if r == &3 => message.verify_is_not::<Round3NormalBroadcast<P>>(deserializer),
+            r if r == &2 => message.verify_is_not::<Round2NormalBroadcast<P>>(format),
+            r if r == &3 => message.verify_is_not::<Round3NormalBroadcast<P>>(format),
             _ => Err(MessageValidationError::InvalidEvidence("Invalid round number".into())),
         }
     }
@@ -135,7 +138,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
 
     fn verify_messages_constitute_error(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         guilty_party: &Id,
         shared_randomness: &[u8],
         associated_data: &Self::AssociatedData,
@@ -150,13 +153,11 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
                 let r1_eb = previous_messages
                     .get_round(1)?
                     .echo_broadcast
-                    .deserialize::<Round1EchoBroadcast>(deserializer)?;
+                    .deserialize::<Round1EchoBroadcast>(format)?;
                 let r2_nb = message
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P>>(deserializer)?;
-                let r2_eb = message
-                    .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P>>(format)?;
+                let r2_eb = message.echo_broadcast.deserialize::<Round2EchoBroadcast>(format)?;
                 let data = PublicData {
                     cap_x: r2_nb.cap_x,
                     cap_a: r2_nb.cap_a,
@@ -168,18 +169,18 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyInitError<P> {
             Error::R3InvalidSchProof => {
                 let r2_ebs = combined_echos
                     .get_round(2)?
-                    .deserialize_all::<Round2EchoBroadcast>(deserializer)?;
+                    .deserialize_all::<Round2EchoBroadcast>(format)?;
                 let r2_nb = previous_messages
                     .get_round(2)?
                     .normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P>>(deserializer)?;
+                    .deserialize::<Round2NormalBroadcast<P>>(format)?;
                 let r2_eb = previous_messages
                     .get_round(2)?
                     .echo_broadcast
-                    .deserialize::<Round2EchoBroadcast>(deserializer)?;
+                    .deserialize::<Round2EchoBroadcast>(format)?;
                 let r3_nb = message
                     .normal_broadcast
-                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
+                    .deserialize::<Round3NormalBroadcast<P>>(format)?;
 
                 let mut rho = r2_eb.rho;
                 for message in r2_ebs.values() {
@@ -244,7 +245,7 @@ impl<P: SchemeParams, Id: PartyId> EntryPoint<Id> for KeyInit<P, Id> {
 
     fn make_round(
         self,
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         shared_randomness: &[u8],
         id: &Id,
     ) -> Result<BoxedRound<Id, Self::Protocol>, LocalError> {
@@ -312,50 +313,40 @@ where
 {
     type Protocol = KeyInitProtocol<P, Id>;
 
-    fn id(&self) -> RoundId {
-        1.into()
+    fn transition_info(&self) -> TransitionInfo {
+        TransitionInfo::new_linear(1)
     }
 
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        [2.into()].into()
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
+    fn communication_info(&self) -> CommunicationInfo<Id> {
+        CommunicationInfo::regular(&self.context.other_ids)
     }
 
     fn make_echo_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<EchoBroadcast, LocalError> {
         let cap_v = self.context.public_data.hash(&self.context.sid, &self.context.my_id);
-        EchoBroadcast::new(serializer, Round1EchoBroadcast { cap_v })
+        EchoBroadcast::new(format, Round1EchoBroadcast { cap_v })
     }
 
     fn receive_message(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         _from: &Id,
         message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.normal_broadcast.assert_is_none()?;
         message.direct_message.assert_is_none()?;
-        let echo_broadcast = message
-            .echo_broadcast
-            .deserialize::<Round1EchoBroadcast>(deserializer)?;
+        let echo_broadcast = message.echo_broadcast.deserialize::<Round1EchoBroadcast>(format)?;
         Ok(Payload::new(Round1Payload {
             cap_v: echo_broadcast.cap_v,
         }))
     }
 
     fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
+        self: Box<Self>,
+        _rng: &mut dyn CryptoRngCore,
         payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
@@ -397,29 +388,21 @@ struct Round2Payload<P: SchemeParams> {
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
     type Protocol = KeyInitProtocol<P, Id>;
 
-    fn id(&self) -> RoundId {
-        2.into()
+    fn transition_info(&self) -> TransitionInfo {
+        TransitionInfo::new_linear(2)
     }
 
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        [3.into()].into()
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
+    fn communication_info(&self) -> CommunicationInfo<Id> {
+        CommunicationInfo::regular(&self.context.other_ids)
     }
 
     fn make_echo_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<EchoBroadcast, LocalError> {
         EchoBroadcast::new(
-            serializer,
+            format,
             Round2EchoBroadcast {
                 rho: self.context.public_data.rho.clone(),
             },
@@ -428,11 +411,11 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 
     fn make_normal_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<NormalBroadcast, LocalError> {
         NormalBroadcast::new(
-            serializer,
+            format,
             Round2NormalBroadcast {
                 cap_x: self.context.public_data.cap_x,
                 cap_a: self.context.public_data.cap_a.clone(),
@@ -443,17 +426,15 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
 
     fn receive_message(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         from: &Id,
         message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
         message.direct_message.assert_is_none()?;
         let normal_broadcast = message
             .normal_broadcast
-            .deserialize::<Round2NormalBroadcast<P>>(deserializer)?;
-        let echo_broadcast = message
-            .echo_broadcast
-            .deserialize::<Round2EchoBroadcast>(deserializer)?;
+            .deserialize::<Round2NormalBroadcast<P>>(format)?;
+        let echo_broadcast = message.echo_broadcast.deserialize::<Round2EchoBroadcast>(format)?;
 
         let cap_v = self.cap_vs.safe_get("vector `V`", from)?;
         let data = PublicData {
@@ -475,8 +456,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round2<P, Id> {
     }
 
     fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
+        self: Box<Self>,
+        _rng: &mut dyn CryptoRngCore,
         payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {
@@ -518,30 +499,18 @@ pub(super) struct Round3NormalBroadcast<P: SchemeParams> {
 impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
     type Protocol = KeyInitProtocol<P, Id>;
 
-    fn id(&self) -> RoundId {
-        3.into()
+    fn transition_info(&self) -> TransitionInfo {
+        TransitionInfo::new_linear_terminating(3)
     }
 
-    fn possible_next_rounds(&self) -> BTreeSet<RoundId> {
-        [].into()
-    }
-
-    fn may_produce_result(&self) -> bool {
-        true
-    }
-
-    fn message_destinations(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
-    }
-
-    fn expecting_messages_from(&self) -> &BTreeSet<Id> {
-        &self.context.other_ids
+    fn communication_info(&self) -> CommunicationInfo<Id> {
+        CommunicationInfo::regular(&self.context.other_ids)
     }
 
     fn make_normal_broadcast(
         &self,
-        _rng: &mut impl CryptoRngCore,
-        serializer: &Serializer,
+        _rng: &mut dyn CryptoRngCore,
+        format: &BoxedFormat,
     ) -> Result<NormalBroadcast, LocalError> {
         let aux = (&self.context.sid, &self.context.my_id, &self.rho_combined);
         let psi = SchProof::new(
@@ -551,12 +520,12 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
             &self.context.public_data.cap_x,
             &aux,
         );
-        NormalBroadcast::new(serializer, Round3NormalBroadcast { psi })
+        NormalBroadcast::new(format, Round3NormalBroadcast { psi })
     }
 
     fn receive_message(
         &self,
-        deserializer: &Deserializer,
+        format: &BoxedFormat,
         from: &Id,
         message: ProtocolMessage,
     ) -> Result<Payload, ReceiveError<Id, Self::Protocol>> {
@@ -564,7 +533,7 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
         message.direct_message.assert_is_none()?;
         let normal_broadcast = message
             .normal_broadcast
-            .deserialize::<Round3NormalBroadcast<P>>(deserializer)?;
+            .deserialize::<Round3NormalBroadcast<P>>(format)?;
 
         let cap_a = self.cap_as.safe_get("`A` map", from)?;
         let cap_x = self.cap_xs.safe_get("`X` map", from)?;
@@ -577,8 +546,8 @@ impl<P: SchemeParams, Id: PartyId> Round<Id> for Round3<P, Id> {
     }
 
     fn finalize(
-        self,
-        _rng: &mut impl CryptoRngCore,
+        self: Box<Self>,
+        _rng: &mut dyn CryptoRngCore,
         _payloads: BTreeMap<Id, Payload>,
         _artifacts: BTreeMap<Id, Artifact>,
     ) -> Result<FinalizeOutcome<Id, Self::Protocol>, LocalError> {

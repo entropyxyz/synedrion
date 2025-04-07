@@ -28,13 +28,13 @@ pub(crate) struct SecretKeyPaillierWire<P: PaillierParams> {
 
 impl<P: PaillierParams> SecretKeyPaillierWire<P> {
     #[cfg(test)]
-    pub fn random_small(rng: &mut impl CryptoRngCore) -> Self {
+    pub fn random_small(rng: &mut dyn CryptoRngCore) -> Self {
         Self {
             primes: SecretPrimesWire::<P>::random_small_paillier_blum(rng),
         }
     }
 
-    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
+    pub fn random(rng: &mut dyn CryptoRngCore) -> Self {
         Self {
             primes: SecretPrimesWire::<P>::random_paillier_blum(rng),
         }
@@ -255,7 +255,7 @@ where
     /// Returns a random invertible $w ∈ [0, N)$ such that $w$ is not a square modulo $N$,
     /// where $N$ is the public key
     /// (or, equivalently, such that the Jacobi symbol $(w|N) = -1$).
-    pub fn random_nonsquare_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
+    pub fn random_nonsquare_residue(&self, rng: &mut dyn CryptoRngCore) -> P::Uint {
         /*
         (The sampling method and the explanation by Thomas Pornin)
 
@@ -379,7 +379,7 @@ impl<P: PaillierParams> PublicKeyPaillier<P> {
     }
 
     /// Returns a uniformly chosen number in range $[0, N)$ such that it is invertible modulo $N$, in Montgomery form.
-    pub fn random_invertible_residue(&self, rng: &mut impl CryptoRngCore) -> P::Uint {
+    pub fn random_invertible_residue(&self, rng: &mut dyn CryptoRngCore) -> P::Uint {
         self.modulus.random_invertible_residue(rng)
     }
 

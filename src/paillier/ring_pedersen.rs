@@ -23,7 +23,7 @@ pub(crate) struct RPSecret<P: PaillierParams> {
 
 impl<P: PaillierParams> RPSecret<P> {
     #[cfg(test)]
-    pub fn random_small(rng: &mut impl CryptoRngCore) -> Self {
+    pub fn random_small(rng: &mut dyn CryptoRngCore) -> Self {
         let primes = SecretPrimesWire::<P>::random_small_safe(rng).into_precomputed();
         let bound = NonZero::new(primes.totient().expose_secret().wrapping_shr_vartime(2))
             .expect("totient / 4 is still non-zero because p, q >= 5");
@@ -36,7 +36,7 @@ impl<P: PaillierParams> RPSecret<P> {
         Self { primes, lambda }
     }
 
-    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
+    pub fn random(rng: &mut dyn CryptoRngCore) -> Self {
         let primes = SecretPrimesWire::<P>::random_safe(rng).into_precomputed();
 
         let bound = Secret::init_with(|| {
@@ -56,7 +56,7 @@ impl<P: PaillierParams> RPSecret<P> {
         &self.lambda
     }
 
-    pub fn random_residue_mod_totient(&self, rng: &mut impl CryptoRngCore) -> SecretUnsigned<P::Uint> {
+    pub fn random_residue_mod_totient(&self, rng: &mut dyn CryptoRngCore) -> SecretUnsigned<P::Uint> {
         self.primes.random_residue_mod_totient(rng)
     }
 
@@ -85,17 +85,17 @@ pub(crate) struct RPParams<P: PaillierParams> {
 
 impl<P: PaillierParams> RPParams<P> {
     #[cfg(test)]
-    pub fn random_small(rng: &mut impl CryptoRngCore) -> Self {
+    pub fn random_small(rng: &mut dyn CryptoRngCore) -> Self {
         let secret = RPSecret::random_small(rng);
         Self::random_with_secret(rng, &secret)
     }
 
-    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
+    pub fn random(rng: &mut dyn CryptoRngCore) -> Self {
         let secret = RPSecret::random(rng);
         Self::random_with_secret(rng, &secret)
     }
 
-    pub fn random_with_secret(rng: &mut impl CryptoRngCore, secret: &RPSecret<P>) -> Self {
+    pub fn random_with_secret(rng: &mut dyn CryptoRngCore, secret: &RPSecret<P>) -> Self {
         let modulus = secret.primes.modulus_wire().into_precomputed();
 
         let base_randomizer = modulus.random_quadratic_residue(rng); // $t$
