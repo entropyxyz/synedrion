@@ -176,7 +176,6 @@ impl<P: SchemeParams> AffGStarProof<P> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn verify(&self, public: AffGStarPublicInputs<'_, P>, aux: &impl Hashable) -> bool {
         assert!(public.cap_c.public_key() == public.pk0);
         assert!(public.cap_d.public_key() == public.pk0);
