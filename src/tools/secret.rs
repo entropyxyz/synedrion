@@ -494,3 +494,56 @@ where
         self * scalar.expose_secret()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use core::ptr;
+    use crypto_bigint::U128;
+
+    #[allow(unsafe_code, trivial_casts, unused_assignments)]
+    #[test]
+    fn clears_memory_when_scope_ends() {
+        let mut ptr: *const U128 = ptr::null();
+        unsafe {
+            {
+                let secret = Secret::init_with(|| U128::from_u128(0xdeadbeefu128));
+                let secretboxptr = &secret.0 as *const SecretBox<U128>;
+                // Points to the inner_secret of the `SecretBox`
+                let boxptr = secretboxptr as *const *const U128;
+                // Pointer to actual heap data
+                ptr = *boxptr;
+
+                assert!(!ptr.is_null(), "ptr is null before drop, not ok");
+                let bytes: &[u8] = core::slice::from_raw_parts(ptr as *const u8, size_of::<U128>());
+                assert!(!bytes.iter().all(|&b| b == 0), "ptr points to all 0: {:X?}", bytes);
+            }
+            // Check that the memory is cleared after the scope ends
+            let bytes: &[u8] = core::slice::from_raw_parts(ptr as *const u8, size_of::<U128>());
+            assert!(bytes.iter().all(|&b| b == 0), "ptr is not all 0: {:X?}", bytes);
+        }
+    }
+
+    #[allow(unsafe_code, trivial_casts, unused_assignments)]
+    #[test]
+    fn clears_memory_when_dropped() {
+        let mut ptr: *const U128 = ptr::null();
+        unsafe {
+            let secret = Secret::init_with(|| U128::from_u128(0xdeadbeefu128));
+            let secretboxptr = &secret.0 as *const SecretBox<U128>;
+            // Points to the inner_secret of the `SecretBox`
+            let boxptr = secretboxptr as *const *const U128;
+            // Pointer to actual heap data
+            ptr = *boxptr;
+
+            assert!(!ptr.is_null(), "ptr is null before drop, not ok");
+            let bytes: &[u8] = core::slice::from_raw_parts(ptr as *const u8, size_of::<U128>());
+            assert!(!bytes.iter().all(|&b| b == 0), "ptr points to all 0: {:X?}", bytes);
+
+            drop(secret);
+            // Check that the memory is cleared after explicit drop
+            let bytes: &[u8] = core::slice::from_raw_parts(ptr as *const u8, size_of::<U128>());
+            assert!(bytes.iter().all(|&b| b == 0), "ptr is not all 0: {:X?}", bytes);
+        }
+    }
+}
