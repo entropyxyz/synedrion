@@ -59,6 +59,7 @@ private-benches = ["k256", "dep:criterion"]
 k256 = ["dep:k256", "bip32?/secp256k1", "sha3"]
 bip32 = ["dep:bip32", "tiny-curve?/bip32"]
 dev = ["tiny-curve", "sha3"]
+test-allocator = []
 
 [[bench]]
 bench = true
