@@ -35,7 +35,7 @@ pub(crate) struct FacProof<P: SchemeParams> {
     z2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     w1: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
     w2: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
-    v: PublicSigned<<P::Paillier as PaillierParams>::ExtraWideUint>,
+    v: PublicSigned<P::ExtraWideUint>,
 }
 
 impl<P: SchemeParams> FacProof<P> {
