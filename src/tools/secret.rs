@@ -15,7 +15,7 @@ use zeroize::Zeroize;
 use crate::{
     curve::{Point, Scalar},
     params::SchemeParams,
-    uint::{Exponentiable, HasWide},
+    uint::{Exponentiable, Extendable},
 };
 
 /// A helper wrapper for managing secret values.
@@ -140,10 +140,13 @@ where
 
 impl<T> Secret<T>
 where
-    T: Zeroize + Clone + HasWide,
-    T::Wide: Zeroize,
+    T: Zeroize + Clone,
 {
-    pub fn to_wide(&self) -> Secret<<T as HasWide>::Wide> {
+    pub fn to_wide<W>(&self) -> Secret<W>
+    where
+        T: Extendable<W>,
+        W: Zeroize + Clone,
+    {
         Secret::init_with(|| self.expose_secret().to_wide())
     }
 }

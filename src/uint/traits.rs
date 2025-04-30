@@ -1,14 +1,13 @@
 use crypto_bigint::{
     subtle::{ConditionallySelectable, CtOption},
-    Bounded, ConcatMixed, Encoding, Gcd, Integer, Invert, Monty, PowBoundedExp, RandomMod, SplitMixed, WideningMul,
-    Zero, U1024, U128, U2048, U256, U4096, U512, U8192,
+    Bounded, Encoding, Gcd, Integer, Invert, Monty, PowBoundedExp, Uint,
 };
 use digest::XofReader;
 use zeroize::Zeroize;
 
 use crate::uint::{PublicSigned, SecretSigned, SecretUnsigned};
 
-pub trait FromXofReader {
+pub(crate) trait FromXofReader {
     /// Returns an integer derived deterministically from an extensible output hash,
     /// with the bit size limited to `n_bits`.
     ///
@@ -46,7 +45,7 @@ where
     }
 }
 
-pub trait IsInvertible {
+pub(crate) trait IsInvertible {
     /// Returns `true` if `self` is invertible modulo `modulus`.
     fn is_invertible(&self, modulus: &Self) -> bool;
 }
@@ -66,7 +65,7 @@ where
     }
 }
 
-pub trait ToMontgomery: Integer {
+pub(crate) trait ToMontgomery: Integer {
     fn to_montgomery(self, params: &<Self::Monty as Monty>::Params) -> Self::Monty {
         <Self::Monty as Monty>::new(self, params.clone())
     }
@@ -81,7 +80,7 @@ impl<T> ToMontgomery for T where T: Integer {}
 /// Assumes that the result exists, panics otherwise (e.g., when trying to raise 0 to a negative power).
 // We cannot use the `crypto_bigint::Pow` trait since we cannot implement it for the foreign types
 // (namely, `crypto_bigint::modular::MontyForm`).
-pub trait Exponentiable<Exponent> {
+pub(crate) trait Exponentiable<Exponent> {
     fn pow(&self, exp: &Exponent) -> Self;
 }
 
@@ -124,60 +123,62 @@ where
     }
 }
 
-pub trait HasWide:
-    Sized + Zero + Integer + for<'a> WideningMul<&'a Self, Output = Self::Wide> + ConcatMixed<MixedOutput = Self::Wide>
-{
-    type Wide: Integer + Encoding + RandomMod + SplitMixed<Self, Self>;
+/// Exposes a way to widen `Self` to `Wide`.
+pub trait Extendable<Wide: Sized>: Sized {
+    fn to_wide(&self) -> Wide;
+    fn try_from_wide(value: &Wide) -> Option<Self>;
+}
 
-    fn mul_wide(&self, other: &Self) -> Self::Wide {
-        self.widening_mul(other)
-    }
-
-    /// Converts `self` to a new `Wide` uint, setting the higher half to `0`s.
-    fn to_wide(&self) -> Self::Wide {
-        // Note that this minimizes the presense of `self` on the stack (to the extent we can ensure it),
-        // in case it is secret.
-        Self::concat_mixed(self, &Self::zero())
-    }
-
-    /// Splits a `Wide` in two halves and returns the halves (`Self` sized) in a
-    /// tuple (lower half first).
-    fn from_wide(value: &Self::Wide) -> (Self, Self) {
-        value.split_mixed()
-    }
-
-    /// Tries to convert a `Wide` into a `Self` sized uint. Splits a `Wide`
-    /// value in two halves and returns the lower half if the high half is zero.
-    /// Otherwise returns `None`.
-    fn try_from_wide(value: &Self::Wide) -> Option<Self> {
-        let (lo, hi) = Self::from_wide(value);
-        if hi.is_zero().into() {
-            return Some(lo);
+impl<const L: usize, const W: usize> Extendable<Uint<W>> for Uint<L> {
+    fn to_wide(&self) -> Uint<W> {
+        const {
+            if W < L {
+                panic!("Inconsistent widths in `Extendable::to_wide()`");
+            }
         }
-        None
+
+        // TODO: can potentially expose a secret `self` if the compiler decides to copy it.
+        let mut result = Uint::<W>::ZERO;
+        result.as_limbs_mut()[0..L].copy_from_slice(self.as_limbs());
+        result
+    }
+
+    fn try_from_wide(value: &Uint<W>) -> Option<Self> {
+        const {
+            if W < L {
+                panic!("Inconsistent widths in `Extendable::try_from_wide()`");
+            }
+        }
+
+        if value.bits_vartime() > Uint::<L>::BITS {
+            return None;
+        }
+
+        // TODO: can potentially expose a secret `value` if the compiler decides to copy it.
+        let mut lo = Uint::<L>::ZERO;
+        lo.as_limbs_mut().copy_from_slice(&value.as_limbs()[0..L]);
+        Some(lo)
     }
 }
 
-impl HasWide for U128 {
-    type Wide = U256;
+/// Exposes a way to multiply `Self` by `Hi` obtaining a `Wide` result.
+pub trait MulWide<Hi, Wide: Sized>: Sized {
+    fn mul_wide(&self, rhs: &Hi) -> Wide;
 }
 
-impl HasWide for U256 {
-    type Wide = U512;
-}
+impl<const L: usize, const R: usize, const W: usize> MulWide<Uint<R>, Uint<W>> for Uint<L> {
+    fn mul_wide(&self, rhs: &Uint<R>) -> Uint<W> {
+        const {
+            if W != L + R {
+                panic!("Inconsistent widths in `MulWide::mul_wide()`");
+            }
+        }
 
-impl HasWide for U512 {
-    type Wide = U1024;
-}
-
-impl HasWide for U1024 {
-    type Wide = U2048;
-}
-
-impl HasWide for U2048 {
-    type Wide = U4096;
-}
-
-impl HasWide for U4096 {
-    type Wide = U8192;
+        // TODO: can potentially expose a secret `self` or `rhs`.
+        let (lo, hi) = self.split_mul(rhs);
+        let mut result = Uint::<W>::ZERO;
+        result.as_limbs_mut()[0..L].copy_from_slice(lo.as_limbs());
+        result.as_limbs_mut()[L..W].copy_from_slice(hi.as_limbs());
+        result
+    }
 }

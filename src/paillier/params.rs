@@ -10,7 +10,7 @@ use zeroize::Zeroize;
 use crate::{
     tools::hashing::Chain,
     tools::hashing::Hashable,
-    uint::{HasWide, ToMontgomery},
+    uint::{Extendable, MulWide},
 };
 
 pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Sync {
@@ -28,8 +28,8 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + RandomPrimeWithRng
         + Serialize
         + for<'de> Deserialize<'de>
-        + HasWide<Wide = Self::Uint>
-        + ToMontgomery
+        + MulWide<Self::HalfUint, Self::Uint>
+        + Extendable<Self::Uint>
         + Zeroize;
 
     /// A modulo-residue counterpart of `HalfUint`.
@@ -46,13 +46,13 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + ConstantTimeGreater
         + Encoding<Repr: Zeroize>
         + Hashable
-        + HasWide<Wide = Self::WideUint>
+        + MulWide<Self::Uint, Self::WideUint>
+        + Extendable<Self::WideUint>
         + InvMod<Output = Self::Uint>
         + RandomMod
         + RandomPrimeWithRng
         + Serialize
         + for<'de> Deserialize<'de>
-        + ToMontgomery
         + Zeroize;
 
     /// A modulo-residue counterpart of `Uint`.
@@ -72,11 +72,11 @@ pub trait PaillierParams: core::fmt::Debug + PartialEq + Eq + Clone + Send + Syn
         + ConditionallySelectable
         + Encoding<Repr: Zeroize>
         + Hashable
-        + HasWide<Wide = Self::ExtraWideUint>
+        + MulWide<Self::WideUint, Self::ExtraWideUint>
+        + Extendable<Self::ExtraWideUint>
         + RandomMod
         + Serialize
         + for<'de> Deserialize<'de>
-        + ToMontgomery
         + Zeroize;
 
     /// A modulo-residue counterpart of `WideUint`.

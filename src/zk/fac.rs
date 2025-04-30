@@ -8,7 +8,7 @@ use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, RPCommitmentWire, RPParams, SecretKeyPaillier},
     params::SchemeParams,
     tools::hashing::{Chain, Hashable, Hasher},
-    uint::{HasWide, PublicSigned, SecretSigned},
+    uint::{MulWide, PublicSigned, SecretSigned},
 };
 
 const HASH_TAG: &[u8] = b"P_fac";

@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    uint::{Extendable, MulWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

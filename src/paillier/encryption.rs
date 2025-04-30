@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     tools::Secret,
-    uint::{Exponentiable, HasWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
+    uint::{Exponentiable, Extendable, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
 /// A public randomizer-like quantity used in ZK proofs.
@@ -378,13 +378,13 @@ mod tests {
     use crate::{
         dev::PaillierTest,
         tools::Secret,
-        uint::{HasWide, SecretSigned},
+        uint::{Extendable, MulWide, SecretSigned},
     };
 
     /// Calculates `val` modulo `modulus`, returning the result in range `[0, modulus)`.
     fn reduce_unsigned<T>(val: &SecretSigned<T>, modulus: &NonZero<T>) -> T
     where
-        T: Zeroize + Integer + HasWide + Bounded + ConditionallySelectable,
+        T: Zeroize + Integer + Bounded + ConditionallySelectable,
     {
         let abs_result = *val.abs().expose_secret() % modulus;
         if (val.is_negative() & !abs_result.is_zero()).into() {
