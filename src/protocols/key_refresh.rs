@@ -368,7 +368,7 @@ impl<P: SchemeParams, Id: PartyId> ProtocolError<Id> for KeyRefreshError<P, Id> 
                 let mut reader = Hasher::<P::Digest>::new_with_dst(b"KeyRefresh Round3")
                     .chain(&sid)
                     .chain(&rid)
-                    .chain(guilty_party)
+                    .chain_serializable(guilty_party)
                     .chain(&(cap_y_ji * y))
                     .finalize_to_reader();
                 let rho = Scalar::from_xof_reader(&mut reader);
@@ -456,12 +456,12 @@ impl<P: SchemeParams, Id: PartyId> PublicData<P, Id> {
     pub(super) fn hash(&self, sid: &Sid, id: &Id) -> HashOutput {
         Hasher::<P::Digest>::new_with_dst(b"KeyInit")
             .chain(sid)
-            .chain(id)
+            .chain_serializable(id)
             .chain(&self.cap_xs)
             .chain(&self.cap_ys)
             .chain(&self.cap_as)
-            .chain(&self.paillier_pk.clone().into_wire())
-            .chain(&self.rp_params.to_wire())
+            .chain(&self.paillier_pk)
+            .chain(&self.rp_params)
             .chain(&self.psi)
             .chain(&self.rid)
             .chain(&self.u)

@@ -16,7 +16,10 @@ use super::{
     params::PaillierParams,
 };
 use crate::{
-    tools::Secret,
+    tools::{
+        hashing::{Chain, Hashable},
+        Secret,
+    },
     uint::{Exponentiable, Extendable, PublicSigned, PublicUint, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
@@ -73,6 +76,15 @@ pub(crate) struct CiphertextWire<P: PaillierParams> {
     phantom: PhantomData<P>,
 }
 
+impl<P: PaillierParams> Hashable for CiphertextWire<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"CiphertextWire").chain_serializable(self)
+    }
+}
+
 impl<P: PaillierParams> CiphertextWire<P> {
     pub fn to_precomputed(&self, pk: &PublicKeyPaillier<P>) -> Ciphertext<P> {
         Ciphertext {
@@ -87,6 +99,15 @@ impl<P: PaillierParams> CiphertextWire<P> {
 pub(crate) struct Ciphertext<P: PaillierParams> {
     pk: PublicKeyPaillier<P>,
     ciphertext: <P::WideUint as Integer>::Monty,
+}
+
+impl<P: PaillierParams> Hashable for Ciphertext<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain(&self.to_wire())
+    }
 }
 
 impl<P: PaillierParams> Ciphertext<P> {

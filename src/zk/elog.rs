@@ -48,12 +48,21 @@ pub(crate) struct ElogProof<P: SchemeParams> {
     u: Scalar<P>,
 }
 
+impl<P: SchemeParams> Hashable for ElogProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"ElogProof").chain_serializable(self)
+    }
+}
+
 impl<P: SchemeParams> ElogProof<P> {
     pub fn new(
         rng: &mut dyn CryptoRngCore,
         secret: ElogSecretInputs<'_, P>,
         public: ElogPublicInputs<'_, P>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         let alpha = Secret::init_with(|| Scalar::random(rng));
         let m = Secret::init_with(|| Scalar::random(rng));
@@ -68,12 +77,12 @@ impl<P: SchemeParams> ElogProof<P> {
             .chain(&cap_n)
             .chain(&cap_b)
             // public parameters
-            .chain(&public.cap_l)
-            .chain(&public.cap_m)
-            .chain(&public.cap_x)
-            .chain(&public.cap_y)
-            .chain(&public.h)
-            .chain(aux)
+            .chain(public.cap_l)
+            .chain(public.cap_m)
+            .chain(public.cap_x)
+            .chain(public.cap_y)
+            .chain(public.h)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
@@ -92,19 +101,19 @@ impl<P: SchemeParams> ElogProof<P> {
         }
     }
 
-    pub fn verify(&self, public: ElogPublicInputs<'_, P>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, public: ElogPublicInputs<'_, P>, aux: &impl Serialize) -> bool {
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
             .chain(&self.cap_a)
             .chain(&self.cap_n)
             .chain(&self.cap_b)
             // public parameters
-            .chain(&public.cap_l)
-            .chain(&public.cap_m)
-            .chain(&public.cap_x)
-            .chain(&public.cap_y)
-            .chain(&public.h)
-            .chain(aux)
+            .chain(public.cap_l)
+            .chain(public.cap_m)
+            .chain(public.cap_x)
+            .chain(public.cap_y)
+            .chain(public.h)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge

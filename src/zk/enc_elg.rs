@@ -61,13 +61,22 @@ pub(crate) struct EncElgProof<P: SchemeParams> {
     z3: PublicSigned<<P::Paillier as PaillierParams>::WideUint>,
 }
 
+impl<P: SchemeParams> Hashable for EncElgProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"EncElgProof").chain_serializable(self)
+    }
+}
+
 impl<P: SchemeParams> EncElgProof<P> {
     pub fn new(
         rng: &mut dyn CryptoRngCore,
         secret: EncElgSecretInputs<'_, P>,
         public: EncElgPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         secret.x.assert_exponent_range(P::L_BOUND);
         assert_eq!(public.cap_c.public_key(), public.pk0);
@@ -94,13 +103,13 @@ impl<P: SchemeParams> EncElgProof<P> {
             .chain(&cap_z)
             .chain(&cap_t)
             // public parameters
-            .chain(public.pk0.as_wire())
-            .chain(&public.cap_c.to_wire())
-            .chain(&public.cap_a)
-            .chain(&public.cap_b)
-            .chain(&public.cap_x)
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(public.pk0)
+            .chain(public.cap_c)
+            .chain(public.cap_a)
+            .chain(public.cap_b)
+            .chain(public.cap_x)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
@@ -130,7 +139,7 @@ impl<P: SchemeParams> EncElgProof<P> {
         &self,
         public: EncElgPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> bool {
         assert_eq!(public.cap_c.public_key(), public.pk0);
 
@@ -142,13 +151,13 @@ impl<P: SchemeParams> EncElgProof<P> {
             .chain(&self.cap_z)
             .chain(&self.cap_t)
             // public parameters
-            .chain(public.pk0.as_wire())
-            .chain(&public.cap_c.to_wire())
-            .chain(&public.cap_a)
-            .chain(&public.cap_b)
-            .chain(&public.cap_x)
-            .chain(&setup.to_wire())
-            .chain(aux)
+            .chain(public.pk0)
+            .chain(public.cap_c)
+            .chain(public.cap_a)
+            .chain(public.cap_b)
+            .chain(public.cap_x)
+            .chain(setup)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge

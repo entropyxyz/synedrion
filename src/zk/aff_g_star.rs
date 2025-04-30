@@ -49,7 +49,7 @@ pub(crate) struct AffGStarPublicInputs<'a, P: SchemeParams> {
     pub cap_x: &'a Point<P>,
 }
 
-struct AffGStarProofEphemeral<P: SchemeParams> {
+struct EphemeralElement<P: SchemeParams> {
     alpha: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     beta: SecretSigned<<P::Paillier as PaillierParams>::Uint>,
     r: Randomizer<P::Paillier>,
@@ -58,14 +58,14 @@ struct AffGStarProofEphemeral<P: SchemeParams> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>,"))]
-struct AffGStarProofCommitment<P: SchemeParams> {
+struct CommitmentElement<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
     cap_r: Point<P>,
     cap_b: CiphertextWire<P::Paillier>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct AffGStarProofElement<P: SchemeParams> {
+struct ProofElement<P: SchemeParams> {
     z: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     z_prime: PublicSigned<<P::Paillier as PaillierParams>::Uint>,
     w: MaskedRandomizer<P::Paillier>,
@@ -74,14 +74,23 @@ struct AffGStarProofElement<P: SchemeParams> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(serialize = "
-    AffGStarProofCommitment<P>: Serialize,
-    AffGStarProofElement<P>: Serialize,
+    CommitmentElement<P>: Serialize,
+    ProofElement<P>: Serialize,
 "))]
-#[serde(bound(deserialize = "AffGStarProofCommitment<P>: for<'x> Deserialize<'x>,"))]
+#[serde(bound(deserialize = "CommitmentElement<P>: for<'x> Deserialize<'x>,"))]
 pub(crate) struct AffGStarProof<P: SchemeParams> {
     e: BitVec,
-    commitments: Box<[AffGStarProofCommitment<P>]>,
-    elements: Box<[AffGStarProofElement<P>]>,
+    commitments: Box<[CommitmentElement<P>]>,
+    proofs: Box<[ProofElement<P>]>,
+}
+
+impl<P: SchemeParams> Hashable for AffGStarProof<P> {
+    fn chain<C>(&self, chain: C) -> C
+    where
+        C: Chain,
+    {
+        chain.chain_bytes(b"AffGStarProof").chain_serializable(self)
+    }
 }
 
 impl<P: SchemeParams> AffGStarProof<P> {
@@ -89,7 +98,7 @@ impl<P: SchemeParams> AffGStarProof<P> {
         rng: &mut dyn CryptoRngCore,
         secret: AffGStarSecretInputs<'_, P>,
         public: AffGStarPublicInputs<'_, P>,
-        aux: &impl Hashable,
+        aux: &impl Serialize,
     ) -> Self {
         secret.x.assert_exponent_range(P::L_BOUND);
         secret.y.assert_exponent_range(P::LP_BOUND);
@@ -108,8 +117,8 @@ impl<P: SchemeParams> AffGStarProof<P> {
                 let cap_r = secret_scalar_from_signed::<P>(&alpha).mul_by_generator();
                 let cap_b = Ciphertext::new_with_randomizer(public.pk1, &beta, &s).to_wire();
 
-                let ephemeral = AffGStarProofEphemeral::<P> { alpha, beta, r, s };
-                let commitment = AffGStarProofCommitment { cap_a, cap_r, cap_b };
+                let ephemeral = EphemeralElement::<P> { alpha, beta, r, s };
+                let commitment = CommitmentElement { cap_a, cap_r, cap_b };
 
                 (ephemeral, commitment)
             })
@@ -117,21 +126,22 @@ impl<P: SchemeParams> AffGStarProof<P> {
 
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
-            .chain(&commitments)
+            .chain_bytes(b"AffGStarCommitment")
+            .chain_serializable(&commitments)
             // public parameters
-            .chain(public.pk0.as_wire())
-            .chain(public.pk1.as_wire())
-            .chain(&public.cap_c.to_wire())
-            .chain(&public.cap_d.to_wire())
-            .chain(&public.cap_y.to_wire())
-            .chain(&public.cap_x)
-            .chain(aux)
+            .chain(public.pk0)
+            .chain(public.pk1)
+            .chain(public.cap_c)
+            .chain(public.cap_d)
+            .chain(public.cap_y)
+            .chain(public.cap_x)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
         let e = BitVec::from_xof_reader(&mut reader, P::SECURITY_PARAMETER);
 
-        let elements = ephemerals
+        let proofs = ephemerals
             .into_iter()
             .zip(e.bits())
             .map(|(ephemeral, e_bit)| {
@@ -160,7 +170,7 @@ impl<P: SchemeParams> AffGStarProof<P> {
                 // Original: $\mu^{e_j}$. Modified: $\mu_{-e_j}$.
                 let lambda = secret.mu.to_masked(&ephemeral.s, &-exponent);
 
-                AffGStarProofElement {
+                ProofElement {
                     z: z.to_public(),
                     z_prime: z_prime.to_public(),
                     w,
@@ -171,28 +181,29 @@ impl<P: SchemeParams> AffGStarProof<P> {
 
         Self {
             e,
-            elements: elements.into(),
+            proofs: proofs.into(),
             commitments: commitments.into(),
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn verify(&self, public: AffGStarPublicInputs<'_, P>, aux: &impl Hashable) -> bool {
+    pub fn verify(&self, public: AffGStarPublicInputs<'_, P>, aux: &impl Serialize) -> bool {
         assert!(public.cap_c.public_key() == public.pk0);
         assert!(public.cap_d.public_key() == public.pk0);
         assert!(public.cap_y.public_key() == public.pk1);
 
         let mut reader = Hasher::<P::Digest>::new_with_dst(HASH_TAG)
             // commitments
-            .chain(&self.commitments)
+            .chain_bytes(b"AffGStarCommitment")
+            .chain_serializable(&self.commitments)
             // public parameters
-            .chain(public.pk0.as_wire())
-            .chain(public.pk1.as_wire())
-            .chain(&public.cap_c.to_wire())
-            .chain(&public.cap_d.to_wire())
-            .chain(&public.cap_y.to_wire())
-            .chain(&public.cap_x)
-            .chain(aux)
+            .chain(public.pk0)
+            .chain(public.pk1)
+            .chain(public.cap_c)
+            .chain(public.cap_d)
+            .chain(public.cap_y)
+            .chain(public.cap_x)
+            .chain_serializable(aux)
             .finalize_to_reader();
 
         // Non-interactive challenge
@@ -202,38 +213,38 @@ impl<P: SchemeParams> AffGStarProof<P> {
             return false;
         }
 
-        if e.bits().len() != self.commitments.len() || e.bits().len() != self.elements.len() {
+        if e.bits().len() != self.commitments.len() || e.bits().len() != self.proofs.len() {
             return false;
         }
 
-        for ((e_bit, commitment), element) in e
+        for ((e_bit, commitment), proof) in e
             .bits()
             .iter()
             .copied()
             .zip(self.commitments.iter())
-            .zip(self.elements.iter())
+            .zip(self.proofs.iter())
         {
             // z_j ∈ ±2^{\ell + \eps}
-            if !element.z.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
+            if !proof.z.is_in_exponent_range(P::L_BOUND + P::EPS_BOUND) {
                 return false;
             }
 
             // z^\prime_j ∈ ±2^{\ell^\prime + \eps}
-            if !element.z_prime.is_in_exponent_range(P::LP_BOUND + P::EPS_BOUND) {
+            if !proof.z_prime.is_in_exponent_range(P::LP_BOUND + P::EPS_BOUND) {
                 return false;
             }
 
             // C (*) z_j (+) enc_0(z^\prime_j, w_j) == A_j (+) D_j (*) e_j
             let cap_a = commitment.cap_a.to_precomputed(public.pk0);
-            let lhs = public.cap_c * &element.z
-                + Ciphertext::new_public_with_randomizer(public.pk0, &element.z_prime, &element.w);
+            let lhs =
+                public.cap_c * &proof.z + Ciphertext::new_public_with_randomizer(public.pk0, &proof.z_prime, &proof.w);
             let rhs = if e_bit { cap_a + public.cap_d } else { cap_a };
             if lhs != rhs {
                 return false;
             }
 
             // g^{z_j} == R_j X^{e_j}
-            let lhs = scalar_from_signed::<P>(&element.z).mul_by_generator();
+            let lhs = scalar_from_signed::<P>(&proof.z).mul_by_generator();
             let rhs = if e_bit {
                 commitment.cap_r + *public.cap_x
             } else {
@@ -245,7 +256,7 @@ impl<P: SchemeParams> AffGStarProof<P> {
 
             // enc_1(z^\prime_j, \lambda_j) == B_j (+) Y^{-e_j}
             let cap_b = commitment.cap_b.to_precomputed(public.pk1);
-            let lhs = Ciphertext::new_public_with_randomizer(public.pk1, &element.z_prime, &element.lambda);
+            let lhs = Ciphertext::new_public_with_randomizer(public.pk1, &proof.z_prime, &proof.lambda);
             let rhs = if e_bit {
                 // DEVIATION FROM THE PAPER.
                 // See the comment in `AffGStarPublicInputs`.

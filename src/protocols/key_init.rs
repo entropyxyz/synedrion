@@ -209,7 +209,7 @@ where
     pub(super) fn hash<Id: Serialize>(&self, sid: &Sid, id: &Id) -> HashOutput {
         Hasher::<P::Digest>::new_with_dst(b"KeyInit")
             .chain(sid)
-            .chain(id)
+            .chain_serializable(id)
             .chain(&self.cap_x)
             .chain(&self.cap_a)
             .chain(&self.rho)
