@@ -3,7 +3,7 @@ use core::ops::BitAnd;
 use crypto_bigint::{subtle::Choice, Bounded, Integer, Monty, NonZero};
 use zeroize::Zeroize;
 
-use super::HasWide;
+use super::Extendable;
 use crate::tools::Secret;
 
 /// A bounded unsigned integer with sensitive data.
@@ -78,10 +78,13 @@ where
 
 impl<T> SecretUnsigned<T>
 where
-    T: Zeroize + Clone + HasWide,
-    T::Wide: Zeroize,
+    T: Zeroize + Clone,
 {
-    pub fn to_wide(&self) -> SecretUnsigned<T::Wide> {
+    pub fn to_wide<W>(&self) -> SecretUnsigned<W>
+    where
+        T: Extendable<W>,
+        W: Zeroize + Clone,
+    {
         SecretUnsigned {
             value: self.value.to_wide(),
             bound: self.bound,

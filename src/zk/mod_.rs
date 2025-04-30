@@ -17,22 +17,22 @@ use crate::{
     paillier::{PaillierParams, PublicKeyPaillier, SecretKeyPaillier},
     params::SchemeParams,
     tools::hashing::{Chain, Hashable, Hasher},
-    uint::{Exponentiable, IsInvertible, ToMontgomery},
+    uint::{Exponentiable, IsInvertible, PublicUint, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_mod";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ModCommitment<P: SchemeParams>(<P::Paillier as PaillierParams>::Uint);
+struct ModCommitment<P: SchemeParams>(PublicUint<<P::Paillier as PaillierParams>::Uint>);
 
 impl<P: SchemeParams> ModCommitment<P> {
     fn random(rng: &mut dyn CryptoRngCore, sk: &SecretKeyPaillier<P::Paillier>) -> Self {
-        Self(sk.random_nonsquare_residue(rng))
+        Self(sk.random_nonsquare_residue(rng).into())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ModChallenge<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
+struct ModChallenge<P: SchemeParams>(Vec<PublicUint<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> ModChallenge<P> {
     fn new(pk: &PublicKeyPaillier<P::Paillier>, commitment: &ModCommitment<P>, aux: &impl Hashable) -> Self {
@@ -42,7 +42,7 @@ impl<P: SchemeParams> ModChallenge<P> {
             .chain(aux)
             .finalize_to_reader();
         let ys = (0..P::SECURITY_BITS)
-            .map(|_| pk.invertible_residue_from_xof_reader(&mut reader))
+            .map(|_| pk.invertible_residue_from_xof_reader(&mut reader).into())
             .collect();
         Self(ys)
     }
@@ -50,10 +50,10 @@ impl<P: SchemeParams> ModChallenge<P> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModProofElem<P: PaillierParams> {
-    x: P::Uint,
+    x: PublicUint<P::Uint>,
     a: bool,
     b: bool,
-    z: P::Uint,
+    z: PublicUint<P::Uint>,
 }
 
 /**
@@ -124,10 +124,10 @@ impl<P: SchemeParams> ModProof<P> {
                 let z = y.pow(sk_inv_modulus);
 
                 ModProofElem {
-                    x: y_4th,
+                    x: y_4th.into(),
                     a: found_a,
                     b: found_b,
-                    z: z.retrieve(),
+                    z: z.retrieve().into(),
                 }
             })
             .collect();
