@@ -38,6 +38,7 @@ tiny-curve = { version = "0.2.2", optional = true, features = ["ecdsa", "serde"]
 k256 = { version = "0.13", optional = true, default-features = false, features = ["ecdsa"] }
 bip32 = { version = "0.5", optional = true, default-features = false, features = ["alloc"] }
 sha3 = { version = "0.10", optional = true, default-features = false }
+dudect-bencher = { version = "0.6", optional = true }
 
 [dev-dependencies]
 manul = { git = "https://github.com/entropyxyz/manul.git", rev = "9810d0188d64d4fca3c95efd75e3b565c5db4233", features = [
@@ -53,6 +54,7 @@ impls = "1"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 test-log = { version = "0.2.16", default-features = false, features = ["trace", "color"] }
 sha3 = { version = "0.10", default-features = false }
+
 
 [features]
 private-benches = ["k256", "dep:criterion"]
@@ -77,3 +79,9 @@ bench = true
 name = "paillier"
 harness = false
 required-features = ["private-benches"]
+
+[[example]]
+name = "zk_proofs_dudect"
+required-features = ["private-benches", "dudect-bencher"]
+doc = false
+doctest = false
