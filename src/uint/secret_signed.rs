@@ -50,7 +50,7 @@ where
     /// Returns a truthy `Choice` if this number is negative.
     pub fn is_negative(&self) -> Choice {
         // Check the MSB, `1` indicates that it is negative.
-        self.value.expose_secret().bit(T::BITS - 1)
+        Choice::from(self.value.expose_secret().bit_vartime(T::BITS - 1) as u8)
     }
 
     pub fn bound(&self) -> u32 {
@@ -91,7 +91,7 @@ where
     ///
     /// Returns `None` if the requested bound is too large, or if `abs(value)` is actually larger than the bound.
     pub fn new_from_unsigned(value: Secret<T>, bound: u32) -> CtOption<Self> {
-        let is_negative = value.expose_secret().bit(T::BITS - 1);
+        let is_negative = Choice::from(value.expose_secret().bit_vartime(T::BITS - 1) as u8);
         let abs = Secret::<T>::conditional_select(&value, &value.wrapping_neg(), is_negative);
         // Reserving one bit as the sign bit (MSB)
         let in_bound = Choice::from((bound < T::BITS && abs.expose_secret().bits() <= bound) as u8);
