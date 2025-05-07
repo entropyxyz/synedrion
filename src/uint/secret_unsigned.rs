@@ -35,7 +35,8 @@ where
     /// - The bound is bigger than a `T` can represent.
     /// - The value of `T` is too big to be bounded by the provided bound.
     pub fn new(value: Secret<T>, bound: u32) -> CtOption<Self> {
-        let in_bound = Choice::from((bound <= T::BITS && value.expose_secret().bits() <= bound) as u8);
+        let in_bound =
+            Choice::from((bound <= T::BITS) as u8).bitand(Choice::from((value.expose_secret().bits() <= bound) as u8));
         CtOption::new(Self { value, bound }, in_bound)
     }
 
