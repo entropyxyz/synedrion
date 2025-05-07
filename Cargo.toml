@@ -81,7 +81,7 @@ harness = false
 required-features = ["private-benches"]
 
 [[example]]
-name = "zk_proofs_dudect"
+name = "dudect"
 required-features = ["private-benches", "dudect-bencher"]
 doc = false
 doctest = false

@@ -1,9 +1,9 @@
-use dudect_bencher::rand::Rng;
-use dudect_bencher::{ctbench_main, BenchRng, Class, CtRunner};
-use synedrion::private_benches::zk_proofs_ct;
+use dudect_bencher::ctbench_main;
+use synedrion::private_benches::{secret_signed_ct, zk_proofs_ct};
 
-// Crate the main function to include the bench for vec_eq
 ctbench_main!(
     zk_proofs_ct::rp_commit_zero_value,
-    zk_proofs_ct::rp_commit_zero_randomizer
+    zk_proofs_ct::rp_commit_zero_randomizer,
+    secret_signed_ct::new_positive_with_constant_bound,
+    secret_signed_ct::new_positive_with_constant_value
 );

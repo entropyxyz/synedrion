@@ -5,4 +5,7 @@
 pub mod paillier;
 // Benchmarks for the CGGMP'24 Zk proofs.
 pub mod zk_proofs;
+
+// Constant-time benchmarks.
+pub mod secret_signed_ct;
 pub mod zk_proofs_ct;
