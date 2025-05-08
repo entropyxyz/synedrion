@@ -16,8 +16,8 @@ type Pai = PaillierProduction112;
 type Prm = ProductionParams112;
 
 /// Is [`RPParams::commit`] constant time?
-pub fn rp_commit(runner: &mut CtRunner, rng: &mut BenchRng) {
-    let (rp_params, sk, inputs) = rp_inputs(rng, 1000);
+pub fn rp_commit_both(runner: &mut CtRunner, rng: &mut BenchRng) {
+    let (rp_params, sk, inputs) = rp_inputs(rng, /* estimate, I ran out of patience here */ 200_000);
     let value = sk.p_signed();
     for (class, randomizer) in inputs.into_iter() {
         runner.run_one(class, || rp_params.commit(&value, &randomizer));
@@ -26,7 +26,7 @@ pub fn rp_commit(runner: &mut CtRunner, rng: &mut BenchRng) {
 
 /// Is [`RPParams::commit_zero_value]` constant time?
 pub fn rp_commit_zero_value(runner: &mut CtRunner, rng: &mut BenchRng) {
-    let (rp_params, _, inputs) = rp_inputs(rng, 1000);
+    let (rp_params, _, inputs) = rp_inputs(rng, 10_000);
     for (class, randomizer) in inputs.into_iter() {
         runner.run_one(class, || rp_params.commit_zero_value(&randomizer));
     }
@@ -41,6 +41,7 @@ pub fn rp_commit_zero_randomizer(runner: &mut CtRunner, rng: &mut BenchRng) {
         .modulus()
         .to_wide();
 
+    // commit_zero_randomizer is constant time, so hard to set a value here. :)
     let input_len = 1000;
     let inputs = (0..input_len)
         .map(|_| {

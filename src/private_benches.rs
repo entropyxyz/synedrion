@@ -7,5 +7,6 @@ pub mod paillier;
 pub mod zk_proofs;
 
 // Constant-time benchmarks.
+pub mod secret_is_ct;
 pub mod secret_signed_ct;
 pub mod zk_proofs_ct;
