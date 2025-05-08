@@ -98,7 +98,8 @@ where
         let is_negative = Choice::from(value.expose_secret().bit_vartime(T::BITS - 1) as u8);
         let abs = Secret::<T>::conditional_select(&value, &value.wrapping_neg(), is_negative);
         // Reserving one bit as the sign bit (MSB)
-        let in_bound = Choice::from((bound < T::BITS && abs.expose_secret().bits() <= bound) as u8);
+        let in_bound =
+            Choice::from((bound < T::BITS) as u8) & Choice::from((abs.expose_secret().bits() <= bound) as u8);
         CtOption::new(Self::new_from_unsigned_unchecked(value, bound), in_bound)
     }
 
