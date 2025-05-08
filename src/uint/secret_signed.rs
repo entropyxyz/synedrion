@@ -150,7 +150,6 @@ where
         // Have to check for the high end of the range too
         let is_high_end = abs.expose_secret().ct_eq(&shifted) & !self.is_negative();
 
-        // bool::from(in_bound | is_high_end)
         in_bound | is_high_end
     }
 
