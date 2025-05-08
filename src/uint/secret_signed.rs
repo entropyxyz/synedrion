@@ -1,4 +1,4 @@
-use core::ops::{Add, BitAnd, Mul, Neg, Not, Sub};
+use core::ops::{Add, Mul, Neg, Not, Sub};
 
 use crypto_bigint::{
     rand_core::CryptoRngCore,
@@ -37,11 +37,11 @@ where
         let in_bound = {
             let c1 = Choice::from((bound < T::BITS) as u8);
             let c2 = Choice::from((value.expose_secret().bits() < T::BITS) as u8);
-            c1.bitand(c2)
+            c1 & c2
         };
         let new_positive = Self::new_from_unsigned_unchecked(value, bound);
         let is_positive = new_positive.is_negative().not();
-        CtOption::new(new_positive, in_bound.bitand(is_positive))
+        CtOption::new(new_positive, in_bound & is_positive)
     }
 
     pub fn zero() -> Self {
