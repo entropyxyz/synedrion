@@ -1,4 +1,4 @@
-use core::ops::{Add, Mul, Neg, Sub};
+use core::ops::{Add, Mul, Neg, Not, Sub};
 
 use crypto_bigint::{
     rand_core::CryptoRngCore,
@@ -31,20 +31,17 @@ where
         Self { value, bound }
     }
 
-    /// Creates a signed value from an unsigned one, assuming that it encodes a positive value
-    /// treated as two's complement.
-    ///
-    /// Panics if it is not the case.
-    pub fn new_positive(value: Secret<T>, bound: u32) -> Option<Self> {
-        // Reserving one bit as the sign bit (MSB)
-        if bound >= T::BITS || value.expose_secret().bits() > bound {
-            return None;
-        }
-        let result = Self::new_from_unsigned_unchecked(value, bound);
-        if result.is_negative().into() {
-            return None;
-        }
-        Some(result)
+    /// Creates a signed value from an unsigned one in constant time, assuming that it encodes a
+    /// positive value treated as two's complement.
+    pub fn new_positive(value: Secret<T>, bound: u32) -> CtOption<Self> {
+        let in_bound = {
+            let c1 = Choice::from((bound < T::BITS) as u8);
+            let c2 = Choice::from((value.expose_secret().bits() < T::BITS) as u8);
+            c1 & c2
+        };
+        let new_positive = Self::new_from_unsigned_unchecked(value, bound);
+        let is_positive = new_positive.is_negative().not();
+        CtOption::new(new_positive, in_bound & is_positive)
     }
 
     pub fn zero() -> Self {
@@ -97,21 +94,20 @@ where
     /// Creates a [`SignedSecret`] from an unsigned value, treating it as if it encodes the sign as two's complement.
     ///
     /// Returns `None` if the requested bound is too large, or if `abs(value)` is actually larger than the bound.
-    pub fn new_from_unsigned(value: Secret<T>, bound: u32) -> Option<Self> {
+    pub fn new_from_unsigned(value: Secret<T>, bound: u32) -> CtOption<Self> {
         let is_negative = Choice::from(value.expose_secret().bit_vartime(T::BITS - 1) as u8);
         let abs = Secret::<T>::conditional_select(&value, &value.wrapping_neg(), is_negative);
         // Reserving one bit as the sign bit (MSB)
-        if bound >= T::BITS || abs.expose_secret().bits() > bound {
-            return None;
-        }
-        Some(Self::new_from_unsigned_unchecked(value, bound))
+        let in_bound =
+            Choice::from((bound < T::BITS) as u8) & Choice::from((abs.expose_secret().bits() <= bound) as u8);
+        CtOption::new(Self::new_from_unsigned_unchecked(value, bound), in_bound)
     }
 
     /// Creates a [`SignedSecret`] from an unsigned value, treating it as if it is the absolute value.
     /// If `is_negative` is truthy, crates a negative [`SignedSecret`] with the given absolute value.
     ///
     /// Returns `None` if the bound is too large, or if `abs_value` is actually larger than the bound.
-    fn new_from_abs(abs_value: Secret<T>, bound: u32, is_negative: Choice) -> Option<Self> {
+    fn new_from_abs(abs_value: Secret<T>, bound: u32, is_negative: Choice) -> CtOption<Self> {
         Self::new_from_unsigned(
             Secret::<T>::conditional_select(&abs_value, &abs_value.wrapping_neg(), is_negative),
             bound,
@@ -125,7 +121,7 @@ where
     /// of the generated bound between runs.
     ///
     /// Returns `None` if the bound is too large, or if `abs(value)` is greater or equal to `2^bound`.
-    pub fn new_modulo(positive_value: Secret<T>, modulus: &NonZero<T>, modulus_bits: u32) -> Option<Self> {
+    pub fn new_modulo(positive_value: Secret<T>, modulus: &NonZero<T>, modulus_bits: u32) -> CtOption<Self> {
         // We are taking a `bound` explicitly and not deriving it from the `modulus`
         // because we want it to be the same across different runs.
         // While currently all the moduli we use here are compile-time constants,
@@ -143,18 +139,19 @@ where
         Self::new_from_unsigned(value, modulus_bits - 1)
     }
 
-    fn is_in_exponent_range(&self, exp: u32) -> bool {
+    fn is_in_exponent_range(&self, exp: u32) -> Choice {
         let abs = self.abs();
 
         // Check if $abs(self) ∈ [0, 2^{exp-1}-1]$, that is $self ∈ [-2^{exp-1}+1, 2^{exp-1}-1]$.
-        let mask = T::one().wrapping_neg().wrapping_shl_vartime(exp - 1);
+        let shifted = T::one().wrapping_shl(exp - 1);
+        let mask = shifted.wrapping_neg();
         let masked = &abs & mask;
         let in_bound = masked.is_zero();
 
         // Have to check for the high end of the range too
-        let is_high_end = abs.expose_secret().ct_eq(&(T::one() << (exp - 1))) & !self.is_negative();
+        let is_high_end = abs.expose_secret().ct_eq(&shifted) & !self.is_negative();
 
-        bool::from(in_bound | is_high_end)
+        in_bound | is_high_end
     }
 
     /// Asserts that the value is within the interval the paper denotes as $±2^exp$.
@@ -165,7 +162,7 @@ where
     ///
     /// Variable time w.r.t. `exp`.
     pub fn assert_exponent_range(&self, exp: u32) {
-        assert!(self.is_in_exponent_range(exp), "out of bounds $±2^{exp}$",)
+        assert!(bool::from(self.is_in_exponent_range(exp)), "out of bounds $±2^{exp}$",)
     }
 
     /// Checks if the value is within the interval the paper denotes as $±2^exp$,
@@ -175,18 +172,16 @@ where
     /// (See Section 3, Groups & Fields).
     ///
     /// Variable time w.r.t. `exp`.
-    pub fn ensure_exponent_range(self, exp: u32) -> Option<Self> {
-        if exp >= T::BITS - 1 {
-            return None;
-        }
-        if self.is_in_exponent_range(exp) {
-            Some(Self {
+    pub fn ensure_exponent_range(self, exp: u32) -> CtOption<Self> {
+        let in_bounds = Choice::from((exp < T::BITS - 1) as u8);
+        let exponent_in_range = self.is_in_exponent_range(exp);
+        CtOption::new(
+            Self {
                 value: self.value,
                 bound: exp + 1,
-            })
-        } else {
-            None
-        }
+            },
+            exponent_in_range & in_bounds,
+        )
     }
 }
 
@@ -565,14 +560,14 @@ mod tests {
     where
         T: Zeroize + ConditionallySelectable + Integer + Bounded,
     {
-        SecretSigned::new_from_abs(Secret::init_with(|| abs_value), bound, Choice::from(is_negative as u8))
+        SecretSigned::new_from_abs(Secret::init_with(|| abs_value), bound, Choice::from(is_negative as u8)).into()
     }
 
     fn test_new_from_unsigned<T>(abs_value: T, bound: u32) -> Option<SecretSigned<T>>
     where
         T: Zeroize + ConditionallySelectable + Integer + Bounded,
     {
-        SecretSigned::new_from_unsigned(Secret::init_with(|| abs_value), bound)
+        SecretSigned::new_from_unsigned(Secret::init_with(|| abs_value), bound).into()
     }
 
     #[test]
