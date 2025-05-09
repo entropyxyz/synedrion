@@ -10,7 +10,9 @@ use crate::tools::Secret;
 pub fn init_with(runner: &mut CtRunner, rng: &mut BenchRng) {
     let modulus = NonZero::new(U4096::ONE << 4095).unwrap();
 
-    let input_len = 300_000_000;
+    // Need ~300M-600M iterations to get a clear reading, but that takes a long time and consumes a lot of memory.
+    // Run with `--continous`.
+    let input_len = 10_000_000;
     let mut inputs = (0..input_len)
         .map(|_| {
             if rng.r#gen::<bool>() {

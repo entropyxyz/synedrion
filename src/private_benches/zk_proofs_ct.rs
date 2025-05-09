@@ -8,8 +8,8 @@ use crate::{
     k256::{PaillierProduction112, ProductionParams112},
     paillier::{PaillierParams, RPParams, SecretKeyPaillier, SecretKeyPaillierWire},
     tools::Secret,
-    uint::{HasWide, PublicSigned, SecretSigned},
-    SchemeParams,
+    uint::{PublicSigned, SecretSigned},
+    Extendable, MulWide, SchemeParams,
 };
 
 type Pai = PaillierProduction112;
@@ -17,7 +17,9 @@ type Prm = ProductionParams112;
 
 /// Is [`RPParams::commit`] constant time?
 pub fn rp_commit_both(runner: &mut CtRunner, rng: &mut BenchRng) {
-    let (rp_params, sk, inputs) = rp_inputs(rng, /* estimate, I ran out of patience here */ 200_000);
+    // This code is CT so the input length is a placeholder.
+    let input_len = 10_000;
+    let (rp_params, sk, inputs) = rp_inputs(rng, input_len);
     let value = sk.p_signed();
     for (class, randomizer) in inputs.into_iter() {
         runner.run_one(class, || rp_params.commit(&value, &randomizer));
@@ -74,16 +76,13 @@ fn rp_inputs(
 ) -> (
     RPParams<Pai>,
     SecretKeyPaillier<Pai>,
-    Vec<(
-        Class,
-        SecretSigned<<PaillierProduction112 as PaillierParams>::ExtraWideUint>,
-    )>,
+    Vec<(Class, SecretSigned<<Prm as SchemeParams>::ExtraWideUint>)>,
 ) {
     let rp_params = RPParams::random(rng);
     let hat_cap_n = rp_params.modulus();
     let sk = SecretKeyPaillierWire::<Pai>::random(rng).into_precomputed();
     let pk = sk.public_key();
-    let scale = pk.modulus().mul_wide(hat_cap_n);
+    let scale: <Pai as PaillierParams>::WideUint = pk.modulus().mul_wide(hat_cap_n);
     let bound = Prm::L_BOUND + Prm::EPS_BOUND + scale.bits_vartime();
 
     let inputs = (0..input_len)
@@ -100,8 +99,8 @@ fn rp_inputs(
             } else {
                 (
                     Class::Right,
-                    SecretSigned::<<Pai as PaillierParams>::ExtraWideUint>::new_positive(
-                        Secret::init_with(|| <Pai as PaillierParams>::ExtraWideUint::ONE),
+                    SecretSigned::<<Prm as SchemeParams>::ExtraWideUint>::new_positive(
+                        Secret::init_with(|| <Prm as SchemeParams>::ExtraWideUint::ONE),
                         bound,
                     )
                     .unwrap(),
