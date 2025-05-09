@@ -69,7 +69,7 @@ impl BitVec {
         Self(bit_vec.into())
     }
 
-    pub fn random(rng: &mut impl CryptoRngCore, bits: usize) -> Self {
+    pub fn random(rng: &mut dyn CryptoRngCore, bits: usize) -> Self {
         let bytes = bits.div_ceil(8);
         let mut byte_vec = vec![0; bytes];
         rng.fill_bytes(&mut byte_vec);

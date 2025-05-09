@@ -97,7 +97,7 @@ pub(crate) struct DecProofElement<P: SchemeParams> {
 
 impl<P: SchemeParams> DecProof<P> {
     pub fn new(
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         secret: DecSecretInputs<'_, P>,
         public: DecPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,

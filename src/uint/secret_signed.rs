@@ -1,14 +1,14 @@
-use core::ops::{Add, Mul, Neg, Sub};
+use core::ops::{Add, Mul, Neg, Not, Sub};
 
 use crypto_bigint::{
     rand_core::CryptoRngCore,
     subtle::{Choice, ConditionallySelectable, ConstantTimeLess, CtOption},
     zeroize::Zeroize,
-    BitOps, Bounded, CheckedAdd, CheckedMul, CheckedSub, Integer, NonZero, RandomMod, ShlVartime, WrappingAdd,
-    WrappingMul, WrappingNeg, WrappingSub,
+    Bounded, CheckedAdd, CheckedMul, CheckedSub, Integer, NonZero, RandomMod, WrappingAdd, WrappingMul, WrappingNeg,
+    WrappingSub,
 };
 
-use super::{HasWide, PublicSigned, SecretUnsigned};
+use super::{Extendable, MulWide, PublicSigned, SecretUnsigned};
 use crate::tools::Secret;
 
 /// A wrapper over secret unsigned integers that treats two's complement numbers as negative.
@@ -31,20 +31,17 @@ where
         Self { value, bound }
     }
 
-    /// Creates a signed value from an unsigned one, assuming that it encodes a positive value
-    /// treated as two's complement.
-    ///
-    /// Panics if it is not the case.
-    pub fn new_positive(value: Secret<T>, bound: u32) -> Option<Self> {
-        // Reserving one bit as the sign bit (MSB)
-        if bound >= T::BITS || value.expose_secret().bits() > bound {
-            return None;
-        }
-        let result = Self::new_from_unsigned_unchecked(value, bound);
-        if result.is_negative().into() {
-            return None;
-        }
-        Some(result)
+    /// Creates a signed value from an unsigned one in constant time, assuming that it encodes a
+    /// positive value treated as two's complement.
+    pub fn new_positive(value: Secret<T>, bound: u32) -> CtOption<Self> {
+        let in_bound = {
+            let c1 = Choice::from((bound < T::BITS) as u8);
+            let c2 = Choice::from((value.expose_secret().bits() < T::BITS) as u8);
+            c1 & c2
+        };
+        let new_positive = Self::new_from_unsigned_unchecked(value, bound);
+        let is_positive = new_positive.is_negative().not();
+        CtOption::new(new_positive, in_bound & is_positive)
     }
 
     pub fn zero() -> Self {
@@ -97,21 +94,20 @@ where
     /// Creates a [`SignedSecret`] from an unsigned value, treating it as if it encodes the sign as two's complement.
     ///
     /// Returns `None` if the requested bound is too large, or if `abs(value)` is actually larger than the bound.
-    pub fn new_from_unsigned(value: Secret<T>, bound: u32) -> Option<Self> {
+    pub fn new_from_unsigned(value: Secret<T>, bound: u32) -> CtOption<Self> {
         let is_negative = Choice::from(value.expose_secret().bit_vartime(T::BITS - 1) as u8);
         let abs = Secret::<T>::conditional_select(&value, &value.wrapping_neg(), is_negative);
         // Reserving one bit as the sign bit (MSB)
-        if bound >= T::BITS || abs.expose_secret().bits() > bound {
-            return None;
-        }
-        Some(Self::new_from_unsigned_unchecked(value, bound))
+        let in_bound =
+            Choice::from((bound < T::BITS) as u8) & Choice::from((abs.expose_secret().bits() <= bound) as u8);
+        CtOption::new(Self::new_from_unsigned_unchecked(value, bound), in_bound)
     }
 
     /// Creates a [`SignedSecret`] from an unsigned value, treating it as if it is the absolute value.
     /// If `is_negative` is truthy, crates a negative [`SignedSecret`] with the given absolute value.
     ///
     /// Returns `None` if the bound is too large, or if `abs_value` is actually larger than the bound.
-    fn new_from_abs(abs_value: Secret<T>, bound: u32, is_negative: Choice) -> Option<Self> {
+    fn new_from_abs(abs_value: Secret<T>, bound: u32, is_negative: Choice) -> CtOption<Self> {
         Self::new_from_unsigned(
             Secret::<T>::conditional_select(&abs_value, &abs_value.wrapping_neg(), is_negative),
             bound,
@@ -125,7 +121,7 @@ where
     /// of the generated bound between runs.
     ///
     /// Returns `None` if the bound is too large, or if `abs(value)` is greater or equal to `2^bound`.
-    pub fn new_modulo(positive_value: Secret<T>, modulus: &NonZero<T>, modulus_bits: u32) -> Option<Self> {
+    pub fn new_modulo(positive_value: Secret<T>, modulus: &NonZero<T>, modulus_bits: u32) -> CtOption<Self> {
         // We are taking a `bound` explicitly and not deriving it from the `modulus`
         // because we want it to be the same across different runs.
         // While currently all the moduli we use here are compile-time constants,
@@ -143,18 +139,19 @@ where
         Self::new_from_unsigned(value, modulus_bits - 1)
     }
 
-    fn is_in_exponent_range(&self, exp: u32) -> bool {
+    fn is_in_exponent_range(&self, exp: u32) -> Choice {
         let abs = self.abs();
 
         // Check if $abs(self) ∈ [0, 2^{exp-1}-1]$, that is $self ∈ [-2^{exp-1}+1, 2^{exp-1}-1]$.
-        let mask = T::one().wrapping_neg().wrapping_shl_vartime(exp - 1);
+        let shifted = T::one().wrapping_shl(exp - 1);
+        let mask = shifted.wrapping_neg();
         let masked = &abs & mask;
         let in_bound = masked.is_zero();
 
         // Have to check for the high end of the range too
-        let is_high_end = abs.expose_secret().ct_eq(&(T::one() << (exp - 1))) & !self.is_negative();
+        let is_high_end = abs.expose_secret().ct_eq(&shifted) & !self.is_negative();
 
-        bool::from(in_bound | is_high_end)
+        in_bound | is_high_end
     }
 
     /// Asserts that the value is within the interval the paper denotes as $±2^exp$.
@@ -165,7 +162,7 @@ where
     ///
     /// Variable time w.r.t. `exp`.
     pub fn assert_exponent_range(&self, exp: u32) {
-        assert!(self.is_in_exponent_range(exp), "out of bounds $±2^{exp}$",)
+        assert!(bool::from(self.is_in_exponent_range(exp)), "out of bounds $±2^{exp}$",)
     }
 
     /// Checks if the value is within the interval the paper denotes as $±2^exp$,
@@ -175,55 +172,46 @@ where
     /// (See Section 3, Groups & Fields).
     ///
     /// Variable time w.r.t. `exp`.
-    pub fn ensure_exponent_range(self, exp: u32) -> Option<Self> {
-        if exp >= T::BITS - 1 {
-            return None;
-        }
-        if self.is_in_exponent_range(exp) {
-            Some(Self {
+    pub fn ensure_exponent_range(self, exp: u32) -> CtOption<Self> {
+        let in_bounds = Choice::from((exp < T::BITS - 1) as u8);
+        let exponent_in_range = self.is_in_exponent_range(exp);
+        CtOption::new(
+            Self {
                 value: self.value,
                 bound: exp + 1,
-            })
-        } else {
-            None
-        }
+            },
+            exponent_in_range & in_bounds,
+        )
     }
 }
 
 impl<T> SecretSigned<T>
 where
-    T: ConditionallySelectable + Zeroize + Bounded + HasWide,
-    T::Wide: ConditionallySelectable + Zeroize + Bounded,
+    T: ConditionallySelectable + Zeroize + Integer + Bounded,
 {
     /// Returns a [`SecretSigned`] with the same value, but twice the bit-width.
-    pub fn to_wide(&self) -> SecretSigned<T::Wide> {
+    pub fn to_wide<W>(&self) -> SecretSigned<W>
+    where
+        T: Extendable<W>,
+        W: Zeroize + Integer + Bounded + ConditionallySelectable,
+    {
         let abs_result = self.abs_value().to_wide();
         SecretSigned::new_from_abs(abs_result, self.bound(), self.is_negative())
             .expect("the value fit the bound before, and the bound won't overflow for `T::Wide`")
     }
 
     /// Multiplies two numbers and returns a new [`SecretSigned`] of twice the bit-width.
-    pub fn mul_wide_public(&self, rhs: &PublicSigned<T>) -> SecretSigned<T::Wide> {
+    pub fn mul_wide_public<R, W>(&self, rhs: &PublicSigned<R>) -> SecretSigned<W>
+    where
+        T: MulWide<R, W>,
+        R: Integer + Bounded,
+        W: Zeroize + Integer + Bounded + ConditionallySelectable,
+    {
         let abs_value = Secret::init_with(|| self.abs_value().expose_secret().mul_wide(&rhs.abs()));
         SecretSigned::new_from_abs(
             abs_value,
             self.bound() + rhs.bound(),
             self.is_negative() ^ Choice::from(rhs.is_negative() as u8),
-        )
-        .expect("the new bound is valid since the sum of the constituent bounds fits in a `T::Wide`")
-    }
-
-    /// Multiplies two numbers and returns a new [`SecretSigned`] of twice the bit-width.
-    pub fn mul_wide(&self, rhs: &SecretSigned<T>) -> SecretSigned<T::Wide> {
-        let abs_value = Secret::init_with(|| {
-            self.abs_value()
-                .expose_secret()
-                .mul_wide(rhs.abs_value().expose_secret())
-        });
-        SecretSigned::new_from_abs(
-            abs_value,
-            self.bound() + rhs.bound(),
-            self.is_negative() ^ rhs.is_negative(),
         )
         .expect("the new bound is valid since the sum of the constituent bounds fits in a `T::Wide`")
     }
@@ -312,7 +300,7 @@ where
     /// sampling from $[-2^{exp-1}+1, 2^{exp-1}]$ (See Section 3, Groups & Fields).
     ///
     /// Note: variable time in `exp`.
-    pub fn random_in_exponent_range(rng: &mut impl CryptoRngCore, exp: u32) -> Self {
+    pub fn random_in_exponent_range(rng: &mut dyn CryptoRngCore, exp: u32) -> Self {
         assert!(exp > 0, "`exp` must be greater than zero");
         assert!(
             exp < T::BITS,
@@ -342,14 +330,17 @@ where
 
 impl<T> SecretSigned<T>
 where
-    T: Zeroize + Integer + Bounded + HasWide,
-    T::Wide: Zeroize + Bounded + RandomMod,
+    T: Zeroize + Integer + Bounded,
 {
     /// Returns a random value in range $±2^{exp} scale$ as defined by the paper, that is
     /// sampling from $[-scale (2^{exp-1}+1), scale 2^{exp-1}]$ (See Section 3, Groups & Fields).
     ///
     /// Note: variable time in `exp` and bit size of `scale`.
-    pub fn random_in_exponent_range_scaled(rng: &mut impl CryptoRngCore, exp: u32, scale: &T) -> SecretSigned<T::Wide> {
+    pub fn random_in_exponent_range_scaled<W>(rng: &mut dyn CryptoRngCore, exp: u32, scale: &T) -> SecretSigned<W>
+    where
+        T: Extendable<W>,
+        W: Zeroize + Integer + Bounded + ConditionallySelectable + RandomMod,
+    {
         assert!(exp > 0, "`exp` must be greater than zero");
         assert!(
             exp < T::BITS,
@@ -370,10 +361,10 @@ where
             .to_wide()
             .overflowing_shl_vartime(exp - 1)
             .expect("`2^exp` fits into `T`, so the result fits into `T::Wide`")
-            .checked_sub(&T::Wide::one())
+            .checked_sub(&W::one())
             .expect("does not overflow because of the assertions above");
 
-        let positive_result = Secret::init_with(|| T::Wide::random_mod(rng, &positive_bound));
+        let positive_result = Secret::init_with(|| W::random_mod(rng, &positive_bound));
         let value = Secret::init_with(|| positive_result.expose_secret().wrapping_sub(&shift));
 
         SecretSigned::new_from_unsigned_unchecked(value, exp + scale.bits_vartime())
@@ -382,19 +373,22 @@ where
 
 impl<T> SecretSigned<T>
 where
-    T: Zeroize + Integer + Bounded + HasWide,
-    T::Wide: Zeroize + HasWide,
-    <T::Wide as HasWide>::Wide: Zeroize + Bounded,
+    T: Zeroize + Integer + Bounded,
 {
     /// Returns a random value in range $±2^{exp} scale$ as defined by the paper, that is
     /// sampling from $[-scale (2^{exp-1}+1), scale 2^{exp-1}]$ (See Section 3, Groups & Fields).
     ///
     /// Note: variable time in `exp` and bit size of `scale`.
-    pub fn random_in_exponent_range_scaled_wide(
-        rng: &mut impl CryptoRngCore,
+    pub fn random_in_exponent_range_scaled_wide<W, XW>(
+        rng: &mut dyn CryptoRngCore,
         exp: u32,
-        scale: &T::Wide,
-    ) -> SecretSigned<<T::Wide as HasWide>::Wide> {
+        scale: &W,
+    ) -> SecretSigned<XW>
+    where
+        T: Extendable<W>,
+        W: Extendable<XW> + Integer,
+        XW: Zeroize + Integer + Bounded + ConditionallySelectable + RandomMod,
+    {
         assert!(exp > 0, "`exp` must be greater than zero");
         assert!(
             exp < T::BITS,
@@ -415,10 +409,10 @@ where
             .to_wide()
             .overflowing_shl_vartime(exp - 1)
             .expect("`2^exp` fits into `T`, so the result fits into `T::Wide::Wide`")
-            .checked_sub(&<T::Wide as HasWide>::Wide::one())
+            .checked_sub(&XW::one())
             .expect("does not overflow because of the assertions above");
 
-        let positive_result = Secret::init_with(|| <T::Wide as HasWide>::Wide::random_mod(rng, &positive_bound));
+        let positive_result = Secret::init_with(|| XW::random_mod(rng, &positive_bound));
         let value = Secret::init_with(|| positive_result.expose_secret().wrapping_sub(&shift));
 
         SecretSigned::new_from_unsigned_unchecked(value, exp + scale.bits_vartime())
@@ -551,7 +545,7 @@ mod tests {
 
     use crypto_bigint::{
         subtle::{Choice, ConditionallySelectable},
-        Bounded, CheckedMul, CheckedSub, Integer, U1024, U128,
+        Bounded, CheckedMul, CheckedSub, Integer, U1024, U128, U2048,
     };
     use rand::SeedableRng;
     use rand_chacha::{self, ChaCha8Rng};
@@ -566,14 +560,14 @@ mod tests {
     where
         T: Zeroize + ConditionallySelectable + Integer + Bounded,
     {
-        SecretSigned::new_from_abs(Secret::init_with(|| abs_value), bound, Choice::from(is_negative as u8))
+        SecretSigned::new_from_abs(Secret::init_with(|| abs_value), bound, Choice::from(is_negative as u8)).into()
     }
 
     fn test_new_from_unsigned<T>(abs_value: T, bound: u32) -> Option<SecretSigned<T>>
     where
         T: Zeroize + ConditionallySelectable + Integer + Bounded,
     {
-        SecretSigned::new_from_unsigned(Secret::init_with(|| abs_value), bound)
+        SecretSigned::new_from_unsigned(Secret::init_with(|| abs_value), bound).into()
     }
 
     #[test]
@@ -615,11 +609,11 @@ mod tests {
     fn mul_wide_sums_bounds() {
         let s = test_new_from_unsigned(U1024::MAX >> 1, 1023).unwrap();
         let s1 = PublicSigned::new_from_unsigned(U1024::MAX >> 1, 1023).unwrap();
-        let mul = s.mul_wide_public(&s1);
+        let mul = s.mul_wide_public::<_, U2048>(&s1);
         assert_eq!(mul.bound(), 2046);
 
         let s2 = PublicSigned::new_from_unsigned(U1024::from_u8(8), 4).unwrap();
-        let mul = s.mul_wide_public(&s2);
+        let mul = s.mul_wide_public::<_, U2048>(&s2);
         assert_eq!(mul.bound(), 1027);
     }
 

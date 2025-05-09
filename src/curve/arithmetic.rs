@@ -1,5 +1,5 @@
-use alloc::{format, string::String, vec, vec::Vec};
-use core::ops::{Add, Mul, Neg, Rem, Sub};
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
 
 use digest::XofReader;
 use ecdsa::VerifyingKey;
@@ -24,7 +24,8 @@ use ::{ecdsa::SigningKey, elliptic_curve::SecretKey};
 
 use crate::{
     params::SchemeParams,
-    tools::{hashing::Chain, Secret},
+    tools::{hashing::Chain, BoxedRng, Secret},
+    uint::BoxedEncoding,
 };
 
 pub(crate) fn chain_curve<Crv, Chn>(digest: Chn) -> Chn
@@ -66,12 +67,12 @@ impl<P: SchemeParams> Scalar<P> {
         Self(backend_scalar)
     }
 
-    pub fn random(rng: &mut impl CryptoRngCore) -> Self {
-        Self(ScalarPrimitive::<P::Curve>::random(rng).into())
+    pub fn random(rng: &mut dyn CryptoRngCore) -> Self {
+        Self(ScalarPrimitive::<P::Curve>::random(&mut BoxedRng(rng)).into())
     }
 
-    pub fn random_nonzero(rng: &mut impl CryptoRngCore) -> Self {
-        Self(*NonZeroScalar::<P::Curve>::random(rng).as_ref())
+    pub fn random_nonzero(rng: &mut dyn CryptoRngCore) -> Self {
+        Self(*NonZeroScalar::<P::Curve>::random(&mut BoxedRng(rng)).as_ref())
     }
 
     pub fn mul_by_generator(&self) -> Point<P> {
@@ -155,7 +156,7 @@ impl<P: SchemeParams> Secret<Scalar<P>> {
 }
 
 pub(crate) fn secret_split<P: SchemeParams>(
-    rng: &mut impl CryptoRngCore,
+    rng: &mut dyn CryptoRngCore,
     scalar: Secret<Scalar<P>>,
     num: usize,
 ) -> Vec<Secret<Scalar<P>>> {
@@ -198,6 +199,19 @@ where
         Self(<P::Curve as CurveArithmetic>::Scalar::conditional_select(
             &a.0, &b.0, choice,
         ))
+    }
+}
+
+impl<P> BoxedEncoding for Scalar<P>
+where
+    P: SchemeParams,
+{
+    fn to_be_bytes(&self) -> Box<[u8]> {
+        (*self).to_be_bytes().as_ref().into()
+    }
+
+    fn try_from_be_bytes(bytes: &[u8]) -> Result<Self, String> {
+        Self::try_from_be_bytes(bytes)
     }
 }
 
@@ -320,6 +334,15 @@ where
     }
 }
 
+impl<'a, P> AddAssign<&'a Scalar<P>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    fn add_assign(&mut self, rhs: &'a Scalar<P>) {
+        self.0 += rhs.0
+    }
+}
+
 impl<P> Add<Scalar<P>> for Scalar<P>
 where
     P: SchemeParams,
@@ -342,17 +365,6 @@ where
     }
 }
 
-impl<P> Add<&Scalar<P>> for Scalar<P>
-where
-    P: SchemeParams,
-{
-    type Output = Self;
-
-    fn add(self, rhs: &Self) -> Self {
-        Self(self.0.add(&rhs.0))
-    }
-}
-
 impl<P> Add<Point<P>> for Point<P>
 where
     P: SchemeParams,
@@ -361,6 +373,15 @@ where
 
     fn add(self, rhs: Self) -> Self {
         Self(self.0.add(&(rhs.0)))
+    }
+}
+
+impl<'a, P> SubAssign<&'a Scalar<P>> for Scalar<P>
+where
+    P: SchemeParams,
+{
+    fn sub_assign(&mut self, rhs: &'a Scalar<P>) {
+        self.0 -= rhs.0
     }
 }
 
@@ -375,14 +396,12 @@ where
     }
 }
 
-impl<P> Sub<&Scalar<P>> for Scalar<P>
+impl<'a, P> MulAssign<&'a Scalar<P>> for Scalar<P>
 where
     P: SchemeParams,
 {
-    type Output = Self;
-
-    fn sub(self, rhs: &Scalar<P>) -> Self {
-        Self(self.0.sub(&(rhs.0)))
+    fn mul_assign(&mut self, rhs: &'a Scalar<P>) {
+        self.0 *= rhs.0
     }
 }
 

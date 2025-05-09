@@ -72,7 +72,7 @@ pub(crate) struct AffGProof<P: SchemeParams> {
 
 impl<P: SchemeParams> AffGProof<P> {
     pub fn new(
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         secret: AffGSecretInputs<'_, P>,
         public: AffGPublicInputs<'_, P>,
         setup: &RPParams<P::Paillier>,

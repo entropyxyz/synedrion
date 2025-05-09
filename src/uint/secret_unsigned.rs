@@ -1,9 +1,12 @@
 use core::ops::BitAnd;
 
-use crypto_bigint::{subtle::Choice, Bounded, Integer, Monty, NonZero};
+use crypto_bigint::{
+    subtle::{Choice, CtOption},
+    Bounded, Integer, Monty, NonZero,
+};
 use zeroize::Zeroize;
 
-use super::HasWide;
+use super::Extendable;
 use crate::tools::Secret;
 
 /// A bounded unsigned integer with sensitive data.
@@ -26,16 +29,15 @@ where
         self.bound
     }
 
-    /// Creates a new [`Bounded`] wrapper around `T`, restricted to `bound`.
+    /// Creates a new [`SecretUnsigned`] wrapper around `T`, restricted to `bound`.
     ///
     /// Returns `None` if the bound is invalid, i.e.:
     /// - The bound is bigger than a `T` can represent.
     /// - The value of `T` is too big to be bounded by the provided bound.
-    pub fn new(value: Secret<T>, bound: u32) -> Option<Self> {
-        if bound > T::BITS || value.expose_secret().bits() > bound {
-            return None;
-        }
-        Some(Self { value, bound })
+    pub fn new(value: Secret<T>, bound: u32) -> CtOption<Self> {
+        let in_bound =
+            Choice::from((bound <= T::BITS) as u8).bitand(Choice::from((value.expose_secret().bits() <= bound) as u8));
+        CtOption::new(Self { value, bound }, in_bound)
     }
 
     pub fn add_mod(&self, rhs: &Self, modulus: &Secret<NonZero<T>>) -> Self {
@@ -78,10 +80,13 @@ where
 
 impl<T> SecretUnsigned<T>
 where
-    T: Zeroize + Clone + HasWide,
-    T::Wide: Zeroize,
+    T: Zeroize + Clone,
 {
-    pub fn to_wide(&self) -> SecretUnsigned<T::Wide> {
+    pub fn to_wide<W>(&self) -> SecretUnsigned<W>
+    where
+        T: Extendable<W>,
+        W: Zeroize + Clone,
+    {
         SecretUnsigned {
             value: self.value.to_wide(),
             bound: self.bound,

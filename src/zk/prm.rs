@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use crypto_bigint::{modular::Retrieve, BitOps, PowBoundedExp};
+use crypto_bigint::{modular::Retrieve, BitOps, Integer, PowBoundedExp};
 use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ use crate::{
         bitvec::BitVec,
         hashing::{Chain, Hashable, Hasher},
     },
-    uint::{Exponentiable, SecretUnsigned, ToMontgomery},
+    uint::{Exponentiable, PublicUint, SecretUnsigned, ToMontgomery},
 };
 
 const HASH_TAG: &[u8] = b"P_prm";
@@ -26,7 +26,7 @@ const HASH_TAG: &[u8] = b"P_prm";
 struct PrmSecret<P: SchemeParams>(Vec<SecretUnsigned<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmSecret<P> {
-    fn random(rng: &mut impl CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
+    fn random(rng: &mut dyn CryptoRngCore, secret: &RPSecret<P::Paillier>) -> Self {
         let secret = (0..P::SECURITY_BITS)
             .map(|_| secret.random_residue_mod_totient(rng))
             .collect();
@@ -35,11 +35,11 @@ impl<P: SchemeParams> PrmSecret<P> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PrmCommitment<P: SchemeParams>(Vec<<P::Paillier as PaillierParams>::Uint>);
+struct PrmCommitment<P: SchemeParams>(Vec<PublicUint<<P::Paillier as PaillierParams>::Uint>>);
 
 impl<P: SchemeParams> PrmCommitment<P> {
-    fn new(secret: &PrmSecret<P>, base: &<P::Paillier as PaillierParams>::UintMod) -> Self {
-        let commitment = secret.0.iter().map(|a| base.pow(a).retrieve()).collect();
+    fn new(secret: &PrmSecret<P>, base: &<<P::Paillier as PaillierParams>::Uint as Integer>::Monty) -> Self {
+        let commitment = secret.0.iter().map(|a| base.pow(a).retrieve().into()).collect();
         Self(commitment)
     }
 }
@@ -65,14 +65,14 @@ impl PrmChallenge {
 pub(crate) struct PrmProof<P: SchemeParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,
-    proof: Vec<<P::Paillier as PaillierParams>::Uint>,
+    proof: Vec<PublicUint<<P::Paillier as PaillierParams>::Uint>>,
 }
 
 impl<P: SchemeParams> PrmProof<P> {
     /// Create a proof that we know the `secret`
     /// (i.e. lambda, the power that was used to create RP parameters).
     pub fn new(
-        rng: &mut impl CryptoRngCore,
+        rng: &mut dyn CryptoRngCore,
         secret: &RPSecret<P::Paillier>,
         setup: &RPParams<P::Paillier>,
         aux: &impl Hashable,
@@ -92,7 +92,7 @@ impl<P: SchemeParams> PrmProof<P> {
 
                 let p = if *e { x.expose_secret() } else { a.expose_secret() };
                 // a/x are positive and smaller than the totient by construction
-                *p
+                (*p).into()
             })
             .collect();
         Self {
@@ -119,7 +119,7 @@ impl<P: SchemeParams> PrmProof<P> {
             .zip(self.commitment.0.iter())
         {
             let a = a.to_montgomery(monty_params);
-            let pwr = setup.base_randomizer().pow_bounded_exp(z, z.bits_vartime());
+            let pwr = setup.base_randomizer().pow_bounded_exp(z.as_ref(), z.bits_vartime());
             let test = if *e { pwr == a * setup.base_value() } else { pwr == a };
             if !test {
                 return false;

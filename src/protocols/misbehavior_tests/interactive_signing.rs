@@ -5,8 +5,8 @@ use manul::{
     combinators::misbehave::{FinalizeOverride, Misbehaving},
     dev::{BinaryFormat, TestSessionParams, TestSigner, TestVerifier},
     protocol::{
-        Artifact, BoxedRound, Deserializer, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
-        NormalBroadcast, Payload, ProtocolMessagePart, Serializer,
+        Artifact, BoxedFormat, BoxedRound, DirectMessage, EchoBroadcast, EntryPoint, FinalizeOutcome, LocalError,
+        NormalBroadcast, Payload, ProtocolMessagePart,
     },
     signature::Keypair,
 };
@@ -148,19 +148,16 @@ fn r1_enc_elg_0_failed() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_echo_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
-                let mut message = echo_broadcast
-                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)
-                    .unwrap();
+                let mut message = echo_broadcast.deserialize::<Round1EchoBroadcast<P>>(format).unwrap();
                 message.cap_a1 = Scalar::random(rng).mul_by_generator();
-                return EchoBroadcast::new(serializer, message);
+                return EchoBroadcast::new(format, message);
             }
 
             Ok(echo_broadcast)
@@ -178,19 +175,16 @@ fn r1_enc_elg_1_failed() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_echo_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 1 {
-                let mut message = echo_broadcast
-                    .deserialize::<Round1EchoBroadcast<P>>(deserializer)
-                    .unwrap();
+                let mut message = echo_broadcast.deserialize::<Round1EchoBroadcast<P>>(format).unwrap();
                 message.cap_b1 = Scalar::random(rng).mul_by_generator();
-                return EchoBroadcast::new(serializer, message);
+                return EchoBroadcast::new(format, message);
             }
 
             Ok(echo_broadcast)
@@ -208,19 +202,18 @@ fn r2_wrong_ids_d() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
                 message.cap_ds.pop_first();
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)
@@ -238,19 +231,18 @@ fn r2_wrong_ids_f() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)
                     .unwrap();
                 message.cap_fs.pop_first();
-                return EchoBroadcast::new(serializer, message);
+                return EchoBroadcast::new(format, message);
             }
 
             Ok(echo_broadcast)
@@ -268,19 +260,18 @@ fn r2_wrong_ids_psi() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
                 message.psis.pop_first();
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)
@@ -299,19 +290,18 @@ fn r2_aff_g_psi_failed() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_echo_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = echo_broadcast
-                    .deserialize::<Round2EchoBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2EchoBroadcast<P, Id>>(format)
                     .unwrap();
                 message.cap_gamma = Scalar::random(rng).mul_by_generator();
-                return EchoBroadcast::new(serializer, message);
+                return EchoBroadcast::new(format, message);
             }
 
             Ok(echo_broadcast)
@@ -330,19 +320,18 @@ fn r2_aff_g_hat_psi_failed() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
                 message.hat_cap_ds = message.cap_ds.clone();
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)
@@ -363,11 +352,11 @@ fn r2_elog_failed() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_normal_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 2 {
@@ -381,7 +370,7 @@ fn r2_elog_failed() {
                 let cap_b2 = cap_y * &round2.context.b + round2.context.gamma.mul_by_generator();
 
                 let mut message = normal_broadcast
-                    .deserialize::<Round2NormalBroadcast<P, Id>>(deserializer)
+                    .deserialize::<Round2NormalBroadcast<P, Id>>(format)
                     .unwrap();
 
                 // We can't replace any dependent values in the messages because
@@ -405,7 +394,7 @@ fn r2_elog_failed() {
                     },
                     &aux,
                 );
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)
@@ -423,19 +412,19 @@ fn r3_elog_failed() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_normal_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 3 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)
+                    .deserialize::<Round3NormalBroadcast<P>>(format)
                     .unwrap();
                 message.cap_delta = Scalar::random(rng).mul_by_generator();
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)
@@ -453,19 +442,19 @@ fn r4_invalid_signature_share() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_normal_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 4 {
                 let mut message = normal_broadcast
-                    .deserialize::<Round4NormalBroadcast<P>>(deserializer)
+                    .deserialize::<Round4NormalBroadcast<P>>(format)
                     .unwrap();
                 message.sigma = Scalar::random(rng);
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)
@@ -476,7 +465,7 @@ fn r4_invalid_signature_share() {
 }
 
 fn force_round5_on_malicious_node(
-    rng: &mut impl CryptoRngCore,
+    rng: &mut dyn CryptoRngCore,
     round: BoxedRound<Id, InteractiveSigningProtocol<P, Id>>,
     payloads: BTreeMap<Id, Payload>,
     artifacts: BTreeMap<Id, Artifact>,
@@ -533,27 +522,25 @@ fn r5_dec_failed() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_echo_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 3 {
                 // Trigger the error round in lawful nodes
-                let mut message = echo_broadcast
-                    .deserialize::<Round3EchoBroadcast<P>>(deserializer)
-                    .unwrap();
+                let mut message = echo_broadcast.deserialize::<Round3EchoBroadcast<P>>(format).unwrap();
                 message.delta = Scalar::random(rng);
-                return EchoBroadcast::new(serializer, message);
+                return EchoBroadcast::new(format, message);
             }
 
             Ok(echo_broadcast)
         }
 
         fn override_finalize(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
             payloads: BTreeMap<Id, Payload>,
@@ -574,59 +561,55 @@ mod invalid_r5_messages {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_echo_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             behavior: &CheckPart,
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             if round.id() == 3 {
                 // Trigger the error round in lawful nodes
-                let mut message = echo_broadcast
-                    .deserialize::<Round3EchoBroadcast<P>>(deserializer)
-                    .unwrap();
+                let mut message = echo_broadcast.deserialize::<Round3EchoBroadcast<P>>(format).unwrap();
                 message.delta = Scalar::random(rng);
-                return EchoBroadcast::new(serializer, message);
+                return EchoBroadcast::new(format, message);
             }
 
             // Actual test: supply an invalid message on the malicious node
             if round.id() == 5 && behavior == &CheckPart::EchoBroadcast {
-                return EchoBroadcast::new::<[u8; 0]>(serializer, []);
+                return EchoBroadcast::new::<[u8; 0]>(format, []);
             }
 
             Ok(echo_broadcast)
         }
 
         fn modify_normal_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             behavior: &CheckPart,
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             // Actual test: supply an invalid message on the malicious node
             if round.id() == 5 && behavior == &CheckPart::NormalBroadcast {
-                return NormalBroadcast::new::<[u8; 0]>(serializer, []);
+                return NormalBroadcast::new::<[u8; 0]>(format, []);
             }
 
             Ok(normal_broadcast)
         }
 
         fn modify_direct_message(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             behavior: &CheckPart,
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
             _destination: &Id,
             direct_message: DirectMessage,
             artifact: Option<Artifact>,
         ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
             // Actual test: supply an invalid message on the malicious node
             if round.id() == 5 && behavior == &CheckPart::DirectMessage {
-                let dm = DirectMessage::new::<[u8; 0]>(serializer, [])?;
+                let dm = DirectMessage::new::<[u8; 0]>(format, [])?;
                 return Ok((dm, artifact));
             }
 
@@ -634,7 +617,7 @@ mod invalid_r5_messages {
         }
 
         fn override_finalize(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &CheckPart,
             payloads: BTreeMap<Id, Payload>,
@@ -688,7 +671,7 @@ mod invalid_r5_messages {
 }
 
 fn force_round6_on_malicious_node(
-    rng: &mut impl CryptoRngCore,
+    rng: &mut dyn CryptoRngCore,
     round: BoxedRound<Id, InteractiveSigningProtocol<P, Id>>,
     payloads: BTreeMap<Id, Payload>,
     artifacts: BTreeMap<Id, Artifact>,
@@ -745,28 +728,28 @@ fn r6_dec_failed() {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_normal_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             // Actual test: supply an invalid message on the malicious node
             if round.id() == 3 {
                 // Trigger the error round in lawful nodes
                 let mut message = normal_broadcast
-                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)
+                    .deserialize::<Round3NormalBroadcast<P>>(format)
                     .unwrap();
                 message.cap_s = Scalar::random(rng).mul_by_generator();
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             Ok(normal_broadcast)
         }
 
         fn override_finalize(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &(),
             payloads: BTreeMap<Id, Payload>,
@@ -787,59 +770,57 @@ mod invalid_r6_messages {
         type EntryPoint = InteractiveSigning<P, Id>;
 
         fn modify_echo_broadcast(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             behavior: &CheckPart,
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
             echo_broadcast: EchoBroadcast,
         ) -> Result<EchoBroadcast, LocalError> {
             // Actual test: supply an invalid message on the malicious node
             if round.id() == 6 && behavior == &CheckPart::EchoBroadcast {
-                return EchoBroadcast::new::<[u8; 0]>(serializer, []);
+                return EchoBroadcast::new::<[u8; 0]>(format, []);
             }
 
             Ok(echo_broadcast)
         }
 
         fn modify_normal_broadcast(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             behavior: &CheckPart,
-            serializer: &Serializer,
-            deserializer: &Deserializer,
+            format: &BoxedFormat,
+
             normal_broadcast: NormalBroadcast,
         ) -> Result<NormalBroadcast, LocalError> {
             if round.id() == 3 {
                 // Trigger the error round in lawful nodes
                 let mut message = normal_broadcast
-                    .deserialize::<Round3NormalBroadcast<P>>(deserializer)
+                    .deserialize::<Round3NormalBroadcast<P>>(format)
                     .unwrap();
                 message.cap_s = Scalar::random(rng).mul_by_generator();
-                return NormalBroadcast::new(serializer, message);
+                return NormalBroadcast::new(format, message);
             }
 
             // Actual test: supply an invalid message on the malicious node
             if round.id() == 6 && behavior == &CheckPart::NormalBroadcast {
-                return NormalBroadcast::new::<[u8; 0]>(serializer, []);
+                return NormalBroadcast::new::<[u8; 0]>(format, []);
             }
 
             Ok(normal_broadcast)
         }
 
         fn modify_direct_message(
-            _rng: &mut impl CryptoRngCore,
+            _rng: &mut dyn CryptoRngCore,
             round: &BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             behavior: &CheckPart,
-            serializer: &Serializer,
-            _deserializer: &Deserializer,
+            format: &BoxedFormat,
             _destination: &Id,
             direct_message: DirectMessage,
             artifact: Option<Artifact>,
         ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
             // Actual test: supply an invalid message on the malicious node
             if round.id() == 6 && behavior == &CheckPart::DirectMessage {
-                let dm = DirectMessage::new::<[u8; 0]>(serializer, [])?;
+                let dm = DirectMessage::new::<[u8; 0]>(format, [])?;
                 return Ok((dm, artifact));
             }
 
@@ -847,7 +828,7 @@ mod invalid_r6_messages {
         }
 
         fn override_finalize(
-            rng: &mut impl CryptoRngCore,
+            rng: &mut dyn CryptoRngCore,
             round: BoxedRound<Id, <Self::EntryPoint as EntryPoint<Id>>::Protocol>,
             _behavior: &CheckPart,
             payloads: BTreeMap<Id, Payload>,
