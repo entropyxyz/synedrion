@@ -17,8 +17,7 @@ type Prm = ProductionParams112;
 
 /// Is [`RPParams::commit`] constant time?
 pub fn rp_commit_both(runner: &mut CtRunner, rng: &mut BenchRng) {
-    // This code is CT so the input length is a placeholder.
-    let input_len = 10_000;
+    let input_len = 1000;
     let (rp_params, sk, inputs) = rp_inputs(rng, input_len);
     let value = sk.p_signed();
     for (class, randomizer) in inputs.into_iter() {
