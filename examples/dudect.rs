@@ -1,3 +1,6 @@
+//! This file collects Constant Time "benchmarks" using the `dudect-bencher` crate.
+//!
+//! See `CT_README.md` in `src/private_benches` for more info.
 use dudect_bencher::ctbench_main_with_seeds;
 use synedrion::private_benches::{secret_is_ct, secret_signed_ct, zk_proofs_ct};
 
