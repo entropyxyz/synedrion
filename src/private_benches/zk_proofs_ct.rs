@@ -53,12 +53,13 @@ pub fn rp_commit_zero_randomizer(runner: &mut CtRunner, rng: &mut BenchRng) {
                         <Pai as PaillierParams>::WideUint::random_mod(rng, &NonZero::new(modulus).unwrap()),
                         Pai::MODULUS_BITS,
                     )
-                    .unwrap(),
+                    .expect("Known good modulus"),
                 )
             } else {
                 (
                     Class::Right,
-                    PublicSigned::new_positive(<Pai as PaillierParams>::WideUint::ONE, Pai::MODULUS_BITS).unwrap(),
+                    PublicSigned::new_positive(<Pai as PaillierParams>::WideUint::ONE, Pai::MODULUS_BITS)
+                        .expect("Known good value"),
                 )
             }
         })
@@ -69,6 +70,7 @@ pub fn rp_commit_zero_randomizer(runner: &mut CtRunner, rng: &mut BenchRng) {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn rp_inputs(
     rng: &mut impl CryptoRngCore,
     input_len: usize,
