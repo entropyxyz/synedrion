@@ -6,7 +6,7 @@ use rand::Rng;
 
 use crate::tools::Secret;
 
-/// Is [`Secret::init_with`] constant time? This actually tests that `Box::new` is CT (which it isn't).
+/// Is `Secret::init_with` constant time? This actually tests that `Box::new` is CT (which it isn't).
 pub fn init_with(runner: &mut CtRunner, rng: &mut BenchRng) {
     let modulus = NonZero::new(U4096::ONE << 4095).unwrap();
 
@@ -30,7 +30,7 @@ pub fn init_with(runner: &mut CtRunner, rng: &mut BenchRng) {
     }
 }
 
-/// Is [`Secret::wrapping_add`] constant time? (It's not)
+/// Is `Secret::wrapping_add` constant time? (It's not)
 pub fn wrapping_add(runner: &mut CtRunner, rng: &mut BenchRng) {
     let modulus = NonZero::new(U4096::MAX.shr_vartime(3)).unwrap();
     let secret = Secret::init_with(|| U4096::random_mod(rng, &modulus));
@@ -70,7 +70,7 @@ pub fn wrapping_add_uints(runner: &mut CtRunner, rng: &mut BenchRng) {
     }
 }
 
-/// Is [`Secret::add_assign`] constant time? (It's not)
+/// Is `Secret::add_assign` constant time? (It's not)
 pub fn add_assign(runner: &mut CtRunner, rng: &mut BenchRng) {
     let modulus = NonZero::new(U4096::MAX.shr_vartime(10)).unwrap();
     let secret = Secret::init_with(|| U4096::random_mod(rng, &modulus));

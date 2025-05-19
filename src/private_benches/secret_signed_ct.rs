@@ -3,7 +3,7 @@ use dudect_bencher::{BenchRng, Class, CtRunner};
 use rand::Rng;
 
 use crate::{tools::Secret, uint::SecretSigned};
-/// Is [`SecretSigned::new_positive`] constant time when the bound is kept constant and the value varies?
+/// Is `SecretSigned::new_positive` constant time when the bound is kept constant and the value varies?
 pub fn new_positive_with_constant_bound(runner: &mut CtRunner, rng: &mut BenchRng) {
     let bound = 127;
     let modulus = NonZero::new(U4096::ONE << bound).unwrap();
@@ -27,7 +27,7 @@ pub fn new_positive_with_constant_bound(runner: &mut CtRunner, rng: &mut BenchRn
     }
 }
 
-/// Is [`SecretSigned::new_positive`] constant time when the value is kept constant and the bound varies?
+/// Is `SecretSigned::new_positive` constant time when the value is kept constant and the bound varies?
 pub fn new_positive_with_constant_value(runner: &mut CtRunner, rng: &mut BenchRng) {
     let value = { Secret::init_with(|| U128::random_mod(rng, &NonZero::new(U128::ONE << 127).unwrap())) };
     let input_len = 160_000_000;

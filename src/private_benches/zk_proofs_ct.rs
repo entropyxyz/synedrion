@@ -15,7 +15,7 @@ use crate::{
 type Pai = PaillierProduction112;
 type Prm = ProductionParams112;
 
-/// Is [`RPParams::commit`] constant time?
+/// Is `RPParams::commit` constant time?
 pub fn rp_commit_both(runner: &mut CtRunner, rng: &mut BenchRng) {
     let input_len = 1000;
     let (rp_params, sk, inputs) = rp_inputs(rng, input_len);
@@ -25,7 +25,7 @@ pub fn rp_commit_both(runner: &mut CtRunner, rng: &mut BenchRng) {
     }
 }
 
-/// Is [`RPParams::commit_zero_value]` constant time?
+/// Is `RPParams::commit_zero_value` constant time?
 pub fn rp_commit_zero_value(runner: &mut CtRunner, rng: &mut BenchRng) {
     let (rp_params, _, inputs) = rp_inputs(rng, 10_000);
     for (class, randomizer) in inputs.into_iter() {
@@ -33,7 +33,7 @@ pub fn rp_commit_zero_value(runner: &mut CtRunner, rng: &mut BenchRng) {
     }
 }
 
-/// Is [`RPParams::commit_zero_randomizer]` constant time?
+/// Is `RPParams::commit_zero_randomizer` constant time?
 pub fn rp_commit_zero_randomizer(runner: &mut CtRunner, rng: &mut BenchRng) {
     let rp_params: RPParams<Pai> = RPParams::random(rng);
     let modulus = SecretKeyPaillierWire::<Pai>::random(rng)
