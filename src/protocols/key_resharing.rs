@@ -326,8 +326,7 @@ impl<P: SchemeParams, I: PartyId> Round<I> for Round1<P, I> {
     ) -> Result<(DirectMessage, Option<Artifact>), LocalError> {
         if let Some(old_holder) = self.old_holder.as_ref() {
             let their_share_id = self.new_share_ids.get(destination).ok_or(LocalError::new(format!(
-                "destination={:?} is missing from the new_share_ids",
-                destination
+                "destination={destination:?} is missing from the new_share_ids",
             )))?;
 
             let subshare: Secret<Scalar<P>> = old_holder.polynomial.evaluate(their_share_id);

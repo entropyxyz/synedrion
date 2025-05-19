@@ -51,8 +51,7 @@ where
 
         if repr_len < bytes_len {
             return Err(format!(
-                "The bytestring of length {} does not fit the expected integer size {}",
-                bytes_len, repr_len
+                "The bytestring of length {bytes_len} does not fit the expected integer size {repr_len}",
             ));
         }
 
