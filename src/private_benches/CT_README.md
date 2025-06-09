@@ -1,6 +1,6 @@
 ## Constant-Time Benchmarks
 
-This directory contains benchmarks designed to assess the constant-time behavior of `synedrion` code using the Dudect method ([https://eprint.iacr.org/2016/1123.pdf](https://eprint.iacr.org/2016/1123.pdf)). Dudect employs [Welch's t-test](https://en.wikipedia.org/wiki/Welch%27s_t-test) to statistically analyze execution time differences between "normal" and "special" input classes.
+This directory contains benchmarks designed to assess the constant-time behavior of `synedrion` code using the Dudect method ([https://eprint.iacr.org/2016/1123.pdf](https://eprint.iacr.org/2016/1123.pdf)). Dudect employs [Welch's t-test](welch_t_test) to statistically analyze execution time differences between "normal" and "special" input classes.
 
 ### Methodology
 
@@ -27,3 +27,5 @@ For continuous testing until manual interruption, use:
 ```
 
 The benchmarks provide an estimate of the number of samples required to reach the `|max t| = 5` threshold. For truly constant-time code, this threshold should never be reached.
+
+[#welch_t_test]: https://en.wikipedia.org/wiki/Welch%27s_t-test
