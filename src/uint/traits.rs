@@ -220,3 +220,31 @@ impl<const L: usize> BoxedEncoding for Uint<L> {
         Ok(Self::from_be_slice(bytes))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crypto_bigint::U256;
+    use sha3::Shake256;
+
+    use super::FromXofReader;
+    use crate::tools::hashing::{Chain, Hasher};
+
+    #[test]
+    fn platform_independence() {
+        let mut reader = Hasher::<Shake256>::new_with_dst(b"")
+            .chain_bytes(b"abcde")
+            .finalize_to_reader();
+
+        let x = U256::from_xof_reader(&mut reader, 256);
+        assert_eq!(
+            x,
+            U256::from_be_hex("4E88D21E0CC82AD5C70B5140BCED37A5CC7EACC669D7BE9F87F467A4E798410F")
+        );
+
+        let x = U256::from_xof_reader(&mut reader, 200);
+        assert_eq!(
+            x,
+            U256::from_be_hex("000000000000007E7D58E090BE4D0C3DF61E93E7A733F410C243A648E93F0578")
+        );
+    }
+}
