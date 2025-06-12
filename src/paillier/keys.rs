@@ -429,7 +429,7 @@ mod tests {
     fn debug_redacts_secrets() {
         let sk = SecretKeyPaillierWire::<PaillierTest>::random(&mut OsRng);
 
-        let debug_output = format!("Sikrit {:?}", sk);
+        let debug_output = format!("Sikrit {sk:?}");
         assert_eq!(
             debug_output,
             concat![
