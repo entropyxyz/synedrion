@@ -7,7 +7,6 @@ use core::fmt::Debug;
 use ecdsa::{SigningKey, VerifyingKey};
 use manul::{protocol::PartyId, session::LocalError, utils::SerializableMap};
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "bip32")]
 use bip32::{DerivationPath, PrivateKey as _};
@@ -27,8 +26,8 @@ use crate::curve::{apply_tweaks_public, derive_tweaks, DeriveChildKey, PublicTwe
 
 /// A threshold variant of the key share, where any `threshold` shares our of the total number
 /// is enough to perform signing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "ShareId<P>: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub struct ThresholdKeyShare<P, I>
 where
     P: SchemeParams,

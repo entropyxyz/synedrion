@@ -158,9 +158,8 @@ impl<P: PaillierParams> RPParams<P> {
 }
 
 /// Minimal public ring-Pedersen parameters suitable for serialization and transmission.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicModulusWire<P>: Serialize"))]
-#[serde(bound(deserialize = "for<'x> PublicModulusWire<P>: Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct RPParamsWire<P: PaillierParams> {
     /// The public modulus $\hat{N}$
     modulus: PublicModulusWire<P>,

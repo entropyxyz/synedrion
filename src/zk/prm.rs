@@ -59,9 +59,8 @@ impl PrmChallenge {
 }
 
 /// Pedersen Parameters ZK proof.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PrmCommitment<P>: Serialize"))]
-#[serde(bound(deserialize = "PrmCommitment<P>: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct PrmProof<P: SchemeParams> {
     commitment: PrmCommitment<P>,
     challenge: PrmChallenge,

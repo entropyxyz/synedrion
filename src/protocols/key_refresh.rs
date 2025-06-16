@@ -95,15 +95,11 @@ where
 }
 
 /// Provable KeyRefresh faults.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    Error<P, Id>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    Error<P, Id>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub struct KeyRefreshError<P, Id>
 where
+    Id: PartyId,
     P: SchemeParams,
 {
     error: Error<P, Id>,
@@ -111,6 +107,7 @@ where
 
 impl<P, Id> From<Error<P, Id>> for KeyRefreshError<P, Id>
 where
+    Id: PartyId,
     P: SchemeParams,
 {
     fn from(source: Error<P, Id>) -> Self {
@@ -148,10 +145,11 @@ where
 }
 
 /// KeyRefresh error
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Id: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 enum Error<P, Id>
 where
+    Id: PartyId,
     P: SchemeParams,
 {
     R2HashMismatch,
@@ -670,14 +668,8 @@ struct Round2<P: SchemeParams, Id: PartyId> {
     cap_vs: BTreeMap<Id, HashOutput>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    PrmProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    PrmProof<P>: for<'x> Deserialize<'x>,
-    SchCommitment<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) cap_xs: SerializableMap<Id, Point<P>>, // $X_{i,j}$ where $i$ is this party's index
     pub(super) cap_as: SerializableMap<Id, SchCommitment<P>>, // $A_{i,j}$ where $i$ is this party's index
@@ -686,13 +678,8 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
     u: BitVec,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    Id: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    Id: for<'x> Deserialize<'x>,
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) rp_params: RPParamsWire<P::Paillier>, // $\hat{N}_i$, $s_i$, and $t_i$
     pub(super) cap_ys: SerializableMap<Id, Point<P>>, // $Y_{i,j}$ where $i$ is this party's index
@@ -879,36 +866,20 @@ struct Round3<P: SchemeParams, Id> {
     hat_psis: BTreeMap<Id, SchProof<P>>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    SchProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    SchProof<P>: for<'x> Deserialize<'x>,
-    Id: for<'x> Deserialize<'x>,
-"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round3EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psis: SerializableMap<Id, SchProof<P>>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    ModProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    ModProof<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round3NormalBroadcast<P: SchemeParams> {
     pub(super) psi_prime: ModProof<P>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    FacProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    FacProof<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round3DirectMessage<P: SchemeParams> {
     pub(super) psi: FacProof<P>,
     pub(super) cap_c: Scalar<P>,

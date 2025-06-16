@@ -86,12 +86,6 @@ impl<P: SchemeParams, Id: PartyId> Protocol<Id> for AuxGenProtocol<P, Id> {
 
 /// Provable AuxGen faults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    Error<Id>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    Error<Id>: for<'x> Deserialize<'x>,
-"))]
 pub struct AuxGenError<P, Id> {
     error: Error<Id>,
     phantom: PhantomData<P>,
@@ -475,13 +469,8 @@ struct Round2<P: SchemeParams, Id: PartyId> {
     cap_vs: BTreeMap<Id, HashOutput>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    PrmProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    PrmProof<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams> {
     pub(super) paillier_pk: PublicKeyPaillierWire<P::Paillier>, // $N_i$
     pub(super) psi: PrmProof<P>,
@@ -629,24 +618,14 @@ struct Round3<P: SchemeParams, Id> {
     psi_prime: ModProof<P>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    ModProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    ModProof<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round3NormalBroadcast<P: SchemeParams> {
     pub(super) psi_prime: ModProof<P>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    FacProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    FacProof<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round3DirectMessage<P: SchemeParams> {
     pub(super) psi: FacProof<P>,
 }

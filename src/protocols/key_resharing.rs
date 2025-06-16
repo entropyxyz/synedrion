@@ -264,18 +264,15 @@ struct Round1<P: SchemeParams, I: PartyId> {
     phantom: PhantomData<P>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "
-    for<'x> PublicPolynomial<P>: Deserialize<'x>,
-    for<'x> ShareId<P>: Deserialize<'x>
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 struct Round1BroadcastMessage<P: SchemeParams> {
     public_polynomial: PublicPolynomial<P>,
     old_share_id: ShareId<P>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Secret<Scalar<P>>: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 struct Round1DirectMessage<P: SchemeParams> {
     subshare: Secret<Scalar<P>>,
 }

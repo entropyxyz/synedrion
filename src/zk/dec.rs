@@ -59,15 +59,8 @@ pub(crate) struct DecPublicInputs<'a, P: SchemeParams> {
 }
 
 /// ZK proof: Paillier decryption modulo $q$.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    DecProofCommitment<P>: Serialize,
-    DecProofElement<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    DecProofCommitment<P>: for<'x> Deserialize<'x>,
-    DecProofElement<P>: for<'x> Deserialize<'x>
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct DecProof<P: SchemeParams> {
     e: BitVec,
     commitments: Box<[DecProofCommitment<P>]>,
@@ -80,8 +73,8 @@ struct DecProofEphemeral<P: SchemeParams> {
     r: Randomizer<P::Paillier>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>,"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct DecProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
     cap_b: Point<P>,

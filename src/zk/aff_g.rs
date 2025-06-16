@@ -1,7 +1,6 @@
 //! Paillier Affine Operation with Group Commitment in Range ($\Pi^{aff-g}$, Fig. 25)
 
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{Point, Scalar},
@@ -48,11 +47,8 @@ pub(crate) struct AffGPublicInputs<'a, P: SchemeParams> {
 }
 
 /// ZK proof: Paillier Affine Operation with Group Commitment in Range.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "
-    Scalar<P>: for<'x> Deserialize<'x>,
-    Point<P>: for<'x> Deserialize<'x>
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct AffGProof<P: SchemeParams> {
     e: Scalar<P>,
     cap_a: CiphertextWire<P::Paillier>,

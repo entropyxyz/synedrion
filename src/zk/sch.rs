@@ -4,7 +4,6 @@
 //! where $g$ is the EC generator.
 
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{Point, Scalar},
@@ -31,8 +30,8 @@ impl<P: SchemeParams> SchSecret<P> {
 }
 
 /// Public data for the proof (~ verifying key)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct SchCommitment<P: SchemeParams>(Point<P>);
 
 impl<P: SchemeParams> SchCommitment<P> {
@@ -41,8 +40,8 @@ impl<P: SchemeParams> SchCommitment<P> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 struct SchChallenge<P: SchemeParams>(Scalar<P>);
 
 impl<P: SchemeParams> SchChallenge<P> {
@@ -57,8 +56,8 @@ impl<P: SchemeParams> SchChallenge<P> {
 }
 
 /// ZK proof: Schnorr proof of knowledge.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> SchChallenge<P>: Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct SchProof<P: SchemeParams> {
     challenge: SchChallenge<P>,
     proof: Scalar<P>,

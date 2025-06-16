@@ -3,7 +3,6 @@ use core::ops::{Add, Mul};
 
 use manul::session::LocalError;
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{Point, Scalar},
@@ -11,8 +10,8 @@ use crate::{
     tools::Secret,
 };
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(bound(deserialize = "for<'x> Scalar<P>: Deserialize<'x>"))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub struct ShareId<P: SchemeParams>(Scalar<P>);
 
 impl<P> ShareId<P>
@@ -87,8 +86,8 @@ where
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'x> Point<P>: Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct PublicPolynomial<P: SchemeParams>(Vec<Point<P>>);
 
 impl<P> PublicPolynomial<P>

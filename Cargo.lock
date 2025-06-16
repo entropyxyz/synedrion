@@ -450,9 +450,9 @@ dependencies = [
 
 [[package]]
 name = "derive-where"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e73f2692d4bd3cac41dca28934a39894200c9fabf49586d77d0e5954af1d7902"
+checksum = "510c292c8cf384b1a340b816a9a6cf2599eb8f566a44949024af88418000c50b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -766,9 +766,8 @@ checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "manul"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e547eb94f2f4c2a62a916a9ca9aa4a9fef5b7a19a001c31f291859bad96348a7"
+version = "0.3.0-dev"
+source = "git+https://github.com/entropyxyz/manul.git?rev=d23fcb8cc9e88729a55006874c464d918197a965#d23fcb8cc9e88729a55006874c464d918197a965"
 dependencies = [
  "derive-where",
  "digest",
@@ -1326,6 +1325,7 @@ dependencies = [
  "criterion",
  "crypto-bigint 0.6.1",
  "crypto-primes",
+ "derive-where",
  "digest",
  "displaydoc",
  "dudect-bencher",
