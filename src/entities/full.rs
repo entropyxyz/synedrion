@@ -8,7 +8,6 @@ use core::fmt::Debug;
 use ecdsa::VerifyingKey;
 use manul::{protocol::PartyId, session::LocalError, utils::SerializableMap};
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{secret_split, Point, Scalar},
@@ -20,8 +19,8 @@ use crate::{
 };
 
 /// The result of the KeyInit protocol.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub struct KeyShare<P, I>
 where
     P: SchemeParams,
@@ -33,22 +32,13 @@ where
     public: PublicKeyShares<P, I>, // `X_j`
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub struct PublicKeyShares<P: SchemeParams, I: PartyId>(SerializableMap<I, Point<P>>);
 
 /// The result of the AuxGen protocol.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    I: Serialize,
-    SecretAuxInfo<P>: Serialize,
-    PublicAuxInfos<P, I>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    I: for<'x> Deserialize<'x>,
-    SecretAuxInfo<P>: for<'x> Deserialize<'x>,
-    PublicAuxInfos<P, I>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub struct AuxInfo<P, I>
 where
     P: SchemeParams,
@@ -59,20 +49,12 @@ where
     pub(crate) public: PublicAuxInfos<P, I>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    I: Serialize,
-    PublicAuxInfo<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    I: for<'x> Deserialize<'x>,
-    PublicAuxInfo<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub struct PublicAuxInfos<P: SchemeParams, I: PartyId>(pub(crate) SerializableMap<I, PublicAuxInfo<P>>);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "SecretKeyPaillierWire<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "SecretKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct SecretAuxInfo<P>
 where
     P: SchemeParams,
@@ -80,9 +62,8 @@ where
     pub(crate) paillier_sk: SecretKeyPaillierWire<P::Paillier>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicKeyPaillierWire<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "PublicKeyPaillierWire<P::Paillier>: for <'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct PublicAuxInfo<P>
 where
     P: SchemeParams,
@@ -120,8 +101,8 @@ where
 }
 
 /// The result of the Auxiliary Info & Key Refresh protocol - the update to the key share.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "I: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub struct KeyShareChange<P, I>
 where
     P: SchemeParams,

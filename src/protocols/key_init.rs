@@ -371,8 +371,8 @@ struct Round2EchoBroadcast {
     rho: BitVec,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams> {
     cap_x: Point<P>,
     cap_a: SchCommitment<P>,
@@ -490,8 +490,8 @@ pub(super) struct Round3<P: SchemeParams, Id> {
     pub(super) rho_combined: BitVec,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "SchProof<P>: for<'x> Deserialize<'x>"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round3NormalBroadcast<P: SchemeParams> {
     pub(super) psi: SchProof<P>,
 }

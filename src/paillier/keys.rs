@@ -8,7 +8,6 @@ use crypto_bigint::{
 };
 use digest::XofReader;
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use super::{
     params::PaillierParams,
@@ -19,9 +18,8 @@ use crate::{
     uint::{Extendable, MulWide, PublicSigned, SecretSigned, SecretUnsigned, ToMontgomery},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "SecretPrimesWire<P>: Serialize"))]
-#[serde(bound(deserialize = "for<'x> SecretPrimesWire<P>: Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct SecretKeyPaillierWire<P: PaillierParams> {
     primes: SecretPrimesWire<P>,
 }
@@ -297,9 +295,8 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(serialize = "PublicModulusWire<P>: Serialize"))]
-#[serde(bound(deserialize = "for<'x> PublicModulusWire<P>: Deserialize<'x>"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct PublicKeyPaillierWire<P: PaillierParams> {
     modulus: PublicModulusWire<P>,
 }

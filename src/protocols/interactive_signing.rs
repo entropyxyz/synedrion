@@ -1093,9 +1093,8 @@ where
     r1_echo_broadcast: Round1EchoBroadcast<P>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "CiphertextWire<P::Paillier>: Serialize"))]
-#[serde(bound(deserialize = "CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round1EchoBroadcast<P: SchemeParams> {
     pub(super) cap_k: CiphertextWire<P::Paillier>,
     pub(super) cap_g: CiphertextWire<P::Paillier>,
@@ -1106,9 +1105,8 @@ pub(super) struct Round1EchoBroadcast<P: SchemeParams> {
     pub(super) cap_b2: Point<P>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "EncElgProof<P>: Serialize"))]
-#[serde(bound(deserialize = "EncElgProof<P>: for<'x> Deserialize<'x>"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 struct Round1DirectMessage<P: SchemeParams> {
     psi0: EncElgProof<P>,
     psi1: EncElgProof<P>,
@@ -1469,15 +1467,8 @@ pub(super) struct Round2<P: SchemeParams, Id: PartyId> {
     hat_psis: BTreeMap<Id, AffGProof<P>>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    ElogProof<P>: Serialize,
-    AffGProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    ElogProof<P>: for<'x> Deserialize<'x>,
-    AffGProof<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) cap_ds: SerializableMap<Id, CiphertextWire<P::Paillier>>,
     pub(super) hat_cap_ds: SerializableMap<Id, CiphertextWire<P::Paillier>>,
@@ -1486,13 +1477,8 @@ pub(super) struct Round2NormalBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psis: SerializableMap<Id, AffGProof<P>>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    CiphertextWire<P::Paillier>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    CiphertextWire<P::Paillier>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round2EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) cap_gamma: Point<P>,
     pub(super) cap_fs: SerializableMap<Id, CiphertextWire<P::Paillier>>,
@@ -1835,15 +1821,14 @@ pub(super) struct Round3<P: SchemeParams, Id: PartyId> {
     pub(super) hat_ss: BTreeMap<Id, Randomizer<P::Paillier>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>,"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round3EchoBroadcast<P: SchemeParams> {
     pub(super) delta: Scalar<P>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "ElogProof<P>: Serialize"))]
-#[serde(bound(deserialize = "ElogProof<P>: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round3NormalBroadcast<P: SchemeParams> {
     pub(super) cap_delta: Point<P>,
     psi_prime: ElogProof<P>,
@@ -2012,8 +1997,8 @@ struct Round4<P: SchemeParams, Id: PartyId> {
     sigma: Scalar<P>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Scalar<P>: for<'x> Deserialize<'x>,"))]
+#[derive(Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round4NormalBroadcast<P: SchemeParams> {
     pub(crate) sigma: Scalar<P>,
 }
@@ -2108,15 +2093,8 @@ pub(super) struct Round5<P: SchemeParams, Id: PartyId> {
     pub(super) cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $F_{i,j}$ for $j != i$
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    DecProof<P>: Serialize,
-    AffGStarProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    DecProof<P>: for<'x> Deserialize<'x>,
-    AffGStarProof<P>: for<'x> Deserialize<'x>,
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round5EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) psi_star: DecProof<P>,
     pub(super) psis: SerializableMap<Id, AffGStarProof<P>>,
@@ -2333,16 +2311,8 @@ pub(super) struct Round6<P: SchemeParams, Id: PartyId> {
     pub(super) hat_cap_fs: BTreeMap<(Id, Id), Ciphertext<P::Paillier>>, // $\hat{F}_{i,j}$ for $j != i$
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    DecProof<P>: Serialize,
-    AffGStarProof<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "
-    Id: for<'x> Deserialize<'x>,
-    DecProof<P>: for<'x> Deserialize<'x>,
-    AffGStarProof<P>: for<'x> Deserialize<'x>
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(super) struct Round6EchoBroadcast<P: SchemeParams, Id: PartyId> {
     pub(super) hat_psi_star: DecProof<P>,
     pub(super) hat_psis: SerializableMap<Id, AffGStarProof<P>>,

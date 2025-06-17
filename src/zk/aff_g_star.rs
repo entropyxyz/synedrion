@@ -56,8 +56,8 @@ struct AffGStarProofEphemeral<P: SchemeParams> {
     s: Randomizer<P::Paillier>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "Point<P>: for<'x> Deserialize<'x>,"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 struct AffGStarProofCommitment<P: SchemeParams> {
     cap_a: CiphertextWire<P::Paillier>,
     cap_r: Point<P>,
@@ -72,12 +72,8 @@ struct AffGStarProofElement<P: SchemeParams> {
     lambda: MaskedRandomizer<P::Paillier>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "
-    AffGStarProofCommitment<P>: Serialize,
-    AffGStarProofElement<P>: Serialize,
-"))]
-#[serde(bound(deserialize = "AffGStarProofCommitment<P>: for<'x> Deserialize<'x>,"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct AffGStarProof<P: SchemeParams> {
     e: BitVec,
     commitments: Box<[AffGStarProofCommitment<P>]>,

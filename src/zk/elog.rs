@@ -1,7 +1,6 @@
 //! Dlog with El-Gamal Commitment ($\Pi^{elog}$, Section A.1, Fig. 23)
 
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{Point, Scalar},
@@ -34,11 +33,8 @@ pub(crate) struct ElogPublicInputs<'a, P: SchemeParams> {
 }
 
 /// ZK proof: Paillier decryption modulo $q$.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "
-    Scalar<P>: for<'x> Deserialize<'x>,
-    Point<P>: for<'x> Deserialize<'x>
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct ElogProof<P: SchemeParams> {
     e: Scalar<P>,
     cap_a: Point<P>,

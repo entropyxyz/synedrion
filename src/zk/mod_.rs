@@ -65,11 +65,8 @@ Secret inputs:
 Public inputs:
 - Paillier public key $N = p q$,
 */
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(serialize = "ModCommitment<P>: Serialize,
-    ModChallenge<P>: Serialize"))]
-#[serde(bound(deserialize = "ModCommitment<P>: for<'x> Deserialize<'x>,
-    ModChallenge<P>: for<'x> Deserialize<'x>"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct ModProof<P: SchemeParams> {
     commitment: ModCommitment<P>,
     challenge: ModChallenge<P>,

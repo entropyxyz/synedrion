@@ -1,7 +1,6 @@
 //! Range Proof w/ EL-Gamal Commitment ($\Pi^{enc-elg}$, Section A.2, Fig. 24)
 
 use rand_core::CryptoRngCore;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{Point, Scalar},
@@ -43,11 +42,8 @@ pub struct EncElgPublicInputs<'a, P: SchemeParams> {
 }
 
 /// ZK proof: Paillier encryption in range.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound(deserialize = "
-    Scalar<P>: for<'x> Deserialize<'x>,
-    Point<P>: for<'x> Deserialize<'x>
-"))]
+#[derive(Debug, Clone)]
+#[derive_where::derive_where(Serialize, Deserialize)]
 pub(crate) struct EncElgProof<P: SchemeParams> {
     e: Scalar<P>,
     cap_s: RPCommitmentWire<P::Paillier>,
