@@ -11,7 +11,6 @@ readme = "README.md"
 categories = ["cryptography", "no-std"]
 
 [dependencies]
-#manul = "0.2"
 manul = { git = "https://github.com/entropyxyz/manul.git", rev = "d23fcb8cc9e88729a55006874c464d918197a965" }
 signature = { version = "2", default-features = false }
 rand_core = { version = "0.6.4", default-features = false }
@@ -45,7 +44,6 @@ sha3 = { version = "0.10", optional = true, default-features = false }
 dudect-bencher = { version = "0.6", optional = true }
 
 [dev-dependencies]
-#manul = { version = "0.2", features = ["dev"] }
 manul = { git = "https://github.com/entropyxyz/manul.git", rev = "d23fcb8cc9e88729a55006874c464d918197a965", features = ["dev"] }
 serde_assert = "0.8"
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }

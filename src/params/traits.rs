@@ -14,7 +14,6 @@ use elliptic_curve::{
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
     Curve, CurveArithmetic, PrimeCurve, PrimeField,
 };
-use serde::Serialize;
 use zeroize::Zeroize;
 
 use crate::{
@@ -25,7 +24,7 @@ use crate::{
 };
 
 /// Signing scheme parameters.
-pub trait SchemeParams: 'static + Debug + Clone + Send + PartialEq + Eq + Send + Sync + Ord + Copy + Serialize
+pub trait SchemeParams: 'static + Debug + Clone + Send + PartialEq + Eq + Send + Sync + Ord + Copy
 where
     <Self::Curve as CurveArithmetic>::ProjectivePoint: FromEncodedPoint<Self::Curve>,
     <Self::Curve as Curve>::FieldBytesSize: ModulusSize,
