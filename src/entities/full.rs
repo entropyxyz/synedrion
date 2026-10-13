@@ -191,21 +191,20 @@ where
         }
 
         let secret = self.secret + change.secret_share_change;
-        let public_shares = self
-            .public
-            .0
-            .iter()
-            .map(|(id, public_share)| {
-                Ok((
-                    id.clone(),
-                    *public_share
-                        + *change
-                            .public_share_changes
-                            .get(id)
-                            .ok_or_else(|| LocalError::new("id={id:?} is missing in public_share_changes"))?,
-                ))
-            })
-            .collect::<Result<BTreeMap<_, _>, LocalError>>()?;
+        let public_shares =
+            self.public
+                .0
+                .iter()
+                .map(|(id, public_share)| {
+                    Ok((
+                        id.clone(),
+                        *public_share
+                            + *change.public_share_changes.get(id).ok_or_else(|| {
+                                LocalError::new(format!("id={id:?} is missing in public_share_changes"))
+                            })?,
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>, LocalError>>()?;
 
         Ok(Self {
             owner: self.owner,
@@ -376,13 +375,18 @@ where
 
 #[cfg(test)]
 mod tests {
-    use alloc::collections::BTreeSet;
+    use alloc::collections::{BTreeMap, BTreeSet};
 
     use ecdsa::{SigningKey, VerifyingKey};
     use rand_core::OsRng;
 
-    use super::KeyShare;
-    use crate::{SchemeParams, dev::TestParams};
+    use super::{KeyShare, KeyShareChange};
+    use crate::{
+        SchemeParams,
+        curve::{Point, Scalar},
+        dev::TestParams,
+        tools::Secret,
+    };
 
     #[test]
     fn key_share_centralized() {
@@ -402,5 +406,33 @@ mod tests {
                 .values()
                 .all(|share| &share.verifying_key() == sk.verifying_key())
         );
+    }
+
+    #[test]
+    fn update_error_names_missing_id() {
+        let ids = (0..3)
+            .map(|_| *SigningKey::random(&mut OsRng).verifying_key())
+            .collect::<BTreeSet<_>>();
+        let shares = KeyShare::<TestParams, VerifyingKey<<TestParams as SchemeParams>::Curve>>::new_centralized(
+            &mut OsRng, &ids, None,
+        );
+        let (owner, share) = shares.into_iter().next().unwrap();
+
+        // Same number of entries, but the owner's id is replaced with an unknown one,
+        // so the length check passes and the lookup fails.
+        let stranger = *SigningKey::random(&mut OsRng).verifying_key();
+        let public_share_changes = ids
+            .iter()
+            .map(|id| (if *id == owner { stranger } else { *id }, Point::generator()))
+            .collect::<BTreeMap<_, _>>();
+
+        let change = KeyShareChange {
+            owner,
+            secret_share_change: Secret::init_with(|| Scalar::random(&mut OsRng)),
+            public_share_changes: public_share_changes.into(),
+        };
+
+        let err = share.update(change).unwrap_err();
+        assert!(!format!("{err:?}").contains("{id:?}"));
     }
 }
