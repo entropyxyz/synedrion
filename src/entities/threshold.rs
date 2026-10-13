@@ -88,7 +88,7 @@ where
             .map(|(id, share_id)| {
                 let secret_share = secret_shares
                     .get(share_id)
-                    .ok_or_else(|| LocalError::new("share_id={share_id:?} is missing in the secret shares"))?;
+                    .ok_or_else(|| LocalError::new(format!("share_id={share_id:?} is missing in the secret shares")))?;
                 Ok((id.clone(), secret_share.mul_by_generator()))
             })
             .collect::<Result<BTreeMap<_, _>, LocalError>>()?;
@@ -97,10 +97,10 @@ where
             .map(|id| {
                 let share_id = share_ids
                     .get(id)
-                    .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
+                    .ok_or_else(|| LocalError::new(format!("id={id:?} is missing in the share_ids")))?;
                 let secret_share = secret_shares
                     .get(share_id)
-                    .ok_or_else(|| LocalError::new("share_id={share_id:?} is missing in the secret shares"))?
+                    .ok_or_else(|| LocalError::new(format!("share_id={share_id:?} is missing in the secret shares")))?
                     .clone();
                 Ok((
                     id.clone(),
@@ -149,7 +149,7 @@ where
         let owner_share_id = self
             .share_ids
             .get(&self.owner)
-            .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
+            .ok_or_else(|| LocalError::new(format!("id={:?} is missing in the share_ids", self.owner)))?;
 
         let share_ids = ids
             .iter()
@@ -157,7 +157,7 @@ where
                 let share_id = self
                     .share_ids
                     .get(id)
-                    .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
+                    .ok_or_else(|| LocalError::new(format!("id={id:?} is missing in the share_ids")))?;
                 Ok((id.clone(), *share_id))
             })
             .collect::<Result<BTreeMap<I, ShareId<P>>, LocalError>>()?;
@@ -169,11 +169,11 @@ where
                 let public_share = self
                     .public_shares
                     .get(id)
-                    .ok_or_else(|| LocalError::new("id={id:?} is missing in the public shares"))?;
+                    .ok_or_else(|| LocalError::new(format!("id={id:?} is missing in the public shares")))?;
                 let this_share_id = self
                     .share_ids
                     .get(id)
-                    .ok_or_else(|| LocalError::new("id={id:?} is missing in the share_ids"))?;
+                    .ok_or_else(|| LocalError::new(format!("id={id:?} is missing in the share_ids")))?;
                 Ok((
                     id.clone(),
                     public_share * interpolation_coeff(share_ids.values(), this_share_id),
